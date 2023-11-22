@@ -82,6 +82,7 @@ add_library(
   "src/monad/execution/code_analysis.hpp"
   "src/monad/execution/create_contract_address.cpp"
   "src/monad/execution/create_contract_address.hpp"
+  "src/monad/execution/difficulty.hpp"
   "src/monad/execution/ethereum/dao.hpp"
   "src/monad/execution/evm.cpp"
   "src/monad/execution/evm.hpp"
