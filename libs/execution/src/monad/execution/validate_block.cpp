@@ -8,6 +8,7 @@
 #include <monad/core/likely.h>
 #include <monad/core/receipt.hpp>
 #include <monad/core/result.hpp>
+#include <monad/execution/base_fee_per_gas.hpp>
 #include <monad/execution/explicit_evmc_revision.hpp>
 
 #include <evmc/evmc.h>
@@ -117,6 +118,15 @@ Result<void> static_validate_header(
 
         if (MONAD_UNLIKELY(header.timestamp <= parent_header.timestamp)) {
             return BlockError::InvalidTimestamp;
+        }
+
+        // EIP-1559
+        if constexpr (rev >= EVMC_LONDON) {
+            if (MONAD_UNLIKELY(
+                    header.base_fee_per_gas.value() !=
+                    base_fee_per_gas(parent_header))) {
+                return BlockError::WrongBaseFee;
+            }
         }
     }
 
@@ -283,7 +293,8 @@ quick_status_code_from_enum<monad::BlockError>::value_mappings()
         {BlockError::InvalidGasUsed, "invalid gas used", {}},
         {BlockError::WrongStateRoot, "wrong state root", {}},
         {BlockError::UnknownParent, "unknown parent", {}},
-        {BlockError::InvalidTimestamp, "invalid timestamp", {}}};
+        {BlockError::InvalidTimestamp, "invalid timestamp", {}},
+        {BlockError::WrongBaseFee, "wrong base fee", {}}};
 
     return v;
 }

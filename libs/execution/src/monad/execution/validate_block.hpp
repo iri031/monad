@@ -40,6 +40,7 @@ enum class BlockError
     WrongStateRoot,
     UnknownParent,
     InvalidTimestamp,
+    WrongBaseFee,
 };
 
 struct Block;
