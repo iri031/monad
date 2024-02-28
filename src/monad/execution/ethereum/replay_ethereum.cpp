@@ -104,12 +104,15 @@ int main(int argc, char *argv[])
     auto const config = on_disk ? std::make_optional(mpt::OnDiskDbConfig{
                                       .append = false,
                                       .compaction = compaction,
+                                      .capture_io_latencies = true,
+                                      .eager_completions = false,
                                       .rd_buffers = 8192,
                                       .wr_buffers = 32,
                                       .uring_entries = 128,
                                       .sq_thread_cpu = sq_thread_cpu,
                                       .dbname_paths = dbname_paths,
-                                      .file_size_db = file_size_db})
+                                      .file_size_db = file_size_db,
+                                      .concurrent_read_io_limit = 1024})
                                 : std::nullopt;
     auto db = [&] -> db::TrieDb {
         if (start_block_number == 0) {
