@@ -225,5 +225,11 @@ int main(int const argc, char const *argv[])
         LOG_INFO("Dump db of block: {}", last_block_number);
         write_to_file(db.to_json(), dump_snapshot, last_block_number);
     }
+
+    // TODO: temp testing code
+    std::ofstream state_trie_ofile("state_trie_stats.txt");
+    std::ofstream storage_trie_ofile("storage_trie_stats.txt");
+    db.generate_report(state_trie_ofile, storage_trie_ofile);
+
     return 0;
 }

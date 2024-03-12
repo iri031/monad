@@ -16,6 +16,7 @@
 #include <list>
 #include <memory>
 #include <optional>
+#include <ostream>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -62,6 +63,8 @@ public:
     void set_block_number(uint64_t);
     bool is_latest() const;
     void load_latest();
+    uint64_t current_block_number() const;
+    void generate_report(std::ostream &state_trie, std::ostream &storage_trie);
 };
 
 MONAD_NAMESPACE_END

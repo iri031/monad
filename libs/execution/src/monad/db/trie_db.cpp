@@ -54,8 +54,10 @@
 #include <deque>
 #include <functional>
 #include <istream>
+#include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <span>
 #include <stdexcept>
 #include <utility>
@@ -118,6 +120,17 @@ namespace
 
         return acct;
     }
+
+    template <typename T>
+    struct vector_pair_cmp
+    {
+        bool operator()(
+            std::pair<T, uint64_t> const &a,
+            std::pair<T, uint64_t> const &b) const
+        {
+            return a.second > b.second;
+        }
+    };
 
     struct ComputeAccountLeaf
     {
@@ -906,6 +919,165 @@ void TrieDb::load_latest()
 {
     MONAD_ASSERT(mode_ == Mode::OnDiskReadOnly);
     db_.load_latest();
+}
+
+void TrieDb::generate_report(
+    std::ostream &state_trie, std::ostream &storage_trie)
+{
+    struct Traverse : public TraverseMachine
+    {
+        TrieDb &db_;
+        Nibbles path_;
+
+        uint64_t total_accounts_;
+        uint64_t total_storage_tries_;
+
+        std::string node_type_path_;
+        uint64_t depth_;
+
+        std::map<std::string, uint64_t> state_trie_node_type_path_;
+        std::map<uint64_t, uint64_t> state_trie_depth_;
+        std::map<uint64_t, uint64_t> storage_trie_depth_;
+
+        std::ostream &state_trie_ofile_;
+        std::ostream &storage_trie_ofile_;
+
+        Traverse(
+            TrieDb &db, std::ostream &state_trie, std::ostream &storage_trie)
+            : db_(db)
+            , path_()
+            , total_accounts_(0)
+            , total_storage_tries_(0)
+            , node_type_path_{}
+            , depth_(1)
+            , state_trie_node_type_path_{}
+            , state_trie_depth_{}
+            , storage_trie_depth_{}
+            , state_trie_ofile_(state_trie)
+            , storage_trie_ofile_(storage_trie)
+        {
+        }
+
+        void write_state_trie_stats()
+        {
+            state_trie_ofile_ << "# Walked " << total_accounts_
+                              << " (EOA + SC) accounts: \n";
+
+            std::vector<std::pair<uint64_t, uint64_t>> sorted_state_trie_depth(
+                state_trie_depth_.begin(), state_trie_depth_.end());
+            std::sort(
+                sorted_state_trie_depth.begin(),
+                sorted_state_trie_depth.end(),
+                vector_pair_cmp<uint64_t>());
+
+            std::vector<std::pair<std::string, uint64_t>>
+                sorted_state_trie_node_type_path(
+                    state_trie_node_type_path_.begin(),
+                    state_trie_node_type_path_.end());
+            std::sort(
+                sorted_state_trie_node_type_path.begin(),
+                sorted_state_trie_node_type_path.end(),
+                vector_pair_cmp<std::string>());
+
+            state_trie_ofile_ << "State Trie - Depths: \n";
+            for (auto const &[depth, cnt] : sorted_state_trie_depth) {
+                state_trie_ofile_
+                    << depth << ": "
+                    << static_cast<long double>(cnt) * 100.0 / total_accounts_
+                    << "% (" << cnt << ")\n";
+            }
+
+            state_trie_ofile_ << "\n";
+
+            state_trie_ofile_ << "State Trie - Path types: \n";
+            for (auto const &[path, cnt] : sorted_state_trie_node_type_path) {
+                state_trie_ofile_
+                    << path << ": "
+                    << static_cast<long double>(cnt) * 100.0 / total_accounts_
+                    << "% (" << cnt << ")\n";
+            }
+
+            state_trie_ofile_.flush();
+        }
+
+        ~Traverse()
+        {
+            write_state_trie_stats();
+        }
+
+        virtual void down(unsigned char const branch, Node const &node) override
+        {
+            if (branch == INVALID_BRANCH) {
+                if (MONAD_LIKELY(node.path_nibble_view().nibble_size() == 0)) {
+                    node_type_path_ = "B";
+                }
+                else {
+                    node_type_path_ = "E";
+                }
+                return;
+            }
+            path_ = concat(NibblesView{path_}, branch, node.path_nibble_view());
+
+            if (path_.nibble_size() == (KECCAK256_SIZE * 2)) {
+                ++total_accounts_;
+                node_type_path_ += 'L';
+                if (MONAD_LIKELY(
+                        state_trie_node_type_path_.find(node_type_path_) !=
+                        state_trie_node_type_path_.end())) {
+                    ++state_trie_node_type_path_[node_type_path_];
+                }
+                else {
+                    state_trie_node_type_path_[node_type_path_] = 1;
+                }
+
+                ++state_trie_depth_[node_type_path_.length()];
+            }
+            else if (path_.nibble_size() < (KECCAK256_SIZE * 2)) { // Still in
+                                                                   // account
+                                                                   // realm
+                if (!node.has_path() && node.number_of_children()) {
+                    node_type_path_ += 'B';
+                }
+                else if (node.has_path() && node.number_of_children()) {
+                    node_type_path_ += 'E';
+                }
+                else {
+                    MONAD_ASSERT(false);
+                }
+            }
+            else if (
+                path_.nibble_size() ==
+                ((KECCAK256_SIZE + KECCAK256_SIZE) * 2)) {
+                ++total_storage_tries_;
+            }
+        }
+
+        virtual void up(unsigned char const branch, Node const &node) override
+        {
+            if (path_.nibble_size() <= (KECCAK256_SIZE * 2)) {
+                node_type_path_ =
+                    node_type_path_.substr(0, node_type_path_.length() - 1);
+            }
+
+            auto const path_view = NibblesView{path_};
+            auto const rem_size = [&] {
+                if (branch == INVALID_BRANCH) {
+                    MONAD_ASSERT(path_view.nibble_size() == 0);
+                    return 0;
+                }
+                int const rem_size = path_view.nibble_size() - 1 -
+                                     node.path_nibble_view().nibble_size();
+                MONAD_ASSERT(rem_size >= 0);
+                MONAD_ASSERT(
+                    path_view.substr(static_cast<unsigned>(rem_size)) ==
+                    concat(branch, node.path_nibble_view()));
+                return rem_size;
+            }();
+            path_ = path_view.substr(0, static_cast<unsigned>(rem_size));
+        }
+    } traverse(*this, state_trie, storage_trie);
+
+    db_.traverse(state_nibbles, traverse, block_number_);
 }
 
 MONAD_NAMESPACE_END
