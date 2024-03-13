@@ -122,13 +122,24 @@ namespace
     }
 
     template <typename T>
-    struct vector_pair_cmp
+    struct vector_pair_cmp_second
     {
         bool operator()(
             std::pair<T, uint64_t> const &a,
             std::pair<T, uint64_t> const &b) const
         {
             return a.second > b.second;
+        }
+    };
+
+    template <typename T>
+    struct vector_pair_cmp_first
+    {
+        bool operator()(
+            std::pair<uint64_t, T> const &a,
+            std::pair<uint64_t, T> const &b) const
+        {
+            return a.first < b.first;
         }
     };
 
@@ -977,7 +988,7 @@ void TrieDb::generate_report(
             std::sort(
                 sorted_state_trie_depth.begin(),
                 sorted_state_trie_depth.end(),
-                vector_pair_cmp<uint64_t>());
+                vector_pair_cmp_first<uint64_t>());
 
             std::vector<std::pair<std::string, uint64_t>>
                 sorted_state_trie_node_type_path(
@@ -986,7 +997,7 @@ void TrieDb::generate_report(
             std::sort(
                 sorted_state_trie_node_type_path.begin(),
                 sorted_state_trie_node_type_path.end(),
-                vector_pair_cmp<std::string>());
+                vector_pair_cmp_second<std::string>());
 
             state_trie_ofile_ << "State Trie - Depths: \n";
             for (auto const &[depth, cnt] : sorted_state_trie_depth) {
@@ -1020,14 +1031,14 @@ void TrieDb::generate_report(
             std::sort(
                 sorted_storage_trie_depth.begin(),
                 sorted_storage_trie_depth.end(),
-                vector_pair_cmp<uint64_t>());
+                vector_pair_cmp_first<uint64_t>());
 
             std::vector<std::pair<uint64_t, uint64_t>> sorted_storage_trie_num(
                 storage_trie_num_.begin(), storage_trie_num_.end());
             std::sort(
                 sorted_storage_trie_num.begin(),
                 sorted_storage_trie_num.end(),
-                vector_pair_cmp<uint64_t>());
+                vector_pair_cmp_first<uint64_t>());
 
             storage_trie_ofile_ << "Storage Trie - Depths: \n";
             for (auto const &[depth, cnt] : sorted_storage_trie_depth) {
