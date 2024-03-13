@@ -933,14 +933,19 @@ void TrieDb::generate_report(
         uint64_t total_storage_tries_;
 
         std::string node_type_path_;
-        uint64_t depth_;
+        uint64_t current_storage_trie_depth_;
+        uint64_t current_storage_trie_max_depth_;
+        uint64_t current_storage_trie_num_;
 
         std::map<std::string, uint64_t> state_trie_node_type_path_;
         std::map<uint64_t, uint64_t> state_trie_depth_;
         std::map<uint64_t, uint64_t> storage_trie_depth_;
+        std::map<uint64_t, uint64_t> storage_trie_num_;
 
         std::ostream &state_trie_ofile_;
         std::ostream &storage_trie_ofile_;
+
+        std::chrono::time_point<std::chrono::steady_clock> start_time_;
 
         Traverse(
             TrieDb &db, std::ostream &state_trie, std::ostream &storage_trie)
@@ -949,13 +954,17 @@ void TrieDb::generate_report(
             , total_accounts_(0)
             , total_storage_tries_(0)
             , node_type_path_{}
-            , depth_(1)
+            , current_storage_trie_depth_(0)
+            , current_storage_trie_max_depth_(1)
+            , current_storage_trie_num_(0)
             , state_trie_node_type_path_{}
             , state_trie_depth_{}
             , storage_trie_depth_{}
+            , storage_trie_num_{}
             , state_trie_ofile_(state_trie)
             , storage_trie_ofile_(storage_trie)
         {
+            start_time_ = std::chrono::steady_clock::now();
         }
 
         void write_state_trie_stats()
@@ -1000,9 +1009,58 @@ void TrieDb::generate_report(
             state_trie_ofile_.flush();
         }
 
+        void write_storage_trie_stats()
+        {
+            storage_trie_ofile_ << "# Walked " << total_storage_tries_
+                                << " Storage Tries: \n";
+
+            std::vector<std::pair<uint64_t, uint64_t>>
+                sorted_storage_trie_depth(
+                    storage_trie_depth_.begin(), storage_trie_depth_.end());
+            std::sort(
+                sorted_storage_trie_depth.begin(),
+                sorted_storage_trie_depth.end(),
+                vector_pair_cmp<uint64_t>());
+
+            std::vector<std::pair<uint64_t, uint64_t>> sorted_storage_trie_num(
+                storage_trie_num_.begin(), storage_trie_num_.end());
+            std::sort(
+                sorted_storage_trie_num.begin(),
+                sorted_storage_trie_num.end(),
+                vector_pair_cmp<uint64_t>());
+
+            storage_trie_ofile_ << "Storage Trie - Depths: \n";
+            for (auto const &[depth, cnt] : sorted_storage_trie_depth) {
+                storage_trie_ofile_ << depth << ": "
+                                    << static_cast<long double>(cnt) * 100.0 /
+                                           total_storage_tries_
+                                    << "% (" << cnt << ")\n";
+            }
+
+            storage_trie_ofile_ << "\n";
+
+            storage_trie_ofile_ << "# Storage Trie - Number of used slots: \n";
+            for (auto const &[num_used, cnt] : sorted_storage_trie_num) {
+                storage_trie_ofile_ << num_used << ": "
+                                    << static_cast<long double>(cnt) * 100.0 /
+                                           total_storage_tries_
+                                    << "% (" << cnt << ")\n";
+            }
+
+            storage_trie_ofile_.flush();
+        }
+
         ~Traverse()
         {
             write_state_trie_stats();
+            write_storage_trie_stats();
+
+            auto const finished_time = std::chrono::steady_clock::now();
+            auto const elapsed =
+                std::chrono::duration_cast<std::chrono::seconds>(
+                    finished_time - start_time_);
+
+            LOG_INFO("Time to traverse the state trie: {}", elapsed);
         }
 
         virtual void down(unsigned char const branch, Node const &node) override
@@ -1048,7 +1106,14 @@ void TrieDb::generate_report(
             else if (
                 path_.nibble_size() ==
                 ((KECCAK256_SIZE + KECCAK256_SIZE) * 2)) {
-                ++total_storage_tries_;
+                ++current_storage_trie_depth_;
+                ++current_storage_trie_num_;
+                current_storage_trie_max_depth_ = std::max(
+                    current_storage_trie_depth_,
+                    current_storage_trie_max_depth_);
+            }
+            else { //  2 * KECCAK <  path_.nibble_size() < 4 * KECCAK
+                ++current_storage_trie_depth_;
             }
         }
 
@@ -1057,6 +1122,24 @@ void TrieDb::generate_report(
             if (path_.nibble_size() <= (KECCAK256_SIZE * 2)) {
                 node_type_path_ =
                     node_type_path_.substr(0, node_type_path_.length() - 1);
+                if (path_.nibble_size() ==
+                    (KECCAK256_SIZE *
+                     2)) { // finish walking the current storage trie
+                    if (current_storage_trie_num_ != 0) {
+                        ++storage_trie_depth_[current_storage_trie_max_depth_];
+                        ++storage_trie_num_[current_storage_trie_num_];
+                        current_storage_trie_num_ = 0;
+                        current_storage_trie_depth_ = 0;
+                        current_storage_trie_max_depth_ =
+                            1; // can be either 1 or 0
+
+                        ++total_storage_tries_;
+                    }
+                }
+            }
+            else {
+                MONAD_ASSERT(current_storage_trie_depth_ != 0);
+                --current_storage_trie_depth_;
             }
 
             auto const path_view = NibblesView{path_};
