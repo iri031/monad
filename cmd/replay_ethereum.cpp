@@ -196,8 +196,15 @@ int main(int const argc, char const *argv[])
 
     DbCache db_cache{db};
 
+    std::map<byte_string, Address> address_map;
+
     auto const result = replay_eth.run(
-        db_cache, block_db, priority_pool, start_block_number, nblocks);
+        db_cache,
+        block_db,
+        priority_pool,
+        start_block_number,
+        nblocks,
+        address_map);
 
     if (MONAD_UNLIKELY(result.has_error())) {
         return EXIT_FAILURE;
@@ -229,7 +236,10 @@ int main(int const argc, char const *argv[])
     // TODO: temp testing code
     std::ofstream state_trie_ofile("state_trie_stats.txt");
     std::ofstream storage_trie_ofile("storage_trie_stats.txt");
-    db.generate_report(state_trie_ofile, storage_trie_ofile);
+    std::ofstream one_storage_ofile("one_storage_stats.txt");
+
+    db.generate_report(
+        state_trie_ofile, storage_trie_ofile, one_storage_ofile, address_map);
 
     return 0;
 }
