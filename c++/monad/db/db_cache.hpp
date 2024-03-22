@@ -7,6 +7,7 @@
 #include <monad/core/bytes.hpp>
 #include <monad/db/db.hpp>
 #include <monad/execution/code_analysis.hpp>
+#include <monad/execution/trace.hpp>
 #include <monad/state2/state_deltas.hpp>
 
 #include <evmc/evmc.hpp>
@@ -39,6 +40,7 @@ public:
 
     virtual std::optional<Account> read_account(Address const &address) override
     {
+        TRACE_TXN_EVENT(StartReadAccount);
         {
             Combined::AccountConstAccessor acc{};
             if (cache_.find_account(acc, address)) {
@@ -60,6 +62,7 @@ public:
     virtual bytes32_t
     read_storage(Address const &address, bytes32_t const &key) override
     {
+        TRACE_TXN_EVENT(StartReadStorage);
         {
             Combined::StorageConstAccessor acc{};
             if (cache_.find_storage(acc, address, key)) {
@@ -82,6 +85,8 @@ public:
     virtual std::shared_ptr<CodeAnalysis>
     read_code(bytes32_t const &code_hash) override
     {
+        TRACE_TXN_EVENT(StartReadCode);
+
         {
             CodeCache::ConstAccessor it{};
             if (code_.find(it, code_hash)) {
