@@ -1,5 +1,9 @@
 #include <monad/core/block.hpp>
+#include <monad/core/rlp/address_rlp.hpp>
+#include <monad/core/rlp/block_rlp.hpp>
+#include <monad/core/rlp/transaction_rlp.hpp>
 #include <monad/core/transaction.hpp>
+#include <monad/db/block_db.hpp>
 #include <monad/db/trie_db.hpp>
 #include <monad/execution/evmc_host.hpp>
 #include <monad/execution/execute_transaction.hpp>
@@ -24,9 +28,61 @@ MONAD_RPC_NAMESPACE_BEGIN
     to a big number to guarantee success on txn side if no "from", set from =
     "0x0000...00"
 */
-Result<evmc::Result> eth_call(
+
+evmc_result eth_call(
+    std::vector<uint8_t> const &rlp_encoded_transaction,
+    std::vector<uint8_t> const &rlp_encoded_block_header,
+    std::vector<uint8_t> const &rlp_encoded_sender, uint64_t const block_id,
+    std::string const &trie_db_path, std::string const &block_db_path)
+{
+    byte_string_view encoded_transaction(
+        rlp_encoded_transaction.begin(), rlp_encoded_transaction.end());
+    byte_string_view encoded_block_header(
+        rlp_encoded_block_header.begin(), rlp_encoded_block_header.end());
+    byte_string_view encoded_sender(
+        rlp_encoded_sender.begin(), rlp_encoded_sender.end());
+
+    auto const txn_result = rlp::decode_transaction(encoded_transaction);
+    MONAD_ASSERT(!txn_result.has_error());
+    auto const txn = txn_result.value();
+
+    auto const block_header_result =
+        rlp::decode_block_header(encoded_block_header);
+    MONAD_ASSERT(!block_header_result.has_error());
+    auto const block_header = block_header_result.value();
+
+    auto const sender_result = rlp::decode_address(encoded_sender);
+    MONAD_ASSERT(!sender_result.has_error());
+    auto const sender = sender_result.value();
+
+    BlockHashBuffer buffer{};
+    uint64_t start_block_number = block_id < 256 ? 1 : block_id - 255;
+    BlockDb block_db{block_db_path.c_str()};
+
+    while (start_block_number < block_id) {
+        Block block{};
+        bool const result = block_db.get(start_block_number, block);
+        MONAD_ASSERT(result);
+        buffer.set(start_block_number - 1, block.header.parent_hash);
+        ++start_block_number;
+    }
+
+    // TODO: construct trie_db_path properly
+    auto result = eth_call_helper(
+        txn, block_header, block_id, sender, buffer, {trie_db_path.c_str()});
+    if (MONAD_UNLIKELY(result.has_error())) {
+        // TODO: If validation fails, just return as generic failure for now
+        evmc_result res{};
+        res.status_code = EVMC_FAILURE;
+        return res;
+    }
+
+    return result.value().release_raw();
+}
+
+Result<evmc::Result> eth_call_helper(
     Transaction const &txn, BlockHeader const &header, uint64_t const block_id,
-    Address const sender, BlockHashBuffer const &buffer,
+    Address const &sender, BlockHashBuffer const &buffer,
     std::vector<std::filesystem::path> const &dbname_paths)
 {
     // TODO: Hardset rev to be Shanghai at the moment
