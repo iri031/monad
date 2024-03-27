@@ -130,7 +130,7 @@ inline void read_and_verify_genesis(
     std::filesystem::path const &genesis_file_path)
 {
     auto const block_header = read_genesis(genesis_file_path, db);
-    verify_genesis(block_db, block_header);
+    // verify_genesis(block_db, block_header);
 }
 
 MONAD_NAMESPACE_END

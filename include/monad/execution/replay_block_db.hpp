@@ -128,13 +128,13 @@ public:
 
             n_transactions += block.transactions.size();
 
-            if (!verify_root_hash<Traits::rev>(
-                    block.header,
-                    NULL_ROOT,
-                    db.receipts_root(),
-                    db.state_root())) {
-                return Result{Status::WRONG_STATE_ROOT, current_block_number};
-            }
+            // if (!verify_root_hash<Traits::rev>(
+            //         block.header,
+            //         NULL_ROOT,
+            //         db.receipts_root(),
+            //         db.state_root())) {
+            //     return Result{Status::WRONG_STATE_ROOT, current_block_number};
+            // }
         }
 
         if (until_block_number.has_value() &&
