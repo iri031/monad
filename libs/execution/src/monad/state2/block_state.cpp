@@ -8,6 +8,7 @@
 #include <monad/core/rlp/block_rlp.hpp>
 #include <monad/db/db.hpp>
 #include <monad/execution/code_analysis.hpp>
+#include <monad/execution/trace/event_trace.hpp>
 #include <monad/state2/block_state.hpp>
 #include <monad/state2/fmt/state_deltas_fmt.hpp> // NOLINT
 #include <monad/state2/state_deltas.hpp>
@@ -196,6 +197,7 @@ void BlockState::commit(
     std::vector<Transaction> const &transactions,
     std::optional<std::vector<Withdrawal>> const &withdrawals)
 {
+    TRACE_TXN_EVENT(StartCommit);
     db_.increment_block_number();
     db_.commit(state_, code_, header, receipts, transactions, withdrawals);
 }

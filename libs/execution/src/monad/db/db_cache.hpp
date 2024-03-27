@@ -7,7 +7,7 @@
 #include <monad/core/bytes_hash_compare.hpp>
 #include <monad/db/db.hpp>
 #include <monad/execution/code_analysis.hpp>
-#include <monad/execution/trace.hpp>
+#include <monad/execution/trace/event_trace.hpp>
 #include <monad/lru/lru_cache.hpp>
 #include <monad/state2/state_deltas.hpp>
 
