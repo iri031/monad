@@ -134,8 +134,17 @@ Result<std::vector<Receipt>> execute_block(
     std::vector<Receipt> receipts;
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         MONAD_ASSERT(results[i].has_value());
-        BOOST_OUTCOME_TRY(Receipt receipt, std::move(results[i].value()));
-        receipts.push_back(std::move(receipt));
+        if (MONAD_LIKELY(results[i].value().has_value())) {
+            receipts.emplace_back(results[i].value().value());
+        }
+        else { // Use UINT64_T MAX to indicate validation error
+            receipts.emplace_back(
+                Receipt{.status = std::numeric_limits<uint64_t>::max()});
+            LOG_ERROR(
+                "Error in validatating transaction {}, with error = {}",
+                i,
+                results[i].value().assume_error().message());
+        }
     }
 
     // YP eq. 22
@@ -145,7 +154,8 @@ Result<std::vector<Receipt>> execute_block(
         receipt.gas_used = cumulative_gas_used;
     }
 
-    // YP eq. 33
+    // TODO: Probably needs to disable these 2 checks for now for devnet? (They
+    // won't pass if any txn fails validation) YP eq. 33
     if (compute_bloom(receipts) != block.header.logs_bloom) {
         return BlockError::WrongLogsBloom;
     }
