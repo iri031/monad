@@ -39,12 +39,18 @@ template <evmc_revision rev>
 Result<void> static_validate_transaction(
     Transaction const &tx, std::optional<uint256_t> const &base_fee_per_gas)
 {
-    // EIP-155
+    // // EIP-155
+    // if (MONAD_LIKELY(tx.sc.chain_id.has_value())) {
+    //     if constexpr (rev < EVMC_SPURIOUS_DRAGON) {
+    //         return TransactionError::TypeNotSupported;
+    //     }
+    //     if (MONAD_UNLIKELY(tx.sc.chain_id.value() != 1)) {
+    //         return TransactionError::WrongChainId;
+    //     }
+    // }
+
     if (MONAD_LIKELY(tx.sc.chain_id.has_value())) {
-        if constexpr (rev < EVMC_SPURIOUS_DRAGON) {
-            return TransactionError::TypeNotSupported;
-        }
-        if (MONAD_UNLIKELY(tx.sc.chain_id.value() != 1)) {
+        if (MONAD_UNLIKELY(tx.sc.chain_id.value() != 1337)) {
             return TransactionError::WrongChainId;
         }
     }

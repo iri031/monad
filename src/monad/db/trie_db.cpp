@@ -23,6 +23,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <quill/Quill.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -947,6 +949,7 @@ void TrieDb::increment_block_number()
 {
     if (is_on_disk_) {
         ++curr_block_id_;
+        LOG_WARNING("increment_block_number: {}", curr_block_id_);
     }
 }
 

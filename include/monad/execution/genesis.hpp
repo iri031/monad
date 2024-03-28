@@ -126,7 +126,7 @@ inline void verify_genesis(TBlockDb &block_db, BlockHeader const &block_header)
 
 template <class TBlockDb, class TStateDb>
 inline void read_and_verify_genesis(
-    TBlockDb &block_db, TStateDb &db,
+    [[maybe_unused]] TBlockDb &block_db, TStateDb &db,
     std::filesystem::path const &genesis_file_path)
 {
     auto const block_header = read_genesis(genesis_file_path, db);

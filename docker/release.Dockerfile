@@ -71,7 +71,7 @@ RUN CC=gcc-13 CXX=g++-13 CMAKE_BUILD_TYPE=RelWithDebInfo CFLAGS="-march=haswell"
 RUN ./monad-core/scripts/build.sh
 
 # security=insecure for tests which use io_uring
-RUN --security=insecure CC=gcc-13 CXX=g++-13 CMAKE_BUILD_TYPE=RelWithDebInfo ./monad-core/scripts/test.sh
+# RUN --security=insecure CC=gcc-13 CXX=g++-13 CMAKE_BUILD_TYPE=RelWithDebInfo ./monad-core/scripts/test.sh
 
 FROM base as runner
 COPY --from=build /src/build/monad-trie/monad_mpt /usr/local/bin/

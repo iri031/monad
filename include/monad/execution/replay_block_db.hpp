@@ -126,6 +126,12 @@ public:
             auto const receipts = execute_block<Traits::rev>(
                 block, db, block_hash_buffer, priority_pool);
 
+            if (receipts.has_error()) {
+                LOG_ERROR(
+                    "Block execution error: {}",
+                    receipts.assume_error().message());
+            }
+
             n_transactions += block.transactions.size();
 
             // if (!verify_root_hash<Traits::rev>(

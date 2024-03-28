@@ -30,7 +30,7 @@
 
 MONAD_NAMESPACE_BEGIN
 
-using eth_start_fork = fork_traits::frontier;
+using eth_start_fork = fork_traits::shanghai;
 
 quill::Logger *tracer = nullptr;
 
