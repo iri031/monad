@@ -22,7 +22,7 @@ struct Compute;
 class NibblesView;
 class Node;
 
-static constexpr size_t size_of_node = 16;
+static constexpr size_t size_of_node = 48;
 
 constexpr size_t calculate_node_size(
     size_t const number_of_children, size_t const total_child_data_size,
@@ -117,6 +117,7 @@ defined differently in each section, and we leave the actual computation to the
 We store node data to its parent's storage to avoid an extra read of child node
 to retrieve child data.
 */
+class LruList;
 
 class Node
 {
@@ -156,9 +157,14 @@ public:
                   &Node::get_deallocate_count>>;
 
 public:
-    /* 16-bit mask for children */
+    Node *prev{nullptr};
+    Node *after{nullptr};
+    LruList *list{nullptr};
+    void *addr_to_reset{nullptr};
+
     uint16_t mask{0};
 
+    /* 16-bit mask for children */
     struct bitpacked_storage_t
     {
         /* does node have a value, value_len is not necessarily positive */
@@ -226,7 +232,7 @@ public:
 
     Node(prevent_public_construction_tag);
     Node(
-        prevent_public_construction_tag, uint16_t mask,
+        prevent_public_construction_tag, LruList *list, uint16_t mask,
         std::optional<byte_string_view> value, size_t data_size,
         NibblesView path);
     Node(Node const &) = delete;
@@ -301,17 +307,32 @@ public:
     //! node size in memory
     unsigned get_mem_size() noexcept;
     uint32_t get_disk_size() noexcept;
+
+    bool is_in_list() const
+    {
+        return prev != nullptr && after != nullptr;
+    }
 };
 
 static_assert(std::is_standard_layout_v<Node>, "required by offsetof");
 static_assert(sizeof(Node) == size_of_node);
-static_assert(sizeof(Node) == 16);
-static_assert(alignof(Node) == 4);
+static_assert(sizeof(Node) == 48);
+static_assert(alignof(Node) == 8);
 
 #ifdef MONAD_MPT_NODE_COUNTER
 inline uint64_t Node::num_nodes = 0;
 inline uint64_t Node::bytes_allocated = 0;
 #endif
+
+constexpr unsigned node_disk_mem_size_diff(unsigned number_of_children)
+{
+    return offsetof(Node, mask) + sizeof(Node *) * number_of_children;
+}
+
+constexpr unsigned node_disk_storage_offset()
+{
+    return offsetof(Node, mask);
+}
 
 // ChildData is for temporarily holding a child's info, including child ptr,
 // file offset and hash data, in the update recursion.
@@ -338,21 +359,25 @@ struct ChildData
 static_assert(sizeof(ChildData) == 64);
 static_assert(alignof(ChildData) == 8);
 
-Node::UniquePtr
-make_node(Node &from, NibblesView path, std::optional<byte_string_view> value);
+Node::UniquePtr make_node(
+    Node &from, NibblesView path, std::optional<byte_string_view> value,
+    bool always_cache = true);
 
 Node::UniquePtr make_node(
-    uint16_t mask, std::span<ChildData>, NibblesView path,
-    std::optional<byte_string_view> value, size_t data_size);
+    LruList *lru_list, uint16_t mask, std::span<ChildData>, NibblesView path,
+    std::optional<byte_string_view> value, size_t data_size,
+    bool always_cache = true);
 
 Node::UniquePtr make_node(
-    uint16_t mask, std::span<ChildData>, NibblesView path,
-    std::optional<byte_string_view> value, byte_string_view data);
+    LruList *lru_list, uint16_t mask, std::span<ChildData>, NibblesView path,
+    std::optional<byte_string_view> value, byte_string_view data,
+    bool always_cache = true);
 
 // create node: either branch/extension, with or without leaf
 Node *create_node_with_children(
-    Compute &, uint16_t mask, std::span<ChildData> children, NibblesView path,
-    std::optional<byte_string_view> value = std::nullopt);
+    LruList *lru_list, Compute &, uint16_t mask, std::span<ChildData> children,
+    NibblesView path, std::optional<byte_string_view> value = std::nullopt,
+    bool always_cache = true);
 
 void serialize_node_to_buffer(
     unsigned char *const write_pos, unsigned bytes_to_write, Node const &,
@@ -365,5 +390,85 @@ deserialize_node_from_buffer(unsigned char const *read_pos, size_t max_bytes);
 //! chunk_offset_t spare bits store the num page to read
 Node *read_node_blocking(
     MONAD_ASYNC_NAMESPACE::storage_pool &, chunk_offset_t node_offset);
+
+class LruList
+{
+    size_t max_size_{1000};
+    size_t size_{0};
+    Node::UniquePtr head_{};
+    Node::UniquePtr tail_{};
+
+    void move_to_front(Node *node)
+    {
+        MONAD_ASSERT(node->is_in_list());
+        unlink(node);
+        push_front(node);
+    }
+
+    void push_front(Node *node)
+    {
+        Node *const head = head_->after;
+        node->prev = head_.get();
+        node->after = head;
+        head->prev = node;
+        head_->after = node;
+        ++size_;
+    }
+
+    void remove(Node *const target)
+    {
+        MONAD_ASSERT(target != head_.get());
+        if (target->addr_to_reset) {
+            memset(target->addr_to_reset, 0, sizeof(Node *));
+        }
+        unlink(target);
+    }
+
+public:
+    LruList(size_t const max_size)
+        : max_size_{max_size}
+        , head_{make_node(nullptr, 0, {}, {}, std::nullopt, {})}
+        , tail_{make_node(nullptr, 0, {}, {}, std::nullopt, {})}
+    {
+        head_->after = tail_.get();
+        tail_->prev = head_.get();
+    }
+
+    ~LruList() {}
+
+    void evict()
+    {
+        MONAD_ASSERT(size_ == max_size_);
+        Node *const target = tail_->prev;
+        remove(target);
+        Node::UniquePtr{target}.reset();
+    }
+
+    // simply unlink
+    void unlink(Node *node)
+    {
+        MONAD_ASSERT(size_ > 0);
+        Node *const prev = node->prev;
+        Node *const next = node->after;
+        prev->after = next;
+        next->prev = prev;
+        node->prev = nullptr;
+        node->after = nullptr;
+        --size_;
+    }
+
+    // call update() everytime we access an in memory node or create a trie node
+    void update(Node *node)
+    {
+        if (node->is_in_list()) {
+            move_to_front(node);
+            return;
+        }
+        if (size_ >= max_size_) {
+            evict();
+        }
+        push_front(node);
+    }
+};
 
 MONAD_MPT_NAMESPACE_END

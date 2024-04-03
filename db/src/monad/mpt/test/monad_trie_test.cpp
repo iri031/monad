@@ -604,6 +604,7 @@ int main(int argc, char *argv[])
                 csv_writer << "\n\"Total storage consumed:\"," << bytes_used
                            << std::endl;
             }
+            root.reset();
         }
 
         if (random_read_benchmark_threads > 0) {

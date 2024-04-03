@@ -334,6 +334,8 @@ public:
     // currently maintain a fixed len history
     static constexpr unsigned version_history_len = 1000;
 
+    std::unique_ptr<LruList> lru_list{};
+
     UpdateAuxImpl(MONAD_ASYNC_NAMESPACE::AsyncIO *io_ = nullptr)
     {
         if (io_) {
@@ -623,7 +625,7 @@ public:
 
 static_assert(
     sizeof(UpdateAuxImpl) ==
-    120 + MONAD_MPT_COLLECT_STATS * sizeof(detail::TrieUpdateCollectedStats));
+    128 + MONAD_MPT_COLLECT_STATS * sizeof(detail::TrieUpdateCollectedStats));
 static_assert(alignof(UpdateAuxImpl) == 8);
 
 template <lockable_or_void LockType = void>

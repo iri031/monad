@@ -95,8 +95,7 @@ namespace monad::test
 
         virtual constexpr bool cache() const override
         {
-            MONAD_ASSERT(depth <= max_depth);
-            return depth < cache_depth;
+            return depth <= cache_depth;
         }
 
         virtual constexpr bool compact() const override
@@ -149,8 +148,9 @@ namespace monad::test
 
         virtual constexpr bool cache() const override
         {
-            MONAD_ASSERT(depth <= max_depth);
-            return depth < cache_depth;
+            // MONAD_ASSERT(depth <= max_depth);
+            // return depth < cache_depth;
+            return true;
         }
 
         virtual constexpr bool compact() const override

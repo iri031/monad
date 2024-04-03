@@ -81,6 +81,7 @@ namespace
                            std::move(buffer_), buffer_off, io_state)
                            .release();
                 parent->set_next(branch_index, node);
+                aux->lru_list->update(node);
             }
             auto const offset = parent->fnext(branch_index);
             auto it = inflights.find(offset);
@@ -104,6 +105,7 @@ void find_recursive(
     NibblesView const key)
 
 {
+    MONAD_ASSERT(aux.is_on_disk());
     if (!root.is_valid()) {
         promise.set_value(
             {NodeCursor{}, find_result::root_node_is_null_failure});
@@ -112,6 +114,7 @@ void find_recursive(
     unsigned prefix_index = 0;
     unsigned node_prefix_index = root.prefix_index;
     Node *node = root.node;
+    aux.lru_list->update(node);
     for (; node_prefix_index < node->path_nibble_index_end;
          ++node_prefix_index, ++prefix_index) {
         if (prefix_index >= key.nibble_size()) {
@@ -141,9 +144,8 @@ void find_recursive(
         auto const next_key =
             key.substr(static_cast<unsigned char>(prefix_index) + 1u);
         auto const child_index = node->to_child_index(branch);
-        if (node->next(child_index) != nullptr) {
-            find_recursive(
-                aux, inflights, promise, *node->next(child_index), next_key);
+        if (auto *const next = node->next(child_index); next != nullptr) {
+            find_recursive(aux, inflights, promise, *next, next_key);
             return;
         }
         if (aux.io->owning_thread_id() != gettid()) {

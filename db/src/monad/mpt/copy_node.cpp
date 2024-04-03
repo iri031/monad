@@ -86,6 +86,7 @@ Node::UniquePtr copy_node(
                         }
                     }
                     return make_node(
+                               aux.lru_list.get(),
                                mask,
                                children,
                                node->path_nibble_view(),
@@ -147,6 +148,7 @@ Node::UniquePtr copy_node(
                         aux, *node_latter_half, true);
                 }
                 return make_node(
+                           aux.lru_list.get(),
                            mask,
                            std::span(children),
                            NibblesView{
@@ -182,6 +184,9 @@ Node::UniquePtr copy_node(
         if (parent) {
             auto const child_index = parent->to_child_index(branch_i);
             parent->next_ptr(child_index).reset(); // deallocate child (= node)
+            if (aux.lru_list) {
+                aux.lru_list->update(new_node);
+            }
             parent->set_next(child_index, new_node);
         }
         else {
