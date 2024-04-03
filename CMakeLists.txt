@@ -176,6 +176,10 @@ add_library(
   "c++/monad/rlp/decode_error.cpp"
   "c++/monad/rlp/decode_error.hpp"
   "c++/monad/rlp/encode2.hpp"
+  # rpc
+  "c++/monad/rpc/config.hpp"
+  "c++/monad/rpc/eth_call.hpp"
+  "c++/monad/rpc/eth_call.cpp"
   # state
   "c++/monad/state2/block_state.cpp"
   "c++/monad/state2/block_state.hpp"
