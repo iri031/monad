@@ -85,13 +85,13 @@ static void ctrl_c_handler(int s)
     exit(0);
 }
 
-void __print_bytes_in_hex(monad::byte_string_view arr)
+void print_bytes_in_hex(std::stringstream &ss, monad::byte_string_view arr)
 {
-    fprintf(stdout, "0x");
+    ss << "0x";
     for (auto const &c : arr) {
-        fprintf(stdout, "%02x", (uint8_t)c);
+        ss << std::hex << std::setw(2) << std::setfill('0') << (int)c;
     }
-    fprintf(stdout, "\n");
+    ss << std::endl;
 }
 
 /*  Commit one batch of updates
@@ -124,7 +124,7 @@ Node::UniquePtr batch_upsert_commit(
         block_id,
         compaction);
     auto ts_after = std::chrono::steady_clock::now();
-    double const tm_ram =
+    double const tm_upsert =
         static_cast<double>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(
                 ts_after - ts_before)
@@ -133,24 +133,24 @@ Node::UniquePtr batch_upsert_commit(
 
     auto block_num = serialize_as_big_endian<BLOCK_NUM_BYTES>(block_id);
     auto [state_it, res] = find_blocking(aux, *new_root, block_num);
-    fprintf(stdout, "root->data : ");
-    __print_bytes_in_hex(state_it.node->data());
+    std::stringstream ss;
+    ss << "root->data: ";
+    print_bytes_in_hex(ss, state_it.node->data());
+    ss << std::dec
+       << "next_key_id: " << (key_offset + vec_idx + nkeys) % MAX_NUM_KEYS
+       << ", nkeys upserted: " << nkeys << " upsert + commit: " << std::fixed
+       << std::setprecision(2) << (double)nkeys / tm_upsert
+       << " /s, total_t: " << std::setprecision(4) << tm_upsert
+       << "s, max creads: " << aux.io->max_reads_in_flight()
+       << " nreads: " << aux.io->nreads();
 
-    fprintf(
-        stdout,
-        "next_key_id: %lu, nkeys upserted: %lu, upsert+commit in RAM: %f "
-        "/s, total_t %.4f s, max creads %u\n=====\n",
-        (key_offset + vec_idx + nkeys) % MAX_NUM_KEYS,
-        nkeys,
-        (double)nkeys / tm_ram,
-        tm_ram,
-        aux.io->max_reads_in_flight());
-    fflush(stdout);
+    LOG_INFO("{}", ss.str());
+
     aux.io->reset_records();
 
     if (csv_writer) {
         csv_writer << (key_offset + vec_idx + nkeys) << ","
-                   << ((double)nkeys / tm_ram) << std::endl;
+                   << ((double)nkeys / tm_upsert) << std::endl;
     }
 
     return new_root;
