@@ -52,7 +52,6 @@ struct transfer_t ontop_fcontext( fcontext_t const to, void * vp, struct transfe
 #if __has_feature(thread_sanitizer)
 #define MONAD_USE_TSAN 1
 #else
-#error Why no tsan
 #endif
 
 #endif
