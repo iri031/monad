@@ -1,3 +1,6 @@
+#include <gtest/gtest.h>
+
+
 #include <monad/fiber/scheduler.h>
 #include <vector>
 
@@ -14,7 +17,7 @@ struct task : monad_fiber_scheduler_task_t
     {
     }
 
-    ~task() {assert(done);}
+    ~task() {EXPECT_TRUE(done);}
 
     bool repeat = false;
     bool done = false;
@@ -34,7 +37,7 @@ struct task : monad_fiber_scheduler_task_t
     }
 };
 
-int main(int argc, char * argv[])
+TEST(scheduler, basics)
 {
   std::vector<task> tasks{2048};
   monad_fiber_scheduler_create(&sched, 2);
@@ -50,5 +53,4 @@ int main(int argc, char * argv[])
 
   monad_fiber_scheduler_stop(&sched);
   monad_fiber_scheduler_destroy(&sched);
-  return 0;
 }

@@ -1,5 +1,7 @@
 enable_testing()
 
-add_executable(fcontext fcontext.c)
-add_test(NAME fcontext COMMAND fcontext)
-target_link_libraries(fcontext PUBLIC monad_fiber_sandbox)
+find_package(GTest REQUIRED)
+
+add_executable(tests fcontext.cpp scheduler.cpp fiber.cpp)
+target_link_libraries(tests PUBLIC monad_fiber_sandbox GTest::gtest_main)
+add_test(NAME tests COMMAND tests)

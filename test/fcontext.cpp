@@ -1,4 +1,5 @@
 
+#include <gtest/gtest.h>
 
 #include <monad/fiber/fcontext.h>
 #include <malloc.h>
@@ -8,14 +9,14 @@ int fiber_state = 0;
 
 void fiber_impl(struct transfer_t t)
 {
-  assert(t.data == &fiber_state);
+  EXPECT_EQ(t.data, &fiber_state);
   fiber_state++;
   t = jump_fcontext(t.fctx, &fiber_state - 1);
-  assert(t.data == &fiber_state);
+  EXPECT_EQ(t.data, &fiber_state);
   fiber_state++;
 }
 
-int main(int argc, char * argv[])
+TEST(fcontext, basics)
 {
   const size_t size = 4096*16;
   void * stack = malloc(size);
@@ -25,15 +26,13 @@ int main(int argc, char * argv[])
 
   struct transfer_t tt = jump_fcontext(f , &fiber_state);
 
-  assert(fiber_state == 1);
-  assert(tt.fctx != NULL);
-  assert(tt.data == &fiber_state - 1);
+  EXPECT_EQ(fiber_state, 1);
+  EXPECT_NE(tt.fctx, nullptr);
+  EXPECT_EQ(tt.data, &fiber_state - 1);
 
   tt = jump_fcontext(f , &fiber_state + 1);
 
-  assert(fiber_state == 1);
-  assert(tt.fctx == NULL);
+  EXPECT_EQ(fiber_state, 1);
+  EXPECT_EQ(tt.fctx, nullptr);
   free(stack);
-
-  return 0;
 }
