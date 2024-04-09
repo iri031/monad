@@ -86,8 +86,7 @@ Node::~Node()
     }
     // remvoe children first and then parent
     if (list && this->is_in_list()) {
-        MONAD_ASSERT(this->addr_to_reset == nullptr);
-        list->unlink(this);
+        list->remove(this);
     };
 #ifdef MONAD_MPT_NODE_COUNTER
     bytes_allocated -= this->get_mem_size();
@@ -426,7 +425,6 @@ Node::UniquePtr make_node(
     Node &from, NibblesView const path,
     std::optional<byte_string_view> const value, bool always_cache)
 {
-    MONAD_ASSERT(from.list);
     auto const value_size =
         value.transform(&byte_string_view::size).value_or(0);
     auto node = Node::make(

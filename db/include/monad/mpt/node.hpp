@@ -415,15 +415,6 @@ class LruList
         ++size_;
     }
 
-    void remove(Node *const target)
-    {
-        MONAD_ASSERT(target != head_.get());
-        if (target->addr_to_reset) {
-            memset(target->addr_to_reset, 0, sizeof(Node *));
-        }
-        unlink(target);
-    }
-
 public:
     LruList(size_t const max_size)
         : max_size_{max_size}
@@ -442,6 +433,15 @@ public:
         Node *const target = tail_->prev;
         remove(target);
         Node::UniquePtr{target}.reset();
+    }
+
+    void remove(Node *const target)
+    {
+        MONAD_ASSERT(target != head_.get());
+        if (target->addr_to_reset) {
+            memset(target->addr_to_reset, 0, sizeof(Node *));
+        }
+        unlink(target);
     }
 
     // simply unlink

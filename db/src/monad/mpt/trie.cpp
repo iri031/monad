@@ -780,7 +780,9 @@ void upsert_(
         async_read(aux, std::move(receiver));
         return;
     }
-    MONAD_ASSERT(old->list);
+    if (!old->list) {
+        old->list = aux.lru_list.get();
+    }
     if (old->is_in_list()) {
         old->list->unlink(old.get());
     }
