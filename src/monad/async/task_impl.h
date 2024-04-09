@@ -4,7 +4,7 @@
 #undef _FORTIFY_SOURCE
 #define _FORTIFY_SOURCE 0
 
-#define MONAD_ASYNC_CONTEXT_PRINTING 1
+// #define MONAD_ASYNC_CONTEXT_PRINTING 1
 
 #include "monad/async/task.h"
 
@@ -143,20 +143,20 @@ static inline void finish_switch_context(void *, const void **, size_t *)
 #endif
 
 #if MONAD_ASYNC_CONTEXT_PRINTING
-#define monad_async_context_set_resumption_point(context)                                                                    \
+#define monad_async_context_set_resumption_point(context, desc)                                                              \
   ({                                                                                                                         \
     int _ret_ = setjmp((context)->buf);                                                                                      \
     if (_ret_ != 0)                                                                                                          \
     {                                                                                                                        \
       finish_switch_context((context)->sanitizer.fake_stack_save, &(context)->sanitizer.bottom, &(context)->sanitizer.size); \
-      printf("*** Execution context %p resumes execution\n", context);                                                       \
+      printf("*** Execution context %p resumes execution " desc "\n", context);                                              \
       assert((int)(uintptr_t)(context) == _ret_);                                                                            \
     }                                                                                                                        \
-    printf("*** Execution context %p sets resumption point\n", context);                                                     \
+    printf("*** Execution context %p sets resumption point " desc "\n", context);                                            \
     _ret_;                                                                                                                   \
   })
 #else
-#define monad_async_context_set_resumption_point(context)                                                                    \
+#define monad_async_context_set_resumption_point(context, desc)                                                              \
   ({                                                                                                                         \
     int _ret_ = setjmp((context)->buf);                                                                                      \
     if (_ret_ != 0)                                                                                                          \
@@ -201,7 +201,7 @@ static inline void finish_switch_context(void *, const void **, size_t *)
     for (;;)
     {
       assert(ret != nullptr);
-      if (monad_async_context_set_resumption_point(context) == 0)
+      if (monad_async_context_set_resumption_point(context, "(base task runner awaiting new work)") == 0)
       {
 #if MONAD_ASYNC_CONTEXT_PRINTING
         printf("*** Execution context %p suspends in base task runner awaiting code to run\n", context);
@@ -248,7 +248,7 @@ static inline void finish_switch_context(void *, const void **, size_t *)
     context->sanitizer.size = stack_size;
     // Launch execution, suspending immediately
     makecontext(&context->uctx, (void (*)(void))context_task_runner, 3, context, task, &ret);
-    if (monad_async_context_set_resumption_point(&ret) == 0)
+    if (monad_async_context_set_resumption_point(&ret, "(monad_async_context_init)") == 0)
     {
       start_switch_context(&ret.sanitizer.fake_stack_save, context->sanitizer.bottom, context->sanitizer.size);
       setcontext(&context->uctx);

@@ -20,6 +20,12 @@
 #endif
 #endif
 
+#if defined __STDC_VERSION__ && __STDC_VERSION__ >= 202000L
+#define MONAD_ASYNC_NODISCARD [[nodiscard]]
+#else
+#define MONAD_ASYNC_NODISCARD __attribute__((warn_unused_result))
+#endif
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -32,9 +38,9 @@ extern "C"
   typedef BOOST_OUTCOME_C_RESULT_SYSTEM(monad_async) monad_async_result;
 
   //! \brief Return a successful `monad_async_result` for a given `intptr_t`
-  extern monad_async_result monad_async_make_success(intptr_t v);
+  MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_make_success(intptr_t v);
   //! \brief Return a failure `monad_async_result` for a given `errno`
-  extern monad_async_result monad_async_make_failure(int ec);
+  MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_make_failure(int ec);
 
   //! \brief A type representing the tick count on the CPU
   typedef uint64_t monad_async_cpu_ticks_count_t;

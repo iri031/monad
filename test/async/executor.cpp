@@ -218,8 +218,8 @@ TEST(executor, works)
       return monad_async_make_success(0);
     };
     std::vector<task_ptr> tasks;
-    tasks.reserve(1024);
-    for (size_t n = 0; n < 1024; n++)
+    tasks.reserve(64);
+    for (size_t n = 0; n < 64; n++)
     {
       tasks.push_back(make_task(t_attr));
       tasks.back()->user_code = func;

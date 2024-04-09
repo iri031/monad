@@ -1,6 +1,6 @@
 #include "task_impl.h" // MUST BE FIRST INCLUDE
 
-#define MONAD_ASYNC_EXECUTOR_PRINTING 1
+// #define MONAD_ASYNC_EXECUTOR_PRINTING 1
 
 #include "monad/async/executor.h"
 
@@ -122,10 +122,10 @@ static inline monad_async_result monad_async_executor_run_impl(struct monad_asyn
   struct timespec no_waiting = {.tv_sec = 0, .tv_nsec = 0};
   if (tasks_pending_launch_count > 0)
   {
-    int n = 0;
+    volatile int n = 0;
     timeout = &no_waiting;
     // Set the return for suspension points
-    const int resuming_from_suspension = monad_async_context_set_resumption_point(&ex->run_context);
+    const int resuming_from_suspension = monad_async_context_set_resumption_point(&ex->run_context, "(pending task launch)");
     (void)resuming_from_suspension;
     for (; n < monad_async_priority_max; n++)
     {
@@ -163,12 +163,27 @@ static inline monad_async_result monad_async_executor_run_impl(struct monad_asyn
     }
     r = io_uring_peek_cqe(&ex->ring, &cqe);
   }
+  else if (timeout->tv_sec == 0 && timeout->tv_nsec == 0)
+  {
+#if MONAD_ASYNC_EXECUTOR_PRINTING
+    printf("*** Executor %p submits and does not wait due to zero timeout\n", ex);
+#endif
+    r = io_uring_submit(&ex->ring);
+    if (r < 0)
+    {
+      return monad_async_make_failure(-r);
+    }
+    r = io_uring_peek_cqe(&ex->ring, &cqe);
+  }
   else
   {
 #if MONAD_ASYNC_EXECUTOR_PRINTING
     printf("*** Executor %p submits and waits for a non-infinite timeout %ld-%ld\n", ex, timeout->tv_sec, timeout->tv_nsec);
 #endif
-    r = io_uring_submit(&ex->ring);
+    if (ex->ring.features & IORING_FEAT_EXT_ARG)
+    {
+      r = io_uring_submit(&ex->ring);
+    }
     if (r < 0)
     {
       return monad_async_make_failure(-r);
@@ -181,6 +196,10 @@ static inline monad_async_result monad_async_executor_run_impl(struct monad_asyn
     {
       timed_out = true;
     }
+    else if (r == -EAGAIN)
+    {
+      // temporary failure, ignore it
+    }
     else
     {
       return monad_async_make_failure(-r);
@@ -191,11 +210,11 @@ static inline monad_async_result monad_async_executor_run_impl(struct monad_asyn
 #endif
   // Always empty the completions queue.
   unsigned head;
-  size_t i = 0;
+  volatile size_t i = 0;
   io_uring_for_each_cqe(&ex->ring, head, cqe)
   {
     i++;
-    struct monad_async_task_impl *task = (struct monad_async_task_impl *)cqe->user_data;
+    struct monad_async_task_impl *task = (struct monad_async_task_impl *)io_uring_cqe_get_data(cqe);
     task->head.ticks_when_suspended_completed = get_ticks_count(memory_order_relaxed);
     if (cqe->res < 0)
     {
@@ -220,8 +239,8 @@ static inline monad_async_result monad_async_executor_run_impl(struct monad_asyn
   if (max_items > 0)
   {
     // Set the return for suspension points.
-    int n = 0;
-    const int resuming_from_suspension = monad_async_context_set_resumption_point(&ex->run_context);
+    volatile int n = 0;
+    const int resuming_from_suspension = monad_async_context_set_resumption_point(&ex->run_context, "(i/o completions)");
     (void)resuming_from_suspension;
     for (; n < monad_async_priority_max; n++)
     {
@@ -241,7 +260,11 @@ static inline monad_async_result monad_async_executor_run_impl(struct monad_asyn
 #endif
   }
   size_t items_processed = tasks_pending_launch_count + i;
-  return (items_processed > 0) ? monad_async_make_success(items_processed) : monad_async_make_failure(ETIME);
+  if (items_processed > 0)
+  {
+    return monad_async_make_success(items_processed);
+  }
+  return timed_out ? monad_async_make_failure(ETIME) : monad_async_make_success(0);
 }
 
 monad_async_result monad_async_executor_run(monad_async_executor ex_, size_t max_items, struct timespec *timeout)
@@ -283,7 +306,7 @@ static monad_async_result monad_async_executor_suspend_impl(struct monad_async_e
   LIST_APPEND(ex->tasks_suspended_awaiting[task->head.priority.cpu], task, &ex->head.tasks_suspended);
   task->head.ticks_when_suspended_awaiting = get_ticks_count(memory_order_relaxed);
   task->head.total_ticks_executed += task->head.ticks_when_suspended_awaiting - task->head.ticks_when_resumed;
-  if (!monad_async_context_set_resumption_point(&task->context))
+  if (!monad_async_context_set_resumption_point(&task->context, "(i/o suspension)"))
   {
 #if MONAD_ASYNC_EXECUTOR_PRINTING
     printf("*** Executor %p suspends task %p\n", ex, task);
