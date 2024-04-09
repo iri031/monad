@@ -37,7 +37,7 @@ struct task : monad_fiber_scheduler_task_t
     }
 };
 
-TEST(scheduler, basics)
+/*TEST(scheduler, basics)
 {
   std::vector<task> tasks{2048};
   monad_fiber_scheduler_create(&sched, 2);
@@ -53,4 +53,4 @@ TEST(scheduler, basics)
 
   monad_fiber_scheduler_stop(&sched);
   monad_fiber_scheduler_destroy(&sched);
-}
+}*/

@@ -1,4 +1,5 @@
 #include <monad/fiber/scheduler.h>
+#include <pthread.h>
 
 static const size_t monad_fiber_scheduler_task_queue_chunk = 256;
 

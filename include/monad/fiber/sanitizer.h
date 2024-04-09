@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>
+
 #if __GNUC__ && !defined(__clang__)
 
 #if defined(__SANITIZE_ADDRESS__)
@@ -18,20 +20,35 @@
 
 #if __has_feature(thread_sanitizer)
 #define MONAD_USE_TSAN 1
-#else
-#error Why no tsan
 #endif
 
 #endif
-
+#if defined(__cplusplus)
+extern "C" {
+#endif
 #if defined(MONAD_USE_ASAN)
 
-#include <sanitizer/asan_interface.h
+extern
+void __sanitizer_start_switch_fiber(void **fake_stack_save,
+                                    const void *bottom, size_t size);
+
+extern
+void __sanitizer_finish_switch_fiber(void *fake_stack_save,
+                                     const void **bottom_old,
+                                     size_t *size_old);
 
 #endif
 
 #if defined(MONAD_USE_TSAN)
 
-#include <sanitizer/tsan_interface.h>
+extern void *__tsan_get_current_fiber(void);
+extern void *__tsan_create_fiber(unsigned flags);
+extern void __tsan_destroy_fiber(void *fiber);
+extern void __tsan_switch_to_fiber(void *fiber, unsigned flags);
+extern void __tsan_set_fiber_name(void *fiber, const char *name);
 
+#endif
+
+#if defined(__cplusplus)
+}
 #endif

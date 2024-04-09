@@ -3,7 +3,7 @@ project(fiber_sandbox)
 
 set(CMAKE_CXX_STANDARD 20)
 
-add_library(monad_fiber_sandbox src/scheduler.c src/fcontext.c src/fiber.c)
+add_library(monad_fiber_sandbox src/scheduler.c src/context.c)
 
 find_package(Boost REQUIRED context)
 

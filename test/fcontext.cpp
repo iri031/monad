@@ -12,8 +12,17 @@ void fiber_impl(struct transfer_t t)
   EXPECT_EQ(t.data, &fiber_state);
   fiber_state++;
   t = jump_fcontext(t.fctx, &fiber_state - 1);
-  EXPECT_EQ(t.data, &fiber_state);
+  EXPECT_EQ(t.data, &fiber_state + 1);
   fiber_state++;
+
+//  jump_fcontext(t.fctx, &fiber_state - 2);
+
+  // unwind the fcontext
+  ontop_fcontext(t.fctx, nullptr,
+                 +[](struct transfer_t t) -> struct transfer_t
+                 {
+                    return {nullptr, nullptr};
+                 });
 }
 
 TEST(fcontext, basics)
@@ -30,9 +39,9 @@ TEST(fcontext, basics)
   EXPECT_NE(tt.fctx, nullptr);
   EXPECT_EQ(tt.data, &fiber_state - 1);
 
-  tt = jump_fcontext(f , &fiber_state + 1);
+  tt = jump_fcontext(tt.fctx , &fiber_state + 1);
 
-  EXPECT_EQ(fiber_state, 1);
+  EXPECT_EQ(fiber_state, 2);
   EXPECT_EQ(tt.fctx, nullptr);
   free(stack);
 }
