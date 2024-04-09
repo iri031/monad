@@ -74,14 +74,20 @@ namespace
             MONAD_ASYNC_NAMESPACE::erased_connected_operation *io_state,
             ResultType buffer_)
         {
-            MONAD_ASSERT(buffer_);
             Node *node = parent->next(branch_index);
             if (node == nullptr) {
                 node = detail::deserialize_node_from_receiver_result(
                            std::move(buffer_), buffer_off, io_state)
                            .release();
                 parent->set_next(branch_index, node);
-                aux->lru_list->update(node);
+                // any non memory child infers not in level based cache, thus
+                // should alaways added to lru cache
+                if (aux->lru_list) {
+                    node->list = aux->lru_list.get();
+                    aux->lru_list->update(node);
+                    node->addr_to_reset =
+                        parent->next_data() + branch_index * sizeof(Node *);
+                }
             }
             auto const offset = parent->fnext(branch_index);
             auto it = inflights.find(offset);
@@ -114,7 +120,9 @@ void find_recursive(
     unsigned prefix_index = 0;
     unsigned node_prefix_index = root.prefix_index;
     Node *node = root.node;
-    aux.lru_list->update(node);
+    if (node->is_in_list()) {
+        node->list->update(node);
+    }
     for (; node_prefix_index < node->path_nibble_index_end;
          ++node_prefix_index, ++prefix_index) {
         if (prefix_index >= key.nibble_size()) {
@@ -181,6 +189,7 @@ void find_notify_fiber_future(
     fiber_find_request_t const req)
 {
     auto g(aux.shared_lock());
+
     find_recursive(aux, inflights, *req.promise, req.start, req.key);
 }
 
