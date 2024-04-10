@@ -9,103 +9,12 @@ pub struct cxx_status_code_system {
     pub domain: *mut ::std::os::raw::c_void,
     pub value: isize,
 }
-#[test]
-fn bindgen_test_layout_cxx_status_code_system() {
-    assert_eq!(
-        ::std::mem::size_of::<cxx_status_code_system>(),
-        16usize,
-        concat!("Size of: ", stringify!(cxx_status_code_system))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<cxx_status_code_system>(),
-        8usize,
-        concat!("Alignment of ", stringify!(cxx_status_code_system))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<cxx_status_code_system>())).domain as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(cxx_status_code_system),
-            "::",
-            stringify!(domain)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<cxx_status_code_system>())).value as *const _ as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(cxx_status_code_system),
-            "::",
-            stringify!(value)
-        )
-    );
-}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cxx_result_status_code_system_monad_async {
     pub value: isize,
     pub flags: ::std::os::raw::c_uint,
     pub error: cxx_status_code_system,
-}
-#[test]
-fn bindgen_test_layout_cxx_result_status_code_system_monad_async() {
-    assert_eq!(
-        ::std::mem::size_of::<cxx_result_status_code_system_monad_async>(),
-        32usize,
-        concat!(
-            "Size of: ",
-            stringify!(cxx_result_status_code_system_monad_async)
-        )
-    );
-    assert_eq!(
-        ::std::mem::align_of::<cxx_result_status_code_system_monad_async>(),
-        8usize,
-        concat!(
-            "Alignment of ",
-            stringify!(cxx_result_status_code_system_monad_async)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<cxx_result_status_code_system_monad_async>())).value as *const _
-                as usize
-        },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(cxx_result_status_code_system_monad_async),
-            "::",
-            stringify!(value)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<cxx_result_status_code_system_monad_async>())).flags as *const _
-                as usize
-        },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(cxx_result_status_code_system_monad_async),
-            "::",
-            stringify!(flags)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<cxx_result_status_code_system_monad_async>())).error as *const _
-                as usize
-        },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(cxx_result_status_code_system_monad_async),
-            "::",
-            stringify!(error)
-        )
-    );
 }
 #[doc = "! \\brief Convenience typedef"]
 pub type monad_async_result = cxx_result_status_code_system_monad_async;
@@ -132,40 +41,122 @@ pub struct timespec {
     pub tv_sec: __time_t,
     pub tv_nsec: __syscall_slong_t,
 }
-#[test]
-fn bindgen_test_layout_timespec() {
-    assert_eq!(
-        ::std::mem::size_of::<timespec>(),
-        16usize,
-        concat!("Size of: ", stringify!(timespec))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<timespec>(),
-        8usize,
-        concat!("Alignment of ", stringify!(timespec))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<timespec>())).tv_sec as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(timespec),
-            "::",
-            stringify!(tv_sec)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<timespec>())).tv_nsec as *const _ as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(timespec),
-            "::",
-            stringify!(tv_nsec)
-        )
-    );
+#[doc = "! \\brief The public attributes of a task"]
+pub type monad_async_task = *mut monad_async_task_head;
+pub type monad_async_context = *mut monad_async_context_head;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct monad_async_context_switcher_head {
+    pub user_ptr: *mut ::std::os::raw::c_void,
+    #[doc = "! The number of contexts existing"]
+    pub contexts: size_t,
+    #[doc = "! \\brief Destroys self"]
+    pub self_destroy: ::std::option::Option<
+        unsafe extern "C" fn(
+            switcher: *mut monad_async_context_switcher_head,
+        ) -> monad_async_result,
+    >,
+    #[doc = "! \\brief Create a switchable context for a task"]
+    pub create: ::std::option::Option<
+        unsafe extern "C" fn(
+            context: *mut monad_async_context,
+            switcher: *mut monad_async_context_switcher_head,
+            task: monad_async_task,
+            attr: *const monad_async_task_attr,
+        ) -> monad_async_result,
+    >,
+    #[doc = "! \\brief Destroys a switchable context"]
+    pub destroy: ::std::option::Option<
+        unsafe extern "C" fn(context: monad_async_context) -> monad_async_result,
+    >,
+    #[doc = "! \\brief If running within a switchable context, suspend it and call"]
+    #[doc = "! resume on the new context via its context switcher"]
+    pub suspend_and_call_resume: ::std::option::Option<
+        unsafe extern "C" fn(
+            current_context: monad_async_context,
+            new_context: monad_async_context,
+        ),
+    >,
+    #[doc = "! \\brief Resume execution of a previously suspended switchable context."]
+    #[doc = "! Some context switchers will return from this function when the resumed"]
+    #[doc = "! task next suspends, others will resume at the suspension point set by"]
+    #[doc = "! `executor_resume_many`."]
+    pub resume: ::std::option::Option<
+        unsafe extern "C" fn(
+            current_context: monad_async_context,
+            new_context: monad_async_context,
+        ),
+    >,
+    #[doc = "! \\brief To avoid having to set a resumption point per task when resuming"]
+    #[doc = "! many tasks from the central loop of the executor, set a single"]
+    #[doc = "! resumption point and call the supplied function every time a task"]
+    #[doc = "! resumed within the supplied function suspends. This can be very"]
+    #[doc = "! considerably more efficient for some types of context switcher."]
+    pub resume_many: ::std::option::Option<
+        unsafe extern "C" fn(
+            switcher: *mut monad_async_context_switcher_head,
+            resumed: ::std::option::Option<
+                unsafe extern "C" fn(
+                    user_ptr: *mut ::std::os::raw::c_void,
+                    fake_current_context: monad_async_context,
+                ) -> monad_async_result,
+            >,
+            user_ptr: *mut ::std::os::raw::c_void,
+        ) -> monad_async_result,
+    >,
 }
+pub type monad_async_context_switcher = *mut monad_async_context_switcher_head;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct monad_async_context_switcher_impl {
+    #[doc = "! \\brief Create a switcher of contexts. The"]
+    #[doc = "! executor creates one of these per executor."]
+    pub create: ::std::option::Option<
+        unsafe extern "C" fn(switcher: *mut monad_async_context_switcher) -> monad_async_result,
+    >,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct monad_async_context_head {
+    pub is_running: bool,
+    pub is_suspended: bool,
+    pub switcher: monad_async_context_switcher,
+    pub sanitizer: monad_async_context_head__bindgen_ty_1,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct monad_async_context_head__bindgen_ty_1 {
+    pub fake_stack_save: *mut ::std::os::raw::c_void,
+    pub bottom: *const ::std::os::raw::c_void,
+    pub size: size_t,
+}
+extern "C" {
+    #[doc = "! \\brief Destroys any context switcher"]
+    pub fn monad_async_context_switcher_destroy(
+        switcher: monad_async_context_switcher,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief Creates a `setjmp`/`longjmp` based context switcher with each task"]
+    #[doc = "! getting its own stack"]
+    pub fn monad_async_context_switcher_sjlj_create(
+        switcher: *mut monad_async_context_switcher,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = " \\brief Creates a none context switcher which can't suspend-resume. Useful"]
+    #[doc = "for threadpool implementation."]
+    #[doc = ""]
+    #[doc = "As this context switcher never suspends and resumes, it is safe to use a single"]
+    #[doc = "instance of this across multiple threads. In fact, the current implementation"]
+    #[doc = "always returns a static instance, and destruction does nothing."]
+    pub fn monad_async_context_switcher_none_create(
+        switcher: *mut monad_async_context_switcher,
+    ) -> monad_async_result;
+}
+#[doc = "! \\brief The public attributes of an executor"]
 pub type monad_async_executor = *mut monad_async_executor_head;
+#[doc = "! \\brief The public attributes of a task"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct monad_async_task_head {
@@ -194,305 +185,56 @@ pub struct monad_async_task_head__bindgen_ty_1 {
     pub cpu: monad_async_priority,
     pub io: monad_async_priority,
 }
-#[test]
-fn bindgen_test_layout_monad_async_task_head__bindgen_ty_1() {
-    assert_eq!(
-        ::std::mem::size_of::<monad_async_task_head__bindgen_ty_1>(),
-        2usize,
-        concat!("Size of: ", stringify!(monad_async_task_head__bindgen_ty_1))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<monad_async_task_head__bindgen_ty_1>(),
-        1usize,
-        concat!(
-            "Alignment of ",
-            stringify!(monad_async_task_head__bindgen_ty_1)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_task_head__bindgen_ty_1>())).cpu as *const _ as usize
-        },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head__bindgen_ty_1),
-            "::",
-            stringify!(cpu)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_task_head__bindgen_ty_1>())).io as *const _ as usize
-        },
-        1usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head__bindgen_ty_1),
-            "::",
-            stringify!(io)
-        )
-    );
-}
-#[test]
-fn bindgen_test_layout_monad_async_task_head() {
-    assert_eq!(
-        ::std::mem::size_of::<monad_async_task_head>(),
-        120usize,
-        concat!("Size of: ", stringify!(monad_async_task_head))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<monad_async_task_head>(),
-        8usize,
-        concat!("Alignment of ", stringify!(monad_async_task_head))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<monad_async_task_head>())).priority as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head),
-            "::",
-            stringify!(priority)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<monad_async_task_head>())).result as *const _ as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head),
-            "::",
-            stringify!(result)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<monad_async_task_head>())).user_code as *const _ as usize },
-        40usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head),
-            "::",
-            stringify!(user_code)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<monad_async_task_head>())).user_ptr as *const _ as usize },
-        48usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head),
-            "::",
-            stringify!(user_ptr)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_task_head>())).is_pending_launch as *const _ as usize
-        },
-        56usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head),
-            "::",
-            stringify!(is_pending_launch)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_task_head>())).is_running as *const _ as usize
-        },
-        57usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head),
-            "::",
-            stringify!(is_running)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_task_head>())).is_suspended_awaiting as *const _
-                as usize
-        },
-        58usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head),
-            "::",
-            stringify!(is_suspended_awaiting)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_task_head>())).is_suspended_completed as *const _
-                as usize
-        },
-        59usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head),
-            "::",
-            stringify!(is_suspended_completed)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_task_head>())).pending_launch_queue_ as *const _
-                as usize
-        },
-        60usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head),
-            "::",
-            stringify!(pending_launch_queue_)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_task_head>())).current_executor as *const _ as usize
-        },
-        64usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head),
-            "::",
-            stringify!(current_executor)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_task_head>())).ticks_when_attached as *const _
-                as usize
-        },
-        72usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head),
-            "::",
-            stringify!(ticks_when_attached)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_task_head>())).ticks_when_detached as *const _
-                as usize
-        },
-        80usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head),
-            "::",
-            stringify!(ticks_when_detached)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_task_head>())).ticks_when_suspended_awaiting
-                as *const _ as usize
-        },
-        88usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head),
-            "::",
-            stringify!(ticks_when_suspended_awaiting)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_task_head>())).ticks_when_suspended_completed
-                as *const _ as usize
-        },
-        96usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head),
-            "::",
-            stringify!(ticks_when_suspended_completed)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_task_head>())).ticks_when_resumed as *const _
-                as usize
-        },
-        104usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head),
-            "::",
-            stringify!(ticks_when_resumed)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_task_head>())).total_ticks_executed as *const _
-                as usize
-        },
-        112usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_head),
-            "::",
-            stringify!(total_ticks_executed)
-        )
-    );
-}
-pub type monad_async_task = *mut monad_async_task_head;
 #[doc = "! \\brief Attributes by which to construct a task"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct monad_async_task_attr {
+    #[doc = "! \\brief 0 chooses platform default stack size"]
     pub stack_size: size_t,
 }
-#[test]
-fn bindgen_test_layout_monad_async_task_attr() {
-    assert_eq!(
-        ::std::mem::size_of::<monad_async_task_attr>(),
-        8usize,
-        concat!("Size of: ", stringify!(monad_async_task_attr))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<monad_async_task_attr>(),
-        8usize,
-        concat!("Alignment of ", stringify!(monad_async_task_attr))
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_task_attr>())).stack_size as *const _ as usize
-        },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_task_attr),
-            "::",
-            stringify!(stack_size)
-        )
-    );
-}
 extern "C" {
-    #[doc = "! \\brief EXPENSIVE Creates a task instance."]
+    #[doc = "! \\brief EXPENSIVE Creates a task instance using the specified context"]
+    #[doc = "! switcher."]
     pub fn monad_async_task_create(
         task: *mut monad_async_task,
+        switcher: monad_async_context_switcher,
         attr: *mut monad_async_task_attr,
     ) -> monad_async_result;
 }
 extern "C" {
-    #[doc = "! \\brief EXPENSIVE Destroys a task instance."]
+    #[doc = "! \\brief EXPENSIVE Destroys a task instance. If the task is currently"]
+    #[doc = "! suspended, it will be cancelled first in which case `EAGAIN` may be returned"]
+    #[doc = "! from this function until cancellation succeeds."]
     pub fn monad_async_task_destroy(task: monad_async_task) -> monad_async_result;
 }
 extern "C" {
-    #[doc = "! \\brief THREADSAFE Attaches a task instance onto a given executor, which means it will launch the next time the executor runs."]
-    #[doc = "! If the task is attached already to a different executor, you MUST call this function from that executor's kernel thread."]
+    #[doc = "! \\brief THREADSAFE Attaches a task instance onto a given executor, which"]
+    #[doc = "! means it will launch the next time the executor runs. If the task is"]
+    #[doc = "! attached already to a different executor, you MUST call this function from"]
+    #[doc = "! that executor's kernel thread. If you optionally choose to reparent the"]
+    #[doc = "! task's context to a new context switcher instance (typical if attaching"]
+    #[doc = "! to an executor on a different kernel thread), it MUST be the same type of"]
+    #[doc = "! context switcher."]
     pub fn monad_async_task_attach(
+        executor: monad_async_executor,
+        task: monad_async_task,
+        opt_reparent_switcher: monad_async_context_switcher,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief If a task is currently suspended on an operation, cancel it. This can"]
+    #[doc = "! take some time for the relevant io_uring operation to also cancel. If the"]
+    #[doc = "! task is yet to launch, don't launch it. If the task isn't currently running,"]
+    #[doc = "! returns `ENOENT`. The suspension point will return `ECANCELED` next time the"]
+    #[doc = "! task resumes."]
+    pub fn monad_async_task_cancel(
         executor: monad_async_executor,
         task: monad_async_task,
     ) -> monad_async_result;
 }
 extern "C" {
-    #[doc = "! \\brief Suspend execution of a task for a given duration, which can be zero (which equates \"yield\")."]
+    #[doc = "! \\brief Suspend execution of a task for a given duration, which can be zero"]
+    #[doc = "! (which equates \"yield\")."]
     pub fn monad_async_task_suspend_for_duration(
         task: monad_async_task,
         ns: u64,
@@ -513,109 +255,6 @@ pub struct io_sqring_offsets {
     pub resv1: __u32,
     pub resv2: __u64,
 }
-#[test]
-fn bindgen_test_layout_io_sqring_offsets() {
-    assert_eq!(
-        ::std::mem::size_of::<io_sqring_offsets>(),
-        40usize,
-        concat!("Size of: ", stringify!(io_sqring_offsets))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<io_sqring_offsets>(),
-        8usize,
-        concat!("Alignment of ", stringify!(io_sqring_offsets))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).head as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_sqring_offsets),
-            "::",
-            stringify!(head)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).tail as *const _ as usize },
-        4usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_sqring_offsets),
-            "::",
-            stringify!(tail)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).ring_mask as *const _ as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_sqring_offsets),
-            "::",
-            stringify!(ring_mask)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).ring_entries as *const _ as usize },
-        12usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_sqring_offsets),
-            "::",
-            stringify!(ring_entries)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).flags as *const _ as usize },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_sqring_offsets),
-            "::",
-            stringify!(flags)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).dropped as *const _ as usize },
-        20usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_sqring_offsets),
-            "::",
-            stringify!(dropped)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).array as *const _ as usize },
-        24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_sqring_offsets),
-            "::",
-            stringify!(array)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).resv1 as *const _ as usize },
-        28usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_sqring_offsets),
-            "::",
-            stringify!(resv1)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_sqring_offsets>())).resv2 as *const _ as usize },
-        32usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_sqring_offsets),
-            "::",
-            stringify!(resv2)
-        )
-    );
-}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct io_cqring_offsets {
@@ -628,109 +267,6 @@ pub struct io_cqring_offsets {
     pub flags: __u32,
     pub resv1: __u32,
     pub resv2: __u64,
-}
-#[test]
-fn bindgen_test_layout_io_cqring_offsets() {
-    assert_eq!(
-        ::std::mem::size_of::<io_cqring_offsets>(),
-        40usize,
-        concat!("Size of: ", stringify!(io_cqring_offsets))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<io_cqring_offsets>(),
-        8usize,
-        concat!("Alignment of ", stringify!(io_cqring_offsets))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).head as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_cqring_offsets),
-            "::",
-            stringify!(head)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).tail as *const _ as usize },
-        4usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_cqring_offsets),
-            "::",
-            stringify!(tail)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).ring_mask as *const _ as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_cqring_offsets),
-            "::",
-            stringify!(ring_mask)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).ring_entries as *const _ as usize },
-        12usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_cqring_offsets),
-            "::",
-            stringify!(ring_entries)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).overflow as *const _ as usize },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_cqring_offsets),
-            "::",
-            stringify!(overflow)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).cqes as *const _ as usize },
-        20usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_cqring_offsets),
-            "::",
-            stringify!(cqes)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).flags as *const _ as usize },
-        24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_cqring_offsets),
-            "::",
-            stringify!(flags)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).resv1 as *const _ as usize },
-        28usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_cqring_offsets),
-            "::",
-            stringify!(resv1)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_cqring_offsets>())).resv2 as *const _ as usize },
-        32usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_cqring_offsets),
-            "::",
-            stringify!(resv2)
-        )
-    );
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -746,119 +282,7 @@ pub struct io_uring_params {
     pub sq_off: io_sqring_offsets,
     pub cq_off: io_cqring_offsets,
 }
-#[test]
-fn bindgen_test_layout_io_uring_params() {
-    assert_eq!(
-        ::std::mem::size_of::<io_uring_params>(),
-        120usize,
-        concat!("Size of: ", stringify!(io_uring_params))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<io_uring_params>(),
-        8usize,
-        concat!("Alignment of ", stringify!(io_uring_params))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).sq_entries as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_uring_params),
-            "::",
-            stringify!(sq_entries)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).cq_entries as *const _ as usize },
-        4usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_uring_params),
-            "::",
-            stringify!(cq_entries)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).flags as *const _ as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_uring_params),
-            "::",
-            stringify!(flags)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).sq_thread_cpu as *const _ as usize },
-        12usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_uring_params),
-            "::",
-            stringify!(sq_thread_cpu)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).sq_thread_idle as *const _ as usize },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_uring_params),
-            "::",
-            stringify!(sq_thread_idle)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).features as *const _ as usize },
-        20usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_uring_params),
-            "::",
-            stringify!(features)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).wq_fd as *const _ as usize },
-        24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_uring_params),
-            "::",
-            stringify!(wq_fd)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).resv as *const _ as usize },
-        28usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_uring_params),
-            "::",
-            stringify!(resv)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).sq_off as *const _ as usize },
-        40usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_uring_params),
-            "::",
-            stringify!(sq_off)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<io_uring_params>())).cq_off as *const _ as usize },
-        80usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(io_uring_params),
-            "::",
-            stringify!(cq_off)
-        )
-    );
-}
+#[doc = "! \\brief The public attributes of an executor"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct monad_async_executor_head {
@@ -866,69 +290,6 @@ pub struct monad_async_executor_head {
     pub tasks_pending_launch: size_t,
     pub tasks_running: size_t,
     pub tasks_suspended: size_t,
-}
-#[test]
-fn bindgen_test_layout_monad_async_executor_head() {
-    assert_eq!(
-        ::std::mem::size_of::<monad_async_executor_head>(),
-        32usize,
-        concat!("Size of: ", stringify!(monad_async_executor_head))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<monad_async_executor_head>(),
-        8usize,
-        concat!("Alignment of ", stringify!(monad_async_executor_head))
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_executor_head>())).current_task as *const _ as usize
-        },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_executor_head),
-            "::",
-            stringify!(current_task)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_executor_head>())).tasks_pending_launch as *const _
-                as usize
-        },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_executor_head),
-            "::",
-            stringify!(tasks_pending_launch)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_executor_head>())).tasks_running as *const _ as usize
-        },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_executor_head),
-            "::",
-            stringify!(tasks_running)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_executor_head>())).tasks_suspended as *const _
-                as usize
-        },
-        24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_executor_head),
-            "::",
-            stringify!(tasks_suspended)
-        )
-    );
 }
 #[doc = "! \\brief Attributes by which to construct an executor"]
 #[repr(C)]
@@ -940,94 +301,18 @@ pub struct monad_async_executor_attr {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct monad_async_executor_attr__bindgen_ty_1 {
+    #[doc = "! \\brief If this is zero, this executor will be incapable of doing"]
+    #[doc = "! i/o! It also no longer initialises io_uring for this executor."]
     pub entries: ::std::os::raw::c_uint,
     pub params: io_uring_params,
 }
-#[test]
-fn bindgen_test_layout_monad_async_executor_attr__bindgen_ty_1() {
-    assert_eq!(
-        ::std::mem::size_of::<monad_async_executor_attr__bindgen_ty_1>(),
-        128usize,
-        concat!(
-            "Size of: ",
-            stringify!(monad_async_executor_attr__bindgen_ty_1)
-        )
-    );
-    assert_eq!(
-        ::std::mem::align_of::<monad_async_executor_attr__bindgen_ty_1>(),
-        8usize,
-        concat!(
-            "Alignment of ",
-            stringify!(monad_async_executor_attr__bindgen_ty_1)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_executor_attr__bindgen_ty_1>())).entries as *const _
-                as usize
-        },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_executor_attr__bindgen_ty_1),
-            "::",
-            stringify!(entries)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_executor_attr__bindgen_ty_1>())).params as *const _
-                as usize
-        },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_executor_attr__bindgen_ty_1),
-            "::",
-            stringify!(params)
-        )
-    );
-}
-#[test]
-fn bindgen_test_layout_monad_async_executor_attr() {
-    assert_eq!(
-        ::std::mem::size_of::<monad_async_executor_attr>(),
-        256usize,
-        concat!("Size of: ", stringify!(monad_async_executor_attr))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<monad_async_executor_attr>(),
-        8usize,
-        concat!("Alignment of ", stringify!(monad_async_executor_attr))
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_executor_attr>())).io_uring_ring as *const _ as usize
-        },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_executor_attr),
-            "::",
-            stringify!(io_uring_ring)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<monad_async_executor_attr>())).io_uring_wr_ring as *const _
-                as usize
-        },
-        128usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(monad_async_executor_attr),
-            "::",
-            stringify!(io_uring_wr_ring)
-        )
-    );
-}
 extern "C" {
-    #[doc = "! \\brief EXPENSIVE Creates an executor instance. You must create it on the kernel thread where it will be used."]
+    #[doc = " \\brief EXPENSIVE Creates an executor instance. You must create it on the"]
+    #[doc = "kernel thread where it will be used."]
+    #[doc = ""]
+    #[doc = "Generally, one also needs to create context switcher instances for each"]
+    #[doc = "executor instance. This is because the context switcher needs to store how"]
+    #[doc = "to resume the executor when a task's execution suspends."]
     pub fn monad_async_executor_create(
         ex: *mut monad_async_executor,
         attr: *mut monad_async_executor_attr,
@@ -1038,11 +323,107 @@ extern "C" {
     pub fn monad_async_executor_destroy(ex: monad_async_executor) -> monad_async_result;
 }
 extern "C" {
-    #[doc = "! \\brief Processes no more than `max_items` work items, returning the number of items processed which will be at least one."]
-    #[doc = "! A null `timeout` means wait forever, and a zero timeout will poll without blocking."]
+    #[doc = "! \\brief Processes no more than `max_items` work items, returning the number"]
+    #[doc = "! of items processed which will be at least one. A null `timeout` means wait"]
+    #[doc = "! forever, and a zero timeout will poll without blocking."]
     pub fn monad_async_executor_run(
         ex: monad_async_executor,
         max_items: size_t,
+        timeout: *mut timespec,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! Used by context switchers to tell an executor that a task has exited"]
+    pub fn monad_async_executor_task_exited(task: monad_async_task);
+}
+#[doc = "! \\brief The public attributes of a work dispatcher"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct monad_async_work_dispatcher_head {
+    pub executors: size_t,
+}
+#[doc = "! \\brief The public attributes of a work dispatcher"]
+pub type monad_async_work_dispatcher = *mut monad_async_work_dispatcher_head;
+#[doc = "! \\brief The public attributes of a work dispatcher"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct monad_async_work_dispatcher_executor_head {
+    pub head: monad_async_executor_head,
+    pub dispatcher: monad_async_work_dispatcher,
+}
+#[doc = "! \\brief The public attributes of a work dispatcher"]
+pub type monad_async_work_dispatcher_executor = *mut monad_async_work_dispatcher_executor_head;
+#[doc = "! \\brief Attributes by which to construct a work dispatcher"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct monad_async_work_dispatcher_attr {}
+#[doc = "! \\brief Attributes by which to construct a work dispatcher"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct monad_async_work_dispatcher_executor_attr {
+    pub executor: monad_async_executor_attr,
+}
+extern "C" {
+    #[doc = "! \\brief EXPENSIVE Creates a work dispatcher instance."]
+    pub fn monad_async_work_dispatcher_create(
+        dp: *mut monad_async_work_dispatcher,
+        attr: *mut monad_async_work_dispatcher_attr,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief EXPENSIVE Destroys a work dispatcher instance."]
+    pub fn monad_async_work_dispatcher_destroy(
+        dp: monad_async_work_dispatcher,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief EXPENSIVE Creates a work dispatcher executor instance."]
+    pub fn monad_async_work_dispatcher_executor_create(
+        ex: *mut monad_async_work_dispatcher_executor,
+        dp: monad_async_work_dispatcher,
+        attr: *mut monad_async_work_dispatcher_executor_attr,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief EXPENSIVE Destroys a work dispatcher executor instance."]
+    pub fn monad_async_work_dispatcher_executor_destroy(
+        ex: monad_async_work_dispatcher_executor,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief Calls `monad_async_executor_run()` for the calling kernel thread,"]
+    #[doc = "! attaching tasks recently submitted to kernel threads in the pool with spare"]
+    #[doc = "! capacity as per the work dispatcher's configured policy. Returns the number"]
+    #[doc = "! of work items executed, or -1 when time to exit."]
+    pub fn monad_async_work_dispatcher_executor_run(
+        ex: monad_async_work_dispatcher_executor,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief THREADSAFE Submits one or more tasks to be executed by the first"]
+    #[doc = "! available executor within the work dispatcher pool. Higher priority tasks"]
+    #[doc = "! are executed before lower priority tasks."]
+    pub fn monad_async_work_dispatcher_submit(
+        dp: monad_async_work_dispatcher,
+        tasks: *mut monad_async_task,
+        count: size_t,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief THREADSAFE Wait until all work has been dispatched or executed."]
+    pub fn monad_async_work_dispatcher_wait(
+        dp: monad_async_work_dispatcher,
+        max_undispatched: size_t,
+        max_unexecuted: size_t,
+        timeout: *mut timespec,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief THREADSAFE Tells `count` executors to quit, with least occupied"]
+    #[doc = "! first."]
+    pub fn monad_async_work_dispatcher_quit(
+        dp: monad_async_work_dispatcher,
+        count: size_t,
         timeout: *mut timespec,
     ) -> monad_async_result;
 }
