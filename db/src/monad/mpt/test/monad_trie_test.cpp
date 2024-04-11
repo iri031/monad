@@ -494,6 +494,7 @@ int main(int argc, char *argv[])
             monad::test::StateMachineWithBlockNo sm{};
             if (!in_memory) {
                 aux.set_io(&io);
+                aux.init_lru_list(1000000);
             }
 
             Node::UniquePtr root{};

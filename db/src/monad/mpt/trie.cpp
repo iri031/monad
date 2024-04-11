@@ -529,6 +529,8 @@ Node *create_node_from_children_if_any(
             orig_mask, static_cast<unsigned>(std::countr_zero(mask)));
         MONAD_DEBUG_ASSERT(children[j].ptr);
         auto const node = Node::UniquePtr{children[j].ptr};
+        node->addr_to_reset = nullptr;
+        children[j].ptr = nullptr; // reset
         /* Note: there's a potential superfluous extension hash recomputation
         when node coaleases upon erases, because we compute node hash when path
         is not yet the final form. There's not yet a good way to avoid this
@@ -565,14 +567,16 @@ Node *create_node_from_children_if_any(
                         child.min_offset_slow >= aux.compact_offset_slow);
                 }
             }
-            // apply cache based on state machine state, always cache node that
-            // is a single child
-            // if (child.ptr && number_of_children > 1 && !child.cache_node) {
-            //     {
-            //         Node::UniquePtr const _{child.ptr};
-            //     }
-            //     child.ptr = nullptr;
-            // }
+            // apply level-based cache based on state, always cache node that is
+            // a single child of its parent
+            if (!aux.lru_list && child.ptr && number_of_children > 1 &&
+                !child.cache_node) {
+                MONAD_ASSERT(!child.ptr->list);
+                {
+                    Node::UniquePtr const _{child.ptr};
+                }
+                child.ptr = nullptr;
+            }
         }
     }
     return create_node_with_children(
@@ -613,8 +617,7 @@ void create_node_compute_data_possibly_async(
         tnode->opt_leaf_data);
     MONAD_DEBUG_ASSERT(entry.branch < 16);
     if (node) {
-        entry.finalize(
-            *node, sm.get_compute(), sm.cache()); // TODO get rid of sm.cache()
+        entry.finalize(*node, sm.get_compute(), sm.cache());
     }
     else {
         parent.mask &=
@@ -780,11 +783,13 @@ void upsert_(
         async_read(aux, std::move(receiver));
         return;
     }
-    if (!old->list) {
-        old->list = aux.lru_list.get();
-    }
-    if (old->is_in_list()) {
-        old->list->unlink(old.get());
+    if (aux.lru_list) {
+        if (!old->list) {
+            old->list = aux.lru_list.get();
+        }
+        if (old->is_in_list()) {
+            old->list->unlink(old.get());
+        }
     }
     MONAD_ASSERT(!old->is_in_list());
     if (old_prefix_index == INVALID_PATH_INDEX) {

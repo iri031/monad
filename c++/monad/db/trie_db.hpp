@@ -56,6 +56,7 @@ public:
     nlohmann::json to_json();
     size_t prefetch_current_root();
     uint64_t current_block_number() const;
+    void init_trie_lru();
 };
 
 MONAD_NAMESPACE_END

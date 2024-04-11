@@ -209,7 +209,6 @@ UpdateAuxImpl::~UpdateAuxImpl()
 #endif
 void UpdateAuxImpl::set_io(AsyncIO *io_)
 {
-    lru_list = std::make_unique<LruList>(1000000);
     io = io_;
     auto const chunk_count = io->chunk_count();
     MONAD_ASSERT(chunk_count >= 3);

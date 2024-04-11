@@ -488,6 +488,12 @@ public:
 
     void unset_io();
 
+    void init_lru_list(unsigned size = 1000000)
+    {
+        MONAD_ASSERT(is_on_disk());
+        lru_list = std::make_unique<LruList>(size);
+    }
+
     Node::UniquePtr do_update(
         Node::UniquePtr prev_root, StateMachine &, UpdateList &&,
         uint64_t version, bool compaction = false,

@@ -162,9 +162,9 @@ public:
     LruList *list{nullptr};
     void *addr_to_reset{nullptr};
 
+    /* 16-bit mask for children */
     uint16_t mask{0};
 
-    /* 16-bit mask for children */
     struct bitpacked_storage_t
     {
         /* does node have a value, value_len is not necessarily positive */
@@ -231,6 +231,7 @@ public:
     }
 
     Node(prevent_public_construction_tag);
+    // or use std::optional<LruList>
     Node(
         prevent_public_construction_tag, LruList *list, uint16_t mask,
         std::optional<byte_string_view> value, size_t data_size,
@@ -310,7 +311,8 @@ public:
 
     bool is_in_list() const
     {
-        return prev != nullptr && after != nullptr;
+        MONAD_DEBUG_ASSERT((prev != nullptr) == (after != nullptr));
+        return prev != nullptr;
     }
 };
 
@@ -416,6 +418,8 @@ class LruList
     }
 
 public:
+    static constexpr uintptr_t INVALID_RESET_ADDR = 0xffffffffffffffff;
+
     LruList(size_t const max_size)
         : max_size_{max_size}
         , head_{make_node(nullptr, 0, {}, {}, std::nullopt, {})}
@@ -439,12 +443,13 @@ public:
     {
         MONAD_ASSERT(target != head_.get());
         if (target->addr_to_reset) {
+            MONAD_DEBUG_ASSERT(
+                (uintptr_t)target->addr_to_reset != INVALID_RESET_ADDR);
             memset(target->addr_to_reset, 0, sizeof(Node *));
         }
         unlink(target);
     }
 
-    // simply unlink
     void unlink(Node *node)
     {
         MONAD_ASSERT(size_ > 0);

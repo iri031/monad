@@ -68,6 +68,11 @@ struct Db::Impl
     virtual bool is_latest() const = 0;
     virtual void load_latest_fiber_blocking() = 0;
     virtual size_t prefetch_fiber_blocking(uint64_t latest_block_id) = 0;
+
+    virtual void init_lru()
+    {
+        MONAD_ASSERT(false);
+    }
 };
 
 struct Db::ROOnDisk final : public Db::Impl
@@ -457,6 +462,11 @@ struct Db::RWOnDisk final : public Db::Impl
         return aux_;
     }
 
+    virtual void init_lru() override
+    {
+        aux_.init_lru_list();
+    }
+
     // threadsafe
     virtual find_result_type find_fiber_blocking(
         NodeCursor const &start, NibblesView const &key) override
@@ -669,6 +679,11 @@ size_t Db::prefetch()
         impl_->prefetch_fiber_blocking(latest_block_id.value());
     impl_->prefetch_running_ = false;
     return nodes_loaded;
+}
+
+void Db::init_lru()
+{
+    impl_->init_lru();
 }
 
 MONAD_MPT_NAMESPACE_END

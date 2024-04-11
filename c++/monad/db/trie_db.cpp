@@ -875,4 +875,9 @@ uint64_t TrieDb::current_block_number() const
     return curr_block_id_;
 }
 
+void TrieDb::init_trie_lru()
+{
+    db_.init_lru();
+}
+
 MONAD_NAMESPACE_END

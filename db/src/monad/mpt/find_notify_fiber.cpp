@@ -111,7 +111,6 @@ void find_recursive(
     NibblesView const key)
 
 {
-    MONAD_ASSERT(aux.is_on_disk());
     if (!root.is_valid()) {
         promise.set_value(
             {NodeCursor{}, find_result::root_node_is_null_failure});

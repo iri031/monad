@@ -459,18 +459,24 @@ Node::UniquePtr make_node(
         std::memset(from.next_data(), 0, next_size);
     }
 
-    for (unsigned index = 0; index < node->number_of_children(); ++index) {
-        auto *const next = node->next(index);
-        if (next && next->is_in_list()) {
-            next->addr_to_reset = node->next_data() + index * sizeof(Node *);
+    if (node->list) {
+        for (unsigned index = 0; index < node->number_of_children(); ++index) {
+            auto *const next = node->next(index);
+            if (next && next->is_in_list()) {
+                next->addr_to_reset =
+                    node->next_data() + index * sizeof(Node *);
+            }
+        }
+
+        if (!always_cache) {
+            node->addr_to_reset = (void *)
+                LruList::INVALID_RESET_ADDR; // invalid offset, trigger
+                                             // assertion when reset this addr
+            node->list->update(node.get());
         }
     }
 
     node->disk_size = node->get_disk_size();
-    if (node->list && !always_cache) {
-        node->list->update(node.get());
-        MONAD_ASSERT(node->is_in_list());
-    }
     return node;
 }
 
@@ -526,7 +532,7 @@ Node::UniquePtr make_node(
             node->set_min_offset_fast(index, child.min_offset_fast);
             node->set_min_offset_slow(index, child.min_offset_slow);
             node->set_next(index, child.ptr);
-            if (lru_list && child.ptr && child.ptr->is_in_list()) {
+            if (child.ptr && child.ptr->is_in_list()) {
                 child.ptr->addr_to_reset =
                     node->next_data() + index * sizeof(Node *);
             }
@@ -538,6 +544,9 @@ Node::UniquePtr make_node(
     node->disk_size = node->get_disk_size();
     if (node->list && !always_cache) {
         node->list->update(node.get());
+        node->addr_to_reset = (void *)
+            LruList::INVALID_RESET_ADDR; // invalid offset, trigger assertion
+                                         // when reset this addr
     }
     return node;
 }

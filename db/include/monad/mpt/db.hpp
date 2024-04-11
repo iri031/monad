@@ -61,6 +61,8 @@ public:
     // Load the tree of nodes in the current DB root as far as the caching
     // policy allows. RW only.
     size_t prefetch();
+
+    void init_lru();
 };
 
 MONAD_MPT_NAMESPACE_END

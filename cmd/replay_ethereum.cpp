@@ -52,6 +52,7 @@ int main(int const argc, char const *argv[])
     unsigned nfibers = 256;
     bool no_compaction = false;
     unsigned sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 1);
+    bool use_lru = false;
     std::vector<std::filesystem::path> dbname_paths;
     std::filesystem::path load_snapshot{};
     std::filesystem::path dump_snapshot{};
@@ -92,6 +93,7 @@ int main(int const argc, char const *argv[])
         "--dump_snapshot",
         dump_snapshot,
         "directory to dump state to at the end of run");
+    cli.add_option("--use_lru", use_lru, "enable triedb node lru cache");
 
     try {
         cli.parse(argc, argv);
@@ -148,6 +150,9 @@ int main(int const argc, char const *argv[])
         std::ifstream code(load_snapshot / "code");
         return TrieDb{config, accounts, code, init_block_number};
     }();
+    if (on_disk && use_lru) {
+        db.init_trie_lru();
+    }
 
     if (load_snapshot.empty()) {
         init_block_number = db.current_block_number();
