@@ -146,6 +146,7 @@ add_library(
   "c++/monad/test/gtest_signal_stacktrace_printer.hpp"
   # util
   "c++/monad/util/stopwatch.hpp")
+
 target_include_directories(monad_core PUBLIC "c++" "c/include")
 monad_core_compile_options(monad_core)
 target_compile_definitions(monad_core PUBLIC "BOOST_STACKTRACE_LINK=1")
@@ -159,7 +160,8 @@ else()
   target_link_libraries(monad_core PUBLIC Boost::stacktrace_addr2line)
 endif()
 target_link_libraries(monad_core PUBLIC openssl_sha3_asm uring Boost::fiber
-                                        TBB::tbb)
+                                        TBB::tbb quill::quill)
+target_compile_options(monad_core PUBLIC -DQUILL_ROOT_LOGGER_ONLY)
 
 add_library(
   monad_core_disas STATIC
