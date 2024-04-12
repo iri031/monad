@@ -27,6 +27,10 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#ifdef MONAD_MPT_NODE_COUNTER
+    #include <quill/Quill.h>
+#endif
+
 MONAD_MPT_NAMESPACE_BEGIN
 
 using namespace MONAD_ASYNC_NAMESPACE;

@@ -128,11 +128,14 @@ public:
                 char str[100];
                 sprintf(
                     str,
-                    "%d blocks to %8ld: %6ld tx %5ld tps",
+                    "%d blocks to %8ld: %6ld tx %5ld tps, num nodes %lu, "
+                    "triedb ram %.2fMB",
                     freq,
                     start_block_number + i,
                     (n_transactions - txns),
-                    tps);
+                    tps,
+                    mpt::Node::num_nodes,
+                    (double)mpt::Node::bytes_allocated / (1024.0 * 1024));
                 LOG_INFO("{}", str);
                 count = freq;
                 txns = n_transactions;
