@@ -469,9 +469,6 @@ Node::UniquePtr make_node(
         }
 
         if (!always_cache) {
-            node->addr_to_reset = (void *)
-                LruList::INVALID_RESET_ADDR; // invalid offset, trigger
-                                             // assertion when reset this addr
             node->list->update(node.get());
         }
     }
@@ -532,7 +529,7 @@ Node::UniquePtr make_node(
             node->set_min_offset_fast(index, child.min_offset_fast);
             node->set_min_offset_slow(index, child.min_offset_slow);
             node->set_next(index, child.ptr);
-            if (child.ptr && child.ptr->is_in_list()) {
+            if (lru_list && child.ptr && child.ptr->is_in_list()) {
                 child.ptr->addr_to_reset =
                     node->next_data() + index * sizeof(Node *);
             }
@@ -544,9 +541,6 @@ Node::UniquePtr make_node(
     node->disk_size = node->get_disk_size();
     if (node->list && !always_cache) {
         node->list->update(node.get());
-        node->addr_to_reset = (void *)
-            LruList::INVALID_RESET_ADDR; // invalid offset, trigger assertion
-                                         // when reset this addr
     }
     return node;
 }
@@ -592,7 +586,6 @@ void serialize_node_to_buffer(
         bytes_to_append);
 }
 
-// TODO: if it's called from find() then need to update lru list
 Node::UniquePtr
 deserialize_node_from_buffer(unsigned char const *read_pos, size_t max_bytes)
 {

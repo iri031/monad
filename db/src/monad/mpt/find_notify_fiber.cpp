@@ -188,7 +188,6 @@ void find_notify_fiber_future(
     fiber_find_request_t const req)
 {
     auto g(aux.shared_lock());
-
     find_recursive(aux, inflights, *req.promise, req.start, req.key);
 }
 

@@ -10,6 +10,8 @@
 #include <monad/mpt/util.hpp>
 #include <monad/rlp/encode.hpp>
 
+#include <monad/util/stopwatch.hpp>
+
 #include <cstdint>
 #include <span>
 
@@ -117,6 +119,7 @@ defined differently in each section, and we leave the actual computation to the
 We store node data to its parent's storage to avoid an extra read of child node
 to retrieve child data.
 */
+
 class LruList;
 
 class Node
@@ -399,6 +402,7 @@ class LruList
     size_t size_{0};
     Node::UniquePtr head_{};
     Node::UniquePtr tail_{};
+    bool do_evict_{true};
 
     void move_to_front(Node *node)
     {
@@ -431,15 +435,34 @@ public:
 
     ~LruList() {}
 
+    void set_evict(bool do_evict)
+    {
+        do_evict_ = do_evict;
+        if (do_evict_ == true) {
+            // auto s = Stopwatch<std::chrono::microseconds>("evict all");
+            // clear out cache
+            while (size_ >= max_size_) {
+                evict();
+            }
+        }
+    }
+
+    void print_stats(char const *prefix)
+    {
+        std::cout << prefix << "triedb lru size " << size_ << std::endl;
+    }
+
     void evict()
     {
-        MONAD_ASSERT(size_ == max_size_);
-        Node *const target = tail_->prev;
-        remove(target);
-        Node::UniquePtr{target}.reset();
+        if (do_evict_ && size_ >= max_size_) {
+            Node *const target = tail_->prev;
+            remove(target);
+            Node::UniquePtr{target}.reset();
+        }
     }
 
     void remove(Node *const target)
+
     {
         MONAD_ASSERT(target != head_.get());
         if (target->addr_to_reset) {

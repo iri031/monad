@@ -481,6 +481,10 @@ Node::UniquePtr UpdateAuxImpl::do_update(
         io->nreads());
     io->reset_records();
 #endif
+    if (lru_list) {
+        // lru_list->print_stats("pre: ");
+        lru_list->set_evict(false);
+    }
 
     set_can_write_to_fast(can_write_to_fast);
     auto g(unique_lock());
@@ -555,6 +559,10 @@ Node::UniquePtr UpdateAuxImpl::do_update(
         io->nreads());
     io->reset_records();
 #endif
+    if (lru_list) {
+        // lru_list->print_stats("post: ");
+        lru_list->set_evict(true);
+    }
     return root;
 }
 

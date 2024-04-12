@@ -529,8 +529,6 @@ Node *create_node_from_children_if_any(
             orig_mask, static_cast<unsigned>(std::countr_zero(mask)));
         MONAD_DEBUG_ASSERT(children[j].ptr);
         auto const node = Node::UniquePtr{children[j].ptr};
-        node->addr_to_reset = nullptr;
-        children[j].ptr = nullptr; // reset
         /* Note: there's a potential superfluous extension hash recomputation
         when node coaleases upon erases, because we compute node hash when path
         is not yet the final form. There's not yet a good way to avoid this
@@ -571,7 +569,7 @@ Node *create_node_from_children_if_any(
             // a single child of its parent
             if (!aux.lru_list && child.ptr && number_of_children > 1 &&
                 !child.cache_node) {
-                MONAD_ASSERT(!child.ptr->list);
+                MONAD_DEBUG_ASSERT(!child.ptr->list);
                 {
                     Node::UniquePtr const _{child.ptr};
                 }
@@ -791,7 +789,7 @@ void upsert_(
             old->list->unlink(old.get());
         }
     }
-    MONAD_ASSERT(!old->is_in_list());
+    MONAD_DEBUG_ASSERT(!old->is_in_list());
     if (old_prefix_index == INVALID_PATH_INDEX) {
         old_prefix_index = old->path_start_nibble();
         MONAD_DEBUG_ASSERT(old_prefix_index != INVALID_PATH_INDEX);
@@ -890,7 +888,7 @@ void dispatch_updates_impl_(
     std::optional<byte_string_view> const opt_leaf_data)
 {
     Node *old = old_ptr.get();
-    MONAD_ASSERT(!old->is_in_list());
+    MONAD_DEBUG_ASSERT(!old->is_in_list());
     uint16_t const orig_mask = old->mask | requests.mask;
     auto const number_of_children =
         static_cast<unsigned>(std::popcount(orig_mask));
@@ -972,7 +970,7 @@ void dispatch_updates_flat_list_(
     ChildData &entry, Node::UniquePtr old, Requests &requests,
     NibblesView const path, unsigned prefix_index)
 {
-    MONAD_ASSERT(!old->is_in_list());
+    MONAD_DEBUG_ASSERT(!old->is_in_list());
     auto &opt_leaf = requests.opt_leaf;
     auto opt_leaf_data = old->opt_value();
     if (opt_leaf.has_value()) {
@@ -1023,7 +1021,7 @@ void mismatch_handler_(
     unsigned const prefix_index)
 {
     Node &old = *old_ptr;
-    MONAD_ASSERT(!old.is_in_list());
+    MONAD_DEBUG_ASSERT(!old.is_in_list());
     MONAD_DEBUG_ASSERT(old.has_path());
     // Note: no leaf can be created at an existing non-leaf node
     MONAD_DEBUG_ASSERT(!requests.opt_leaf.has_value());
