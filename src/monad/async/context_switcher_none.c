@@ -14,8 +14,6 @@ monad_async_context_none_create(
     monad_async_task task, const struct monad_async_task_attr *attr);
 MONAD_ASYNC_NODISCARD static inline monad_async_result
 monad_async_context_none_destroy(monad_async_context context);
-static inline void monad_async_context_none_launch_new_work(
-    monad_async_context context, monad_async_task task);
 static inline void monad_async_context_none_suspend_and_call_resume(
     monad_async_context current_context, monad_async_context new_context);
 static inline void monad_async_context_none_resume(
@@ -28,7 +26,7 @@ monad_async_context_none_resume_many(
     void *user_ptr);
 
 static inline monad_async_result
-monad_async_context_switcher_none_destroy(monad_async_context_switcher switcher)
+monad_async_context_switcher_none_destroy(monad_async_context_switcher)
 {
     return monad_async_make_success(0);
 }
@@ -65,7 +63,7 @@ monad_async_context_switcher_none_create(monad_async_context_switcher *switcher)
 
 static monad_async_result monad_async_context_none_create(
     monad_async_context *context, monad_async_context_switcher switcher_,
-    monad_async_task task, const struct monad_async_task_attr *attr)
+    monad_async_task task, const struct monad_async_task_attr *)
 {
     struct monad_async_context_none *p =
         (struct monad_async_context_none *)calloc(

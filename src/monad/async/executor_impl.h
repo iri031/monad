@@ -1,0 +1,111 @@
+#pragma once
+
+#include "task_impl.h"
+
+#include <stdio.h>
+#include <threads.h>
+
+#include <poll.h>
+#include <sys/eventfd.h>
+#include <unistd.h>
+
+struct monad_async_executor_impl
+{
+    struct monad_async_executor_head head;
+
+    thrd_t owning_thread;
+    bool within_run;
+    monad_async_context run_context;
+    struct io_uring ring, wr_ring;
+    int eventfd;
+    LIST_DEFINE_P(tasks_running, struct monad_async_task_impl);
+    LIST_DEFINE_P(tasks_suspended_awaiting, struct monad_async_task_impl);
+    LIST_DEFINE_P(tasks_suspended_completed, struct monad_async_task_impl);
+
+    // all items below this require taking the lock
+    atomic_int lock;
+    int tasks_pending_launch_next_queue;
+    // Note NOT sorted by task priority!
+    LIST_DEFINE_P(tasks_pending_launch, struct monad_async_task_impl);
+    bool need_to_empty_eventfd;
+};
+
+// diseased dead beef in hex, last bit set so won't be a pointer
+static void *const EXECUTOR_EVENTFD_READY_IO_URING_DATA_MAGIC =
+    (void *)(uintptr_t)0xd15ea5eddeadbeef;
+
+static inline monad_async_result monad_async_executor_create_impl(
+    struct monad_async_executor_impl *p, struct monad_async_executor_attr *attr)
+{
+    p->owning_thread = thrd_current();
+    p->eventfd = eventfd(0, EFD_CLOEXEC);
+    if (-1 == p->eventfd) {
+        return monad_async_make_failure(errno);
+    }
+    if (attr->io_uring_ring.entries > 0) {
+        int r = io_uring_queue_init_params(
+            attr->io_uring_ring.entries, &p->ring, &attr->io_uring_ring.params);
+        if (r < 0) {
+            return monad_async_make_failure(-r);
+        }
+        if (attr->io_uring_wr_ring.entries > 0) {
+            r = io_uring_queue_init_params(
+                attr->io_uring_wr_ring.entries,
+                &p->wr_ring,
+                &attr->io_uring_wr_ring.params);
+            if (r < 0) {
+                return monad_async_make_failure(-r);
+            }
+        }
+        if (!(p->ring.features & IORING_FEAT_NODROP)) {
+            fprintf(
+                stderr,
+                "FATAL: This kernel's io_uring implementation does not "
+                "implement "
+                "no-drop.\n");
+            abort();
+        }
+        if (!(p->ring.features & IORING_FEAT_SUBMIT_STABLE)) {
+            fprintf(
+                stderr,
+                "FATAL: This kernel's io_uring implementation does not "
+                "implement "
+                "stable submits.\n");
+            abort();
+        }
+        struct io_uring_sqe *sqe = io_uring_get_sqe(&p->ring);
+        if (sqe == nullptr) {
+            abort(); // should never occur
+        }
+        io_uring_prep_poll_multishot(sqe, p->eventfd, POLLIN);
+        io_uring_sqe_set_data(sqe, EXECUTOR_EVENTFD_READY_IO_URING_DATA_MAGIC);
+        r = io_uring_submit(&p->ring);
+        if (r < 0) {
+            return monad_async_make_failure(-r);
+        }
+    }
+    return monad_async_make_success(0);
+}
+
+static inline monad_async_result
+monad_async_executor_destroy_impl(struct monad_async_executor_impl *ex)
+{
+    if (!thrd_equal(thrd_current(), ex->owning_thread)) {
+        fprintf(
+            stderr,
+            "FATAL: You must destroy an executor from the same kernel thread "
+            "which owns it.\n");
+        abort();
+    }
+    if (ex->wr_ring.ring_fd != 0) {
+        io_uring_queue_exit(&ex->wr_ring);
+    }
+    if (ex->ring.ring_fd != 0) {
+        io_uring_queue_exit(&ex->ring);
+    }
+    if (ex->eventfd != -1) {
+        close(ex->eventfd);
+        ex->eventfd = -1;
+    }
+    return monad_async_make_success(0);
+}

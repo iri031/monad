@@ -108,4 +108,11 @@ TEST(work_dispatcher, works)
     for (auto &i : tasks) {
         ops += i.ops;
     }
+    auto const diff =
+        double(std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin)
+                   .count());
+    std::cout << "   Dispatched " << ops << " pieces of work across "
+              << threads.size() << " kernel threads which is "
+              << (1000000000.0 * double(ops) / diff) << " ops/sec ("
+              << (diff / double(ops)) << " ns/op)." << std::endl;
 }

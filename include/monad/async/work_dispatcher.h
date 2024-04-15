@@ -2,6 +2,8 @@
 
 #include "executor.h"
 
+#include <stdatomic.h>
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -11,27 +13,45 @@ extern "C"
 typedef struct monad_async_work_dispatcher_head
 {
     // The following are not user modifiable
-    size_t executors;
+#ifdef __cplusplus
+    // C++ is difficult here and requires std::
+    struct
+    {
+        std::atomic_uint working, idle;
+    } executors;
+
+    std::atomic_size_t tasks_awaiting_dispatch;
+#else
+    struct
+    {
+        atomic_uint working, idle;
+    } executors;
+
+    atomic_size_t tasks_awaiting_dispatch;
+#endif
 } *monad_async_work_dispatcher;
 
 //! \brief The public attributes of a work dispatcher
 typedef struct monad_async_work_dispatcher_executor_head
 {
-    struct monad_async_executor_head head;
-
     // The following are not user modifiable
+    struct monad_async_executor_head *const derived;
     monad_async_work_dispatcher dispatcher;
+    bool is_working, is_idle;
 } *monad_async_work_dispatcher_executor;
 
 //! \brief Attributes by which to construct a work dispatcher
 struct monad_async_work_dispatcher_attr
 {
+    //! Dispatcher executors should spin the CPU for this many milliseconds
+    //! before sleeping
+    uint32_t spin_before_sleep_ms;
 };
 
 //! \brief Attributes by which to construct a work dispatcher
 struct monad_async_work_dispatcher_executor_attr
 {
-    struct monad_async_executor_attr executor;
+    struct monad_async_executor_attr derived;
 };
 
 //! \brief EXPENSIVE Creates a work dispatcher instance.

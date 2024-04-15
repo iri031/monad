@@ -210,3 +210,7 @@ and scales without issue.
     - Needs yet to be written "resumption queue" facility which lets
 you suspend tasks into a specific queue which can then be resumed
 based on some condition e.g. there are now SQE entries free.
+- Rust's bindgen does not generate Rust atomics from C atomics, which
+is rather irritating. https://github.com/rust-lang/rust-bindgen/issues/2151
+is the issue tracker for it, looks like somebody just needs to go implement
+support and submit a PR.

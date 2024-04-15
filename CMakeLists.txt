@@ -17,6 +17,7 @@ add_library(monad_async STATIC
   "src/monad/async/work_dispatcher.c"
 )
 target_compile_features(monad_async PUBLIC c_std_23 cxx_std_20)
+target_compile_options(monad_async PUBLIC -Wall -Wextra -Wconversion -Wpedantic)
 target_include_directories(monad_async PUBLIC "include")
 target_link_libraries(monad_async PUBLIC uring Boost::boost)
 

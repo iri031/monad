@@ -118,7 +118,7 @@ struct monad_async_task_impl
             }                                                                  \
         }
 #endif
-#define LIST_PREPEND(list, item, counter)                                      \
+#define LIST_PREPEND2(list, item, counter, inc, dec)                           \
     if ((list).front == nullptr) {                                             \
         assert((list).back == nullptr);                                        \
         assert((list).count == 0);                                             \
@@ -126,7 +126,7 @@ struct monad_async_task_impl
         (list).front = (list).back = (item);                                   \
         (list).count++;                                                        \
         if ((counter) != nullptr)                                              \
-            (*counter)++;                                                      \
+            inc(*counter);                                                     \
     }                                                                          \
     else {                                                                     \
         assert((list).front->prev == nullptr);                                 \
@@ -137,10 +137,10 @@ struct monad_async_task_impl
         (list).front = (item);                                                 \
         (list).count++;                                                        \
         if ((counter) != nullptr)                                              \
-            (*counter)++;                                                      \
+            inc(*counter);                                                     \
     }                                                                          \
     LIST_CHECK(list)
-#define LIST_APPEND(list, item, counter)                                       \
+#define LIST_APPEND2(list, item, counter, inc, dec)                            \
     if ((list).back == nullptr) {                                              \
         assert((list).front == nullptr);                                       \
         assert((list).count == 0);                                             \
@@ -148,7 +148,7 @@ struct monad_async_task_impl
         (list).front = (list).back = (item);                                   \
         (list).count++;                                                        \
         if ((counter) != nullptr)                                              \
-            (*counter)++;                                                      \
+            inc(*counter);                                                     \
     }                                                                          \
     else {                                                                     \
         assert((list).back->next == nullptr);                                  \
@@ -159,17 +159,17 @@ struct monad_async_task_impl
         (list).back = (item);                                                  \
         (list).count++;                                                        \
         if ((counter) != nullptr)                                              \
-            (*counter)++;                                                      \
+            inc(*counter);                                                     \
     }                                                                          \
     LIST_CHECK(list)
-#define LIST_REMOVE(list, item, counter)                                       \
+#define LIST_REMOVE2(list, item, counter, inc, dec)                            \
     if ((list).front == (item) && (list).back == (item)) {                     \
         assert((list).count == 1);                                             \
         (list).front = (list).back = nullptr;                                  \
         (list).count = 0;                                                      \
         (item)->next = (item)->prev = nullptr;                                 \
         if ((counter) != nullptr)                                              \
-            (*counter)--;                                                      \
+            dec(*counter);                                                     \
     }                                                                          \
     else if ((list).front == (item)) {                                         \
         assert((item)->prev == nullptr);                                       \
@@ -178,7 +178,7 @@ struct monad_async_task_impl
         (list).count--;                                                        \
         (item)->next = (item)->prev = nullptr;                                 \
         if ((counter) != nullptr)                                              \
-            (*counter)--;                                                      \
+            dec(*counter);                                                     \
     }                                                                          \
     else if ((list).back == (item)) {                                          \
         assert((item)->next == nullptr);                                       \
@@ -187,7 +187,7 @@ struct monad_async_task_impl
         (list).count--;                                                        \
         (item)->next = (item)->prev = nullptr;                                 \
         if ((counter) != nullptr)                                              \
-            (*counter)--;                                                      \
+            dec(*counter);                                                     \
     }                                                                          \
     else {                                                                     \
         (item)->prev->next = (item)->next;                                     \
@@ -195,9 +195,44 @@ struct monad_async_task_impl
         (list).count--;                                                        \
         (item)->next = (item)->prev = nullptr;                                 \
         if ((counter) != nullptr)                                              \
-            (*counter)--;                                                      \
+            dec(*counter);                                                     \
     }                                                                          \
     LIST_CHECK(list)
+
+#define LIST_COUNTER_INCR(item) (item)++
+#define LIST_COUNTER_DECR(item) (item)--
+#define LIST_PREPEND(list, item, counter)                                      \
+    LIST_PREPEND2(list, item, counter, LIST_COUNTER_INCR, LIST_COUNTER_DECR)
+#define LIST_APPEND(list, item, counter)                                       \
+    LIST_APPEND2(list, item, counter, LIST_COUNTER_INCR, LIST_COUNTER_DECR)
+#define LIST_REMOVE(list, item, counter)                                       \
+    LIST_REMOVE2(list, item, counter, LIST_COUNTER_INCR, LIST_COUNTER_DECR)
+
+#define LIST_ATOMIC_COUNTER_INCR(item)                                         \
+    atomic_fetch_add_explicit((&item), 1, memory_order_relaxed)
+#define LIST_ATOMIC_COUNTER_DECR(item)                                         \
+    atomic_fetch_sub_explicit((&item), 1, memory_order_relaxed)
+#define LIST_PREPEND_ATOMIC_COUNTER(list, item, counter)                       \
+    LIST_PREPEND2(                                                             \
+        list,                                                                  \
+        item,                                                                  \
+        counter,                                                               \
+        LIST_ATOMIC_COUNTER_INCR,                                              \
+        LIST_ATOMIC_COUNTER_DECR)
+#define LIST_APPEND_ATOMIC_COUNTER(list, item, counter)                        \
+    LIST_APPEND2(                                                              \
+        list,                                                                  \
+        item,                                                                  \
+        counter,                                                               \
+        LIST_ATOMIC_COUNTER_INCR,                                              \
+        LIST_ATOMIC_COUNTER_DECR)
+#define LIST_REMOVE_ATOMIC_COUNTER(list, item, counter)                        \
+    LIST_REMOVE2(                                                              \
+        list,                                                                  \
+        item,                                                                  \
+        counter,                                                               \
+        LIST_ATOMIC_COUNTER_INCR,                                              \
+        LIST_ATOMIC_COUNTER_DECR)
 
 #ifdef __cplusplus
 }

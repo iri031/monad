@@ -13,7 +13,9 @@
 #include <setjmp.h>
 #include <stdio.h>
 #include <string.h>
+
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <ucontext.h>
 #include <unistd.h>
 
@@ -37,6 +39,21 @@ monad_async_context_sjlj_resume_many(
     monad_async_result (*resumed)(
         void *user_ptr, monad_async_context fake_current_context),
     void *user_ptr);
+
+static inline size_t get_rlimit_stack()
+{
+    static size_t v;
+    if (v != 0) {
+        return v;
+    }
+    struct rlimit r = {0, 0};
+    getrlimit(RLIMIT_STACK, &r);
+    if (r.rlim_cur == 0 || r.rlim_cur == RLIM_INFINITY) {
+        r.rlim_cur = 2 * 1024 * 1024;
+    }
+    v = (size_t)r.rlim_cur;
+    return v;
+}
 
 struct monad_async_context_sjlj
 {
@@ -140,10 +157,12 @@ static void monad_async_context_sjlj_task_runner(
     printf("*** New execution context %p launches\n", context);
     fflush(stdout);
 #endif
-    size_t const page_size = getpagesize();
+    size_t const page_size = (size_t)getpagesize();
     void *stack_base = (void *)((uintptr_t)context->stack_storage +
                                 context->uctx.uc_stack.ss_size + page_size);
     void *stack_front = (void *)((uintptr_t)context->stack_storage + page_size);
+    (void)stack_base;
+    (void)stack_front;
     for (;;) {
         // Tell the Linux kernel that this stack can be lazy reclaimed if there
         // is memory pressure
@@ -194,9 +213,9 @@ static monad_async_result monad_async_context_sjlj_create(
     p->head.switcher = switcher_;
     size_t stack_size = attr->stack_size;
     if (stack_size == 0) {
-        stack_size = sysconf(_SC_THREAD_STACK_MIN);
+        stack_size = get_rlimit_stack();
     }
-    size_t const page_size = getpagesize();
+    size_t const page_size = (size_t)getpagesize();
     p->stack_storage = mmap(
         nullptr,
         stack_size + page_size,
@@ -275,7 +294,7 @@ monad_async_context_sjlj_destroy(monad_async_context context)
         printf("*** Execution context %p is destroyed\n", context);
         fflush(stdout);
 #endif
-        size_t const page_size = getpagesize();
+        size_t const page_size = (size_t)getpagesize();
         if (munmap(p->stack_storage, p->uctx.uc_stack.ss_size + page_size) ==
             -1) {
             return monad_async_make_failure(errno);
