@@ -70,6 +70,11 @@ public:
 
         EthereumMainnet const chain{};
 
+        int freq = 1000;
+        int count = freq;
+        uint64_t txns = 0;
+        auto tbegin = std::chrono::steady_clock::now();
+
         uint64_t i = 0;
         for (; i < nblocks; ++i) {
             uint64_t const block_number = start_block_number + i;
@@ -111,6 +116,27 @@ public:
                     db.receipts_root(),
                     db.state_root())) {
                 return BlockError::WrongStateRoot;
+            }
+            if (--count == 0) {
+                auto tnow = std::chrono::steady_clock::now();
+                auto const elapsed =
+                    std::chrono::duration_cast<std::chrono::microseconds>(
+                        tnow - tbegin)
+                        .count();
+                uint64_t tps = (n_transactions - txns) * 1'000'000 /
+                               static_cast<uint64_t>(elapsed);
+                char str[100];
+                sprintf(
+                    str,
+                    "%d blocks to %8ld: %6ld tx %5ld tps",
+                    freq,
+                    start_block_number + i,
+                    (n_transactions - txns),
+                    tps);
+                LOG_INFO("{}", str);
+                count = freq;
+                txns = n_transactions;
+                tbegin = tnow;
             }
         }
 
