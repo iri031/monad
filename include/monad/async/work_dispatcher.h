@@ -96,11 +96,12 @@ monad_async_work_dispatcher_wait(
     monad_async_work_dispatcher dp, size_t max_undispatched,
     size_t max_unexecuted, struct timespec *timeout);
 
-//! \brief THREADSAFE Tells `count` executors to quit, with least occupied
-//! first.
+//! \brief THREADSAFE Tells executors to quit, preferring idle executors first,
+//! until no more than `max_executors` remains.
 MONAD_ASYNC_NODISCARD extern monad_async_result
 monad_async_work_dispatcher_quit(
-    monad_async_work_dispatcher dp, size_t count, struct timespec *timeout);
+    monad_async_work_dispatcher dp, size_t max_executors,
+    struct timespec *timeout);
 
 #ifdef __cplusplus
 }

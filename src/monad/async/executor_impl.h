@@ -15,6 +15,7 @@ struct monad_async_executor_impl
 
     thrd_t owning_thread;
     bool within_run;
+    atomic_bool need_to_empty_eventfd;
     monad_async_context run_context;
     struct io_uring ring, wr_ring;
     int eventfd;
@@ -27,12 +28,37 @@ struct monad_async_executor_impl
     int tasks_pending_launch_next_queue;
     // Note NOT sorted by task priority!
     LIST_DEFINE_P(tasks_pending_launch, struct monad_async_task_impl);
-    bool need_to_empty_eventfd;
 };
 
 // diseased dead beef in hex, last bit set so won't be a pointer
 static void *const EXECUTOR_EVENTFD_READY_IO_URING_DATA_MAGIC =
     (void *)(uintptr_t)0xd15ea5eddeadbeef;
+
+static inline void atomic_lock(atomic_int *lock)
+{
+    int expected = 0;
+    while (!atomic_compare_exchange_strong_explicit(
+        lock, &expected, 1, memory_order_acq_rel, memory_order_relaxed)) {
+        thrd_yield();
+        expected = 0;
+    }
+}
+
+static inline void atomic_unlock(atomic_int *lock)
+{
+    atomic_store_explicit(lock, 0, memory_order_release);
+}
+
+static inline int64_t timespec_to_ns(const struct timespec *a)
+{
+    return ((int64_t)a->tv_sec * 1000000000LL) + (int64_t)a->tv_nsec;
+}
+
+static inline int64_t
+timespec_diff(const struct timespec *a, const struct timespec *b)
+{
+    return timespec_to_ns(a) - timespec_to_ns(b);
+}
 
 static inline monad_async_result monad_async_executor_create_impl(
     struct monad_async_executor_impl *p, struct monad_async_executor_attr *attr)

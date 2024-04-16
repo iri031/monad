@@ -53,8 +53,10 @@ monad_async_executor_destroy(monad_async_executor ex);
 MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_executor_run(
     monad_async_executor ex, size_t max_items, struct timespec *timeout);
 
-//! Used by context switchers to tell an executor that a task has exited
-extern void monad_async_executor_task_exited(monad_async_task task);
+//! \brief THREADSAFE Causes a sleeping executor to wake. Can be called from any
+//! kernel thread.
+MONAD_ASYNC_NODISCARD extern monad_async_result
+monad_async_executor_wake(monad_async_executor ex);
 
 #ifdef __cplusplus
 }

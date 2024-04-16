@@ -6,7 +6,9 @@
 
 #include "monad/async/context_switcher.h"
 
-#include "monad/async/executor.h"
+#include "monad/async/task.h"
+
+extern void monad_async_executor_task_exited(monad_async_task task);
 
 #include <assert.h>
 #include <errno.h>

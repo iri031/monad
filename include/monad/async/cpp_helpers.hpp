@@ -6,10 +6,16 @@
 
 #include <memory>
 
+#include <boost/outcome/experimental/status_result.hpp>
+
 namespace monad
 {
     namespace async
     {
+        //! \brief Return a C result as a C++ result
+        extern BOOST_OUTCOME_V2_NAMESPACE::experimental::status_result<intptr_t>
+        to_result(monad_async_result r);
+
         //! \brief Throws any error in the result as a C++ exception
         [[noreturn]] extern void throw_exception(monad_async_result r);
 

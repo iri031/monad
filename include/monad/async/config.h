@@ -58,14 +58,15 @@ typedef uint64_t monad_async_cpu_ticks_count_t;
         auto unique = (__VA_ARGS__);                                           \
         if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(unique)) {                        \
             if (BOOST_OUTCOME_C_RESULT_ERROR_IS_ERRNO(unique)) {               \
-                fprintf(stderr, "FATAL: %s\n", strerror(unique.error.value));  \
+                fprintf(                                                       \
+                    stderr, "FATAL: %s\n", strerror((int)unique.error.value)); \
                 abort();                                                       \
             }                                                                  \
             else {                                                             \
                 fprintf(                                                       \
                     stderr,                                                    \
                     "FATAL: Failure value = %d domain = %p\n",                 \
-                    unique.error.value,                                        \
+                    (int)unique.error.value,                                   \
                     unique.error.domain);                                      \
                 abort();                                                       \
             }                                                                  \

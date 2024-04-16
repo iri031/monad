@@ -25,7 +25,8 @@ namespace monad
 {
     namespace async
     {
-        [[noreturn]] extern void throw_exception(monad_async_result r)
+        extern BOOST_OUTCOME_V2_NAMESPACE::experimental::status_result<intptr_t>
+        to_result(monad_async_result r)
         {
             union type_punner_t
             {
@@ -40,8 +41,14 @@ namespace monad
             } pun;
 
             pun.c = r;
-            if (pun.cpp.has_error()) {
-                pun.cpp.assume_error().throw_exception();
+            return std::move(pun.cpp);
+        }
+
+        [[noreturn]] extern void throw_exception(monad_async_result r)
+        {
+            auto res = to_result(r);
+            if (res.has_error()) {
+                res.assume_error().throw_exception();
             }
             abort();
         }

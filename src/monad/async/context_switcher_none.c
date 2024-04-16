@@ -1,6 +1,6 @@
 #include "monad/async/context_switcher.h"
 
-#include "monad/async/executor.h"
+extern void monad_async_executor_task_exited(monad_async_task task);
 
 #include "task_impl.h"
 

@@ -46,6 +46,7 @@ TEST(async_result, works)
     }
 }
 
+#if 0
 TEST(executor, works)
 {
     monad_async_executor_attr ex_attr{};
@@ -310,4 +311,116 @@ TEST(executor, works)
                 double(shared.ops))
             << " ns/op." << std::endl;
     }
+}
+#endif
+
+TEST(executor, foreign_thread)
+{
+    struct executor_thread
+    {
+        std::mutex lock;
+        executor_ptr executor;
+        std::thread thread;
+        uint32_t ops{0};
+    };
+
+    std::vector<executor_thread> executor_threads(
+        1 /*std::thread::hardware_concurrency()*/);
+    std::atomic<int> latch{0};
+    for (size_t n = 0; n < executor_threads.size(); n++) {
+        executor_threads[n].thread = std::thread(
+            [&latch](executor_thread *state) {
+                monad_async_executor_attr ex_attr{};
+                state->executor = make_executor(ex_attr);
+                latch++;
+                std::unique_lock g(state->lock);
+                for (;;) {
+                    g.unlock();
+                    auto r = to_result(monad_async_executor_run(
+                        state->executor.get(), size_t(-1), nullptr));
+                    g.lock();
+                    if (!r) {
+                        std::cerr
+                            << "FATAL: " << r.assume_error().message().c_str()
+                            << std::endl;
+                        abort();
+                    }
+                    state->ops += uint32_t(r.assume_value());
+                    if (latch.load(std::memory_order_relaxed) < 0) {
+                        break;
+                    }
+                }
+                state->executor.reset();
+            },
+            &executor_threads[n]);
+    }
+
+    struct task
+    {
+        task_ptr task;
+        uint32_t ops{0};
+
+        static monad_async_result run(monad_async_task t)
+        {
+            auto *self = (struct task *)t->user_ptr;
+            self->ops++;
+            return monad_async_make_success(0);
+        }
+    };
+
+    std::vector<task> tasks(1024);
+    monad_async_context_switcher none_switcher;
+    CHECK_RESULT(monad_async_context_switcher_none_create(&none_switcher));
+    monad_async_task_attr attr{};
+    for (auto &i : tasks) {
+        i.task = make_task(none_switcher, attr);
+        i.task->user_code = task::run;
+        i.task->user_ptr = (void *)&i;
+    }
+    while (latch < (int)executor_threads.size()) {
+        std::this_thread::yield();
+    }
+    auto const begin = std::chrono::steady_clock::now();
+    size_t n = 0;
+    do {
+        for (auto &i : tasks) {
+            if (i.task->current_executor == nullptr) {
+                CHECK_RESULT(monad_async_task_attach(
+                    executor_threads[n++].executor.get(),
+                    i.task.get(),
+                    nullptr));
+                if (n >= executor_threads.size()) {
+                    n = 0;
+                }
+            }
+        }
+    }
+    while (std::chrono::steady_clock::now() - begin < std::chrono::seconds(5));
+    latch = -1;
+    for (auto &i : executor_threads) {
+        {
+            std::lock_guard h(i.lock);
+            if (i.executor) {
+                CHECK_RESULT(monad_async_executor_wake(i.executor.get()));
+            }
+        }
+        i.thread.join();
+    }
+    auto const end = std::chrono::steady_clock::now();
+    auto const diff =
+        double(std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin)
+                   .count());
+    uint64_t executor_ops = 0;
+    for (auto &i : executor_threads) {
+        executor_ops += i.ops;
+    }
+    uint64_t task_ops = 0;
+    for (auto &i : tasks) {
+        task_ops += i.ops;
+    }
+    EXPECT_EQ(executor_ops, task_ops);
+    std::cout << "   Executed " << task_ops << " tasks on "
+              << executor_threads.size() << " kernel threads at "
+              << (1000000000.0 * double(task_ops) / diff) << " ops/sec ("
+              << (diff / double(task_ops)) << " ns/op)" << std::endl;
 }

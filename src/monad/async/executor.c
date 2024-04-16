@@ -147,17 +147,11 @@ static inline monad_async_result monad_async_executor_run_impl(
         timed_out = false;
         retry_after_this = false;
         if (atomic_load_explicit(
+                &ex->need_to_empty_eventfd, memory_order_acquire) ||
+            atomic_load_explicit(
                 (atomic_size_t *)&ex->head.tasks_pending_launch,
                 memory_order_acquire) > 0) {
-            int expected = 0;
-            while (!atomic_compare_exchange_strong_explicit(
-                &ex->lock,
-                &expected,
-                1,
-                memory_order_acq_rel,
-                memory_order_relaxed)) {
-                thrd_yield();
-            }
+            atomic_lock(&ex->lock);
             for (bool done = false; !done;) {
                 done = true;
                 for (int n = 0; n < monad_async_priority_max; n++) {
@@ -178,15 +172,17 @@ static inline monad_async_result monad_async_executor_run_impl(
                     }
                 }
             }
-            if (ex->need_to_empty_eventfd) {
+            if (atomic_load_explicit(
+                    &ex->need_to_empty_eventfd, memory_order_acquire)) {
                 eventfd_t v;
                 if (-1 == eventfd_read(ex->eventfd, &v)) {
-                    atomic_store_explicit(&ex->lock, 0, memory_order_release);
+                    atomic_unlock(&ex->lock);
                     return monad_async_make_failure(errno);
                 }
-                ex->need_to_empty_eventfd = false;
+                atomic_store_explicit(
+                    &ex->need_to_empty_eventfd, false, memory_order_release);
             }
-            atomic_store_explicit(&ex->lock, 0, memory_order_release);
+            atomic_unlock(&ex->lock);
         }
         struct timespec no_waiting = {.tv_sec = 0, .tv_nsec = 0};
         if (ex->head.tasks_suspended > 0) {
@@ -517,6 +513,18 @@ static monad_async_result monad_async_executor_suspend_impl(
     return task->head.result;
 }
 
+monad_async_result monad_async_executor_wake(monad_async_executor ex_)
+{
+    struct monad_async_executor_impl *ex =
+        (struct monad_async_executor_impl *)ex_;
+    atomic_store_explicit(
+        &ex->need_to_empty_eventfd, true, memory_order_release);
+    if (-1 == eventfd_write(ex->eventfd, 1)) {
+        return monad_async_make_success(errno);
+    }
+    return monad_async_make_success(0);
+}
+
 void monad_async_executor_task_exited(monad_async_task task_)
 {
     struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
@@ -608,11 +616,7 @@ monad_async_result monad_async_task_attach(
     task->head.ticks_when_suspended_awaiting = 0;
     task->head.ticks_when_suspended_completed = 0;
     task->head.total_ticks_executed = 0;
-    int expected = 0;
-    while (!atomic_compare_exchange_strong_explicit(
-        &ex->lock, &expected, 1, memory_order_acq_rel, memory_order_relaxed)) {
-        thrd_yield();
-    }
+    atomic_lock(&ex->lock);
     LIST_APPEND(
         ex->tasks_pending_launch[ex->tasks_pending_launch_next_queue],
         task,
@@ -621,13 +625,11 @@ monad_async_result monad_async_task_attach(
         ex->tasks_pending_launch_next_queue = 0;
     }
     if (on_foreign_thread) {
-        ex->need_to_empty_eventfd = true;
-        if (-1 == eventfd_write(ex->eventfd, 1)) {
-            atomic_store_explicit(&ex->lock, 0, memory_order_release);
-            return monad_async_make_success(errno);
-        }
+        MONAD_ASYNC_TRY_RESULT(
+            (void)atomic_unlock(&ex->lock),
+            monad_async_executor_wake(&ex->head));
     }
-    atomic_store_explicit(&ex->lock, 0, memory_order_release);
+    atomic_unlock(&ex->lock);
     return monad_async_make_success(0);
 }
 

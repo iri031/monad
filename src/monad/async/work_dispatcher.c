@@ -11,6 +11,8 @@ struct monad_async_work_dispatcher_executor_impl
     struct monad_async_work_dispatcher_executor_head head;
     struct monad_async_executor_impl derived;
     struct monad_async_work_dispatcher_executor_impl *prev, *next;
+    bool please_quit;
+    struct timespec last_work_executed;
 };
 
 struct monad_async_work_dispatcher_impl
@@ -19,7 +21,9 @@ struct monad_async_work_dispatcher_impl
     uint32_t spin_before_sleep_ms;
 
     // all items below this require taking the lock
-    atomic_int lock;
+    mtx_t lock;
+    int workloads_changed_waiting;
+    cnd_t workloads_changed;
 
     struct
     {
@@ -42,6 +46,16 @@ monad_async_result monad_async_work_dispatcher_create(
         return monad_async_make_failure(errno);
     }
     p->spin_before_sleep_ms = attr->spin_before_sleep_ms;
+    if (thrd_success != mtx_init(&p->lock, mtx_plain)) {
+        (void)monad_async_work_dispatcher_destroy(
+            (monad_async_work_dispatcher)p);
+        return monad_async_make_failure(errno);
+    }
+    if (thrd_success != cnd_init(&p->workloads_changed)) {
+        (void)monad_async_work_dispatcher_destroy(
+            (monad_async_work_dispatcher)p);
+        return monad_async_make_failure(errno);
+    }
     *dp = (monad_async_work_dispatcher)p;
     return monad_async_make_success(0);
 }
@@ -51,6 +65,8 @@ monad_async_work_dispatcher_destroy(monad_async_work_dispatcher dp)
 {
     struct monad_async_work_dispatcher_impl *p =
         (struct monad_async_work_dispatcher_impl *)dp;
+    cnd_destroy(&p->workloads_changed);
+    mtx_destroy(&p->lock);
     free(p);
     return monad_async_make_success(0);
 }
@@ -77,7 +93,13 @@ monad_async_result monad_async_work_dispatcher_executor_create(
         .is_idle = true,
         .is_working = false};
     memcpy(&p->head, &head, sizeof(head));
+    if (thrd_success != mtx_lock(&dp->lock)) {
+        return monad_async_make_failure(errno);
+    }
     LIST_APPEND_ATOMIC_COUNTER(dp->executors.idle, p, &dp_->executors.idle);
+    if (thrd_success != mtx_unlock(&dp->lock)) {
+        return monad_async_make_failure(errno);
+    }
     *ex = (monad_async_work_dispatcher_executor)p;
     return monad_async_make_success(0);
 }
@@ -90,6 +112,9 @@ monad_async_result monad_async_work_dispatcher_executor_destroy(
     MONAD_ASYNC_TRY_RESULT(, monad_async_executor_destroy_impl(&p->derived));
     struct monad_async_work_dispatcher_impl *dp =
         (struct monad_async_work_dispatcher_impl *)p->head.dispatcher;
+    if (thrd_success != mtx_lock(&dp->lock)) {
+        return monad_async_make_failure(errno);
+    }
     if (p->head.is_idle) {
         LIST_REMOVE_ATOMIC_COUNTER(
             dp->executors.idle, p, &dp->head.executors.idle);
@@ -97,6 +122,9 @@ monad_async_result monad_async_work_dispatcher_executor_destroy(
     if (p->head.is_working) {
         LIST_REMOVE_ATOMIC_COUNTER(
             dp->executors.working, p, &dp->head.executors.working);
+    }
+    if (thrd_success != mtx_unlock(&dp->lock)) {
+        return monad_async_make_failure(errno);
     }
     free(p);
     return monad_async_make_success(0);
@@ -107,38 +135,331 @@ monad_async_result monad_async_work_dispatcher_executor_run(
 {
     struct monad_async_work_dispatcher_executor_impl *p =
         (struct monad_async_work_dispatcher_executor_impl *)ex;
-    struct timespec ts = {0, 1000000}; // 1 millisecond
+    if (p->please_quit && p->derived.head.tasks_pending_launch == 0 &&
+        p->derived.head.tasks_running == 0 &&
+        p->derived.head.tasks_suspended == 0) {
+        return monad_async_make_success(-1);
+    }
+    struct monad_async_work_dispatcher_impl *dp =
+        (struct monad_async_work_dispatcher_impl *)p->head.dispatcher;
+    struct timespec ts = {0, 0}, now;
+    clock_gettime(CLOCK_MONOTONIC_COARSE, &now);
+    int64_t const ns_since_last_work_executed =
+        timespec_diff(&now, &p->last_work_executed);
+    if (ns_since_last_work_executed / 1000000 > dp->spin_before_sleep_ms) {
+        ts.tv_sec = 30;
+    }
+retry:
     monad_async_result r = monad_async_executor_run(&p->derived.head, 256, &ts);
-    MONAD_ASYNC_TRY_RESULT(, r);
-    // todo
+    if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
+        if (r.error.value == ETIME) {
+            r.value = 0;
+        }
+        else {
+            MONAD_ASYNC_TRY_RESULT(, r);
+        }
+    }
+    if (r.value > 0) {
+        clock_gettime(CLOCK_MONOTONIC_COARSE, &now);
+        p->last_work_executed = now;
+        return r;
+    }
+    // No work was executed last run, see if there is more work for me to launch
+    if (!p->please_quit &&
+        atomic_load_explicit(
+            &dp->head.tasks_awaiting_dispatch, memory_order_relaxed) > 0) {
+        if (thrd_success != mtx_lock(&dp->lock)) {
+            return monad_async_make_failure(errno);
+        }
+        for (monad_async_priority n = monad_async_priority_high;
+             n < monad_async_priority_max;
+             n++) {
+            if (dp->tasks_awaiting_dispatch[n].count > 0) {
+                struct monad_async_task_impl *item =
+                    dp->tasks_awaiting_dispatch[n].front;
+                item->head.is_awaiting_dispatch = false;
+                LIST_REMOVE_ATOMIC_COUNTER(
+                    dp->tasks_awaiting_dispatch[n],
+                    item,
+                    &dp->head.tasks_awaiting_dispatch);
+                r = monad_async_task_attach(
+                    &p->derived.head, &item->head, nullptr);
+                // Failure here is likely a logic error
+                MONAD_ASYNC_CHECK_RESULT(r);
+                if (dp->workloads_changed_waiting > 0) {
+                    cnd_broadcast(&dp->workloads_changed);
+                }
+                if (thrd_success != mtx_unlock(&dp->lock)) {
+                    return monad_async_make_failure(errno);
+                }
+                goto retry;
+            }
+        }
+        if (thrd_success != mtx_unlock(&dp->lock)) {
+            return monad_async_make_failure(errno);
+        }
+    }
+    else if (
+        p->derived.head.tasks_pending_launch == 0 &&
+        p->derived.head.tasks_running == 0 &&
+        p->derived.head.tasks_suspended == 0) {
+        // We have become idle
+        if (thrd_success != mtx_lock(&dp->lock)) {
+            return monad_async_make_failure(errno);
+        }
+        p->head.is_working = false;
+        LIST_REMOVE_ATOMIC_COUNTER(
+            dp->executors.working, p, &dp->head.executors.working);
+        if (!p->please_quit) {
+            p->head.is_idle = true;
+            LIST_APPEND_ATOMIC_COUNTER(
+                dp->executors.idle, p, &dp->head.executors.idle);
+        }
+        if (dp->workloads_changed_waiting > 0) {
+            cnd_broadcast(&dp->workloads_changed);
+        }
+        if (thrd_success != mtx_unlock(&dp->lock)) {
+            return monad_async_make_failure(errno);
+        }
+        if (p->please_quit) {
+            return monad_async_make_success(-1);
+        }
+    }
     return monad_async_make_success(0);
 }
 
 monad_async_result monad_async_work_dispatcher_submit(
-    monad_async_work_dispatcher dp, monad_async_task *tasks, size_t count)
+    monad_async_work_dispatcher dp_, monad_async_task *tasks_, size_t count)
 {
-    (void)dp;
-    (void)tasks;
-    (void)count;
-    return monad_async_make_success(0);
+    if (count == 0) {
+        return monad_async_make_success(0);
+    }
+    struct monad_async_work_dispatcher_impl *dp =
+        (struct monad_async_work_dispatcher_impl *)dp_;
+    struct monad_async_task_impl **tasks =
+        (struct monad_async_task_impl **)tasks_;
+    intptr_t added = 0, subtracted = 0;
+    if (thrd_success != mtx_lock(&dp->lock)) {
+        return monad_async_make_failure(errno);
+    }
+    {
+        struct monad_async_task_impl **tasksp =
+            (struct monad_async_task_impl **)tasks;
+        do {
+            if (*tasksp == nullptr) {
+                tasksp++;
+                continue;
+            }
+            LIST_APPEND(
+                dp->tasks_awaiting_dispatch[(*tasksp)->head.priority.cpu],
+                *tasksp,
+                &dp->head.tasks_awaiting_dispatch);
+            (*tasksp)->head.is_awaiting_dispatch = true;
+            tasksp++;
+            added++;
+        }
+        while (tasksp - tasks < (long int)count);
+    }
+    if (atomic_load_explicit(&dp->head.executors.idle, memory_order_relaxed) >
+        0) {
+        struct monad_async_work_dispatcher_executor_impl *ex =
+            dp->executors.idle.front;
+        for (monad_async_priority n = monad_async_priority_high;
+             n < monad_async_priority_max;
+             n++) {
+            if (dp->tasks_awaiting_dispatch[n].count > 0) {
+                for (; ex != nullptr && ex->please_quit; ex = ex->next) {
+                }
+                if (ex == nullptr) {
+                    break;
+                }
+                struct monad_async_task_impl *item =
+                    dp->tasks_awaiting_dispatch[n].front;
+                item->head.is_awaiting_dispatch = false;
+                LIST_REMOVE_ATOMIC_COUNTER(
+                    dp->tasks_awaiting_dispatch[n],
+                    item,
+                    &dp->head.tasks_awaiting_dispatch);
+                monad_async_result r = monad_async_task_attach(
+                    &ex->derived.head, &item->head, nullptr);
+                // Failure here is likely a logic error
+                MONAD_ASYNC_CHECK_RESULT(r);
+                struct monad_async_work_dispatcher_executor_impl *p = ex;
+                ex = ex->next;
+                p->head.is_idle = false;
+                LIST_REMOVE_ATOMIC_COUNTER(
+                    dp->executors.idle, p, &dp->head.executors.idle);
+                p->head.is_working = true;
+                LIST_APPEND_ATOMIC_COUNTER(
+                    dp->executors.working, p, &dp->head.executors.working);
+                subtracted--;
+            }
+        }
+    }
+    if (subtracted > 0 && dp->workloads_changed_waiting > 0) {
+        cnd_broadcast(&dp->workloads_changed);
+    }
+    if (thrd_success != mtx_unlock(&dp->lock)) {
+        return monad_async_make_failure(errno);
+    }
+    return monad_async_make_success(added - subtracted);
 }
 
 monad_async_result monad_async_work_dispatcher_wait(
-    monad_async_work_dispatcher dp, size_t max_undispatched,
+    monad_async_work_dispatcher dp_, size_t max_undispatched,
     size_t max_unexecuted, struct timespec *timeout)
 {
-    (void)dp;
-    (void)max_undispatched;
-    (void)max_unexecuted;
-    (void)timeout;
-    return monad_async_make_success(0);
+    struct monad_async_work_dispatcher_impl *dp =
+        (struct monad_async_work_dispatcher_impl *)dp_;
+    monad_async_result r = monad_async_make_success(0);
+    int64_t deadline = 0;
+    if (timeout != nullptr && (timeout->tv_sec != 0 || timeout->tv_nsec != 0)) {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC_COARSE, &now);
+        deadline = timespec_to_ns(&now) + timespec_to_ns(timeout);
+    }
+    if (thrd_success != mtx_lock(&dp->lock)) {
+        return monad_async_make_failure(errno);
+    }
+    for (;;) {
+        bool done = true;
+        size_t unexecuted = atomic_load_explicit(
+            &dp->head.tasks_awaiting_dispatch, memory_order_relaxed);
+        if (unexecuted > max_undispatched) {
+            done = false;
+        }
+        else if (max_unexecuted != (size_t)-1) {
+            for (struct monad_async_work_dispatcher_executor_impl *ex =
+                     dp->executors.working.front;
+                 ex != nullptr;
+                 ex = ex->next) {
+                unexecuted += ex->derived.head.tasks_pending_launch +
+                              ex->derived.head.tasks_suspended;
+            }
+            if (unexecuted > max_unexecuted) {
+                done = false;
+            }
+        }
+        if (done) {
+            break;
+        }
+        dp->workloads_changed_waiting++;
+        int ec;
+        if (timeout == nullptr) {
+            ec = cnd_wait(&dp->workloads_changed, &dp->lock);
+        }
+        else if (deadline != 0) {
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC_COARSE, &now);
+            int64_t remaining = deadline - timespec_to_ns(&now);
+            if (remaining <= 0) {
+                r = monad_async_make_failure(ETIME);
+                break;
+            }
+            struct timespec portion = {
+                .tv_sec = remaining / 1000000000LL,
+                .tv_nsec = remaining % 1000000000LL};
+            ec = cnd_timedwait(&dp->workloads_changed, &dp->lock, &portion);
+        }
+        dp->workloads_changed_waiting--;
+        if (ec == thrd_error) {
+            r = monad_async_make_failure(errno);
+            break;
+        }
+    }
+    if (thrd_success != mtx_unlock(&dp->lock)) {
+        return monad_async_make_failure(errno);
+    }
+    return r;
 }
 
 monad_async_result monad_async_work_dispatcher_quit(
-    monad_async_work_dispatcher dp, size_t count, struct timespec *timeout)
+    monad_async_work_dispatcher dp_, size_t max_executors,
+    struct timespec *timeout)
 {
-    (void)dp;
-    (void)count;
-    (void)timeout;
-    return monad_async_make_success(0);
+    struct monad_async_work_dispatcher_impl *dp =
+        (struct monad_async_work_dispatcher_impl *)dp_;
+    monad_async_result r = monad_async_make_success(0);
+    if (atomic_load_explicit(&dp->head.executors.idle, memory_order_relaxed) +
+            atomic_load_explicit(
+                &dp->head.executors.working, memory_order_relaxed) <=
+        max_executors) {
+        return r;
+    }
+    int64_t deadline = 0;
+    if (timeout != nullptr && (timeout->tv_sec != 0 || timeout->tv_nsec != 0)) {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC_COARSE, &now);
+        deadline = timespec_to_ns(&now) + timespec_to_ns(timeout);
+    }
+    if (thrd_success != mtx_lock(&dp->lock)) {
+        return monad_async_make_failure(errno);
+    }
+    for (;;) {
+        int togo =
+            (int)max_executors -
+            (int)(atomic_load_explicit(
+                      &dp->head.executors.idle, memory_order_relaxed) +
+                  atomic_load_explicit(
+                      &dp->head.executors.working, memory_order_relaxed));
+        if (togo <= 0) {
+            break;
+        }
+        struct monad_async_work_dispatcher_executor_impl *ex =
+            dp->executors.idle.front;
+        while (ex != nullptr && togo > 0) {
+            for (; ex != nullptr && ex->please_quit && togo > 0;
+                 ex = ex->next) {
+                togo--;
+            }
+            if (ex != nullptr && togo > 0) {
+                ex->please_quit = true;
+                togo--;
+                MONAD_ASYNC_TRY_RESULT(
+                    (void)mtx_unlock(&dp->lock),
+                    monad_async_executor_wake(&ex->derived));
+            }
+        }
+        ex = dp->executors.working.front;
+        while (ex != nullptr && togo > 0) {
+            for (; ex != nullptr && ex->please_quit && togo > 0;
+                 ex = ex->next) {
+                togo--;
+            }
+            if (ex != nullptr && togo > 0) {
+                ex->please_quit = true;
+                togo--;
+                MONAD_ASYNC_TRY_RESULT(
+                    (void)mtx_unlock(&dp->lock),
+                    monad_async_executor_wake(&ex->derived));
+            }
+        }
+        dp->workloads_changed_waiting++;
+        int ec;
+        if (timeout == nullptr) {
+            ec = cnd_wait(&dp->workloads_changed, &dp->lock);
+        }
+        else if (deadline != 0) {
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC_COARSE, &now);
+            int64_t remaining = deadline - timespec_to_ns(&now);
+            if (remaining <= 0) {
+                r = monad_async_make_failure(ETIME);
+                break;
+            }
+            struct timespec portion = {
+                .tv_sec = remaining / 1000000000LL,
+                .tv_nsec = remaining % 1000000000LL};
+            ec = cnd_timedwait(&dp->workloads_changed, &dp->lock, &portion);
+        }
+        dp->workloads_changed_waiting--;
+        if (ec == thrd_error) {
+            r = monad_async_make_failure(errno);
+            break;
+        }
+    }
+    if (thrd_success != mtx_unlock(&dp->lock)) {
+        return monad_async_make_failure(errno);
+    }
+    return r;
 }

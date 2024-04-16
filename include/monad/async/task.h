@@ -26,8 +26,8 @@ typedef struct monad_async_task_head
     void *user_ptr;
 
     // The following are not user modifiable
-    bool is_pending_launch, is_running, is_suspended_awaiting,
-        is_suspended_completed;
+    bool is_awaiting_dispatch, is_pending_launch, is_running,
+        is_suspended_awaiting, is_suspended_completed;
     monad_async_priority pending_launch_queue_;
     monad_async_executor current_executor;
     monad_async_cpu_ticks_count_t ticks_when_attached;

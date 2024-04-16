@@ -167,6 +167,7 @@ pub struct monad_async_task_head {
         unsafe extern "C" fn(arg1: *mut monad_async_task_head) -> monad_async_result,
     >,
     pub user_ptr: *mut ::std::os::raw::c_void,
+    pub is_awaiting_dispatch: bool,
     pub is_pending_launch: bool,
     pub is_running: bool,
     pub is_suspended_awaiting: bool,
@@ -336,8 +337,9 @@ extern "C" {
     ) -> monad_async_result;
 }
 extern "C" {
-    #[doc = "! Used by context switchers to tell an executor that a task has exited"]
-    pub fn monad_async_executor_task_exited(task: monad_async_task);
+    #[doc = "! \\brief THREADSAFE Causes a sleeping executor to wake. Can be called from any"]
+    #[doc = "! kernel thread."]
+    pub fn monad_async_executor_wake(ex: monad_async_executor) -> monad_async_result;
 }
 #[doc = "! \\brief The public attributes of a work dispatcher"]
 #[repr(C)]
@@ -435,11 +437,11 @@ extern "C" {
     ) -> monad_async_result;
 }
 extern "C" {
-    #[doc = "! \\brief THREADSAFE Tells `count` executors to quit, with least occupied"]
-    #[doc = "! first."]
+    #[doc = "! \\brief THREADSAFE Tells executors to quit, preferring idle executors first,"]
+    #[doc = "! until no more than `max_executors` remains."]
     pub fn monad_async_work_dispatcher_quit(
         dp: monad_async_work_dispatcher,
-        count: size_t,
+        max_executors: size_t,
         timeout: *mut timespec,
     ) -> monad_async_result;
 }
