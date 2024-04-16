@@ -235,12 +235,11 @@ monad_fiber_context_t * monad_fiber_context_callcc(
     memory = mmap( 0, size__, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 #endif
     mprotect( memory, page_size, PROT_NONE);
-    //memory = (char*)memory + page_size;
   }
   else
     memory = malloc(stack_size);
 
-  void * sp = ((char*)memory + stack_size) - sizeof(monad_fiber_t );
+  void * sp = ((char*)memory + allocated_size) - sizeof(monad_fiber_t );
   monad_fiber_t * fb = (monad_fiber_t*)sp;
   fb->allocated_size = allocated_size;
 
