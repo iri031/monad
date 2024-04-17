@@ -160,8 +160,7 @@ void monad_fiber_scheduler_create(monad_fiber_scheduler_t * this, size_t threads
 
 void monad_fiber_scheduler_destroy (monad_fiber_scheduler_t * this)
 {
-  this->thread_id_source = 0;
-  pthread_cond_broadcast(&this->cond);
+  monad_fiber_scheduler_stop(this);
 
   for (size_t i = 0u; i < this->thread_count; i++)
     MONAD_CCALL_ASSERT(pthread_join(this->threads[i], NULL));
@@ -201,6 +200,7 @@ void monad_fiber_scheduler_stop    (monad_fiber_scheduler_t * this)
 void monad_fiber_scheduler_work(monad_fiber_scheduler_t * this)
 {
   monad_fiber_scheduler_current_ = this;
+  if (this->thread_id_source != 0)
   {
     char name[16];
     snprintf(name, 16, "worker %u", ++(this->thread_id_source));
@@ -212,7 +212,8 @@ void monad_fiber_scheduler_work(monad_fiber_scheduler_t * this)
     MONAD_CCALL_ASSERT(pthread_mutex_lock(&this->mutex));
     while (this->task_queue.size == 0u)
     {
-      pthread_cond_wait(&this->cond, &this->mutex);
+      if (this->thread_id_source != 0)
+        pthread_cond_wait(&this->cond, &this->mutex);
       if (this->thread_id_source == 0)
       {
         while (this->task_queue.size > 0u)
@@ -220,6 +221,7 @@ void monad_fiber_scheduler_work(monad_fiber_scheduler_t * this)
           monad_fiber_scheduler_task_t * t = monad_fiber_scheduler_task_queue_pop_front(&this->task_queue);
           t->destroy(t);
         }
+        MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
         return;
       }
     }
