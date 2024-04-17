@@ -25,7 +25,7 @@ struct monad_async_executor_impl
 
     // all items below this require taking the lock
     atomic_int lock;
-    int tasks_pending_launch_next_queue;
+    monad_async_priority tasks_pending_launch_next_queue;
     // Note NOT sorted by task priority!
     LIST_DEFINE_P(tasks_pending_launch, struct monad_async_task_impl);
 };
@@ -123,6 +123,57 @@ monad_async_executor_destroy_impl(struct monad_async_executor_impl *ex)
             "which owns it.\n");
         abort();
     }
+    // Any tasks still executing must be cancelled
+    atomic_lock(&ex->lock);
+    for (monad_async_priority priority = monad_async_priority_high;
+         priority < monad_async_priority_max;
+         priority++) {
+        for (;;) {
+            struct monad_async_task_impl *task =
+                ex->tasks_pending_launch[priority].front;
+            if (task == nullptr) {
+                break;
+            }
+            atomic_unlock(&ex->lock);
+            MONAD_ASYNC_TRY_RESULT(
+                , monad_async_task_cancel(&ex->head, &task->head));
+            atomic_lock(&ex->lock);
+        }
+        for (;;) {
+            struct monad_async_task_impl *task =
+                ex->tasks_running[priority].front;
+            if (task == nullptr) {
+                break;
+            }
+            atomic_unlock(&ex->lock);
+            MONAD_ASYNC_TRY_RESULT(
+                , monad_async_task_cancel(&ex->head, &task->head));
+            atomic_lock(&ex->lock);
+        }
+        for (;;) {
+            struct monad_async_task_impl *task =
+                ex->tasks_suspended_awaiting[priority].front;
+            if (task == nullptr) {
+                break;
+            }
+            atomic_unlock(&ex->lock);
+            MONAD_ASYNC_TRY_RESULT(
+                , monad_async_task_cancel(&ex->head, &task->head));
+            atomic_lock(&ex->lock);
+        }
+        for (;;) {
+            struct monad_async_task_impl *task =
+                ex->tasks_suspended_completed[priority].front;
+            if (task == nullptr) {
+                break;
+            }
+            atomic_unlock(&ex->lock);
+            MONAD_ASYNC_TRY_RESULT(
+                , monad_async_task_cancel(&ex->head, &task->head));
+            atomic_lock(&ex->lock);
+        }
+    }
+    atomic_unlock(&ex->lock);
     if (ex->wr_ring.ring_fd != 0) {
         io_uring_queue_exit(&ex->wr_ring);
     }

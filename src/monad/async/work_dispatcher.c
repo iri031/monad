@@ -177,7 +177,10 @@ retry:
             if (dp->tasks_awaiting_dispatch[n].count > 0) {
                 struct monad_async_task_impl *item =
                     dp->tasks_awaiting_dispatch[n].front;
-                item->head.is_awaiting_dispatch = false;
+                atomic_store_explicit(
+                    &item->head.is_awaiting_dispatch,
+                    false,
+                    memory_order_release);
                 LIST_REMOVE_ATOMIC_COUNTER(
                     dp->tasks_awaiting_dispatch[n],
                     item,
@@ -250,11 +253,14 @@ monad_async_result monad_async_work_dispatcher_submit(
                 tasksp++;
                 continue;
             }
-            LIST_APPEND(
+            LIST_APPEND_ATOMIC_COUNTER(
                 dp->tasks_awaiting_dispatch[(*tasksp)->head.priority.cpu],
                 *tasksp,
                 &dp->head.tasks_awaiting_dispatch);
-            (*tasksp)->head.is_awaiting_dispatch = true;
+            atomic_store_explicit(
+                &(*tasksp)->head.is_awaiting_dispatch,
+                true,
+                memory_order_release);
             tasksp++;
             added++;
         }
@@ -275,7 +281,10 @@ monad_async_result monad_async_work_dispatcher_submit(
                 }
                 struct monad_async_task_impl *item =
                     dp->tasks_awaiting_dispatch[n].front;
-                item->head.is_awaiting_dispatch = false;
+                atomic_store_explicit(
+                    &item->head.is_awaiting_dispatch,
+                    false,
+                    memory_order_release);
                 LIST_REMOVE_ATOMIC_COUNTER(
                     dp->tasks_awaiting_dispatch[n],
                     item,
@@ -344,7 +353,7 @@ monad_async_result monad_async_work_dispatcher_wait(
             break;
         }
         dp->workloads_changed_waiting++;
-        int ec;
+        int ec = thrd_success;
         if (timeout == nullptr) {
             ec = cnd_wait(&dp->workloads_changed, &dp->lock);
         }
@@ -417,7 +426,7 @@ monad_async_result monad_async_work_dispatcher_quit(
                 togo--;
                 MONAD_ASYNC_TRY_RESULT(
                     (void)mtx_unlock(&dp->lock),
-                    monad_async_executor_wake(&ex->derived));
+                    monad_async_executor_wake(&ex->derived.head));
             }
         }
         ex = dp->executors.working.front;
@@ -431,11 +440,11 @@ monad_async_result monad_async_work_dispatcher_quit(
                 togo--;
                 MONAD_ASYNC_TRY_RESULT(
                     (void)mtx_unlock(&dp->lock),
-                    monad_async_executor_wake(&ex->derived));
+                    monad_async_executor_wake(&ex->derived.head));
             }
         }
         dp->workloads_changed_waiting++;
-        int ec;
+        int ec = thrd_success;
         if (timeout == nullptr) {
             ec = cnd_wait(&dp->workloads_changed, &dp->lock);
         }

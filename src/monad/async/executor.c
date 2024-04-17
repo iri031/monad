@@ -68,15 +68,20 @@ static inline monad_async_result monad_async_executor_impl_launch_pending_tasks(
                 state->tasks_pending_launch[state->current_priority],
                 task,
                 (size_t *)nullptr);
-            task->head.is_pending_launch = false;
-            LIST_APPEND(
+            LIST_APPEND_ATOMIC_COUNTER(
                 state->ex->tasks_running[task->head.priority.cpu],
                 task,
                 &state->ex->head.tasks_running);
-            task->head.is_running = true;
+            atomic_store_explicit(
+                &task->head.is_running, true, memory_order_release);
+            atomic_store_explicit(
+                &task->head.is_pending_launch, false, memory_order_release);
             task->head.ticks_when_resumed =
                 get_ticks_count(memory_order_relaxed);
-            state->ex->head.current_task = &task->head;
+            atomic_store_explicit(
+                &state->ex->head.current_task,
+                &task->head,
+                memory_order_release);
             // This may suspend, in which case we shall either resume above
             // or it wil return (depends on context switch implementation)
             task->context->switcher->resume(
@@ -149,8 +154,7 @@ static inline monad_async_result monad_async_executor_run_impl(
         if (atomic_load_explicit(
                 &ex->need_to_empty_eventfd, memory_order_acquire) ||
             atomic_load_explicit(
-                (atomic_size_t *)&ex->head.tasks_pending_launch,
-                memory_order_acquire) > 0) {
+                &ex->head.tasks_pending_launch, memory_order_acquire) > 0) {
             atomic_lock(&ex->lock);
             for (bool done = false; !done;) {
                 done = true;
@@ -158,7 +162,8 @@ static inline monad_async_result monad_async_executor_run_impl(
                     if (ex->tasks_pending_launch[n].count > 0) {
                         struct monad_async_task_impl *const task =
                             ex->tasks_pending_launch[n].front;
-                        LIST_REMOVE(
+                        assert(task->head.pending_launch_queue_ == n);
+                        LIST_REMOVE_ATOMIC_COUNTER(
                             ex->tasks_pending_launch[n],
                             task,
                             &ex->head.tasks_pending_launch);
@@ -225,8 +230,8 @@ static inline monad_async_result monad_async_executor_run_impl(
         if (ex->ring.ring_fd != 0) {
             // Submit all enqueued ops, and wait for some completions
             struct io_uring_cqe *cqe = nullptr;
-            int r;
-            if (0 != io_uring_peek_cqe(&ex->ring, &cqe)) {
+            int r = io_uring_peek_cqe(&ex->ring, &cqe);
+            if (0 != r) {
                 if (timeout == nullptr) {
 #if MONAD_ASYNC_EXECUTOR_PRINTING
                     printf(
@@ -266,9 +271,9 @@ static inline monad_async_result monad_async_executor_run_impl(
 #endif
                     if (ex->ring.features & IORING_FEAT_EXT_ARG) {
                         r = io_uring_submit(&ex->ring);
-                    }
-                    if (r < 0) {
-                        return monad_async_make_failure(-r);
+                        if (r < 0) {
+                            return monad_async_make_failure(-r);
+                        }
                     }
                     r = io_uring_wait_cqe_timeout(
                         &ex->ring, &cqe, (struct __kernel_timespec *)timeout);
@@ -313,13 +318,21 @@ static inline monad_async_result monad_async_executor_run_impl(
                     else {
                         task->head.result = monad_async_make_success(cqe->res);
                     }
-                    assert(task->head.is_suspended_awaiting);
-                    task->head.is_suspended_awaiting = false;
+                    assert(atomic_load_explicit(
+                        &task->head.is_suspended_awaiting,
+                        memory_order_acquire));
+                    atomic_store_explicit(
+                        &task->head.is_suspended_awaiting,
+                        false,
+                        memory_order_release);
                     LIST_REMOVE(
                         ex->tasks_suspended_awaiting[task->head.priority.cpu],
                         task,
                         (size_t *)nullptr);
-                    task->head.is_suspended_completed = true;
+                    atomic_store_explicit(
+                        &task->head.is_suspended_completed,
+                        true,
+                        memory_order_release);
                     LIST_APPEND(
                         ex->tasks_suspended_completed[task->head.priority.cpu],
                         task,
@@ -459,7 +472,8 @@ monad_async_result monad_async_executor_run(
         ret.value);
 #endif
     ex->within_run = false;
-    ex->head.current_task = nullptr;
+    atomic_store_explicit(
+        &ex->head.current_task, nullptr, memory_order_release);
     return ret;
 }
 
@@ -467,17 +481,21 @@ static monad_async_result monad_async_executor_suspend_impl(
     struct monad_async_executor_impl *ex, struct monad_async_task_impl *task,
     monad_async_result (*please_cancel)(struct monad_async_task_impl *task))
 {
-    assert(task->head.is_running);
-    assert(ex->head.current_task == &task->head);
-    ex->head.current_task = nullptr;
+    assert(atomic_load_explicit(&task->head.is_running, memory_order_acquire));
+    assert(
+        atomic_load_explicit(&ex->head.current_task, memory_order_acquire) ==
+        &task->head);
+    atomic_store_explicit(
+        &ex->head.current_task, nullptr, memory_order_release);
     task->please_cancel = please_cancel;
-    task->head.is_running = false;
-    LIST_REMOVE(
+    atomic_store_explicit(&task->head.is_running, false, memory_order_release);
+    LIST_REMOVE_ATOMIC_COUNTER(
         ex->tasks_running[task->head.priority.cpu],
         task,
         &ex->head.tasks_running);
-    task->head.is_suspended_awaiting = true;
-    LIST_APPEND(
+    atomic_store_explicit(
+        &task->head.is_suspended_awaiting, true, memory_order_release);
+    LIST_APPEND_ATOMIC_COUNTER(
         ex->tasks_suspended_awaiting[task->head.priority.cpu],
         task,
         &ex->head.tasks_suspended);
@@ -494,20 +512,26 @@ static monad_async_result monad_async_executor_suspend_impl(
     printf("*** Executor %p resumes task %p\n", ex, task);
 #endif
     task->head.ticks_when_resumed = get_ticks_count(memory_order_relaxed);
-    assert(!task->head.is_suspended_awaiting);
-    assert(task->head.is_suspended_completed);
-    task->head.is_suspended_completed = false;
-    LIST_REMOVE(
+    assert(!atomic_load_explicit(
+        &task->head.is_suspended_awaiting, memory_order_acquire));
+    assert(atomic_load_explicit(
+        &task->head.is_suspended_completed, memory_order_acquire));
+    atomic_store_explicit(
+        &task->head.is_suspended_completed, false, memory_order_release);
+    LIST_REMOVE_ATOMIC_COUNTER(
         ex->tasks_suspended_completed[task->head.priority.cpu],
         task,
         &ex->head.tasks_suspended);
-    task->head.is_running = true;
-    LIST_APPEND(
+    atomic_store_explicit(&task->head.is_running, true, memory_order_release);
+    LIST_APPEND_ATOMIC_COUNTER(
         ex->tasks_running[task->head.priority.cpu],
         task,
         &ex->head.tasks_running);
-    assert(ex->head.current_task == nullptr);
-    ex->head.current_task = &task->head;
+    assert(
+        atomic_load_explicit(&ex->head.current_task, memory_order_acquire) ==
+        nullptr);
+    atomic_store_explicit(
+        &ex->head.current_task, &task->head, memory_order_release);
     task->please_cancel_invoked = false;
     task->please_cancel = nullptr;
     return task->head.result;
@@ -528,20 +552,27 @@ monad_async_result monad_async_executor_wake(monad_async_executor ex_)
 void monad_async_executor_task_exited(monad_async_task task_)
 {
     struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
-    assert(task_->is_running);
+    assert(atomic_load_explicit(&task_->is_running, memory_order_acquire));
     struct monad_async_executor_impl *ex =
-        (struct monad_async_executor_impl *)task->head.current_executor;
-    assert(ex->head.current_task == task_);
-    ex->head.current_task = nullptr;
-    task_->ticks_when_detached = get_ticks_count(memory_order_relaxed);
-    task_->total_ticks_executed +=
-        task_->ticks_when_detached - task_->ticks_when_resumed;
-    task_->is_running = false;
-    task_->current_executor = nullptr;
-    LIST_REMOVE(
+        (struct monad_async_executor_impl *)atomic_load_explicit(
+            &task->head.current_executor, memory_order_acquire);
+    assert(
+        atomic_load_explicit(&ex->head.current_task, memory_order_acquire) ==
+        task_);
+    atomic_lock(&ex->lock);
+    LIST_REMOVE_ATOMIC_COUNTER(
         ex->tasks_running[task->head.priority.cpu],
         task,
         &ex->head.tasks_running);
+    atomic_unlock(&ex->lock);
+    atomic_store_explicit(
+        &ex->head.current_task, nullptr, memory_order_release);
+    task_->ticks_when_detached = get_ticks_count(memory_order_relaxed);
+    task_->total_ticks_executed +=
+        task_->ticks_when_detached - task_->ticks_when_resumed;
+    atomic_store_explicit(&task_->is_running, false, memory_order_release);
+    atomic_store_explicit(
+        &task_->current_executor, nullptr, memory_order_release);
 }
 
 monad_async_result monad_async_task_attach(
@@ -556,7 +587,8 @@ monad_async_result monad_async_task_attach(
     }
     bool const on_foreign_thread =
         !thrd_equal(thrd_current(), ex->owning_thread);
-    if (task->head.current_executor != nullptr) {
+    if (atomic_load_explicit(
+            &task->head.current_executor, memory_order_acquire) != nullptr) {
 #ifndef NDEBUG
         if (on_foreign_thread) {
             fprintf(
@@ -567,34 +599,48 @@ monad_async_result monad_async_task_attach(
             abort();
         }
 #endif
-        if (task->head.is_pending_launch) {
-            LIST_REMOVE(
+        atomic_lock(&ex->lock);
+
+        if (atomic_load_explicit(
+                &task->head.is_pending_launch, memory_order_acquire)) {
+            LIST_REMOVE_ATOMIC_COUNTER(
                 ex->tasks_pending_launch[task->head.pending_launch_queue_],
                 task,
                 &ex->head.tasks_pending_launch);
-            task->head.is_pending_launch = false;
+            atomic_store_explicit(
+                &task->head.is_pending_launch, false, memory_order_release);
         }
-        else if (task->head.is_running) {
-            LIST_REMOVE(
+        else if (atomic_load_explicit(
+                     &task->head.is_running, memory_order_acquire)) {
+            LIST_REMOVE_ATOMIC_COUNTER(
                 ex->tasks_running[task->head.priority.cpu],
                 task,
                 &ex->head.tasks_running);
-            task->head.is_running = false;
+            atomic_store_explicit(
+                &task->head.is_running, false, memory_order_release);
         }
-        else if (task->head.is_suspended_awaiting) {
-            LIST_REMOVE(
+        else if (atomic_load_explicit(
+                     &task->head.is_suspended_awaiting, memory_order_acquire)) {
+            LIST_REMOVE_ATOMIC_COUNTER(
                 ex->tasks_suspended_awaiting[task->head.priority.cpu],
                 task,
                 &ex->head.tasks_suspended);
-            task->head.is_suspended_awaiting = false;
+            atomic_store_explicit(
+                &task->head.is_suspended_awaiting, false, memory_order_release);
         }
-        else if (task->head.is_suspended_completed) {
-            LIST_REMOVE(
+        else if (atomic_load_explicit(
+                     &task->head.is_suspended_completed,
+                     memory_order_acquire)) {
+            LIST_REMOVE_ATOMIC_COUNTER(
                 ex->tasks_suspended_completed[task->head.priority.cpu],
                 task,
                 &ex->head.tasks_suspended);
-            task->head.is_suspended_completed = false;
+            atomic_store_explicit(
+                &task->head.is_suspended_completed,
+                false,
+                memory_order_release);
         }
+        atomic_unlock(&ex->lock);
     }
     if (opt_reparent_switcher) {
         if (opt_reparent_switcher->create != task->context->switcher->create) {
@@ -608,8 +654,12 @@ monad_async_result monad_async_task_attach(
         task->context->switcher = opt_reparent_switcher;
         task->context->switcher->contexts++;
     }
-    task->head.current_executor = (monad_async_executor)ex;
-    task->head.is_pending_launch = true;
+    atomic_store_explicit(
+        &task->head.current_executor,
+        (monad_async_executor)ex,
+        memory_order_release);
+    atomic_store_explicit(
+        &task->head.is_pending_launch, true, memory_order_release);
     task->head.ticks_when_attached = get_ticks_count(memory_order_relaxed);
     task->head.ticks_when_detached = 0;
     task->head.ticks_when_resumed = 0;
@@ -617,12 +667,13 @@ monad_async_result monad_async_task_attach(
     task->head.ticks_when_suspended_completed = 0;
     task->head.total_ticks_executed = 0;
     atomic_lock(&ex->lock);
-    LIST_APPEND(
+    LIST_APPEND_ATOMIC_COUNTER(
         ex->tasks_pending_launch[ex->tasks_pending_launch_next_queue],
         task,
         &ex->head.tasks_pending_launch);
+    task->head.pending_launch_queue_ = ex->tasks_pending_launch_next_queue;
     if (++ex->tasks_pending_launch_next_queue == monad_async_priority_max) {
-        ex->tasks_pending_launch_next_queue = 0;
+        ex->tasks_pending_launch_next_queue = monad_async_priority_high;
     }
     if (on_foreign_thread) {
         MONAD_ASYNC_TRY_RESULT(
@@ -639,42 +690,46 @@ monad_async_task_cancel(monad_async_executor ex_, monad_async_task task_)
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)ex_;
     struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
-    if (task->head.current_executor == nullptr) {
+    if (atomic_load_explicit(
+            &task->head.current_executor, memory_order_acquire) == nullptr) {
         return monad_async_make_failure(ENOENT);
     }
-#ifndef NDEBUG
-    if (!thrd_equal(thrd_current(), ex->owning_thread)) {
-        fprintf(
-            stderr,
-            "FATAL: You must cancel a task on the same kernel "
-            "thread on which its executor is run.\n");
-        abort();
-    }
-#endif
-    if (task->head.is_pending_launch) {
-        LIST_REMOVE(
+    if (atomic_load_explicit(
+            &task->head.is_pending_launch, memory_order_acquire)) {
+        atomic_lock(&ex->lock);
+        LIST_REMOVE_ATOMIC_COUNTER(
             ex->tasks_pending_launch[task->head.pending_launch_queue_],
             task,
             &ex->head.tasks_pending_launch);
-        task->head.is_pending_launch = false;
+        atomic_store_explicit(
+            &task->head.is_pending_launch, false, memory_order_release);
+        atomic_unlock(&ex->lock);
         return monad_async_make_success(0);
     }
-    if (task->head.is_running) {
+    if (atomic_load_explicit(&task->head.is_running, memory_order_acquire)) {
         fprintf(
             stderr, "TODO: Switch context back to root, and end the task\n");
         abort();
     }
-    if (task->head.is_suspended_awaiting) {
+    if (atomic_load_explicit(
+            &task->head.is_suspended_awaiting, memory_order_acquire)) {
+        atomic_lock(&ex->lock);
         task->please_cancel_invoked = true;
         // Invoke the cancellation routine
         if (task->please_cancel == nullptr) {
+            atomic_unlock(&ex->lock);
             return monad_async_make_failure(EAGAIN);
         }
-        return task->please_cancel(task);
+        monad_async_result r = task->please_cancel(task);
+        atomic_unlock(&ex->lock);
+        return r;
     }
-    else if (task->head.is_suspended_completed) {
+    else if (atomic_load_explicit(
+                 &task->head.is_suspended_completed, memory_order_acquire)) {
+        atomic_lock(&ex->lock);
         // Have this return ECANCELED when it resumes
         task->head.result = monad_async_make_failure(ECANCELED);
+        atomic_unlock(&ex->lock);
     }
     else {
         return monad_async_make_failure(ENOENT);
@@ -686,7 +741,8 @@ static inline monad_async_result
 monad_async_task_suspend_for_duration_cancel(struct monad_async_task_impl *task)
 {
     struct monad_async_executor_impl *ex =
-        (struct monad_async_executor_impl *)task->head.current_executor;
+        (struct monad_async_executor_impl *)atomic_load_explicit(
+            &task->head.current_executor, memory_order_acquire);
     struct io_uring_sqe *sqe = io_uring_get_sqe(&ex->ring);
     if (sqe == nullptr) {
         fprintf(
@@ -704,8 +760,12 @@ monad_async_result
 monad_async_task_suspend_for_duration(monad_async_task task_, uint64_t ns)
 {
     struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
-    if (task_->current_executor == nullptr ||
-        task_->current_executor->current_task != task_) {
+    struct monad_async_executor_impl *ex =
+        (struct monad_async_executor_impl *)atomic_load_explicit(
+            &task_->current_executor, memory_order_acquire);
+    if (ex == nullptr ||
+        atomic_load_explicit(&ex->head.current_task, memory_order_acquire) !=
+            task_) {
         fprintf(
             stderr,
             "FATAL: Task execution suspension invoked not by the "
@@ -713,8 +773,6 @@ monad_async_task_suspend_for_duration(monad_async_task task_, uint64_t ns)
             "executing.\n");
         abort();
     }
-    struct monad_async_executor_impl *ex =
-        (struct monad_async_executor_impl *)task_->current_executor;
     assert(ex->within_run == true);
     struct io_uring_sqe *sqe = io_uring_get_sqe(&ex->ring);
     if (sqe == nullptr) {

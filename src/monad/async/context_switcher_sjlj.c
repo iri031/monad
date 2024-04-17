@@ -24,6 +24,9 @@ extern void monad_async_executor_task_exited(monad_async_task task);
 #if MONAD_ASYNC_HAVE_ASAN
     #include <sanitizer/asan_interface.h>
 #endif
+#if MONAD_ASYNC_HAVE_TSAN
+    #include <sanitizer/tsan_interface.h>
+#endif
 
 MONAD_ASYNC_NODISCARD static inline monad_async_result
 monad_async_context_sjlj_create(
@@ -63,6 +66,12 @@ struct monad_async_context_sjlj
     void *stack_storage;
     ucontext_t uctx;
     jmp_buf buf;
+#if MONAD_ASYNC_HAVE_TSAN
+    struct
+    {
+        void *fiber;
+    } tsan;
+#endif
 };
 
 struct monad_async_context_switcher_sjlj
@@ -103,27 +112,53 @@ monad_async_context_switcher_sjlj_create(monad_async_context_switcher *switcher)
         .resume_many = monad_async_context_sjlj_resume_many};
     memcpy(&p->head, &to_copy, sizeof(to_copy));
     p->resume_many_context.head.switcher = &p->head;
+#if MONAD_ASYNC_HAVE_TSAN
+    p->resume_many_context.tsan.fiber = __tsan_get_current_fiber();
+#endif
     *switcher = (monad_async_context_switcher)p;
     return monad_async_make_success(0);
 }
 
 /*****************************************************************************/
-#if MONAD_ASYNC_HAVE_ASAN
-static inline __attribute__((always_inline)) void
-start_switch_context(void **fake_stack_save, void const *bottom, size_t size)
+#if MONAD_ASYNC_HAVE_ASAN || MONAD_ASYNC_HAVE_TSAN
+static inline __attribute__((always_inline)) void start_switch_context(
+    struct monad_async_context_sjlj *dest_context, void **fake_stack_save,
+    void const *bottom, size_t size)
 {
+    (void)dest_context;
+    (void)fake_stack_save;
+    (void)bottom;
+    (void)size;
+    #if MONAD_ASYNC_HAVE_ASAN
     __sanitizer_start_switch_fiber(fake_stack_save, bottom, size);
+    #endif
+    #if MONAD_ASYNC_HAVE_TSAN
+    __tsan_switch_to_fiber(dest_context->tsan.fiber, 0);
+    #endif
 }
 
 static inline __attribute__((always_inline)) void finish_switch_context(
-    void *fake_stack_save, void const **bottom_old, size_t *size_old)
+    struct monad_async_context_sjlj *dest_context, void *fake_stack_save,
+    void const **bottom_old, size_t *size_old)
 {
+    (void)dest_context;
+    (void)fake_stack_save;
+    (void)bottom_old;
+    (void)size_old;
+    #if MONAD_ASYNC_HAVE_ASAN
     __sanitizer_finish_switch_fiber(fake_stack_save, bottom_old, size_old);
+    #endif
 }
 #else
-static inline void start_switch_context(void **, void const *, size_t) {}
+static inline void start_switch_context(
+    struct monad_async_context_sjlj *, void **, void const *, size_t)
+{
+}
 
-static inline void finish_switch_context(void *, void const **, size_t *) {}
+static inline void finish_switch_context(
+    struct monad_async_context_sjlj *, void *, void const **, size_t *)
+{
+}
 #endif
 
 static void monad_async_context_sjlj_task_runner(
@@ -152,6 +187,7 @@ static void monad_async_context_sjlj_task_runner(
     assert(context->head.sanitizer.fake_stack_save == nullptr);
 #endif
     finish_switch_context(
+        context,
         context->head.sanitizer.fake_stack_save,
         &context->head.sanitizer.bottom,
         &context->head.sanitizer.size);
@@ -268,15 +304,20 @@ static monad_async_result monad_async_context_sjlj_create(
         2,
         p,
         task);
+#if MONAD_ASYNC_HAVE_TSAN
+    p->tsan.fiber = __tsan_create_fiber(0);
+#endif
     if (setjmp(switcher->resume_many_context.buf) == 0) {
         switcher->within_resume_many = true;
         start_switch_context(
+            p,
             &switcher->resume_many_context.head.sanitizer.fake_stack_save,
             p->head.sanitizer.bottom,
             p->head.sanitizer.size);
         setcontext(&p->uctx);
     }
     finish_switch_context(
+        &switcher->resume_many_context,
         switcher->resume_many_context.head.sanitizer.fake_stack_save,
         nullptr,
         nullptr);
@@ -291,6 +332,12 @@ monad_async_context_sjlj_destroy(monad_async_context context)
 {
     struct monad_async_context_sjlj *p =
         (struct monad_async_context_sjlj *)context;
+#if MONAD_ASYNC_HAVE_TSAN
+    if (p->tsan.fiber != nullptr) {
+        __tsan_destroy_fiber(p->tsan.fiber);
+        p->tsan.fiber = nullptr;
+    }
+#endif
     if (p->stack_storage != nullptr) {
 #if MONAD_ASYNC_CONTEXT_PRINTING
         printf("*** Execution context %p is destroyed\n", context);
@@ -317,6 +364,7 @@ static void monad_async_context_sjlj_suspend_and_call_resume(
     if (ret != 0) {
         // He has resumed
         finish_switch_context(
+            (struct monad_async_context_sjlj *)new_context,
             p->head.sanitizer.fake_stack_save,
             &p->head.sanitizer.bottom,
             &p->head.sanitizer.size);
@@ -355,12 +403,13 @@ static void monad_async_context_sjlj_resume(
         new_context_is_resume_all_context);
     fflush(stdout);
 #endif
+    struct monad_async_context_sjlj *p =
+        (struct monad_async_context_sjlj *)new_context;
     start_switch_context(
+        p,
         &current_context->sanitizer.fake_stack_save,
         new_context->sanitizer.bottom,
         new_context->sanitizer.size);
-    struct monad_async_context_sjlj *p =
-        (struct monad_async_context_sjlj *)new_context;
     longjmp(p->buf, (int)(uintptr_t)p);
 }
 
@@ -381,6 +430,7 @@ static monad_async_result monad_async_context_sjlj_resume_many(
     if (ret != 0) {
         // He has resumed
         finish_switch_context(
+            &switcher->resume_many_context,
             switcher->resume_many_context.head.sanitizer.fake_stack_save,
             &switcher->resume_many_context.head.sanitizer.bottom,
             &switcher->resume_many_context.head.sanitizer.size);

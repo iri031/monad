@@ -3,6 +3,7 @@
 #include "task_impl.h"
 
 #include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 monad_async_result monad_async_task_create(
@@ -31,9 +32,17 @@ monad_async_result monad_async_task_create(
 monad_async_result monad_async_task_destroy(monad_async_task task)
 {
     struct monad_async_task_impl *p = (struct monad_async_task_impl *)task;
-    if (task->current_executor != nullptr) {
-        monad_async_result r =
-            monad_async_task_cancel(task->current_executor, task);
+    if (atomic_load_explicit(&p->head.is_running, memory_order_acquire)) {
+        fprintf(
+            stderr,
+            "FATAL: You cannot destroy a currently running task. Suspend or "
+            "exit it first.\n");
+        abort();
+    }
+    monad_async_executor ex =
+        atomic_load_explicit(&task->current_executor, memory_order_acquire);
+    if (ex != nullptr) {
+        monad_async_result r = monad_async_task_cancel(ex, task);
         if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
             if (r.error.value != ENOENT) {
                 return r;

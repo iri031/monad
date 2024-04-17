@@ -28,11 +28,11 @@ static inline monad_async_cpu_ticks_count_t get_ticks_count(memory_order rel)
     defined(_M_X64)
     #if defined(__x86_64__)
     unsigned lo, hi, aux;
-    asm volatile("rdtsc" : "=a"(lo), "=d"(hi), "=c"(aux));
+    __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi), "=c"(aux));
     ret = (uint64_t)lo | ((uint64_t)hi << 32);
     #elif defined(__i386__)
     unsigned lo, hi, aux;
-    asm volatile("rdtsc" : "=a"(lo), "=d"(hi), "=c"(aux));
+    __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi), "=c"(aux));
     ret = (uint64_t)lo | ((uint64_t)hi << 32);
     #endif
 #elif defined(__aarch64__) || defined(_M_ARM64)

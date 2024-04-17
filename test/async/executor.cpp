@@ -355,6 +355,8 @@ TEST(executor, foreign_thread)
             &executor_threads[n]);
     }
 
+    static bool checking = false;
+
     struct task
     {
         task_ptr task;
@@ -364,6 +366,18 @@ TEST(executor, foreign_thread)
         {
             auto *self = (struct task *)t->user_ptr;
             self->ops++;
+            if (checking) {
+                EXPECT_EQ(self->ops, 1);
+                EXPECT_EQ(
+                    t->current_executor.load(std::memory_order_acquire)
+                        ->current_task,
+                    t);
+                EXPECT_FALSE(t->is_awaiting_dispatch);
+                EXPECT_FALSE(t->is_pending_launch);
+                EXPECT_TRUE(t->is_running);
+                EXPECT_FALSE(t->is_suspended_awaiting);
+                EXPECT_FALSE(t->is_suspended_completed);
+            }
             return monad_async_make_success(0);
         }
     };
@@ -380,6 +394,35 @@ TEST(executor, foreign_thread)
     while (latch < (int)executor_threads.size()) {
         std::this_thread::yield();
     }
+
+    {
+        auto *task = tasks.front().task.get();
+        auto *ex = executor_threads.front().executor.get();
+        EXPECT_EQ(tasks.front().ops, 0);
+        EXPECT_EQ(task->current_executor, nullptr);
+        EXPECT_FALSE(task->is_awaiting_dispatch);
+        EXPECT_FALSE(task->is_pending_launch);
+        EXPECT_FALSE(task->is_running);
+        EXPECT_FALSE(task->is_suspended_awaiting);
+        EXPECT_FALSE(task->is_suspended_completed);
+        CHECK_RESULT(monad_async_task_attach(ex, task, nullptr));
+        EXPECT_TRUE(task->is_pending_launch || task->is_running);
+        EXPECT_TRUE(ex->tasks_pending_launch > 0 || ex->tasks_running > 0);
+        while (task->is_pending_launch || task->is_running ||
+               ex->tasks_running > 0) {
+            std::this_thread::yield();
+        }
+        EXPECT_EQ(ex->tasks_pending_launch, 0);
+        EXPECT_EQ(ex->tasks_running, 0);
+        EXPECT_FALSE(task->is_awaiting_dispatch);
+        EXPECT_FALSE(task->is_pending_launch);
+        EXPECT_FALSE(task->is_running);
+        EXPECT_FALSE(task->is_suspended_awaiting);
+        EXPECT_FALSE(task->is_suspended_completed);
+        EXPECT_EQ(tasks.front().ops, 1);
+    }
+    checking = false;
+
     auto const begin = std::chrono::steady_clock::now();
     size_t n = 0;
     do {

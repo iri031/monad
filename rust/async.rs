@@ -42,6 +42,51 @@ pub struct timespec {
     pub tv_sec: __time_t,
     pub tv_nsec: __syscall_slong_t,
 }
+pub type __u32 = ::std::os::raw::c_uint;
+pub type __u64 = ::std::os::raw::c_ulonglong;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct io_sqring_offsets {
+    pub head: __u32,
+    pub tail: __u32,
+    pub ring_mask: __u32,
+    pub ring_entries: __u32,
+    pub flags: __u32,
+    pub dropped: __u32,
+    pub array: __u32,
+    pub resv1: __u32,
+    pub resv2: __u64,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct io_cqring_offsets {
+    pub head: __u32,
+    pub tail: __u32,
+    pub ring_mask: __u32,
+    pub ring_entries: __u32,
+    pub overflow: __u32,
+    pub cqes: __u32,
+    pub flags: __u32,
+    pub resv1: __u32,
+    pub resv2: __u64,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct io_uring_params {
+    pub sq_entries: __u32,
+    pub cq_entries: __u32,
+    pub flags: __u32,
+    pub sq_thread_cpu: __u32,
+    pub sq_thread_idle: __u32,
+    pub features: __u32,
+    pub wq_fd: __u32,
+    pub resv: [__u32; 3usize],
+    pub sq_off: io_sqring_offsets,
+    pub cq_off: io_cqring_offsets,
+}
+pub type atomic_bool = u8;
+pub type atomic_uint = u32;
+pub type atomic_size_t = u64;
 #[doc = "! \\brief The public attributes of a task"]
 pub type monad_async_task = *mut monad_async_task_head;
 pub type monad_async_context = *mut monad_async_context_head;
@@ -167,13 +212,13 @@ pub struct monad_async_task_head {
         unsafe extern "C" fn(arg1: *mut monad_async_task_head) -> monad_async_result,
     >,
     pub user_ptr: *mut ::std::os::raw::c_void,
-    pub is_awaiting_dispatch: bool,
-    pub is_pending_launch: bool,
-    pub is_running: bool,
-    pub is_suspended_awaiting: bool,
-    pub is_suspended_completed: bool,
+    pub current_executor: u64,
+    pub is_awaiting_dispatch: atomic_bool,
+    pub is_pending_launch: atomic_bool,
+    pub is_running: atomic_bool,
+    pub is_suspended_awaiting: atomic_bool,
+    pub is_suspended_completed: atomic_bool,
     pub pending_launch_queue_: monad_async_priority,
-    pub current_executor: monad_async_executor,
     pub ticks_when_attached: monad_async_cpu_ticks_count_t,
     pub ticks_when_detached: monad_async_cpu_ticks_count_t,
     pub ticks_when_suspended_awaiting: monad_async_cpu_ticks_count_t,
@@ -242,58 +287,14 @@ extern "C" {
         ns: u64,
     ) -> monad_async_result;
 }
-pub type __u32 = ::std::os::raw::c_uint;
-pub type __u64 = ::std::os::raw::c_ulonglong;
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct io_sqring_offsets {
-    pub head: __u32,
-    pub tail: __u32,
-    pub ring_mask: __u32,
-    pub ring_entries: __u32,
-    pub flags: __u32,
-    pub dropped: __u32,
-    pub array: __u32,
-    pub resv1: __u32,
-    pub resv2: __u64,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct io_cqring_offsets {
-    pub head: __u32,
-    pub tail: __u32,
-    pub ring_mask: __u32,
-    pub ring_entries: __u32,
-    pub overflow: __u32,
-    pub cqes: __u32,
-    pub flags: __u32,
-    pub resv1: __u32,
-    pub resv2: __u64,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct io_uring_params {
-    pub sq_entries: __u32,
-    pub cq_entries: __u32,
-    pub flags: __u32,
-    pub sq_thread_cpu: __u32,
-    pub sq_thread_idle: __u32,
-    pub features: __u32,
-    pub wq_fd: __u32,
-    pub resv: [__u32; 3usize],
-    pub sq_off: io_sqring_offsets,
-    pub cq_off: io_cqring_offsets,
-}
-pub type atomic_uint = u32;
-pub type atomic_size_t = u64;
 #[doc = "! \\brief The public attributes of an executor"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct monad_async_executor_head {
-    pub current_task: monad_async_task,
-    pub tasks_pending_launch: size_t,
-    pub tasks_running: size_t,
-    pub tasks_suspended: size_t,
+    pub current_task: u64,
+    pub tasks_pending_launch: atomic_size_t,
+    pub tasks_running: atomic_size_t,
+    pub tasks_suspended: atomic_size_t,
 }
 #[doc = "! \\brief Attributes by which to construct an executor"]
 #[repr(C)]

@@ -1,12 +1,13 @@
 #pragma once
 
+// Needs to come before others, on clang <stdatomic.h> breaks <atomic>
+#include <boost/outcome/experimental/status_result.hpp>
+
 #include "executor.h"
 #include "task.h"
 #include "work_dispatcher.h"
 
 #include <memory>
-
-#include <boost/outcome/experimental/status_result.hpp>
 
 namespace monad
 {

@@ -2,9 +2,12 @@
 
 #include "config.h"
 
-#include "task.h"
-
 #include <liburing.h>
+
+// Must come after <liburing.h>, otherwise breaks build on clang
+#include <stdatomic.h>
+
+#include "task.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -15,10 +18,18 @@ extern "C"
 typedef struct monad_async_executor_head
 {
     // The following are not user modifiable
-    monad_async_task current_task;
-    size_t tasks_pending_launch;
-    size_t tasks_running;
-    size_t tasks_suspended;
+#ifdef __cplusplus
+    // C++ is difficult here and requires std::
+    std::atomic<monad_async_task> current_task;
+    std::atomic_size_t tasks_pending_launch;
+    std::atomic_size_t tasks_running;
+    std::atomic_size_t tasks_suspended;
+#else
+    _Atomic monad_async_task current_task;
+    atomic_size_t tasks_pending_launch;
+    atomic_size_t tasks_running;
+    atomic_size_t tasks_suspended;
+#endif
 } *monad_async_executor;
 
 //! \brief Attributes by which to construct an executor

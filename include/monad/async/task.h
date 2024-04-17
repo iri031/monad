@@ -2,6 +2,7 @@
 
 #include "context_switcher.h"
 
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
 
@@ -26,10 +27,16 @@ typedef struct monad_async_task_head
     void *user_ptr;
 
     // The following are not user modifiable
-    bool is_awaiting_dispatch, is_pending_launch, is_running,
-        is_suspended_awaiting, is_suspended_completed;
+#ifdef __cplusplus
+    std::atomic<monad_async_executor> current_executor;
+    std::
+#else
+    _Atomic monad_async_executor current_executor;
+#endif
+        atomic_bool is_awaiting_dispatch,
+        is_pending_launch, is_running, is_suspended_awaiting,
+        is_suspended_completed;
     monad_async_priority pending_launch_queue_;
-    monad_async_executor current_executor;
     monad_async_cpu_ticks_count_t ticks_when_attached;
     monad_async_cpu_ticks_count_t ticks_when_detached;
     monad_async_cpu_ticks_count_t ticks_when_suspended_awaiting;
