@@ -339,8 +339,13 @@ extern "C" {
 }
 extern "C" {
     #[doc = "! \\brief THREADSAFE Causes a sleeping executor to wake. Can be called from any"]
-    #[doc = "! kernel thread."]
-    pub fn monad_async_executor_wake(ex: monad_async_executor) -> monad_async_result;
+    #[doc = "! kernel thread. `cause_run_to_return` causes `monad_async_executor_run()` to"]
+    #[doc = "! return the result given, otherwise the internal sleep wakes, executor state"]
+    #[doc = "! is examined for new work and the sleep reestablished."]
+    pub fn monad_async_executor_wake(
+        ex: monad_async_executor,
+        cause_run_to_return: *mut monad_async_result,
+    ) -> monad_async_result;
 }
 #[doc = "! \\brief The public attributes of a work dispatcher"]
 #[repr(C)]

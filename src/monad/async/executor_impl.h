@@ -9,6 +9,10 @@
 #include <sys/eventfd.h>
 #include <unistd.h>
 
+#if MONAD_ASYNC_HAVE_TSAN
+    #include <sanitizer/tsan_interface.h>
+#endif
+
 struct monad_async_executor_impl
 {
     struct monad_async_executor_head head;
@@ -18,16 +22,18 @@ struct monad_async_executor_impl
     atomic_bool need_to_empty_eventfd;
     monad_async_context run_context;
     struct io_uring ring, wr_ring;
-    int eventfd;
     LIST_DEFINE_P(tasks_running, struct monad_async_task_impl);
     LIST_DEFINE_P(tasks_suspended_awaiting, struct monad_async_task_impl);
     LIST_DEFINE_P(tasks_suspended_completed, struct monad_async_task_impl);
+    monad_async_result *_Atomic cause_run_to_return;
 
     // all items below this require taking the lock
     atomic_int lock;
+    int eventfd;
     monad_async_priority tasks_pending_launch_next_queue;
     // Note NOT sorted by task priority!
     LIST_DEFINE_P(tasks_pending_launch, struct monad_async_task_impl);
+    monad_async_result cause_run_to_return_value;
 };
 
 // diseased dead beef in hex, last bit set so won't be a pointer
@@ -36,17 +42,29 @@ static void *const EXECUTOR_EVENTFD_READY_IO_URING_DATA_MAGIC =
 
 static inline void atomic_lock(atomic_int *lock)
 {
+#if MONAD_ASYNC_HAVE_TSAN
+    __tsan_mutex_pre_lock(lock, __tsan_mutex_try_lock);
+#endif
     int expected = 0;
     while (!atomic_compare_exchange_strong_explicit(
         lock, &expected, 1, memory_order_acq_rel, memory_order_relaxed)) {
         thrd_yield();
         expected = 0;
     }
+#if MONAD_ASYNC_HAVE_TSAN
+    __tsan_mutex_post_lock(lock, __tsan_mutex_try_lock, 0);
+#endif
 }
 
 static inline void atomic_unlock(atomic_int *lock)
 {
+#if MONAD_ASYNC_HAVE_TSAN
+    __tsan_mutex_pre_unlock(lock, __tsan_mutex_try_lock);
+#endif
     atomic_store_explicit(lock, 0, memory_order_release);
+#if MONAD_ASYNC_HAVE_TSAN
+    __tsan_mutex_post_unlock(lock, __tsan_mutex_try_lock);
+#endif
 }
 
 static inline int64_t timespec_to_ns(const struct timespec *a)
@@ -183,6 +201,26 @@ monad_async_executor_destroy_impl(struct monad_async_executor_impl *ex)
     if (ex->eventfd != -1) {
         close(ex->eventfd);
         ex->eventfd = -1;
+    }
+    return monad_async_make_success(0);
+}
+
+static inline monad_async_result monad_async_executor_wake_impl(
+    atomic_int * /*lock must be held on entry*/,
+    struct monad_async_executor_impl *ex,
+    monad_async_result *cause_run_to_return)
+{
+    if (cause_run_to_return != nullptr) {
+        ex->cause_run_to_return_value = *cause_run_to_return;
+        atomic_store_explicit(
+            &ex->cause_run_to_return,
+            &ex->cause_run_to_return_value,
+            memory_order_release);
+    }
+    atomic_store_explicit(
+        &ex->need_to_empty_eventfd, true, memory_order_release);
+    if (-1 == eventfd_write(ex->eventfd, 1)) {
+        return monad_async_make_success(errno);
     }
     return monad_async_make_success(0);
 }

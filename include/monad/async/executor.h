@@ -65,9 +65,11 @@ MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_executor_run(
     monad_async_executor ex, size_t max_items, struct timespec *timeout);
 
 //! \brief THREADSAFE Causes a sleeping executor to wake. Can be called from any
-//! kernel thread.
-MONAD_ASYNC_NODISCARD extern monad_async_result
-monad_async_executor_wake(monad_async_executor ex);
+//! kernel thread. `cause_run_to_return` causes `monad_async_executor_run()` to
+//! return the result given, otherwise the internal sleep wakes, executor state
+//! is examined for new work and the sleep reestablished.
+MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_executor_wake(
+    monad_async_executor ex, monad_async_result *cause_run_to_return);
 
 #ifdef __cplusplus
 }

@@ -318,14 +318,13 @@ TEST(executor, foreign_thread)
 {
     struct executor_thread
     {
-        std::mutex lock;
         executor_ptr executor;
         std::thread thread;
         uint32_t ops{0};
     };
 
     std::vector<executor_thread> executor_threads(
-        1 /*std::thread::hardware_concurrency()*/);
+        std::thread::hardware_concurrency());
     std::atomic<int> latch{0};
     for (size_t n = 0; n < executor_threads.size(); n++) {
         executor_threads[n].thread = std::thread(
@@ -333,22 +332,19 @@ TEST(executor, foreign_thread)
                 monad_async_executor_attr ex_attr{};
                 state->executor = make_executor(ex_attr);
                 latch++;
-                std::unique_lock g(state->lock);
                 for (;;) {
-                    g.unlock();
                     auto r = to_result(monad_async_executor_run(
                         state->executor.get(), size_t(-1), nullptr));
-                    g.lock();
                     if (!r) {
+                        if (r.assume_error() == errc::operation_canceled) {
+                            break;
+                        }
                         std::cerr
                             << "FATAL: " << r.assume_error().message().c_str()
                             << std::endl;
                         abort();
                     }
                     state->ops += uint32_t(r.assume_value());
-                    if (latch.load(std::memory_order_relaxed) < 0) {
-                        break;
-                    }
                 }
                 state->executor.reset();
             },
@@ -439,14 +435,9 @@ TEST(executor, foreign_thread)
         }
     }
     while (std::chrono::steady_clock::now() - begin < std::chrono::seconds(5));
-    latch = -1;
+    auto cancelled = monad_async_make_failure(ECANCELED);
     for (auto &i : executor_threads) {
-        {
-            std::lock_guard h(i.lock);
-            if (i.executor) {
-                CHECK_RESULT(monad_async_executor_wake(i.executor.get()));
-            }
-        }
+        CHECK_RESULT(monad_async_executor_wake(i.executor.get(), &cancelled));
         i.thread.join();
     }
     auto const end = std::chrono::steady_clock::now();

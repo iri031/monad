@@ -402,6 +402,15 @@ static inline monad_async_result monad_async_executor_run_impl(
                 }
             }
         }
+        if (atomic_load_explicit(
+                &ex->cause_run_to_return, memory_order_acquire) != nullptr) {
+            atomic_lock(&ex->lock);
+            monad_async_result r = ex->cause_run_to_return_value;
+            atomic_store_explicit(
+                &ex->cause_run_to_return, nullptr, memory_order_release);
+            atomic_unlock(&ex->lock);
+            return r;
+        }
         struct resume_tasks_state resume_tasks_state = {
             .ex = ex, .max_items = &max_items};
         if (max_items > 0) {
@@ -537,16 +546,16 @@ static monad_async_result monad_async_executor_suspend_impl(
     return task->head.result;
 }
 
-monad_async_result monad_async_executor_wake(monad_async_executor ex_)
+monad_async_result monad_async_executor_wake(
+    monad_async_executor ex_, monad_async_result *cause_run_to_return)
 {
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)ex_;
-    atomic_store_explicit(
-        &ex->need_to_empty_eventfd, true, memory_order_release);
-    if (-1 == eventfd_write(ex->eventfd, 1)) {
-        return monad_async_make_success(errno);
-    }
-    return monad_async_make_success(0);
+    atomic_lock(&ex->lock);
+    monad_async_result r =
+        monad_async_executor_wake_impl(&ex->lock, ex, cause_run_to_return);
+    atomic_unlock(&ex->lock);
+    return r;
 }
 
 void monad_async_executor_task_exited(monad_async_task task_)
@@ -678,7 +687,7 @@ monad_async_result monad_async_task_attach(
     if (on_foreign_thread) {
         MONAD_ASYNC_TRY_RESULT(
             (void)atomic_unlock(&ex->lock),
-            monad_async_executor_wake(&ex->head));
+            monad_async_executor_wake_impl(&ex->lock, ex, nullptr));
     }
     atomic_unlock(&ex->lock);
     return monad_async_make_success(0);

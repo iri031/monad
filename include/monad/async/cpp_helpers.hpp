@@ -13,6 +13,8 @@ namespace monad
 {
     namespace async
     {
+        using BOOST_OUTCOME_V2_NAMESPACE::experimental::errc;
+
         //! \brief Return a C result as a C++ result
         extern BOOST_OUTCOME_V2_NAMESPACE::experimental::status_result<intptr_t>
         to_result(monad_async_result r);

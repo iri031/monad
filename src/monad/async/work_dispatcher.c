@@ -426,7 +426,7 @@ monad_async_result monad_async_work_dispatcher_quit(
                 togo--;
                 MONAD_ASYNC_TRY_RESULT(
                     (void)mtx_unlock(&dp->lock),
-                    monad_async_executor_wake(&ex->derived.head));
+                    monad_async_executor_wake(&ex->derived.head, nullptr));
             }
         }
         ex = dp->executors.working.front;
@@ -440,7 +440,7 @@ monad_async_result monad_async_work_dispatcher_quit(
                 togo--;
                 MONAD_ASYNC_TRY_RESULT(
                     (void)mtx_unlock(&dp->lock),
-                    monad_async_executor_wake(&ex->derived.head));
+                    monad_async_executor_wake(&ex->derived.head, nullptr));
             }
         }
         dp->workloads_changed_waiting++;
