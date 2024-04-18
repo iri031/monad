@@ -547,7 +547,7 @@ static monad_async_result monad_async_executor_suspend_impl(
 }
 
 monad_async_result monad_async_executor_wake(
-    monad_async_executor ex_, monad_async_result *cause_run_to_return)
+    monad_async_executor ex_, monad_async_result const *cause_run_to_return)
 {
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)ex_;

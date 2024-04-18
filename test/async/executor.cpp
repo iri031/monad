@@ -46,7 +46,6 @@ TEST(async_result, works)
     }
 }
 
-#if 0
 TEST(executor, works)
 {
     monad_async_executor_attr ex_attr{};
@@ -79,10 +78,12 @@ TEST(executor, works)
         t1->user_ptr = (void *)&did_run;
         t1->user_code = +[](monad_async_task task) -> monad_async_result {
             *(bool *)task->user_ptr = true;
-            EXPECT_EQ(task->current_executor->current_task, task);
-            EXPECT_EQ(task->current_executor->tasks_pending_launch, 0);
-            EXPECT_EQ(task->current_executor->tasks_running, 1);
-            EXPECT_EQ(task->current_executor->tasks_suspended, 0);
+            auto *current_executor =
+                task->current_executor.load(std::memory_order_acquire);
+            EXPECT_EQ(current_executor->current_task, task);
+            EXPECT_EQ(current_executor->tasks_pending_launch, 0);
+            EXPECT_EQ(current_executor->tasks_running, 1);
+            EXPECT_EQ(current_executor->tasks_suspended, 0);
             return monad_async_make_success(5);
         };
         r = monad_async_task_attach(ex.get(), t1.get(), nullptr);
@@ -128,17 +129,21 @@ TEST(executor, works)
             t1->user_ptr = (void *)&did_run;
             t1->user_code = +[](monad_async_task task) -> monad_async_result {
                 *(int *)task->user_ptr = 1;
-                EXPECT_EQ(task->current_executor->current_task, task);
-                EXPECT_EQ(task->current_executor->tasks_pending_launch, 0);
-                EXPECT_EQ(task->current_executor->tasks_running, 1);
-                EXPECT_EQ(task->current_executor->tasks_suspended, 0);
+                auto *current_executor =
+                    task->current_executor.load(std::memory_order_acquire);
+                EXPECT_EQ(current_executor->current_task, task);
+                EXPECT_EQ(current_executor->tasks_pending_launch, 0);
+                EXPECT_EQ(current_executor->tasks_running, 1);
+                EXPECT_EQ(current_executor->tasks_suspended, 0);
                 CHECK_RESULT(monad_async_task_suspend_for_duration(
                     task, 1000)); // one microsecond
                 *(int *)task->user_ptr = 2;
-                EXPECT_EQ(task->current_executor->current_task, task);
-                EXPECT_EQ(task->current_executor->tasks_pending_launch, 0);
-                EXPECT_EQ(task->current_executor->tasks_running, 1);
-                EXPECT_EQ(task->current_executor->tasks_suspended, 0);
+                current_executor =
+                    task->current_executor.load(std::memory_order_acquire);
+                EXPECT_EQ(current_executor->current_task, task);
+                EXPECT_EQ(current_executor->tasks_pending_launch, 0);
+                EXPECT_EQ(current_executor->tasks_running, 1);
+                EXPECT_EQ(current_executor->tasks_suspended, 0);
                 return monad_async_make_success(5);
             };
             r = monad_async_task_attach(ex.get(), t1.get(), nullptr);
@@ -312,7 +317,6 @@ TEST(executor, works)
             << " ns/op." << std::endl;
     }
 }
-#endif
 
 TEST(executor, foreign_thread)
 {

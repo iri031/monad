@@ -83,6 +83,13 @@ MONAD_ASYNC_NODISCARD extern monad_async_result
 monad_async_work_dispatcher_executor_run(
     monad_async_work_dispatcher_executor ex);
 
+//! \brief THREADSAFE Causes a sleeping work dispatcher executor to wake. Same
+//! as `monad_async_executor_wake()`, but for work dispatcher executors.
+MONAD_ASYNC_NODISCARD extern monad_async_result
+monad_async_work_dispatcher_executor_wake(
+    monad_async_work_dispatcher_executor ex,
+    monad_async_result const *cause_run_to_return);
+
 //! \brief THREADSAFE Submits one or more tasks to be executed by the first
 //! available executor within the work dispatcher pool. Higher priority tasks
 //! are executed before lower priority tasks.

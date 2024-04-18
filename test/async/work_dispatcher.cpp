@@ -12,15 +12,32 @@
 
 TEST(work_dispatcher, works)
 {
-    return; // not implemented yet
-
     struct thread_state
     {
+        std::atomic<monad_async_work_dispatcher_executor> ex;
         std::thread thread;
 
-        explicit thread_state(monad_async_work_dispatcher wd)
-            : thread(&thread_state::run, this, wd)
+        thread_state() = default;
+
+        thread_state(thread_state &&o) noexcept
+            : thread(std::move(o.thread))
         {
+        }
+
+        ~thread_state()
+        {
+            if (thread.joinable()) {
+                if (ex != nullptr) {
+                    auto r = monad_async_make_success(-1);
+                    (void)monad_async_work_dispatcher_executor_wake(ex, &r);
+                }
+                thread.join();
+            }
+        }
+
+        void launch(monad_async_work_dispatcher wd)
+        {
+            thread = std::thread(&thread_state::run, this, wd);
         }
 
         void run(monad_async_work_dispatcher wd)
@@ -29,14 +46,16 @@ TEST(work_dispatcher, works)
             {
             };
 
-            auto ex = make_work_dispatcher_executor(wd, ex_attr);
+            auto ex_ = make_work_dispatcher_executor(wd, ex_attr);
+            ex.store(ex_.get());
             for (;;) {
-                auto r = monad_async_work_dispatcher_executor_run(ex.get());
+                auto r = monad_async_work_dispatcher_executor_run(ex_.get());
                 CHECK_RESULT(r);
                 if (r.value < 0) {
                     break;
                 }
             }
+            ex.store(nullptr);
         }
     };
 
@@ -45,17 +64,17 @@ TEST(work_dispatcher, works)
     };
 
     auto wd = make_work_dispatcher(wd_attr);
-    std::vector<thread_state> threads;
+    std::vector<thread_state> threads(
+        1 /*std::thread::hardware_concurrency()*/);
 
-    for (size_t n = 0; n < std::thread::hardware_concurrency(); n++) {
-        threads.emplace_back(thread_state(wd.get()));
+    for (auto &i : threads) {
+        i.launch(wd.get());
     }
 
     struct task_state
     {
         task_ptr task;
         unsigned ops{0};
-        bool done{true};
 
         task_state(monad_async_context_switcher switcher)
             : task([&] {
@@ -63,12 +82,18 @@ TEST(work_dispatcher, works)
                 return make_task(switcher, t_attr);
             }())
         {
+            task->user_code = task_state::run;
+        }
+
+        task_state(task_state &&o) noexcept
+            : task(std::move(o.task))
+            , ops(o.ops)
+        {
         }
 
         void run()
         {
             ops++;
-            done = true;
         }
 
         static monad_async_result run(monad_async_task task)
@@ -83,6 +108,9 @@ TEST(work_dispatcher, works)
     for (size_t n = 0; n < 1024; n++) {
         tasks.emplace_back(cs.get());
     }
+    for (auto &i : tasks) {
+        i.task->user_ptr = &i;
+    }
 
     std::vector<monad_async_task> task_ptrs;
     task_ptrs.resize(tasks.size());
@@ -90,9 +118,11 @@ TEST(work_dispatcher, works)
     auto const begin = std::chrono::steady_clock::now();
     do {
         for (size_t n = 0; n < tasks.size(); n++) {
-            if (tasks[n].done) {
+            if (tasks[n].task->current_executor.load(
+                    std::memory_order_acquire) == nullptr &&
+                !tasks[n].task->is_awaiting_dispatch.load(
+                    std::memory_order_acquire)) {
                 task_ptrs[n] = tasks[n].task.get();
-                tasks[n].done = false;
             }
             else {
                 task_ptrs[n] = nullptr;
@@ -101,9 +131,10 @@ TEST(work_dispatcher, works)
         CHECK_RESULT(monad_async_work_dispatcher_submit(
             wd.get(), task_ptrs.data(), task_ptrs.size()));
     }
-    while (std::chrono::steady_clock::now() - begin < std::chrono::seconds(5));
 
+    while (std::chrono::steady_clock::now() - begin < std::chrono::seconds(5));
     auto const end = std::chrono::steady_clock::now();
+    CHECK_RESULT(monad_async_work_dispatcher_quit(wd.get(), 0, nullptr));
     uint64_t ops = 0;
     for (auto &i : tasks) {
         ops += i.ops;

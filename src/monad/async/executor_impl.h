@@ -67,6 +67,30 @@ static inline void atomic_unlock(atomic_int *lock)
 #endif
 }
 
+static inline int mutex_lock(mtx_t *lock)
+{
+#if MONAD_ASYNC_HAVE_TSAN
+    __tsan_mutex_pre_lock(lock, __tsan_mutex_try_lock);
+#endif
+    int r = mtx_lock(lock);
+#if MONAD_ASYNC_HAVE_TSAN
+    __tsan_mutex_post_lock(lock, __tsan_mutex_try_lock, 0);
+#endif
+    return r;
+}
+
+static inline int mutex_unlock(mtx_t *lock)
+{
+#if MONAD_ASYNC_HAVE_TSAN
+    __tsan_mutex_pre_unlock(lock, __tsan_mutex_try_lock);
+#endif
+    int r = mtx_unlock(lock);
+#if MONAD_ASYNC_HAVE_TSAN
+    __tsan_mutex_post_unlock(lock, __tsan_mutex_try_lock);
+#endif
+    return r;
+}
+
 static inline int64_t timespec_to_ns(const struct timespec *a)
 {
     return ((int64_t)a->tv_sec * 1000000000LL) + (int64_t)a->tv_nsec;
@@ -208,7 +232,7 @@ monad_async_executor_destroy_impl(struct monad_async_executor_impl *ex)
 static inline monad_async_result monad_async_executor_wake_impl(
     atomic_int * /*lock must be held on entry*/,
     struct monad_async_executor_impl *ex,
-    monad_async_result *cause_run_to_return)
+    monad_async_result const *cause_run_to_return)
 {
     if (cause_run_to_return != nullptr) {
         ex->cause_run_to_return_value = *cause_run_to_return;

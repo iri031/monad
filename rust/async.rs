@@ -344,7 +344,7 @@ extern "C" {
     #[doc = "! is examined for new work and the sleep reestablished."]
     pub fn monad_async_executor_wake(
         ex: monad_async_executor,
-        cause_run_to_return: *mut monad_async_result,
+        cause_run_to_return: *const monad_async_result,
     ) -> monad_async_result;
 }
 #[doc = "! \\brief The public attributes of a work dispatcher"]
@@ -421,6 +421,14 @@ extern "C" {
     #[doc = "! of work items executed, or -1 when time to exit."]
     pub fn monad_async_work_dispatcher_executor_run(
         ex: monad_async_work_dispatcher_executor,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief THREADSAFE Causes a sleeping work dispatcher executor to wake. Same"]
+    #[doc = "! as `monad_async_executor_wake()`, but for work dispatcher executors."]
+    pub fn monad_async_work_dispatcher_executor_wake(
+        ex: monad_async_work_dispatcher_executor,
+        cause_run_to_return: *const monad_async_result,
     ) -> monad_async_result;
 }
 extern "C" {

@@ -11,7 +11,7 @@ struct monad_async_work_dispatcher_executor_impl
     struct monad_async_work_dispatcher_executor_head head;
     struct monad_async_executor_impl derived;
     struct monad_async_work_dispatcher_executor_impl *prev, *next;
-    bool please_quit;
+    atomic_bool please_quit;
     struct timespec last_work_executed;
 };
 
@@ -93,11 +93,11 @@ monad_async_result monad_async_work_dispatcher_executor_create(
         .is_idle = true,
         .is_working = false};
     memcpy(&p->head, &head, sizeof(head));
-    if (thrd_success != mtx_lock(&dp->lock)) {
+    if (thrd_success != mutex_lock(&dp->lock)) {
         return monad_async_make_failure(errno);
     }
     LIST_APPEND_ATOMIC_COUNTER(dp->executors.idle, p, &dp_->executors.idle);
-    if (thrd_success != mtx_unlock(&dp->lock)) {
+    if (thrd_success != mutex_unlock(&dp->lock)) {
         return monad_async_make_failure(errno);
     }
     *ex = (monad_async_work_dispatcher_executor)p;
@@ -112,7 +112,7 @@ monad_async_result monad_async_work_dispatcher_executor_destroy(
     MONAD_ASYNC_TRY_RESULT(, monad_async_executor_destroy_impl(&p->derived));
     struct monad_async_work_dispatcher_impl *dp =
         (struct monad_async_work_dispatcher_impl *)p->head.dispatcher;
-    if (thrd_success != mtx_lock(&dp->lock)) {
+    if (thrd_success != mutex_lock(&dp->lock)) {
         return monad_async_make_failure(errno);
     }
     if (p->head.is_idle) {
@@ -123,7 +123,7 @@ monad_async_result monad_async_work_dispatcher_executor_destroy(
         LIST_REMOVE_ATOMIC_COUNTER(
             dp->executors.working, p, &dp->head.executors.working);
     }
-    if (thrd_success != mtx_unlock(&dp->lock)) {
+    if (thrd_success != mutex_unlock(&dp->lock)) {
         return monad_async_make_failure(errno);
     }
     free(p);
@@ -135,9 +135,13 @@ monad_async_result monad_async_work_dispatcher_executor_run(
 {
     struct monad_async_work_dispatcher_executor_impl *p =
         (struct monad_async_work_dispatcher_executor_impl *)ex;
-    if (p->please_quit && p->derived.head.tasks_pending_launch == 0 &&
-        p->derived.head.tasks_running == 0 &&
-        p->derived.head.tasks_suspended == 0) {
+    if (atomic_load_explicit(&p->please_quit, memory_order_acquire) &&
+        atomic_load_explicit(
+            &p->derived.head.tasks_pending_launch, memory_order_acquire) == 0 &&
+        atomic_load_explicit(
+            &p->derived.head.tasks_running, memory_order_acquire) == 0 &&
+        atomic_load_explicit(
+            &p->derived.head.tasks_suspended, memory_order_acquire) == 0) {
         return monad_async_make_success(-1);
     }
     struct monad_async_work_dispatcher_impl *dp =
@@ -152,7 +156,7 @@ monad_async_result monad_async_work_dispatcher_executor_run(
 retry:
     monad_async_result r = monad_async_executor_run(&p->derived.head, 256, &ts);
     if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
-        if (r.error.value == ETIME) {
+        if (r.error.value == ETIME || r.error.value == ECANCELED) {
             r.value = 0;
         }
         else {
@@ -165,10 +169,10 @@ retry:
         return r;
     }
     // No work was executed last run, see if there is more work for me to launch
-    if (!p->please_quit &&
+    if (!atomic_load_explicit(&p->please_quit, memory_order_acquire) &&
         atomic_load_explicit(
             &dp->head.tasks_awaiting_dispatch, memory_order_relaxed) > 0) {
-        if (thrd_success != mtx_lock(&dp->lock)) {
+        if (thrd_success != mutex_lock(&dp->lock)) {
             return monad_async_make_failure(errno);
         }
         for (monad_async_priority n = monad_async_priority_high;
@@ -192,43 +196,55 @@ retry:
                 if (dp->workloads_changed_waiting > 0) {
                     cnd_broadcast(&dp->workloads_changed);
                 }
-                if (thrd_success != mtx_unlock(&dp->lock)) {
+                if (thrd_success != mutex_unlock(&dp->lock)) {
                     return monad_async_make_failure(errno);
                 }
                 goto retry;
             }
         }
-        if (thrd_success != mtx_unlock(&dp->lock)) {
+        if (thrd_success != mutex_unlock(&dp->lock)) {
             return monad_async_make_failure(errno);
         }
     }
     else if (
-        p->derived.head.tasks_pending_launch == 0 &&
-        p->derived.head.tasks_running == 0 &&
-        p->derived.head.tasks_suspended == 0) {
+        atomic_load_explicit(
+            &p->derived.head.tasks_pending_launch, memory_order_acquire) == 0 &&
+        atomic_load_explicit(
+            &p->derived.head.tasks_running, memory_order_acquire) == 0 &&
+        atomic_load_explicit(
+            &p->derived.head.tasks_suspended, memory_order_acquire) == 0) {
         // We have become idle
-        if (thrd_success != mtx_lock(&dp->lock)) {
+        if (thrd_success != mutex_lock(&dp->lock)) {
             return monad_async_make_failure(errno);
         }
         p->head.is_working = false;
         LIST_REMOVE_ATOMIC_COUNTER(
             dp->executors.working, p, &dp->head.executors.working);
-        if (!p->please_quit) {
+        monad_async_result r = monad_async_make_success(0);
+        if (!atomic_load_explicit(&p->please_quit, memory_order_acquire)) {
             p->head.is_idle = true;
             LIST_APPEND_ATOMIC_COUNTER(
                 dp->executors.idle, p, &dp->head.executors.idle);
+            r = monad_async_make_success(-1);
         }
         if (dp->workloads_changed_waiting > 0) {
             cnd_broadcast(&dp->workloads_changed);
         }
-        if (thrd_success != mtx_unlock(&dp->lock)) {
+        if (thrd_success != mutex_unlock(&dp->lock)) {
             return monad_async_make_failure(errno);
         }
-        if (p->please_quit) {
-            return monad_async_make_success(-1);
-        }
+        return r;
     }
     return monad_async_make_success(0);
+}
+
+monad_async_result monad_async_work_dispatcher_executor_wake(
+    monad_async_work_dispatcher_executor ex,
+    monad_async_result const *cause_run_to_return)
+{
+    struct monad_async_work_dispatcher_executor_impl *p =
+        (struct monad_async_work_dispatcher_executor_impl *)ex;
+    return monad_async_executor_wake(&p->derived.head, cause_run_to_return);
 }
 
 monad_async_result monad_async_work_dispatcher_submit(
@@ -242,7 +258,7 @@ monad_async_result monad_async_work_dispatcher_submit(
     struct monad_async_task_impl **tasks =
         (struct monad_async_task_impl **)tasks_;
     intptr_t added = 0, subtracted = 0;
-    if (thrd_success != mtx_lock(&dp->lock)) {
+    if (thrd_success != mutex_lock(&dp->lock)) {
         return monad_async_make_failure(errno);
     }
     {
@@ -252,6 +268,16 @@ monad_async_result monad_async_work_dispatcher_submit(
             if (*tasksp == nullptr) {
                 tasksp++;
                 continue;
+            }
+            if ((*tasksp)->head.user_code == nullptr ||
+                atomic_load_explicit(
+                    &(*tasksp)->head.current_executor, memory_order_acquire) !=
+                    nullptr ||
+                atomic_load_explicit(
+                    &(*tasksp)->head.is_awaiting_dispatch,
+                    memory_order_acquire) == true) {
+                (void)mutex_unlock(&dp->lock);
+                return monad_async_make_failure(EINVAL);
             }
             LIST_APPEND_ATOMIC_COUNTER(
                 dp->tasks_awaiting_dispatch[(*tasksp)->head.priority.cpu],
@@ -274,7 +300,10 @@ monad_async_result monad_async_work_dispatcher_submit(
              n < monad_async_priority_max;
              n++) {
             if (dp->tasks_awaiting_dispatch[n].count > 0) {
-                for (; ex != nullptr && ex->please_quit; ex = ex->next) {
+                for (; ex != nullptr &&
+                       atomic_load_explicit(
+                           &ex->please_quit, memory_order_acquire);
+                     ex = ex->next) {
                 }
                 if (ex == nullptr) {
                     break;
@@ -308,7 +337,7 @@ monad_async_result monad_async_work_dispatcher_submit(
     if (subtracted > 0 && dp->workloads_changed_waiting > 0) {
         cnd_broadcast(&dp->workloads_changed);
     }
-    if (thrd_success != mtx_unlock(&dp->lock)) {
+    if (thrd_success != mutex_unlock(&dp->lock)) {
         return monad_async_make_failure(errno);
     }
     return monad_async_make_success(added - subtracted);
@@ -327,7 +356,7 @@ monad_async_result monad_async_work_dispatcher_wait(
         clock_gettime(CLOCK_MONOTONIC_COARSE, &now);
         deadline = timespec_to_ns(&now) + timespec_to_ns(timeout);
     }
-    if (thrd_success != mtx_lock(&dp->lock)) {
+    if (thrd_success != mutex_lock(&dp->lock)) {
         return monad_async_make_failure(errno);
     }
     for (;;) {
@@ -376,7 +405,7 @@ monad_async_result monad_async_work_dispatcher_wait(
             break;
         }
     }
-    if (thrd_success != mtx_unlock(&dp->lock)) {
+    if (thrd_success != mutex_unlock(&dp->lock)) {
         return monad_async_make_failure(errno);
     }
     return r;
@@ -401,46 +430,55 @@ monad_async_result monad_async_work_dispatcher_quit(
         clock_gettime(CLOCK_MONOTONIC_COARSE, &now);
         deadline = timespec_to_ns(&now) + timespec_to_ns(timeout);
     }
-    if (thrd_success != mtx_lock(&dp->lock)) {
+    if (thrd_success != mutex_lock(&dp->lock)) {
         return monad_async_make_failure(errno);
     }
+    monad_async_result const cancelled = monad_async_make_failure(ECANCELED);
     for (;;) {
         int togo =
-            (int)max_executors -
             (int)(atomic_load_explicit(
                       &dp->head.executors.idle, memory_order_relaxed) +
                   atomic_load_explicit(
-                      &dp->head.executors.working, memory_order_relaxed));
+                      &dp->head.executors.working, memory_order_relaxed)) -
+            (int)max_executors;
         if (togo <= 0) {
             break;
         }
         struct monad_async_work_dispatcher_executor_impl *ex =
             dp->executors.idle.front;
         while (ex != nullptr && togo > 0) {
-            for (; ex != nullptr && ex->please_quit && togo > 0;
+            for (;
+                 ex != nullptr &&
+                 atomic_load_explicit(&ex->please_quit, memory_order_acquire) &&
+                 togo > 0;
                  ex = ex->next) {
                 togo--;
             }
             if (ex != nullptr && togo > 0) {
-                ex->please_quit = true;
+                atomic_store_explicit(
+                    &ex->please_quit, true, memory_order_release);
                 togo--;
                 MONAD_ASYNC_TRY_RESULT(
-                    (void)mtx_unlock(&dp->lock),
-                    monad_async_executor_wake(&ex->derived.head, nullptr));
+                    (void)mutex_unlock(&dp->lock),
+                    monad_async_executor_wake(&ex->derived.head, &cancelled));
             }
         }
         ex = dp->executors.working.front;
         while (ex != nullptr && togo > 0) {
-            for (; ex != nullptr && ex->please_quit && togo > 0;
+            for (;
+                 ex != nullptr &&
+                 atomic_load_explicit(&ex->please_quit, memory_order_acquire) &&
+                 togo > 0;
                  ex = ex->next) {
                 togo--;
             }
             if (ex != nullptr && togo > 0) {
-                ex->please_quit = true;
+                atomic_store_explicit(
+                    &ex->please_quit, true, memory_order_release);
                 togo--;
                 MONAD_ASYNC_TRY_RESULT(
-                    (void)mtx_unlock(&dp->lock),
-                    monad_async_executor_wake(&ex->derived.head, nullptr));
+                    (void)mutex_unlock(&dp->lock),
+                    monad_async_executor_wake(&ex->derived.head, &cancelled));
             }
         }
         dp->workloads_changed_waiting++;
@@ -467,7 +505,7 @@ monad_async_result monad_async_work_dispatcher_quit(
             break;
         }
     }
-    if (thrd_success != mtx_unlock(&dp->lock)) {
+    if (thrd_success != mutex_unlock(&dp->lock)) {
         return monad_async_make_failure(errno);
     }
     return r;

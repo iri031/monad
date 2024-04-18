@@ -69,7 +69,7 @@ MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_executor_run(
 //! return the result given, otherwise the internal sleep wakes, executor state
 //! is examined for new work and the sleep reestablished.
 MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_executor_wake(
-    monad_async_executor ex, monad_async_result *cause_run_to_return);
+    monad_async_executor ex, monad_async_result const *cause_run_to_return);
 
 #ifdef __cplusplus
 }
