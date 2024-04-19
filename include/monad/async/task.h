@@ -37,6 +37,7 @@ typedef struct monad_async_task_head
         is_pending_launch, is_running, is_suspended_awaiting,
         is_suspended_completed;
     monad_async_priority pending_launch_queue_;
+    monad_async_cpu_ticks_count_t ticks_when_submitted;
     monad_async_cpu_ticks_count_t ticks_when_attached;
     monad_async_cpu_ticks_count_t ticks_when_detached;
     monad_async_cpu_ticks_count_t ticks_when_suspended_awaiting;
@@ -44,6 +45,21 @@ typedef struct monad_async_task_head
     monad_async_cpu_ticks_count_t ticks_when_resumed;
     monad_async_cpu_ticks_count_t total_ticks_executed;
 } *monad_async_task;
+
+//! \brief True if the task has completed executing and has exited
+static inline bool monad_async_task_has_exited(monad_async_task const task)
+{
+#ifdef __cplusplus
+    return task->is_awaiting_dispatch.load(std::memory_order_acquire) ==
+               false &&
+           task->current_executor.load(std::memory_order_acquire) == nullptr;
+#else
+    return atomic_load_explicit(
+               &task->is_awaiting_dispatch, memory_order_acquire) == false &&
+           atomic_load_explicit(
+               &task->current_executor, memory_order_acquire) == NULL;
+#endif
+}
 
 //! \brief Attributes by which to construct a task
 struct monad_async_task_attr

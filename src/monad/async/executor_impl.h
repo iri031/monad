@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <threads.h>
 
+#include <execinfo.h>
 #include <poll.h>
 #include <sys/eventfd.h>
 #include <unistd.h>

@@ -151,6 +151,8 @@ static inline monad_async_result monad_async_executor_run_impl(
     do {
         timed_out = false;
         retry_after_this = false;
+        monad_async_cpu_ticks_count_t const launch_begin =
+            get_ticks_count(memory_order_relaxed);
         if (atomic_load_explicit(
                 &ex->need_to_empty_eventfd, memory_order_acquire) ||
             atomic_load_explicit(
@@ -226,8 +228,13 @@ static inline monad_async_result monad_async_executor_run_impl(
                 }
             }
         }
+        monad_async_cpu_ticks_count_t const launch_end =
+            get_ticks_count(memory_order_relaxed);
+        ex->head.total_ticks_in_task_launch += launch_end - launch_begin;
 
         if (ex->ring.ring_fd != 0) {
+            monad_async_cpu_ticks_count_t const io_uring_begin =
+                get_ticks_count(memory_order_relaxed);
             // Submit all enqueued ops, and wait for some completions
             struct io_uring_cqe *cqe = nullptr;
             int r = io_uring_peek_cqe(&ex->ring, &cqe);
@@ -240,7 +247,12 @@ static inline monad_async_result monad_async_executor_run_impl(
                         "timeout\n",
                         ex);
 #endif
+                    monad_async_cpu_ticks_count_t const sleep_begin =
+                        get_ticks_count(memory_order_relaxed);
                     r = io_uring_submit_and_wait(&ex->ring, 1);
+                    monad_async_cpu_ticks_count_t const sleep_end =
+                        get_ticks_count(memory_order_relaxed);
+                    ex->head.total_ticks_sleeping = sleep_end - sleep_begin;
                     if (r < 0) {
                         return monad_async_make_failure(-r);
                     }
@@ -275,8 +287,13 @@ static inline monad_async_result monad_async_executor_run_impl(
                             return monad_async_make_failure(-r);
                         }
                     }
+                    monad_async_cpu_ticks_count_t const sleep_begin =
+                        get_ticks_count(memory_order_relaxed);
                     r = io_uring_wait_cqe_timeout(
                         &ex->ring, &cqe, (struct __kernel_timespec *)timeout);
+                    monad_async_cpu_ticks_count_t const sleep_end =
+                        get_ticks_count(memory_order_relaxed);
+                    ex->head.total_ticks_sleeping = sleep_end - sleep_begin;
                 }
             }
             if (r < 0) {
@@ -346,6 +363,9 @@ static inline monad_async_result monad_async_executor_run_impl(
                 i);
 #endif
             io_uring_cq_advance(&ex->ring, i);
+            monad_async_cpu_ticks_count_t const io_uring_end =
+                get_ticks_count(memory_order_relaxed);
+            ex->head.total_ticks_in_io_uring += io_uring_end - io_uring_begin;
         }
         else {
             // If io_uring was not enabled for this executor, use the eventfd as
@@ -359,7 +379,12 @@ static inline monad_async_result monad_async_executor_run_impl(
 #endif
                 struct pollfd fds[1] = {
                     {.fd = ex->eventfd, .events = POLLIN, .revents = 0}};
+                monad_async_cpu_ticks_count_t const sleep_begin =
+                    get_ticks_count(memory_order_relaxed);
                 int r = ppoll(fds, 1, nullptr, nullptr);
+                monad_async_cpu_ticks_count_t const sleep_end =
+                    get_ticks_count(memory_order_relaxed);
+                ex->head.total_ticks_sleeping = sleep_end - sleep_begin;
                 if (r == 0) {
                     timed_out = true;
                 }
@@ -390,7 +415,12 @@ static inline monad_async_result monad_async_executor_run_impl(
 #endif
                 struct pollfd fds[1] = {
                     {.fd = ex->eventfd, .events = POLLIN, .revents = 0}};
+                monad_async_cpu_ticks_count_t const sleep_begin =
+                    get_ticks_count(memory_order_relaxed);
                 int r = ppoll(fds, 1, timeout, nullptr);
+                monad_async_cpu_ticks_count_t const sleep_end =
+                    get_ticks_count(memory_order_relaxed);
+                ex->head.total_ticks_sleeping = sleep_end - sleep_begin;
                 if (r == 0) {
                     timed_out = true;
                 }
@@ -414,6 +444,8 @@ static inline monad_async_result monad_async_executor_run_impl(
         struct resume_tasks_state resume_tasks_state = {
             .ex = ex, .max_items = &max_items};
         if (max_items > 0) {
+            monad_async_cpu_ticks_count_t const completions_begin =
+                get_ticks_count(memory_order_relaxed);
             for (;
                  resume_tasks_state.current_priority < monad_async_priority_max;
                  resume_tasks_state.current_priority++) {
@@ -433,6 +465,10 @@ static inline monad_async_result monad_async_executor_run_impl(
                     break;
                 }
             }
+            monad_async_cpu_ticks_count_t const completions_end =
+                get_ticks_count(memory_order_relaxed);
+            ex->head.total_ticks_in_task_completion =
+                completions_end - completions_begin;
         }
         size_t items_processed =
             launch_pending_tasks_state.items + resume_tasks_state.items;
@@ -469,6 +505,8 @@ monad_async_result monad_async_executor_run(
         abort();
     }
     ex->within_run = true;
+    monad_async_cpu_ticks_count_t const run_begin =
+        get_ticks_count(memory_order_relaxed);
 #if MONAD_ASYNC_EXECUTOR_PRINTING
     printf("*** Executor %p enters run\n", ex);
 #endif
@@ -480,6 +518,9 @@ monad_async_result monad_async_executor_run(
         ex,
         ret.value);
 #endif
+    monad_async_cpu_ticks_count_t const run_end =
+        get_ticks_count(memory_order_relaxed);
+    ex->head.total_ticks_in_run += run_end - run_begin;
     ex->within_run = false;
     atomic_store_explicit(
         &ex->head.current_task, nullptr, memory_order_release);
@@ -669,6 +710,8 @@ monad_async_result monad_async_task_attach(
         memory_order_release);
     atomic_store_explicit(
         &task->head.is_pending_launch, true, memory_order_release);
+    atomic_store_explicit(
+        &task->head.is_awaiting_dispatch, false, memory_order_release);
     task->head.ticks_when_attached = get_ticks_count(memory_order_relaxed);
     task->head.ticks_when_detached = 0;
     task->head.ticks_when_resumed = 0;

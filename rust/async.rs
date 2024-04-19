@@ -219,6 +219,7 @@ pub struct monad_async_task_head {
     pub is_suspended_awaiting: atomic_bool,
     pub is_suspended_completed: atomic_bool,
     pub pending_launch_queue_: monad_async_priority,
+    pub ticks_when_submitted: monad_async_cpu_ticks_count_t,
     pub ticks_when_attached: monad_async_cpu_ticks_count_t,
     pub ticks_when_detached: monad_async_cpu_ticks_count_t,
     pub ticks_when_suspended_awaiting: monad_async_cpu_ticks_count_t,
@@ -295,6 +296,11 @@ pub struct monad_async_executor_head {
     pub tasks_pending_launch: atomic_size_t,
     pub tasks_running: atomic_size_t,
     pub tasks_suspended: atomic_size_t,
+    pub total_ticks_in_run: monad_async_cpu_ticks_count_t,
+    pub total_ticks_in_task_launch: monad_async_cpu_ticks_count_t,
+    pub total_ticks_in_io_uring: monad_async_cpu_ticks_count_t,
+    pub total_ticks_sleeping: monad_async_cpu_ticks_count_t,
+    pub total_ticks_in_task_completion: monad_async_cpu_ticks_count_t,
 }
 #[doc = "! \\brief Attributes by which to construct an executor"]
 #[repr(C)]
@@ -368,8 +374,8 @@ pub type monad_async_work_dispatcher = *mut monad_async_work_dispatcher_head;
 pub struct monad_async_work_dispatcher_executor_head {
     pub derived: *mut monad_async_executor_head,
     pub dispatcher: monad_async_work_dispatcher,
-    pub is_working: bool,
-    pub is_idle: bool,
+    pub is_working: atomic_bool,
+    pub is_idle: atomic_bool,
 }
 #[doc = "! \\brief The public attributes of a work dispatcher"]
 pub type monad_async_work_dispatcher_executor = *mut monad_async_work_dispatcher_executor_head;

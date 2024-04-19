@@ -37,7 +37,11 @@ typedef struct monad_async_work_dispatcher_executor_head
     // The following are not user modifiable
     struct monad_async_executor_head *const derived;
     monad_async_work_dispatcher dispatcher;
-    bool is_working, is_idle;
+#ifdef __cplusplus
+    std::
+#endif
+        atomic_bool is_working,
+        is_idle;
 } *monad_async_work_dispatcher_executor;
 
 //! \brief Attributes by which to construct a work dispatcher

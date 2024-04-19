@@ -30,6 +30,11 @@ typedef struct monad_async_executor_head
     atomic_size_t tasks_running;
     atomic_size_t tasks_suspended;
 #endif
+    monad_async_cpu_ticks_count_t total_ticks_in_run;
+    monad_async_cpu_ticks_count_t total_ticks_in_task_launch;
+    monad_async_cpu_ticks_count_t total_ticks_in_io_uring;
+    monad_async_cpu_ticks_count_t total_ticks_sleeping;
+    monad_async_cpu_ticks_count_t total_ticks_in_task_completion;
 } *monad_async_executor;
 
 //! \brief Attributes by which to construct an executor

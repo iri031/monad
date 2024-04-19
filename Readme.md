@@ -24,16 +24,21 @@ throughout.
 - Time between launching a new task and it beginning execution: **100 ns**.
 - Time between a task beginning execution and it being wound up: **90 ns**.
    
-#### Launch new work on executor which suspends on an i/o, resumes and then exits
+#### Launch new work on executor which suspends on an i/o, resumes and then exits:
 - Time between launching a new task and it beginning execution: **130 ns**.
 - Time between a task beginning execution and it initiating the
 i/o with io_uring, and then suspending awaiting the i/o completion: **120 ns**.
 - Time between i/o completing and task resumption: **50 ns**.
 - Time between task resumption and it being wound up: **120 ns**.
 
+#### Launch new work on next idle executor in a thread pool:
+- Loop initiating, executing and tearing down tasks from one kernel thread onto
+a pool of sixty-four executors each running on their own kernel thread:
+**861.84 ns/op**.
+
 ### Superscalar execution:
-- Loop initiating, executing and tearing down tasks: **39.6 ns**/op (4.8x, CPU is
-capable of 5x).
+- Loop initiating, executing and tearing down tasks on the same kernel thread:
+**39.6 ns**/op (4.8x, CPU is capable of 5x).
 
 - Loop suspend-resuming a task using an io_uring noop (i.e. minimum
 possible io_uring op overhead): **85.766 ns**/op (3.38x, io_uring cycle is
@@ -134,7 +139,8 @@ static monad_async_result myfunc(monad_async_task task)
 
 ### Work dispatching to a thread pool
 
-Currently being implemented, but will look like this:
+Work dispatcher is simple but fast -- any executor which finds itself with
+no work to do dequeues a new piece of work from the work dispatcher queue.
 
 ```c
 monad_async_result r;

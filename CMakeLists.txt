@@ -47,6 +47,7 @@ enable_testing()
 function(monad_test target)
   add_executable(${target} ${ARGN})
   target_link_libraries(${target} PRIVATE monad_async GTest::GTest GTest::Main)
+  target_link_options(${target} PRIVATE -rdynamic)
   add_test(NAME ${target} COMMAND $<TARGET_FILE:${target}>)
 endfunction()
 

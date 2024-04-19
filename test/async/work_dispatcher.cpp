@@ -10,12 +10,17 @@
 
 #include <pthread.h>
 
+#ifndef __clang__
+    #pragma GCC diagnostic ignored "-Wclass-memaccess"
+#endif
+
 TEST(work_dispatcher, works)
 {
     struct thread_state
     {
         std::atomic<monad_async_work_dispatcher_executor> ex;
         std::thread thread;
+        monad_async_executor_head stats;
 
         thread_state() = default;
 
@@ -55,6 +60,7 @@ TEST(work_dispatcher, works)
                     break;
                 }
             }
+            memcpy(&stats, ex_->derived, sizeof(stats));
             ex.store(nullptr);
         }
     };
@@ -64,8 +70,7 @@ TEST(work_dispatcher, works)
     };
 
     auto wd = make_work_dispatcher(wd_attr);
-    std::vector<thread_state> threads(
-        1 /*std::thread::hardware_concurrency()*/);
+    std::vector<thread_state> threads(std::thread::hardware_concurrency());
 
     for (auto &i : threads) {
         i.launch(wd.get());
@@ -118,10 +123,7 @@ TEST(work_dispatcher, works)
     auto const begin = std::chrono::steady_clock::now();
     do {
         for (size_t n = 0; n < tasks.size(); n++) {
-            if (tasks[n].task->current_executor.load(
-                    std::memory_order_acquire) == nullptr &&
-                !tasks[n].task->is_awaiting_dispatch.load(
-                    std::memory_order_acquire)) {
+            if (monad_async_task_has_exited(tasks[n].task.get())) {
                 task_ptrs[n] = tasks[n].task.get();
             }
             else {
@@ -135,6 +137,9 @@ TEST(work_dispatcher, works)
     while (std::chrono::steady_clock::now() - begin < std::chrono::seconds(5));
     auto const end = std::chrono::steady_clock::now();
     CHECK_RESULT(monad_async_work_dispatcher_quit(wd.get(), 0, nullptr));
+    for (auto &i : threads) {
+        i.thread.join();
+    }
     uint64_t ops = 0;
     for (auto &i : tasks) {
         ops += i.ops;
@@ -146,4 +151,13 @@ TEST(work_dispatcher, works)
               << threads.size() << " kernel threads which is "
               << (1000000000.0 * double(ops) / diff) << " ops/sec ("
               << (diff / double(ops)) << " ns/op)." << std::endl;
+    std::cout << "\nIndividual executor CPU utilisation:";
+    for (size_t n = 0; n < threads.size(); n++) {
+        std::cout << "\n   " << n << ": "
+                  << (100.0 -
+                      (100.0 * double(threads[n].stats.total_ticks_sleeping) /
+                       double(threads[n].stats.total_ticks_in_run)))
+                  << "%";
+    }
+    std::cout << std::endl;
 }

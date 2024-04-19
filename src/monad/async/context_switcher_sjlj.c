@@ -166,6 +166,7 @@ static void monad_async_context_sjlj_task_runner(
 {
     struct monad_async_context_switcher_sjlj *switcher =
         (struct monad_async_context_switcher_sjlj *)context->head.switcher;
+    (void)switcher;
     // We are now at the base of our custom stack
     //
     // WARNING: This custom stack will get freed without unwind
