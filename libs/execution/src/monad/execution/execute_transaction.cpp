@@ -196,8 +196,11 @@ Result<Receipt> execute_impl(
     BlockHashBuffer const &block_hash_buffer, BlockState &block_state,
     boost::fibers::promise<void> &prev)
 {
-    BOOST_OUTCOME_TRY(
-        static_validate_transaction<rev>(tx, hdr.base_fee_per_gas));
+    auto vres = static_validate_transaction<rev>(tx, hdr.base_fee_per_gas);
+    if (vres.has_error()) {
+        prev.get_future().wait();
+        return std::move(vres.error());
+    }
 
     {
         TRACE_TXN_EVENT(StartExecution);

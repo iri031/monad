@@ -332,7 +332,7 @@ public:
     node_writer_unique_ptr_type node_writer_slow{};
 
     // currently maintain a fixed len history
-    static constexpr unsigned version_history_len = 1000;
+    static constexpr unsigned version_history_len = 10000;
 
     UpdateAuxImpl(MONAD_ASYNC_NAMESPACE::AsyncIO *io_ = nullptr)
     {
