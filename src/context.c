@@ -4,6 +4,7 @@
 #include <malloc.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <errno.h>
 
 
 monad_fiber_context_t * monad_fiber_context_switch(monad_fiber_context_t * from, monad_fiber_context_t * to)
@@ -234,10 +235,23 @@ monad_fiber_context_t * monad_fiber_context_callcc(
 #else
     memory = mmap( 0, size__, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 #endif
-    mprotect( memory, page_size, PROT_NONE);
+    if (memory != NULL)
+    {
+      if (mprotect( memory, page_size, PROT_NONE) != 0)
+      {
+         int err = errno;
+         int r = munmap(memory, allocated_size);
+         assert(r == 0); // PANIC - we just mapped this, what could've gone wrong?
+         errno = err; // reset the error
+         return NULL;
+      }
+    }
   }
   else
     memory = malloc(stack_size);
+
+  if (memory == NULL) // errno can still be checked
+    return NULL;
 
   void * sp = ((char*)memory + allocated_size) - sizeof(monad_fiber_t );
   monad_fiber_t * fb = (monad_fiber_t*)sp;
