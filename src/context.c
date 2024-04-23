@@ -5,6 +5,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <errno.h>
+#include <string.h>
 
 
 monad_fiber_context_t * monad_fiber_context_switch(monad_fiber_context_t * from, monad_fiber_context_t * to)
@@ -209,6 +210,9 @@ static void __attribute__((noinline)) monad_fiber_impl(struct transfer_t t)
   __tsan_switch_to_fiber(to->tsan_fiber, 0);
 #endif
 
+  if (from->name)
+    free(from->name);
+
   struct destroyer d = {.this=call.fiber, .to = to};
   ontop_fcontext(to->fiber, &d,
                  call.fiber->is_protected ? &self_destroy_protected_impl : &self_destroy_impl);
@@ -256,7 +260,7 @@ monad_fiber_context_t * monad_fiber_context_callcc(
   void * sp = ((char*)memory + allocated_size) - sizeof(monad_fiber_t );
   monad_fiber_t * fb = (monad_fiber_t*)sp;
   fb->allocated_size = allocated_size;
-
+  fb->context.name = NULL;
   fb->context.fiber = make_fcontext(sp, stack_size - sizeof(monad_fiber_t), &monad_fiber_impl);
   fb->is_protected = protected_stack;
 
@@ -297,4 +301,10 @@ monad_fiber_context_t * monad_fiber_context_callcc(
     assert(t.fctx == NULL); // if there's no context the fiber must be destroyed as well!
   }
   return resumed_from;
+}
+
+void monad_fiber_set_name(monad_fiber_context_t * this, const char * name)
+{
+  this->name = malloc(strlen(name) + 1);
+  strcpy(this->name, name);
 }

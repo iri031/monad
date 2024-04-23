@@ -27,7 +27,7 @@ typedef struct monad_fiber_context {
 #if defined(MONAD_USE_ASAN)
   struct monad_fiber_context_asan_fake_stack asan, * asan_to_finish;
 #endif
-
+  const char * name;
   // potential additions: context_local data, unwind code, tracing (for debugging) and names (which could be used with tsan)
   // and we can add a vtable here
 
@@ -39,6 +39,7 @@ typedef struct monad_fiber_context {
 #define monad_fiber_is_current(This) (This->fiber != NULL)
 
 monad_fiber_context_t * monad_fiber_main_context();
+void monad_fiber_set_name(monad_fiber_context_t *, const char * name);
 
 // the return is the context we're resumed from
 monad_fiber_context_t * monad_fiber_context_switch(monad_fiber_context_t * from, monad_fiber_context_t * to);

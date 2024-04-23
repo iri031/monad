@@ -34,6 +34,8 @@ TEST(fiber, spawn_protected)
                                       monad_fiber_default_stack_size, true, &spawn_test, &test);
   EXPECT_EQ(test, 1);
   EXPECT_NE(f, nullptr);
+  monad_fiber_set_name(f, "test-fiber");
+  EXPECT_EQ(f->name, std::string("test-fiber"));
   f = monad_fiber_context_switch(monad_fiber_main_context(), f);
   EXPECT_EQ(test, 2);
   EXPECT_EQ(f, nullptr);
