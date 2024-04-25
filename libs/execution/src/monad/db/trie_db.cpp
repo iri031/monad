@@ -966,6 +966,7 @@ void TrieDb::generate_report(
 
         // node size recorder
         std::map<uint64_t, uint64_t> account_leaf_node_sizes_;
+        std::map<uint64_t, uint64_t> account_branch_node_children_;
         std::ofstream &node_size_ofile_;
 
         Traverse(
@@ -989,6 +990,7 @@ void TrieDb::generate_report(
             , one_storage_ofile_(one_storage)
             , address_map_(address_map)
             , account_leaf_node_sizes_{}
+            , account_branch_node_children_{}
             , node_size_ofile_(node_size)
         {
             start_time_ = std::chrono::steady_clock::now();
@@ -1095,6 +1097,22 @@ void TrieDb::generate_report(
                 node_size_ofile_ << size << ": " << cnt << "\n";
             }
 
+            // write account branch node # children
+            std::vector<std::pair<uint64_t, uint64_t>>
+                sorted_account_branch_node_children(
+                    account_branch_node_children_.begin(),
+                    account_branch_node_children_.end());
+            std::sort(
+                sorted_account_branch_node_children.begin(),
+                sorted_account_branch_node_children.end(),
+                vector_pair_cmp_first<uint64_t>());
+
+            node_size_ofile_ << "Account branch node # children summary: \n";
+            for (auto const &[num_children, cnt] :
+                 sorted_account_branch_node_children) {
+                node_size_ofile_ << num_children << ": " << cnt << "\n";
+            }
+
             node_size_ofile_.flush();
         }
 
@@ -1166,6 +1184,21 @@ void TrieDb::generate_report(
                 }
                 else {
                     MONAD_ASSERT(false);
+                }
+
+                // record branch & extension node stats together (in account
+                // trie context)
+                if (node.number_of_children()) {
+                    if (account_branch_node_children_.find(
+                            node.number_of_children()) ==
+                        account_branch_node_children_.end()) {
+                        account_branch_node_children_
+                            [node.number_of_children()] = 1;
+                    }
+                    else {
+                        ++account_branch_node_children_
+                            [node.number_of_children()];
+                    }
                 }
             }
             else if (
