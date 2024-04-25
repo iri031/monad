@@ -207,6 +207,7 @@ void worker_thread(monad_async_work_dispatcher wd)
 
 ## Todo
 
+- Registered buffer i/o still needed
 - Need to test cancellation works
 - Yet to replace setjmp/longjmp based context switching with something
 much better (Klemens).

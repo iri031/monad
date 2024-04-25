@@ -369,7 +369,7 @@ static void monad_async_context_sjlj_suspend_and_call_resume(
             p->head.sanitizer.fake_stack_save,
             &p->head.sanitizer.bottom,
             &p->head.sanitizer.size);
-        assert((int)(uintptr_t)(current_context) == ret);
+        assert((int)((uintptr_t)p ^ ((uintptr_t)p >> 32)) == ret);
         return;
     }
     // Set last suspended
@@ -411,7 +411,7 @@ static void monad_async_context_sjlj_resume(
         &current_context->sanitizer.fake_stack_save,
         new_context->sanitizer.bottom,
         new_context->sanitizer.size);
-    longjmp(p->buf, (int)(uintptr_t)p);
+    longjmp(p->buf, (int)((uintptr_t)p ^ ((uintptr_t)p >> 32)));
 }
 
 static monad_async_result monad_async_context_sjlj_resume_many(
@@ -435,7 +435,9 @@ static monad_async_result monad_async_context_sjlj_resume_many(
             switcher->resume_many_context.head.sanitizer.fake_stack_save,
             &switcher->resume_many_context.head.sanitizer.bottom,
             &switcher->resume_many_context.head.sanitizer.size);
-        assert((int)(uintptr_t)(&switcher->resume_many_context) == ret);
+        assert(
+            (int)((uintptr_t)&switcher->resume_many_context ^
+                  ((uintptr_t)&switcher->resume_many_context >> 32)) == ret);
     }
     monad_async_result r =
         resumed(user_ptr, &switcher->resume_many_context.head);

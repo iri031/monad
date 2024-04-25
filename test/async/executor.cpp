@@ -136,7 +136,7 @@ TEST(executor, works)
                 EXPECT_EQ(current_executor->tasks_running, 1);
                 EXPECT_EQ(current_executor->tasks_suspended, 0);
                 CHECK_RESULT(monad_async_task_suspend_for_duration(
-                    task, 1000)); // one microsecond
+                    nullptr, task, 1000)); // one microsecond
                 *(int *)task->user_ptr = 2;
                 current_executor =
                     task->current_executor.load(std::memory_order_acquire);
@@ -275,7 +275,8 @@ TEST(executor, works)
             auto *shared = (shared_t *)task->user_ptr;
             while (!shared->done) {
                 shared->ops++;
-                auto r = monad_async_task_suspend_for_duration(task, 0);
+                auto r =
+                    monad_async_task_suspend_for_duration(nullptr, task, 0);
                 CHECK_RESULT(r);
             }
             return monad_async_make_success(0);

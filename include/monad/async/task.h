@@ -12,8 +12,33 @@ extern "C"
 #endif
 typedef struct monad_async_executor_head *monad_async_executor;
 
+typedef struct monad_async_task_head *monad_async_task;
+
+//! \brief An i/o status state used to identify an i/o in progress. Must NOT
+//! move in memory until the operation completes.
+typedef struct monad_async_io_status
+{
+    struct monad_async_io_status *prev, *next;
+    monad_async_result (*cancel_)(
+        monad_async_task, struct monad_async_io_status *);
+
+    //! Unspecified value immediately after initiating call returns. Will become
+    //! bytes transferred if operation is successful, or another error if it
+    //! fails or is cancelled.
+    monad_async_result result;
+
+    // You can place any additional data you want after here ...
+} monad_async_io_status;
+
+//! \brief True if the i/o is currently in progress
+static inline bool
+monad_async_is_io_in_progress(monad_async_io_status const *iostatus)
+{
+    return iostatus->result.flags == (unsigned)-1;
+}
+
 //! \brief The public attributes of a task
-typedef struct monad_async_task_head
+struct monad_async_task_head
 {
     // These can be set by the user
     struct
@@ -36,7 +61,9 @@ typedef struct monad_async_task_head
         atomic_bool is_awaiting_dispatch,
         is_pending_launch, is_running, is_suspended_awaiting,
         is_suspended_completed;
+
     monad_async_priority pending_launch_queue_;
+
     monad_async_cpu_ticks_count_t ticks_when_submitted;
     monad_async_cpu_ticks_count_t ticks_when_attached;
     monad_async_cpu_ticks_count_t ticks_when_detached;
@@ -44,7 +71,9 @@ typedef struct monad_async_task_head
     monad_async_cpu_ticks_count_t ticks_when_suspended_completed;
     monad_async_cpu_ticks_count_t ticks_when_resumed;
     monad_async_cpu_ticks_count_t total_ticks_executed;
-} *monad_async_task;
+
+    size_t io_submitted, io_completed_not_reaped;
+};
 
 //! \brief True if the task has completed executing and has exited
 static inline bool monad_async_task_has_exited(monad_async_task const task)
@@ -59,6 +88,25 @@ static inline bool monad_async_task_has_exited(monad_async_task const task)
            atomic_load_explicit(
                &task->current_executor, memory_order_acquire) == NULL;
 #endif
+}
+
+//! \brief If the i/o is currently in progress, returns the task which initiated
+//! the i/o. Otherwise returns nullptr.
+static inline monad_async_task
+monad_async_io_status_owning_task(monad_async_io_status const *iostatus)
+{
+    if (!monad_async_is_io_in_progress(iostatus)) {
+        return NULL;
+    }
+
+    union punner
+    {
+        monad_async_result res;
+        monad_async_task task;
+    } pun;
+
+    pun.res = iostatus->result;
+    return pun.task;
 }
 
 //! \brief Attributes by which to construct a task
@@ -92,20 +140,36 @@ MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_task_attach(
     monad_async_context_switcher
         opt_reparent_switcher); // implemented in executor.c
 
-//! \brief If a task is currently suspended on an operation, cancel it. This can
-//! take some time for the relevant io_uring operation to also cancel. If the
-//! task is yet to launch, don't launch it. If the task isn't currently running,
-//! returns `ENOENT`. The suspension point will return `ECANCELED` next time the
-//! task resumes.
+//! \brief THREADSAFE If a task is currently suspended on an operation, cancel
+//! it. This can take some time for the relevant io_uring operation to also
+//! cancel. If the task is yet to launch, don't launch it. If the task isn't
+//! currently running, returns `ENOENT`. The suspension point will return
+//! `ECANCELED` next time the task resumes.
 MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_task_cancel(
     monad_async_executor executor,
     monad_async_task task); // implemented in executor.c
 
+//! \brief Ask io_uring to cancel a previously initiated operation. It can take
+//! some time for io_uring to cancel an operation, and it may ignore your
+//! request.
+MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_task_io_cancel(
+    monad_async_task task,
+    monad_async_io_status *iostatus); // implemented in executor.c
+
+//! \brief Marks a completed i/o status as reaped, and returns the next one if
+//! any.
+MONAD_ASYNC_NODISCARD extern monad_async_io_status *monad_async_task_io_next(
+    monad_async_task task,
+    monad_async_io_status *completed); // implemented in executor.c
+
 //! \brief Suspend execution of a task for a given duration, which can be zero
-//! (which equates "yield").
+//! (which equates "yield"). If `completed` is not null, if any i/o which the
+//! task has initiated completes during the suspension, resume the task setting
+//! `completed` to which i/o has just completed.
 MONAD_ASYNC_NODISCARD extern monad_async_result
 monad_async_task_suspend_for_duration(
-    monad_async_task task, uint64_t ns); // implemented in executor.c
+    monad_async_io_status **completed, monad_async_task task,
+    uint64_t ns); // implemented in executor.c
 
 #ifdef __cplusplus
 }

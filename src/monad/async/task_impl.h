@@ -87,6 +87,14 @@ struct monad_async_task_impl
     monad_async_context context;
     bool please_cancel_invoked;
     monad_async_result (*please_cancel)(struct monad_async_task_impl *task);
+
+    struct
+    {
+        monad_async_io_status *front, *back;
+        size_t count;
+    } io_submitted, io_completed;
+
+    monad_async_io_status **completed;
 };
 
 #define LIST_DEFINE_N(name, type)                                              \

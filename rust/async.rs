@@ -87,7 +87,6 @@ pub struct io_uring_params {
 pub type atomic_bool = u8;
 pub type atomic_uint = u32;
 pub type atomic_size_t = u64;
-#[doc = "! \\brief The public attributes of a task"]
 pub type monad_async_task = *mut monad_async_task_head;
 pub type monad_async_context = *mut monad_async_context_head;
 #[repr(C)]
@@ -202,6 +201,24 @@ extern "C" {
 }
 #[doc = "! \\brief The public attributes of an executor"]
 pub type monad_async_executor = *mut monad_async_executor_head;
+#[doc = "! \\brief An i/o status state used to identify an i/o in progress. Must NOT"]
+#[doc = "! move in memory until the operation completes."]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct monad_async_io_status {
+    pub prev: *mut monad_async_io_status,
+    pub next: *mut monad_async_io_status,
+    pub cancel_: ::std::option::Option<
+        unsafe extern "C" fn(
+            arg1: monad_async_task,
+            arg2: *mut monad_async_io_status,
+        ) -> monad_async_result,
+    >,
+    #[doc = "! Unspecified value immediately after initiating call returns. Will become"]
+    #[doc = "! bytes transferred if operation is successful, or another error if it"]
+    #[doc = "! fails or is cancelled."]
+    pub result: monad_async_result,
+}
 #[doc = "! \\brief The public attributes of a task"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -226,6 +243,8 @@ pub struct monad_async_task_head {
     pub ticks_when_suspended_completed: monad_async_cpu_ticks_count_t,
     pub ticks_when_resumed: monad_async_cpu_ticks_count_t,
     pub total_ticks_executed: monad_async_cpu_ticks_count_t,
+    pub io_submitted: size_t,
+    pub io_completed_not_reaped: size_t,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -270,20 +289,40 @@ extern "C" {
     ) -> monad_async_result;
 }
 extern "C" {
-    #[doc = "! \\brief If a task is currently suspended on an operation, cancel it. This can"]
-    #[doc = "! take some time for the relevant io_uring operation to also cancel. If the"]
-    #[doc = "! task is yet to launch, don't launch it. If the task isn't currently running,"]
-    #[doc = "! returns `ENOENT`. The suspension point will return `ECANCELED` next time the"]
-    #[doc = "! task resumes."]
+    #[doc = "! \\brief THREADSAFE If a task is currently suspended on an operation, cancel"]
+    #[doc = "! it. This can take some time for the relevant io_uring operation to also"]
+    #[doc = "! cancel. If the task is yet to launch, don't launch it. If the task isn't"]
+    #[doc = "! currently running, returns `ENOENT`. The suspension point will return"]
+    #[doc = "! `ECANCELED` next time the task resumes."]
     pub fn monad_async_task_cancel(
         executor: monad_async_executor,
         task: monad_async_task,
     ) -> monad_async_result;
 }
 extern "C" {
+    #[doc = "! \\brief Ask io_uring to cancel a previously initiated operation. It can take"]
+    #[doc = "! some time for io_uring to cancel an operation, and it may ignore your"]
+    #[doc = "! request."]
+    pub fn monad_async_task_io_cancel(
+        task: monad_async_task,
+        iostatus: *mut monad_async_io_status,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief Marks a completed i/o status as reaped, and returns the next one if"]
+    #[doc = "! any."]
+    pub fn monad_async_task_io_next(
+        task: monad_async_task,
+        completed: *mut monad_async_io_status,
+    ) -> *mut monad_async_io_status;
+}
+extern "C" {
     #[doc = "! \\brief Suspend execution of a task for a given duration, which can be zero"]
-    #[doc = "! (which equates \"yield\")."]
+    #[doc = "! (which equates \"yield\"). If `completed` is not null, if any i/o which the"]
+    #[doc = "! task has initiated completes during the suspension, resume the task setting"]
+    #[doc = "! `completed` to which i/o has just completed."]
     pub fn monad_async_task_suspend_for_duration(
+        completed: *mut *mut monad_async_io_status,
         task: monad_async_task,
         ns: u64,
     ) -> monad_async_result;

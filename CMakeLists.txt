@@ -12,6 +12,7 @@ add_library(monad_async STATIC
   "src/monad/async/context_switcher_none.c"
   "src/monad/async/context_switcher_sjlj.c"
   "src/monad/async/executor.c"
+  "src/monad/async/file_io.c"
   "src/monad/async/result.cpp"
   "src/monad/async/task.c"
   "src/monad/async/work_dispatcher.c"
