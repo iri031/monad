@@ -66,7 +66,8 @@ public:
     uint64_t current_block_number() const;
     void generate_report(
         std::ostream &state_trie, std::ostream &storage_trie,
-        std::ostream &one_storage, std::map<byte_string, Address> &address_map);
+        std::ostream &one_storage, std::ofstream &node_size,
+        std::map<byte_string, Address> &address_map);
 };
 
 MONAD_NAMESPACE_END

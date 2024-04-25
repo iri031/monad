@@ -936,7 +936,8 @@ void TrieDb::load_latest()
 
 void TrieDb::generate_report(
     std::ostream &state_trie, std::ostream &storage_trie,
-    std::ostream &one_storage, std::map<byte_string, Address> &address_map)
+    std::ostream &one_storage, std::ofstream &node_size,
+    std::map<byte_string, Address> &address_map)
 {
     struct Traverse : public TraverseMachine
     {
@@ -963,9 +964,13 @@ void TrieDb::generate_report(
 
         std::chrono::time_point<std::chrono::steady_clock> start_time_;
 
+        // node size recorder
+        std::map<uint64_t, uint64_t> account_leaf_node_sizes_;
+        std::ofstream &node_size_ofile_;
+
         Traverse(
             TrieDb &db, std::ostream &state_trie, std::ostream &storage_trie,
-            std::ostream &one_storage,
+            std::ostream &one_storage, std::ofstream &node_size,
             std::map<byte_string, Address> &address_map)
             : db_(db)
             , path_()
@@ -983,6 +988,8 @@ void TrieDb::generate_report(
             , storage_trie_ofile_(storage_trie)
             , one_storage_ofile_(one_storage)
             , address_map_(address_map)
+            , account_leaf_node_sizes_{}
+            , node_size_ofile_(node_size)
         {
             start_time_ = std::chrono::steady_clock::now();
         }
@@ -1070,11 +1077,33 @@ void TrieDb::generate_report(
             storage_trie_ofile_.flush();
         }
 
+        void write_node_size_stats()
+        {
+            // write account leaf size
+            std::vector<std::pair<uint64_t, uint64_t>>
+                sorted_account_leaf_node_size(
+                    account_leaf_node_sizes_.begin(),
+                    account_leaf_node_sizes_.end());
+            std::sort(
+                sorted_account_leaf_node_size.begin(),
+                sorted_account_leaf_node_size.end(),
+                vector_pair_cmp_first<uint64_t>());
+
+            node_size_ofile_ << "Account leaf node size summary: "
+                             << "\n";
+            for (auto const &[size, cnt] : sorted_account_leaf_node_size) {
+                node_size_ofile_ << size << ": " << cnt << "\n";
+            }
+
+            node_size_ofile_.flush();
+        }
+
         ~Traverse()
         {
             // write_state_trie_stats();
             // write_storage_trie_stats();
 
+            write_node_size_stats();
             one_storage_ofile_.flush();
 
             auto const finished_time = std::chrono::steady_clock::now();
@@ -1111,6 +1140,15 @@ void TrieDb::generate_report(
                 }
 
                 ++state_trie_depth_[node_type_path_.length()];
+
+                if (MONAD_UNLIKELY(
+                        account_leaf_node_sizes_.find(node.value_len) !=
+                        account_leaf_node_sizes_.end())) {
+                    ++account_leaf_node_sizes_[node.value_len];
+                }
+                else {
+                    account_leaf_node_sizes_[node.value_len] = 1;
+                }
 
                 if (total_accounts_ % 1'000'000 == 0) {
                     std::cout << "Total accounts traversed: " << total_accounts_
@@ -1196,7 +1234,9 @@ void TrieDb::generate_report(
                                 // TODO: only works for in-memory
                                 for (unsigned char i = 0; i < 16; ++i) {
                                     if (node.mask & (1u << i)) {
-                                        auto const idx = static_cast<unsigned char>(node.to_child_index(i));
+                                        auto const idx =
+                                            static_cast<unsigned char>(
+                                                node.to_child_index(i));
                                         auto const *const child =
                                             node.next(idx);
 
@@ -1268,7 +1308,8 @@ void TrieDb::generate_report(
             }();
             path_ = path_view.substr(0, static_cast<unsigned>(rem_size));
         }
-    } traverse(*this, state_trie, storage_trie, one_storage, address_map);
+    } traverse(
+        *this, state_trie, storage_trie, one_storage, node_size, address_map);
 
     db_.traverse(state_nibbles, traverse, block_number_);
 }
