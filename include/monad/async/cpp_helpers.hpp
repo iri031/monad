@@ -4,6 +4,7 @@
 #include <boost/outcome/experimental/status_result.hpp>
 
 #include "executor.h"
+#include "file_io.h"
 #include "task.h"
 #include "work_dispatcher.h"
 
@@ -46,6 +47,36 @@ namespace monad
                 throw_exception(r);
             }
             return executor_ptr(ex);
+        }
+
+        struct file_deleter
+        {
+            monad_async_task task;
+
+            void operator()(monad_async_file ex) const
+            {
+                auto r = ::monad_async_task_file_destroy(task, ex);
+                if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
+                    throw_exception(r);
+                }
+            }
+        };
+
+        using file_ptr = std::unique_ptr<monad_async_file_head, file_deleter>;
+
+        //! \brief Construct a file instance, and return it in a smart
+        //! pointer
+        file_ptr make_file(
+            monad_async_task task, monad_async_file base, char const *subpath,
+            struct open_how &how)
+        {
+            monad_async_file ex;
+            auto r =
+                monad_async_task_file_create(&ex, task, base, subpath, &how);
+            if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
+                throw_exception(r);
+            }
+            return file_ptr(ex, file_deleter{task});
         }
 
         struct context_switcher_deleter

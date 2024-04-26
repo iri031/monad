@@ -15,6 +15,7 @@ add_library(monad_async STATIC
   "src/monad/async/file_io.c"
   "src/monad/async/result.cpp"
   "src/monad/async/task.c"
+  "src/monad/async/util.cpp"
   "src/monad/async/work_dispatcher.c"
 )
 target_compile_features(monad_async PUBLIC c_std_23 cxx_std_20)
@@ -53,5 +54,7 @@ function(monad_test target)
 endfunction()
 
 monad_test(monad_async_executor_test "test/async/executor.cpp")
+
+monad_test(monad_async_file_io_test "test/async/file_io.cpp")
 
 monad_test(monad_async_work_dispatcher_test "test/async/work_dispatcher.cpp")

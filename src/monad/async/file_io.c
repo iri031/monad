@@ -2,16 +2,14 @@
 
 #include "monad/async/executor.h"
 
+// #define MONAD_ASYNC_FILE_IO_PRINTING 1
+
 #include "executor_impl.h"
 #include "task_impl.h"
 
 #include <errno.h>
 
 #include <fcntl.h>
-
-#ifndef IORING_FILE_INDEX_ALLOC
-    #define IORING_FILE_INDEX_ALLOC (~0U)
-#endif
 
 struct monad_async_file_impl
 {
@@ -40,11 +38,16 @@ monad_async_result monad_async_task_file_create(
         return monad_async_make_failure(errno);
     }
     p->head.executor = task_->current_executor;
-    p->io_uring_file_index = IORING_FILE_INDEX_ALLOC;
+    p->io_uring_file_index = (unsigned)-1;
     struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
+    unsigned file_index = monad_async_executor_alloc_file_index(ex, &p->head);
+    if (file_index == (unsigned)-1) {
+        (void)monad_async_task_file_destroy(task_, (monad_async_file)p);
+        return monad_async_make_failure(ENOMEM);
+    }
     struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task);
     io_uring_prep_openat2_direct(
         sqe,
@@ -53,30 +56,32 @@ monad_async_result monad_async_task_file_create(
             : (int)((struct monad_async_file_impl *)base)->io_uring_file_index,
         subpath,
         how,
-        IORING_FILE_INDEX_ALLOC);
+        file_index);
     io_uring_sqe_set_data(sqe, task, task);
 
-#if MONAD_ASYNC_EXECUTOR_PRINTING
+#if MONAD_ASYNC_FILE_IO_PRINTING
     printf(
         "*** Task %p running on executor %p initiates "
         "file_open\n",
-        task,
-        ex);
+        (void *)task,
+        (void *)ex);
 #endif
     monad_async_result ret = monad_async_executor_suspend_impl(
         ex, task, monad_async_task_file_create_cancel, nullptr);
-#if MONAD_ASYNC_EXECUTOR_PRINTING
+#if MONAD_ASYNC_FILE_IO_PRINTING
     printf(
         "*** Task %p running on executor %p completes "
-        "file_open\n",
-        task,
-        ex);
+        "file_open with file_index=%u\n",
+        (void *)task,
+        (void *)ex,
+        file_index);
 #endif
     if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)) {
+        monad_async_executor_free_file_index(ex, file_index, &p->head);
         (void)monad_async_task_file_destroy(task_, (monad_async_file)p);
         return ret;
     }
-    p->io_uring_file_index = (unsigned)ret.value;
+    p->io_uring_file_index = file_index;
     *file = (monad_async_file)p;
     return monad_async_make_success(0);
 }
@@ -85,7 +90,7 @@ monad_async_result
 monad_async_task_file_destroy(monad_async_task task_, monad_async_file file_)
 {
     struct monad_async_file_impl *file = (struct monad_async_file_impl *)file_;
-    if (file->io_uring_file_index != IORING_FILE_INDEX_ALLOC) {
+    if (file->io_uring_file_index != (unsigned)-1) {
         struct monad_async_task_impl *task =
             (struct monad_async_task_impl *)task_;
         struct monad_async_executor_impl *ex =
@@ -96,25 +101,28 @@ monad_async_task_file_destroy(monad_async_task task_, monad_async_file file_)
         __io_uring_set_target_fixed_file(sqe, file->io_uring_file_index);
         io_uring_sqe_set_data(sqe, task, task);
 
-#if MONAD_ASYNC_EXECUTOR_PRINTING
+#if MONAD_ASYNC_FILE_IO_PRINTING
         printf(
             "*** Task %p running on executor %p initiates "
             "file_close\n",
-            task,
-            ex);
+            (void *)task,
+            (void *)ex);
 #endif
         monad_async_result ret =
             monad_async_executor_suspend_impl(ex, task, nullptr, nullptr);
-#if MONAD_ASYNC_EXECUTOR_PRINTING
+#if MONAD_ASYNC_FILE_IO_PRINTING
         printf(
             "*** Task %p running on executor %p completes "
-            "file_close\n",
-            task,
-            ex);
+            "file_close for file_index=%u\n",
+            (void *)task,
+            (void *)ex,
+            file->io_uring_file_index);
 #endif
         if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)) {
             return ret;
         }
+        monad_async_executor_free_file_index(
+            ex, file->io_uring_file_index, &file->head);
     }
     free(file);
     return monad_async_make_success(0);
@@ -148,22 +156,29 @@ void monad_async_task_file_read(
 #endif
     if (nr_vecs != 1) {
         (void)flags;
-        io_uring_prep_readv(sqe, 0, iovecs, nr_vecs, offset);
+        io_uring_prep_readv(
+            sqe, (int)file->io_uring_file_index, iovecs, nr_vecs, offset);
     }
     else {
         io_uring_prep_read(
-            sqe, 0, iovecs[0].iov_base, (unsigned)iovecs[0].iov_len, offset);
+            sqe,
+            (int)file->io_uring_file_index,
+            iovecs[0].iov_base,
+            (unsigned)iovecs[0].iov_len,
+            offset);
     }
-    __io_uring_set_target_fixed_file(sqe, file->io_uring_file_index);
+    sqe->flags |= IOSQE_FIXED_FILE;
     io_uring_sqe_set_data(sqe, iostatus, task);
     iostatus->cancel_ = monad_async_task_file_io_cancel;
+    iostatus->ticks_when_initiated = get_ticks_count(memory_order_relaxed);
 
-#if MONAD_ASYNC_EXECUTOR_PRINTING
+#if MONAD_ASYNC_FILE_IO_PRINTING
     printf(
         "*** Task %p running on executor %p initiates "
-        "file_read\n",
-        task,
-        ex);
+        "file_read on i/o status %p\n",
+        (void *)task,
+        (void *)ex,
+        (void *)iostatus);
 #endif
     LIST_APPEND(task->io_submitted, iostatus, &task->head.io_submitted);
 }
@@ -184,22 +199,29 @@ void monad_async_task_file_write(
 #endif
     if (nr_vecs != 1) {
         (void)flags;
-        io_uring_prep_writev(sqe, 0, iovecs, nr_vecs, offset);
+        io_uring_prep_writev(
+            sqe, (int)file->io_uring_file_index, iovecs, nr_vecs, offset);
     }
     else {
         io_uring_prep_write(
-            sqe, 0, iovecs[0].iov_base, (unsigned)iovecs[0].iov_len, offset);
+            sqe,
+            (int)file->io_uring_file_index,
+            iovecs[0].iov_base,
+            (unsigned)iovecs[0].iov_len,
+            offset);
     }
-    __io_uring_set_target_fixed_file(sqe, file->io_uring_file_index);
+    sqe->flags |= IOSQE_FIXED_FILE;
     io_uring_sqe_set_data(sqe, iostatus, task);
     iostatus->cancel_ = monad_async_task_file_io_cancel;
+    iostatus->ticks_when_initiated = get_ticks_count(memory_order_relaxed);
 
-#if MONAD_ASYNC_EXECUTOR_PRINTING
+#if MONAD_ASYNC_FILE_IO_PRINTING
     printf(
         "*** Task %p running on executor %p initiates "
-        "file_write\n",
-        task,
-        ex);
+        "file_write on i/o status %p\n",
+        (void *)task,
+        (void *)ex,
+        (void *)iostatus);
 #endif
     LIST_APPEND(task->io_submitted, iostatus, &task->head.io_submitted);
 }
@@ -215,17 +237,20 @@ void monad_async_task_file_range_sync(
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
     struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task);
-    io_uring_prep_sync_file_range(sqe, 0, bytes, offset, flags);
-    __io_uring_set_target_fixed_file(sqe, file->io_uring_file_index);
+    io_uring_prep_sync_file_range(
+        sqe, (int)file->io_uring_file_index, bytes, offset, flags);
+    sqe->flags |= IOSQE_FIXED_FILE;
     io_uring_sqe_set_data(sqe, iostatus, task);
     iostatus->cancel_ = monad_async_task_file_io_cancel;
+    iostatus->ticks_when_initiated = get_ticks_count(memory_order_relaxed);
 
-#if MONAD_ASYNC_EXECUTOR_PRINTING
+#if MONAD_ASYNC_FILE_IO_PRINTING
     printf(
         "*** Task %p running on executor %p initiates "
-        "range_sync\n",
-        task,
-        ex);
+        "range_sync on i/o status %p\n",
+        (void *)task,
+        (void *)ex,
+        (void *)iostatus);
 #endif
     LIST_APPEND(task->io_submitted, iostatus, &task->head.io_submitted);
 }
@@ -240,17 +265,19 @@ void monad_async_task_file_durable_sync(
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
     struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task);
-    io_uring_prep_fsync(sqe, 0, 0);
-    __io_uring_set_target_fixed_file(sqe, file->io_uring_file_index);
+    io_uring_prep_fsync(sqe, (int)file->io_uring_file_index, 0);
+    sqe->flags |= IOSQE_FIXED_FILE;
     io_uring_sqe_set_data(sqe, iostatus, task);
     iostatus->cancel_ = monad_async_task_file_io_cancel;
+    iostatus->ticks_when_initiated = get_ticks_count(memory_order_relaxed);
 
-#if MONAD_ASYNC_EXECUTOR_PRINTING
+#if MONAD_ASYNC_FILE_IO_PRINTING
     printf(
         "*** Task %p running on executor %p initiates "
-        "durable_sync\n",
-        task,
-        ex);
+        "durable_sync on i/o status %p\n",
+        (void *)task,
+        (void *)ex,
+        (void *)iostatus);
 #endif
     LIST_APPEND(task->io_submitted, iostatus, &task->head.io_submitted);
 }

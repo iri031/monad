@@ -91,7 +91,7 @@ exit:
 #if MONAD_ASYNC_EXECUTOR_PRINTING
     printf(
         "*** Executor %p has launched %zu pending tasks\n",
-        state->ex,
+        (void *)state->ex,
         state->items);
 #endif
     return monad_async_make_success(0);
@@ -132,7 +132,7 @@ exit:
     printf(
         "*** Executor %p has notified %zu tasks of i/o completion "
         "by resumption\n",
-        state->ex,
+        (void *)state->ex,
         state->items);
     fflush(stdout);
 #endif
@@ -242,9 +242,10 @@ static inline monad_async_result monad_async_executor_run_impl(
 #if MONAD_ASYNC_EXECUTOR_PRINTING
                     printf(
                         "*** Executor %p submits and waits forever due to "
-                        "infinite "
-                        "timeout\n",
-                        ex);
+                        "infinite timeout. sqes=%u cqes=%u\n",
+                        (void *)ex,
+                        io_uring_sq_ready(&ex->ring),
+                        io_uring_cq_ready(&ex->ring));
 #endif
                     monad_async_cpu_ticks_count_t const sleep_begin =
                         get_ticks_count(memory_order_relaxed);
@@ -261,8 +262,11 @@ static inline monad_async_result monad_async_executor_run_impl(
 #if MONAD_ASYNC_EXECUTOR_PRINTING
                     printf(
                         "*** Executor %p submits and does not wait due to zero "
-                        "timeout\n",
-                        ex);
+                        "timeout. sqes=%u cqes=%u\n",
+                        (void *)ex,
+                        io_uring_sq_ready(&ex->ring),
+                        io_uring_cq_ready(&ex->ring));
+
 #endif
                     r = io_uring_submit(&ex->ring);
                     if (r < 0) {
@@ -274,11 +278,13 @@ static inline monad_async_result monad_async_executor_run_impl(
 #if MONAD_ASYNC_EXECUTOR_PRINTING
                     printf(
                         "*** Executor %p submits and waits for a non-infinite "
-                        "timeout "
-                        "%ld-%ld\n",
-                        ex,
+                        "timeout %ld-%ld. sqes=%u cqes=%u\n",
+                        (void *)ex,
                         timeout->tv_sec,
-                        timeout->tv_nsec);
+                        timeout->tv_nsec,
+                        io_uring_sq_ready(&ex->ring),
+                        io_uring_cq_ready(&ex->ring));
+
 #endif
                     if (ex->ring.features & IORING_FEAT_EXT_ARG) {
                         r = io_uring_submit(&ex->ring);
@@ -307,7 +313,13 @@ static inline monad_async_result monad_async_executor_run_impl(
                 }
             }
 #if MONAD_ASYNC_EXECUTOR_PRINTING
-            printf("*** Executor %p sees cqe=%p from io_uring wait\n", ex, cqe);
+            printf(
+                "*** Executor %p sees cqe=%p from io_uring wait. sqes=%u "
+                "cqes=%u\n",
+                (void *)ex,
+                (void *)cqe,
+                io_uring_sq_ready(&ex->ring),
+                io_uring_cq_ready(&ex->ring));
 #endif
             // Always empty the completions queue irrespective of max_items
             unsigned head;
@@ -361,13 +373,20 @@ static inline monad_async_result monad_async_executor_run_impl(
                         iostatus,
                         &task->head.io_completed_not_reaped);
                     iostatus->cancel_ = nullptr;
+                    iostatus->ticks_when_completed =
+                        get_ticks_count(memory_order_relaxed);
                     if (cqe->res < 0) {
                         iostatus->result = monad_async_make_failure(-cqe->res);
                     }
                     else {
                         iostatus->result = monad_async_make_success(cqe->res);
                     }
-                    if (task->completed != nullptr) {
+                    if (task->completed != nullptr &&
+                        atomic_load_explicit(
+                            &task->head.is_suspended_awaiting,
+                            memory_order_acquire)) {
+                        *task->completed = iostatus;
+                        task->completed = nullptr;
                         cqe->res = (int)task->head.io_completed_not_reaped;
                         goto resume_task;
                     }
@@ -378,8 +397,8 @@ static inline monad_async_result monad_async_executor_run_impl(
             }
 #if MONAD_ASYNC_EXECUTOR_PRINTING
             printf(
-                "*** Executor %p has dequeued %zu completions from io_uring\n",
-                ex,
+                "*** Executor %p has dequeued %u completions from io_uring\n",
+                (void *)ex,
                 i);
 #endif
             io_uring_cq_advance(&ex->ring, i);
@@ -395,7 +414,7 @@ static inline monad_async_result monad_async_executor_run_impl(
                 printf(
                     "*** Executor %p waits forever due to infinite "
                     "timeout\n",
-                    ex);
+                    (void *)ex);
 #endif
                 struct pollfd fds[1] = {
                     {.fd = ex->eventfd, .events = POLLIN, .revents = 0}};
@@ -420,7 +439,7 @@ static inline monad_async_result monad_async_executor_run_impl(
                 printf(
                     "*** Executor %p does not wait due to zero "
                     "timeout\n",
-                    ex);
+                    (void *)ex);
 #endif
             }
             else {
@@ -429,7 +448,7 @@ static inline monad_async_result monad_async_executor_run_impl(
                     "*** Executor %p waits for a non-infinite "
                     "timeout "
                     "%ld-%ld\n",
-                    ex,
+                    (void *)ex,
                     timeout->tv_sec,
                     timeout->tv_nsec);
 #endif
@@ -528,14 +547,14 @@ monad_async_result monad_async_executor_run(
     monad_async_cpu_ticks_count_t const run_begin =
         get_ticks_count(memory_order_relaxed);
 #if MONAD_ASYNC_EXECUTOR_PRINTING
-    printf("*** Executor %p enters run\n", ex);
+    printf("*** Executor %p enters run\n", (void *)ex);
 #endif
     monad_async_result ret =
         monad_async_executor_run_impl(ex, max_items, timeout);
 #if MONAD_ASYNC_EXECUTOR_PRINTING
     printf(
         "*** Executor %p exits run having processed %zu items\n",
-        ex,
+        (void *)ex,
         ret.value);
 #endif
     monad_async_cpu_ticks_count_t const run_end =
@@ -577,11 +596,11 @@ monad_async_result monad_async_executor_suspend_impl(
         task->head.ticks_when_suspended_awaiting -
         task->head.ticks_when_resumed;
 #if MONAD_ASYNC_EXECUTOR_PRINTING
-    printf("*** Executor %p suspends task %p\n", ex, task);
+    printf("*** Executor %p suspends task %p\n", (void *)ex, (void *)task);
 #endif
     task->context->switcher->suspend_and_call_resume(task->context, nullptr);
 #if MONAD_ASYNC_EXECUTOR_PRINTING
-    printf("*** Executor %p resumes task %p\n", ex, task);
+    printf("*** Executor %p resumes task %p\n", (void *)ex, (void *)task);
 #endif
     task->head.ticks_when_resumed = get_ticks_count(memory_order_relaxed);
     assert(!atomic_load_explicit(
@@ -825,15 +844,15 @@ monad_async_result monad_async_task_io_cancel(
     return iostatus->cancel_(task_, iostatus);
 }
 
-monad_async_io_status *monad_async_task_io_next(
-    monad_async_task task_, monad_async_io_status *completed)
+monad_async_io_status *monad_async_task_completed_io(monad_async_task task_)
 {
     struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
-    assert(task != *(struct monad_async_task_impl **)&completed->result);
-    assert(completed->cancel_ == nullptr);
-    monad_async_io_status *ret = completed->next;
-    LIST_REMOVE(
-        task->io_completed, completed, &task->head.io_completed_not_reaped);
+    monad_async_io_status *ret = task->io_completed.front;
+    if (ret == nullptr) {
+        return ret;
+    }
+    ret->ticks_when_reaped = get_ticks_count(memory_order_relaxed);
+    LIST_REMOVE(task->io_completed, ret, &task->head.io_completed_not_reaped);
     return ret;
 }
 
@@ -856,34 +875,40 @@ monad_async_result monad_async_task_suspend_for_duration(
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
-    struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task);
-    // timespec must live until resumption
-    struct __kernel_timespec ts;
-    if (ns == 0) {
-        io_uring_prep_nop(sqe);
+    if (ns != (uint64_t)-1 || completed == nullptr) {
+        struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task);
+        // timespec must live until resumption
+        struct __kernel_timespec ts;
+        if (ns == 0) {
+            io_uring_prep_nop(sqe);
+        }
+        else {
+            ts.tv_sec = (long long)(ns / 1000000000);
+            ts.tv_nsec = (long long)(ns % 1000000000);
+            io_uring_prep_timeout(sqe, &ts, (unsigned)-1, 0);
+        }
+        io_uring_sqe_set_data(sqe, task, task);
     }
-    else {
-        ts.tv_sec = (long long)(ns / 1000000000);
-        ts.tv_nsec = (long long)(ns % 1000000000);
-        io_uring_prep_timeout(sqe, &ts, (unsigned)-1, 0);
-    }
-    io_uring_sqe_set_data(sqe, task, task);
 
 #if MONAD_ASYNC_EXECUTOR_PRINTING
     printf(
         "*** Task %p running on executor %p initiates "
-        "suspend_for_duration\n",
-        task,
-        ex);
+        "suspend_for_duration ns=%lu completed=%p *completed=%p\n",
+        (void *)task,
+        (void *)ex,
+        ns,
+        (void *)completed,
+        completed ? (void *)*completed : nullptr);
 #endif
     monad_async_result ret = monad_async_executor_suspend_impl(
         ex, task, monad_async_task_suspend_for_duration_cancel, completed);
 #if MONAD_ASYNC_EXECUTOR_PRINTING
     printf(
         "*** Task %p running on executor %p completes "
-        "suspend_for_duration\n",
-        task,
-        ex);
+        "suspend_for_duration *completed=%p\n",
+        (void *)task,
+        (void *)ex,
+        completed ? (void *)*completed : nullptr);
 #endif
     if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)) {
         if (ret.error.value == ETIME && ns > 0) {

@@ -16,6 +16,8 @@
     #include <sanitizer/tsan_interface.h>
 #endif
 
+typedef struct monad_async_file_head *monad_async_file;
+
 struct monad_async_executor_impl
 {
     struct monad_async_executor_head head;
@@ -29,6 +31,8 @@ struct monad_async_executor_impl
     LIST_DEFINE_P(tasks_suspended_awaiting, struct monad_async_task_impl);
     LIST_DEFINE_P(tasks_suspended_completed, struct monad_async_task_impl);
     monad_async_result *_Atomic cause_run_to_return;
+    monad_async_file *file_indices;
+    unsigned file_indices_size;
 
     // all items below this require taking the lock
     atomic_int lock;
@@ -117,6 +121,7 @@ static inline void io_uring_set_up_io_status(
     struct monad_async_io_status *iostatus, struct monad_async_task_impl *task)
 {
     iostatus->prev = iostatus->next = nullptr;
+    iostatus->result.flags = (unsigned)-1;
     *((struct monad_async_task_impl **)&iostatus->result) = task;
 }
 
@@ -362,4 +367,66 @@ static inline struct io_uring_sqe *get_sqe_suspending_if_necessary(
         break;
     }
     return sqe;
+}
+
+static inline unsigned monad_async_executor_alloc_file_index(
+    struct monad_async_executor_impl *ex, monad_async_file fh)
+{
+    if (ex->file_indices == nullptr) {
+        ex->file_indices = calloc(4, sizeof(monad_async_file));
+        if (ex->file_indices == nullptr) {
+            return (unsigned)-1;
+        }
+        ex->file_indices_size = 4;
+        memset(ex->file_indices, 0xff, 4 * sizeof(int));
+        int r = io_uring_register_files(
+            &ex->ring, (int const *)ex->file_indices, 4);
+        if (r < 0) {
+            fprintf(
+                stderr,
+                "FATAL: io_uring_register_files fails with '%s'\n",
+                strerror(-r));
+            abort();
+        }
+        memset(ex->file_indices, 0, 4 * sizeof(int));
+    }
+    for (unsigned n = 0; n < ex->file_indices_size; n++) {
+        if (ex->file_indices[n] == nullptr) {
+            ex->file_indices[n] = fh;
+            return n;
+        }
+    }
+    monad_async_file **new_file_indices = realloc(
+        ex->file_indices, 2 * ex->file_indices_size * sizeof(monad_async_file));
+    if (new_file_indices == nullptr) {
+        return (unsigned)-1;
+    }
+    int *updlist = (int *)(ex->file_indices + ex->file_indices_size);
+    memset(updlist, 0xff, ex->file_indices_size * sizeof(int));
+    int r = io_uring_register_files_update(
+        &ex->ring, ex->file_indices_size, updlist, ex->file_indices_size);
+    if (r < 0) {
+        fprintf(
+            stderr,
+            "FATAL: io_uring_register_files_update fails with '%s'\n",
+            strerror(-r));
+        abort();
+    }
+    memset(
+        new_file_indices + ex->file_indices_size,
+        0,
+        ex->file_indices_size * sizeof(monad_async_file));
+    unsigned ret = ex->file_indices_size;
+    ex->file_indices_size *= 2;
+    return ret;
+}
+
+static inline void monad_async_executor_free_file_index(
+    struct monad_async_executor_impl *ex, unsigned file_index,
+    monad_async_file fh)
+{
+    (void)fh;
+    assert(file_index < ex->file_indices_size);
+    assert(ex->file_indices[file_index] == fh);
+    ex->file_indices[file_index] = nullptr;
 }

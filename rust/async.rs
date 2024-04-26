@@ -218,6 +218,9 @@ pub struct monad_async_io_status {
     #[doc = "! bytes transferred if operation is successful, or another error if it"]
     #[doc = "! fails or is cancelled."]
     pub result: monad_async_result,
+    pub ticks_when_initiated: monad_async_cpu_ticks_count_t,
+    pub ticks_when_completed: monad_async_cpu_ticks_count_t,
+    pub ticks_when_reaped: monad_async_cpu_ticks_count_t,
 }
 #[doc = "! \\brief The public attributes of a task"]
 #[repr(C)]
@@ -309,12 +312,9 @@ extern "C" {
     ) -> monad_async_result;
 }
 extern "C" {
-    #[doc = "! \\brief Marks a completed i/o status as reaped, and returns the next one if"]
-    #[doc = "! any."]
-    pub fn monad_async_task_io_next(
-        task: monad_async_task,
-        completed: *mut monad_async_io_status,
-    ) -> *mut monad_async_io_status;
+    #[doc = "! \\brief Iterate through completed i/o for this task, reaping each from the"]
+    #[doc = "! completed but not repeated list."]
+    pub fn monad_async_task_completed_io(task: monad_async_task) -> *mut monad_async_io_status;
 }
 extern "C" {
     #[doc = "! \\brief Suspend execution of a task for a given duration, which can be zero"]

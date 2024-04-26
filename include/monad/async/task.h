@@ -27,6 +27,10 @@ typedef struct monad_async_io_status
     //! fails or is cancelled.
     monad_async_result result;
 
+    monad_async_cpu_ticks_count_t ticks_when_initiated;
+    monad_async_cpu_ticks_count_t ticks_when_completed;
+    monad_async_cpu_ticks_count_t ticks_when_reaped;
+
     // You can place any additional data you want after here ...
 } monad_async_io_status;
 
@@ -35,6 +39,19 @@ static inline bool
 monad_async_is_io_in_progress(monad_async_io_status const *iostatus)
 {
     return iostatus->result.flags == (unsigned)-1;
+}
+
+//! \brief Number of the i/o is currently in progress
+static inline size_t
+monad_async_io_in_progress(monad_async_io_status const *iostatus, size_t len)
+{
+    size_t ret = 0;
+    for (size_t n = 0; n < len; n++) {
+        if (monad_async_is_io_in_progress(&iostatus[n])) {
+            ret++;
+        }
+    }
+    return ret;
 }
 
 //! \brief The public attributes of a task
@@ -156,11 +173,11 @@ MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_task_io_cancel(
     monad_async_task task,
     monad_async_io_status *iostatus); // implemented in executor.c
 
-//! \brief Marks a completed i/o status as reaped, and returns the next one if
-//! any.
-MONAD_ASYNC_NODISCARD extern monad_async_io_status *monad_async_task_io_next(
-    monad_async_task task,
-    monad_async_io_status *completed); // implemented in executor.c
+//! \brief Iterate through completed i/o for this task, reaping each from the
+//! completed but not repeated list.
+MONAD_ASYNC_NODISCARD extern monad_async_io_status *
+monad_async_task_completed_io(
+    monad_async_task task); // implemented in executor.c
 
 //! \brief Suspend execution of a task for a given duration, which can be zero
 //! (which equates "yield"). If `completed` is not null, if any i/o which the
@@ -170,6 +187,32 @@ MONAD_ASYNC_NODISCARD extern monad_async_result
 monad_async_task_suspend_for_duration(
     monad_async_io_status **completed, monad_async_task task,
     uint64_t ns); // implemented in executor.c
+
+//! \brief Combines `monad_async_task_completed_io()` and
+//! `monad_async_task_suspend_for_duration()` to conveniently reap completed
+//! i/o, suspending the task until more i/o completes. Returns zero when no more
+//! i/o, otherwise returns i/o completed not reaped including i/o
+//! returned.
+static inline monad_async_result monad_async_task_suspend_until_completed_io(
+    monad_async_io_status **completed, monad_async_task task, uint64_t ns)
+{
+    *completed = monad_async_task_completed_io(task);
+    if (*completed != NULL) {
+        return monad_async_make_success(
+            1 + (intptr_t)task->io_completed_not_reaped);
+    }
+    if (task->io_submitted == 0) {
+        return monad_async_make_success(0);
+    }
+    monad_async_result r =
+        monad_async_task_suspend_for_duration(completed, task, ns);
+    if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
+        return r;
+    }
+    *completed = monad_async_task_completed_io(task);
+    return monad_async_make_success(
+        1 + (intptr_t)task->io_completed_not_reaped);
+}
 
 #ifdef __cplusplus
 }

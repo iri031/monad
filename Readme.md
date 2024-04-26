@@ -7,14 +7,16 @@
 CPU and I/O.
 3. 100% deterministic in the hot path so long as new work is launched
 from the same thread as the executor: no thread synchronisation, no malloc,
-no unbounded loops. 100% wait free, unless waits are requested.
+no unbounded loops. 100% wait free, unless waits are requested or work
+is posted from foreign kernel threads.
 4. Tasks can be launched on executors running on non-local kernel threads,
 thus making implementing a priority-based kernel thread pool very
 straightforward.
-5. Tasks have their own stacks and can be arbitrarily suspended and
-resumed.
+5. Tasks have runtime pluggable context switching implementations, which
+allows zero overhead support for C++ or Rust coroutines.
 6. Integrated ultra-lightweight CPU timestamp counter based time tracking
 throughout.
+7. Async file i/o: open, close, read, write, sync range, durable sync.
 
 ## Benchmarks:
 
@@ -44,7 +46,7 @@ a pool of sixty-four executors each running on their own kernel thread:
 possible io_uring op overhead): **85.766 ns**/op (3.38x, io_uring cycle is
 not superscalar friendly).
 
-## Example of use:
+## Examples of use:
 
 ### Execute a task on an executor
 ```c
@@ -122,7 +124,7 @@ static monad_async_result myfunc(monad_async_task task)
   /* do stuff */
 
   // Suspend and resume after one second
-  r = monad_async_task_suspend_for_duration(task, 1000000000ULL);
+  r = monad_async_task_suspend_for_duration(nullptr, task, 1000000000ULL);
   CHECK_RESULT(r);
 
   // You could also read from a socket, write to a file, do any
@@ -180,6 +182,8 @@ An executor thread would look like:
 ```c
 void worker_thread(monad_async_work_dispatcher wd)
 {
+  monad_async_result r;
+
   struct monad_async_work_dispatcher_executor_attr ex_attr;
   memset(&ex_attr, 0, sizeof(ex_attr));
   // Don't create an io_uring for this executor
@@ -205,8 +209,71 @@ void worker_thread(monad_async_work_dispatcher wd)
 }
 ```
 
+### File i/o
+
+From a task's perspective, file i/o is implemented in the same way as how the
+NT kernel's alertable i/o is implemented, which to my best knowledge is the
+optimal way. There is a queue of initiated i/o and another queue of completed
+i/o. When your task suspends, i/o can move from the initiated queue to the
+completed queue. When your task resumes, it is on you to dequeue any completed
+i/o.
+
+As with the NT kernel's `IOSTATUS` structure which uniquely identifies each
+i/o in flight, the `monad_async_io_status` structure does the same. You supply
+the `monad_async_io_status` structure instance for every i/o you initiate. It
+will get asynchronously completed with the result of the i/o.
+
+```c
+static monad_async_result mytask(monad_async_task task)
+{
+  monad_async_result r;
+
+  // Open a file for read. This will suspend the task and resume
+  // it after the file has been opened.
+  struct open_how how = {
+      .flags = O_RDONLY, .mode = 0, .resolve = 0
+  };
+  monad_async_file fh;
+  r = monad_async_task_file_create(&fh, task, nullptr, "foo.txt", &how);
+  CHECK_RESULT(r);
+
+  char buffer[64];
+
+  // Initiate a read. It may suspend and resume the task if there
+  // are no more io_uring sqes available.
+  monad_async_io_status iostatus;
+  memset(&iostatus, 0, sizeof(iostatus));
+  struct iovec iov[] = {
+      {.iov_base = buffer, .iov_len = 64}};
+  monad_async_task_file_read(
+      &iostatus, task, fh.get(), &iov[0], 1, 0, 0);
+
+  // Reap i/o completions, suspending the task until more completions
+  // appear
+  for(;;){
+    monad_async_io_status *completed;
+    r = monad_async_task_suspend_until_completed_io(&completed, task, (uint64_t)-1);
+    CHECK_RESULT(r);
+    if(r.value == 0) {
+      break;
+    }
+    /* handle completed ... */
+  }
+
+  // Close the file, This will suspend the task and resume it
+  // after the file has been closed.
+  r = monad_async_task_file_destroy(task, fh);
+  CHECK_RESULT(r);
+
+  // All done, return success
+  return monad_async_make_success(0);
+}
+
+```
+
 ## Todo
 
+- Writes need to use the write io_uring
 - Registered buffer i/o still needed
 - Need to test cancellation works
 - Yet to replace setjmp/longjmp based context switching with something
