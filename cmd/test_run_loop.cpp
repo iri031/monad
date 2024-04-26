@@ -50,7 +50,7 @@ void test_run_loop(
 
     while (stop == 0) {
         auto const path = block_db / std::to_string(block_number);
-        if (!fs::exists(path)) {
+        if (!fs::exists(block_db / std::to_string(block_number + 1))) {
             continue;
         }
         MONAD_ASSERT(fs::is_regular_file(path));
