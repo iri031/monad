@@ -5,7 +5,7 @@ project(new-executor LANGUAGES C CXX)
 option(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(GTest REQUIRED)
-find_package(Boost REQUIRED)
+find_package(Boost REQUIRED COMPONENTS context)
 find_program(BINDGEN_PROGRAM bindgen)
 
 add_library(monad_async STATIC
@@ -22,6 +22,17 @@ target_compile_features(monad_async PUBLIC c_std_23 cxx_std_20)
 target_compile_options(monad_async PUBLIC -Wall -Wextra -Wconversion -Wpedantic)
 target_include_directories(monad_async PUBLIC "include")
 target_link_libraries(monad_async PUBLIC uring Boost::boost)
+
+add_library(monad_fiber STATIC
+  "src/monad/fiber/scheduler.c"
+  "src/monad/fiber/context.c"
+  "src/monad/fiber/current.c"
+  "src/monad/fiber/task.c"
+)
+target_compile_features(monad_fiber PUBLIC c_std_23 cxx_std_20)
+target_compile_options(monad_fiber PUBLIC -Wall -Wextra -Wconversion -Wpedantic)
+target_include_directories(monad_fiber PUBLIC "include")
+target_link_libraries(monad_fiber PUBLIC Boost::context)
 
 if(BINDGEN_PROGRAM)
   make_directory("${CMAKE_SOURCE_DIR}/rust")
