@@ -10,6 +10,14 @@ find_program(BINDGEN_PROGRAM bindgen)
 
 add_subdirectory("third_party/boost-context")
 
+set(monad_async_INCLUDES
+  "include/monad/async/context_switcher.h"
+  "include/monad/async/executor.h"
+  "include/monad/async/file_io.h"
+  "include/monad/async/task.h"
+  "include/monad/async/util.h"
+  "include/monad/async/work_dispatcher.h"
+)
 add_library(monad_async STATIC
   "src/monad/async/context_switcher_none.c"
   "src/monad/async/context_switcher_sjlj.c"
@@ -40,20 +48,28 @@ target_link_libraries(monad_fiber PUBLIC Boost::context)
 if(BINDGEN_PROGRAM)
   make_directory("${CMAKE_SOURCE_DIR}/rust")
   add_custom_command(OUTPUT "${CMAKE_SOURCE_DIR}/rust/async.rs"
-    COMMAND "${BINDGEN_PROGRAM}" -o "${CMAKE_SOURCE_DIR}/rust/async.rs" "${CMAKE_SOURCE_DIR}/include/monad/async/work_dispatcher.h"
+    COMMAND "${BINDGEN_PROGRAM}" -o "${CMAKE_SOURCE_DIR}/rust/async.rs"
+    "${CMAKE_SOURCE_DIR}/include/monad/async/all.h"
     --allowlist-function "monad_async.*"
     --allowlist-type "monad_async.*"
     --block-extern-crate
     --generate-inline-functions
     --no-layout-tests
-    DEPENDS
-    "${CMAKE_SOURCE_DIR}/include/monad/async/context_switcher.h"
-    "${CMAKE_SOURCE_DIR}/include/monad/async/executor.h"
-    "${CMAKE_SOURCE_DIR}/include/monad/async/task.h"
-    "${CMAKE_SOURCE_DIR}/include/monad/async/work_dispatcher.h"
+    DEPENDS ${monad_async_INCLUDES}
   )
-  add_custom_target(monad_async_regenerate_rust_bindings DEPENDS "${CMAKE_SOURCE_DIR}/rust/async.rs")
+  add_custom_command(OUTPUT "${CMAKE_SOURCE_DIR}/rust/fiber.rs"
+    COMMAND "${BINDGEN_PROGRAM}" -o "${CMAKE_SOURCE_DIR}/rust/fiber.rs"
+    "${CMAKE_SOURCE_DIR}/include/monad/fiber/all.h"
+    --allowlist-function "monad_fiber.*"
+    --allowlist-type "monad_fiber.*"
+    --block-extern-crate
+    --generate-inline-functions
+    --no-layout-tests
+    DEPENDS "${CMAKE_SOURCE_DIR}/include/monad/fiber/all.h"
+  )
+  add_custom_target(monad_async_regenerate_rust_bindings DEPENDS "${CMAKE_SOURCE_DIR}/rust/async.rs" "${CMAKE_SOURCE_DIR}/rust/fiber.rs")
   add_dependencies(monad_async monad_async_regenerate_rust_bindings)
+  add_dependencies(monad_fiber monad_async_regenerate_rust_bindings)
 else()
   message(WARNING "WARNING: Could not regen Rust bindings as bindgen program not found")
 endif()

@@ -39,61 +39,10 @@ pub type monad_async_priority = ::std::os::raw::c_uchar;
 pub type size_t = ::std::os::raw::c_ulong;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct iovec {
-    pub iov_base: *mut ::std::os::raw::c_void,
-    pub iov_len: size_t,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
 pub struct timespec {
     pub tv_sec: __time_t,
     pub tv_nsec: __syscall_slong_t,
 }
-pub type __u32 = ::std::os::raw::c_uint;
-pub type __u64 = ::std::os::raw::c_ulonglong;
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct io_sqring_offsets {
-    pub head: __u32,
-    pub tail: __u32,
-    pub ring_mask: __u32,
-    pub ring_entries: __u32,
-    pub flags: __u32,
-    pub dropped: __u32,
-    pub array: __u32,
-    pub resv1: __u32,
-    pub resv2: __u64,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct io_cqring_offsets {
-    pub head: __u32,
-    pub tail: __u32,
-    pub ring_mask: __u32,
-    pub ring_entries: __u32,
-    pub overflow: __u32,
-    pub cqes: __u32,
-    pub flags: __u32,
-    pub resv1: __u32,
-    pub resv2: __u64,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct io_uring_params {
-    pub sq_entries: __u32,
-    pub cq_entries: __u32,
-    pub flags: __u32,
-    pub sq_thread_cpu: __u32,
-    pub sq_thread_idle: __u32,
-    pub features: __u32,
-    pub wq_fd: __u32,
-    pub resv: [__u32; 3usize],
-    pub sq_off: io_sqring_offsets,
-    pub cq_off: io_cqring_offsets,
-}
-pub type atomic_bool = u8;
-pub type atomic_uint = u32;
-pub type atomic_size_t = u64;
 pub type monad_async_task = *mut monad_async_task_head;
 pub type monad_async_context = *mut monad_async_context_head;
 #[repr(C)]
@@ -206,6 +155,64 @@ extern "C" {
         switcher: *mut monad_async_context_switcher,
     ) -> monad_async_result;
 }
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct iovec {
+    pub iov_base: *mut ::std::os::raw::c_void,
+    pub iov_len: size_t,
+}
+pub type __u32 = ::std::os::raw::c_uint;
+pub type __u64 = ::std::os::raw::c_ulonglong;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct open_how {
+    pub flags: u64,
+    pub mode: u64,
+    pub resolve: u64,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct io_sqring_offsets {
+    pub head: __u32,
+    pub tail: __u32,
+    pub ring_mask: __u32,
+    pub ring_entries: __u32,
+    pub flags: __u32,
+    pub dropped: __u32,
+    pub array: __u32,
+    pub resv1: __u32,
+    pub resv2: __u64,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct io_cqring_offsets {
+    pub head: __u32,
+    pub tail: __u32,
+    pub ring_mask: __u32,
+    pub ring_entries: __u32,
+    pub overflow: __u32,
+    pub cqes: __u32,
+    pub flags: __u32,
+    pub resv1: __u32,
+    pub resv2: __u64,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct io_uring_params {
+    pub sq_entries: __u32,
+    pub cq_entries: __u32,
+    pub flags: __u32,
+    pub sq_thread_cpu: __u32,
+    pub sq_thread_idle: __u32,
+    pub features: __u32,
+    pub wq_fd: __u32,
+    pub resv: [__u32; 3usize],
+    pub sq_off: io_sqring_offsets,
+    pub cq_off: io_cqring_offsets,
+}
+pub type atomic_bool = u8;
+pub type atomic_uint = u32;
+pub type atomic_size_t = u64;
 #[doc = "! \\brief The public attributes of an executor"]
 pub type monad_async_executor = *mut monad_async_executor_head;
 #[doc = "! \\brief An i/o status state used to identify an i/o in progress. Must NOT"]
@@ -443,6 +450,136 @@ extern "C" {
         ex: monad_async_executor,
         buffer_index: ::std::os::raw::c_int,
     ) -> monad_async_result;
+}
+#[doc = "! \\brief An offset into a file"]
+pub type monad_async_file_offset = u64;
+#[doc = "! \\brief The public attributes of an open file"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct monad_async_file_head {
+    pub executor: monad_async_executor,
+}
+#[doc = "! \\brief The public attributes of an open file"]
+pub type monad_async_file = *mut monad_async_file_head;
+extern "C" {
+    #[doc = " \\brief EXPENSIVE Suspend execution of the task until the file has been"]
+    #[doc = "opened. See `man open2` to explain parameters."]
+    #[doc = ""]
+    #[doc = "This is a relatively expensive operation as it may do up to two mallocs and"]
+    #[doc = "several syscalls per call."]
+    pub fn monad_async_task_file_create(
+        file: *mut monad_async_file,
+        task: monad_async_task,
+        base: monad_async_file,
+        subpath: *const ::std::os::raw::c_char,
+        how: *mut open_how,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief Suspend execution of the task until the file has been closed"]
+    pub fn monad_async_task_file_destroy(
+        task: monad_async_task,
+        file: monad_async_file,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief Suspend execution of the task until the file's valid extents have"]
+    #[doc = "! been modified as per the `fallocate` call, see `man fallocate` for more."]
+    pub fn monad_async_task_file_fallocate(
+        task: monad_async_task,
+        file: monad_async_file,
+        mode: ::std::os::raw::c_int,
+        offset: monad_async_file_offset,
+        len: monad_async_file_offset,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = " \\brief Initiate a read from an open file using `iostatus` as the identifier."]
+    #[doc = ""]
+    #[doc = "Returns immediately unless there are no free io_uring submission entries."]
+    #[doc = "See `man readv2` to explain parameters. The i/o priority used will be that"]
+    #[doc = "from the task's current i/o priority setting."]
+    #[doc = ""]
+    #[doc = "\\warning io_uring **requires** that the contents of iovecs have lifetime until"]
+    #[doc = "the read completes. The only exception here is if `nr_vecs` is one."]
+    pub fn monad_async_task_file_read(
+        iostatus: *mut monad_async_io_status,
+        task: monad_async_task,
+        file: monad_async_file,
+        buffer_index: ::std::os::raw::c_int,
+        iovecs: *const iovec,
+        nr_vecs: ::std::os::raw::c_uint,
+        offset: monad_async_file_offset,
+        flags: ::std::os::raw::c_int,
+    );
+}
+extern "C" {
+    #[doc = " \\brief Initiate a write to an open file using `iostatus` as the identifier."]
+    #[doc = ""]
+    #[doc = "Returns immediately unless there are no free io_uring submission entries."]
+    #[doc = "See `man writev2` to explain parameters. The i/o priority used will be that"]
+    #[doc = "from the task's current i/o priority setting."]
+    #[doc = ""]
+    #[doc = "\\warning io_uring **requires** that the contents of iovecs have lifetime until"]
+    #[doc = "the writes completes. The only exception here is if `nr_vecs` is one."]
+    pub fn monad_async_task_file_write(
+        iostatus: *mut monad_async_io_status,
+        task: monad_async_task,
+        file: monad_async_file,
+        buffer_index: ::std::os::raw::c_int,
+        iovecs: *const iovec,
+        nr_vecs: ::std::os::raw::c_uint,
+        offset: monad_async_file_offset,
+        flags: ::std::os::raw::c_int,
+    );
+}
+extern "C" {
+    #[doc = "! \\brief Initiate a flush of dirty file extents using `iostatus` as the"]
+    #[doc = "! identifier. Returns immediately unless there are no free io_uring submission"]
+    #[doc = "! entries. See `man sync_file_range` to explain parameters. The i/o priority"]
+    #[doc = "! used will be that from the task's current i/o priority setting. This is the"]
+    #[doc = "! right call to use to encourage the kernel to flush a region of data now, it"]
+    #[doc = "! is the wrong call to ensure write durability as it neither flushes metadata"]
+    #[doc = "! nor tells the storage device to flush."]
+    pub fn monad_async_task_file_range_sync(
+        iostatus: *mut monad_async_io_status,
+        task: monad_async_task,
+        file: monad_async_file,
+        bytes: ::std::os::raw::c_uint,
+        offset: monad_async_file_offset,
+        flags: ::std::os::raw::c_int,
+    );
+}
+extern "C" {
+    #[doc = "! \\brief EXPENSIVE Initiate a durable sync of an open file using `iostatus` as"]
+    #[doc = "! the identifier. Returns immediately unless there are no free io_uring"]
+    #[doc = "! submission entries. The i/o priority used will be that from the task's"]
+    #[doc = "! current i/o priority setting. This is the right call to use to ensure"]
+    #[doc = "! written data is durably placed onto non-volatile storage."]
+    pub fn monad_async_task_file_durable_sync(
+        iostatus: *mut monad_async_io_status,
+        task: monad_async_task,
+        file: monad_async_file,
+    );
+}
+extern "C" {
+    #[doc = "! \\brief Returns a temporary directory in which `O_DIRECT` files definitely"]
+    #[doc = "! work"]
+    pub fn monad_async_working_temporary_directory() -> *const ::std::os::raw::c_char;
+}
+extern "C" {
+    #[doc = "! \\brief Creates a temporary file, writing the path created into the buffer."]
+    #[doc = "! You will need to unlink this after yourself and close the file descriptor it"]
+    #[doc = "! returns."]
+    pub fn monad_async_make_temporary_file(
+        buffer: *mut ::std::os::raw::c_char,
+        buffer_len: size_t,
+    ) -> ::std::os::raw::c_int;
+}
+extern "C" {
+    #[doc = "! \\brief Creates already deleted file so no need to clean it up"]
+    #[doc = "! after. You will need to close the file descriptor it returns."]
+    pub fn monad_async_make_temporary_inode() -> ::std::os::raw::c_int;
 }
 #[doc = "! \\brief The public attributes of a work dispatcher"]
 #[repr(C)]
