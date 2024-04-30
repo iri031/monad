@@ -8,6 +8,27 @@ find_package(GTest REQUIRED)
 find_package(Boost REQUIRED COMPONENTS context)
 find_program(BINDGEN_PROGRAM bindgen)
 
+include(CheckCXXSourceRuns)
+function(check_if_boost_fiber_needs_ucontext_macro)
+  set(BOOST_CONTEXT_WAS_COMPILED_WITH_UCONTEXT FALSE PARENT_SCOPE)
+  set(prog "#include <boost/context/fiber.hpp>\nint main(void){\n::boost::context::fiber foo;\nreturn 0;\n}")
+  set(CMAKE_REQUIRED_LIBRARIES "Boost::context")
+  check_cxx_source_runs("${prog}" BOOST_FIBER_LINKS_WITHOUT_ADDITIONAL_MACROS)
+  if(NOT BOOST_FIBER_LINKS_WITHOUT_ADDITIONAL_MACROS)
+    set(CMAKE_REQUIRED_DEFINITIONS "-DBOOST_USE_UCONTEXT=1")
+    check_cxx_source_runs("${prog}" BOOST_FIBER_LINKS_WITH_BOOST_USE_UCONTEXT_MACRO)
+    if(BOOST_FIBER_LINKS_WITH_BOOST_USE_UCONTEXT_MACRO)
+      get_target_property(var Boost::context INTERFACE_COMPILE_DEFINITIONS)
+      list(APPEND var "-DBOOST_USE_UCONTEXT=1")
+      set_target_properties(Boost::context PROPERTIES INTERFACE_COMPILE_DEFINITIONS "${var}")
+      set(BOOST_CONTEXT_WAS_COMPILED_WITH_UCONTEXT TRUE PARENT_SCOPE)
+    else()
+      message(FATAL_ERROR "FATAL: Boost.Context needs additional help to link, and I need to be taught what")
+    endif()
+  endif()
+endfunction()
+check_if_boost_fiber_needs_ucontext_macro()
+
 add_library(monad_async STATIC
   "src/monad/async/context_switcher_none.c"
   "src/monad/async/context_switcher_sjlj.c"
@@ -23,16 +44,18 @@ target_compile_options(monad_async PUBLIC -Wall -Wextra -Wconversion -Wpedantic)
 target_include_directories(monad_async PUBLIC "include")
 target_link_libraries(monad_async PUBLIC uring Boost::boost)
 
-add_library(monad_fiber STATIC
-  "src/monad/fiber/scheduler.c"
-  "src/monad/fiber/context.c"
-  "src/monad/fiber/current.c"
-  "src/monad/fiber/task.c"
-)
-target_compile_features(monad_fiber PUBLIC c_std_23 cxx_std_20)
-target_compile_options(monad_fiber PUBLIC -Wall -Wextra -Wconversion -Wpedantic)
-target_include_directories(monad_fiber PUBLIC "include")
-target_link_libraries(monad_fiber PUBLIC Boost::context)
+if(NOT BOOST_CONTEXT_WAS_COMPILED_WITH_UCONTEXT)
+  add_library(monad_fiber STATIC
+    "src/monad/fiber/scheduler.c"
+    "src/monad/fiber/context.c"
+    "src/monad/fiber/current.c"
+    "src/monad/fiber/task.c"
+  )
+  target_compile_features(monad_fiber PUBLIC c_std_23 cxx_std_20)
+  target_compile_options(monad_fiber PUBLIC -Wall -Wextra -Wconversion -Wpedantic)
+  target_include_directories(monad_fiber PUBLIC "include")
+  target_link_libraries(monad_fiber PUBLIC Boost::context)
+endif()
 
 if(BINDGEN_PROGRAM)
   make_directory("${CMAKE_SOURCE_DIR}/rust")
@@ -55,17 +78,4 @@ else()
   message(WARNING "WARNING: Could not regen Rust bindings as bindgen program not found")
 endif()
 
-enable_testing()
-
-function(monad_test target)
-  add_executable(${target} ${ARGN})
-  target_link_libraries(${target} PRIVATE monad_async GTest::GTest GTest::Main)
-  target_link_options(${target} PRIVATE -rdynamic)
-  add_test(NAME ${target} COMMAND $<TARGET_FILE:${target}>)
-endfunction()
-
-monad_test(monad_async_executor_test "test/async/executor.cpp")
-
-monad_test(monad_async_file_io_test "test/async/file_io.cpp")
-
-monad_test(monad_async_work_dispatcher_test "test/async/work_dispatcher.cpp")
+add_subdirectory("test")
