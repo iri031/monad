@@ -8,11 +8,11 @@ monad_fiber_scheduler sched;
 std::atomic_size_t resumed;
 size_t priority = 0;
 
-struct task : monad_fiber_scheduler_task_t
+struct task : monad_fiber_task_t
 {
-    task() : monad_fiber_scheduler_task_t{
-        .resume=+[](monad_fiber_scheduler_task_t * this_){static_cast<task*>(this_)->resume_();},
-        .destroy=+[](monad_fiber_scheduler_task_t * this_){}
+    task() : monad_fiber_task_t{
+        .resume=+[](monad_fiber_task_t * this_){static_cast<task*>(this_)->resume_();},
+        .destroy=+[](monad_fiber_task_t * this_){}
     }
     {
     }
