@@ -1,5 +1,3 @@
-enable_testing()
-
 function(monad_test target)
   add_executable(${target} ${ARGN})
   target_link_libraries(${target} PRIVATE monad_async GTest::GTest GTest::Main)
@@ -13,6 +11,4 @@ monad_test(monad_async_file_io_test "async/file_io.cpp")
 
 monad_test(monad_async_work_dispatcher_test "async/work_dispatcher.cpp")
 
-if(TARGET monad_fiber)
-  add_subdirectory("fiber")
-endif()
+add_subdirectory("fiber")
