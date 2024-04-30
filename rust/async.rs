@@ -33,9 +33,16 @@ pub const monad_async_priority_monad_async_priority_high: monad_async_priority =
 pub const monad_async_priority_monad_async_priority_normal: monad_async_priority = 1;
 pub const monad_async_priority_monad_async_priority_low: monad_async_priority = 2;
 pub const monad_async_priority_monad_async_priority_max: monad_async_priority = 3;
+pub const monad_async_priority_monad_async_priority_unchanged: monad_async_priority = 255;
 #[doc = "! \\brief Task priority classes"]
 pub type monad_async_priority = ::std::os::raw::c_uchar;
 pub type size_t = ::std::os::raw::c_ulong;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct iovec {
+    pub iov_base: *mut ::std::os::raw::c_void,
+    pub iov_len: size_t,
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct timespec {
@@ -226,12 +233,12 @@ pub struct monad_async_io_status {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct monad_async_task_head {
-    pub priority: monad_async_task_head__bindgen_ty_1,
-    pub result: monad_async_result,
     pub user_code: ::std::option::Option<
         unsafe extern "C" fn(arg1: *mut monad_async_task_head) -> monad_async_result,
     >,
     pub user_ptr: *mut ::std::os::raw::c_void,
+    pub priority: monad_async_task_head__bindgen_ty_1,
+    pub result: monad_async_result,
     pub current_executor: u64,
     pub is_awaiting_dispatch: atomic_bool,
     pub is_pending_launch: atomic_bool,
@@ -303,6 +310,14 @@ extern "C" {
     ) -> monad_async_result;
 }
 extern "C" {
+    #[doc = "! \\brief Change the CPU or i/o priority of a task"]
+    pub fn monad_async_task_set_priorities(
+        task: monad_async_task,
+        cpu: monad_async_priority,
+        io: monad_async_priority,
+    ) -> monad_async_result;
+}
+extern "C" {
     #[doc = "! \\brief Ask io_uring to cancel a previously initiated operation. It can take"]
     #[doc = "! some time for io_uring to cancel an operation, and it may ignore your"]
     #[doc = "! request."]
@@ -355,6 +370,22 @@ pub struct monad_async_executor_attr__bindgen_ty_1 {
     #[doc = "! i/o! It also no longer initialises io_uring for this executor."]
     pub entries: ::std::os::raw::c_uint,
     pub params: io_uring_params,
+    pub registered_buffers: monad_async_executor_attr__bindgen_ty_1__bindgen_ty_1,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct monad_async_executor_attr__bindgen_ty_1__bindgen_ty_1 {
+    #[doc = "! \\brief How many small and large buffers to register."]
+    pub small: ::std::os::raw::c_uint,
+    #[doc = "! \\brief How many small and large buffers to register."]
+    pub large: ::std::os::raw::c_uint,
+}
+#[doc = "! \\brief A registered i/o buffer"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct monad_async_executor_registered_io_buffer {
+    pub index: ::std::os::raw::c_int,
+    pub iov: [iovec; 1usize],
 }
 extern "C" {
     #[doc = " \\brief EXPENSIVE Creates an executor instance. You must create it on the"]
@@ -390,6 +421,27 @@ extern "C" {
     pub fn monad_async_executor_wake(
         ex: monad_async_executor,
         cause_run_to_return: *const monad_async_result,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = " \\brief Claim an unused registered buffer, if there is one."]
+    #[doc = ""]
+    #[doc = "There are two sizes of registered i/o buffer, small and large which are the page"]
+    #[doc = "size of the host platform (e.g. 4Kb and 2Mb if on Intel x64). Through being a"]
+    #[doc = "single page size, DMA using registered i/o buffers has the lowest possible"]
+    #[doc = "overhead."]
+    pub fn monad_async_executor_claim_registered_io_buffer(
+        buffer: *mut monad_async_executor_registered_io_buffer,
+        ex: monad_async_executor,
+        bytes_requested: size_t,
+        is_for_write: bool,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief Release a previously claimed registered buffer."]
+    pub fn monad_async_executor_release_registered_io_buffer(
+        ex: monad_async_executor,
+        buffer_index: ::std::os::raw::c_int,
     ) -> monad_async_result;
 }
 #[doc = "! \\brief The public attributes of a work dispatcher"]

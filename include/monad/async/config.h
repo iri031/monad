@@ -97,7 +97,8 @@ typedef enum monad_async_priority
     monad_async_priority_normal = 1,
     monad_async_priority_low = 2,
 
-    monad_async_priority_max = 3
+    monad_async_priority_max = 3,
+    monad_async_priority_unchanged = (unsigned char)-1
 } monad_async_priority;
 #ifdef __cplusplus
 }

@@ -128,6 +128,44 @@ monad_async_task_file_destroy(monad_async_task task_, monad_async_file file_)
     return monad_async_make_success(0);
 }
 
+monad_async_result monad_async_task_file_fallocate(
+    monad_async_task task_, monad_async_file file_, int mode,
+    monad_async_file_offset offset, monad_async_file_offset len)
+{
+    struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
+    struct monad_async_file_impl *file = (struct monad_async_file_impl *)file_;
+    struct monad_async_executor_impl *ex =
+        (struct monad_async_executor_impl *)atomic_load_explicit(
+            &task_->current_executor, memory_order_acquire);
+    struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task);
+    io_uring_prep_fallocate(
+        sqe, (int)file->io_uring_file_index, mode, (off_t)offset, (off_t)len);
+    sqe->flags |= IOSQE_FIXED_FILE;
+    io_uring_sqe_set_data(sqe, task, task);
+
+#if MONAD_ASYNC_FILE_IO_PRINTING
+    printf(
+        "*** Task %p running on executor %p initiates "
+        "file_allocate\n",
+        (void *)task,
+        (void *)ex);
+#endif
+    monad_async_result ret =
+        monad_async_executor_suspend_impl(ex, task, nullptr, nullptr);
+#if MONAD_ASYNC_FILE_IO_PRINTING
+    printf(
+        "*** Task %p running on executor %p completes "
+        "file_allocate for file_index=%u\n",
+        (void *)task,
+        (void *)ex,
+        file->io_uring_file_index);
+#endif
+    if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)) {
+        return ret;
+    }
+    return monad_async_make_success(0);
+}
+
 static inline monad_async_result monad_async_task_file_io_cancel(
     monad_async_task task_, monad_async_io_status *iostatus)
 {
@@ -142,8 +180,8 @@ static inline monad_async_result monad_async_task_file_io_cancel(
 
 void monad_async_task_file_read(
     monad_async_io_status *iostatus, monad_async_task task_,
-    monad_async_file file_, const struct iovec *iovecs, unsigned nr_vecs,
-    monad_async_file_offset offset, int flags)
+    monad_async_file file_, int buffer_index, const struct iovec *iovecs,
+    unsigned nr_vecs, monad_async_file_offset offset, int flags)
 {
     struct monad_async_file_impl *file = (struct monad_async_file_impl *)file_;
     struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
@@ -154,18 +192,36 @@ void monad_async_task_file_read(
 #ifdef IO_URING_VERSION_MAJOR
     #error "Implement io_uring_prep_readv2 support"
 #endif
-    if (nr_vecs != 1) {
-        (void)flags;
-        io_uring_prep_readv(
-            sqe, (int)file->io_uring_file_index, iovecs, nr_vecs, offset);
+    if (buffer_index == 0) {
+        if (nr_vecs != 1) {
+            (void)flags;
+            io_uring_prep_readv(
+                sqe, (int)file->io_uring_file_index, iovecs, nr_vecs, offset);
+        }
+        else {
+            io_uring_prep_read(
+                sqe,
+                (int)file->io_uring_file_index,
+                iovecs[0].iov_base,
+                (unsigned)iovecs[0].iov_len,
+                offset);
+        }
     }
     else {
-        io_uring_prep_read(
-            sqe,
-            (int)file->io_uring_file_index,
-            iovecs[0].iov_base,
-            (unsigned)iovecs[0].iov_len,
-            offset);
+        assert(buffer_index > 0);
+        if (nr_vecs != 1) {
+            assert(false);
+            abort();
+        }
+        else {
+            io_uring_prep_read_fixed(
+                sqe,
+                (int)file->io_uring_file_index,
+                iovecs[0].iov_base,
+                (unsigned)iovecs[0].iov_len,
+                offset,
+                buffer_index - 1);
+        }
     }
     sqe->flags |= IOSQE_FIXED_FILE;
     io_uring_sqe_set_data(sqe, iostatus, task);
@@ -185,30 +241,48 @@ void monad_async_task_file_read(
 
 void monad_async_task_file_write(
     monad_async_io_status *iostatus, monad_async_task task_,
-    monad_async_file file_, const struct iovec *iovecs, unsigned nr_vecs,
-    monad_async_file_offset offset, int flags)
+    monad_async_file file_, int buffer_index, const struct iovec *iovecs,
+    unsigned nr_vecs, monad_async_file_offset offset, int flags)
 {
     struct monad_async_file_impl *file = (struct monad_async_file_impl *)file_;
     struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
-    struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task);
+    struct io_uring_sqe *sqe = get_wrsqe_suspending_if_necessary(ex, task);
 #ifdef IO_URING_VERSION_MAJOR
     #error "Implement io_uring_prep_writev2 support"
 #endif
-    if (nr_vecs != 1) {
-        (void)flags;
-        io_uring_prep_writev(
-            sqe, (int)file->io_uring_file_index, iovecs, nr_vecs, offset);
+    if (buffer_index == 0) {
+        if (nr_vecs != 1) {
+            (void)flags;
+            io_uring_prep_writev(
+                sqe, (int)file->io_uring_file_index, iovecs, nr_vecs, offset);
+        }
+        else {
+            io_uring_prep_write(
+                sqe,
+                (int)file->io_uring_file_index,
+                iovecs[0].iov_base,
+                (unsigned)iovecs[0].iov_len,
+                offset);
+        }
     }
     else {
-        io_uring_prep_write(
-            sqe,
-            (int)file->io_uring_file_index,
-            iovecs[0].iov_base,
-            (unsigned)iovecs[0].iov_len,
-            offset);
+        assert(buffer_index < 0);
+        if (nr_vecs != 1) {
+            assert(false);
+            abort();
+        }
+        else {
+            io_uring_prep_write_fixed(
+                sqe,
+                (int)file->io_uring_file_index,
+                iovecs[0].iov_base,
+                (unsigned)iovecs[0].iov_len,
+                offset,
+                -1 - buffer_index);
+        }
     }
     sqe->flags |= IOSQE_FIXED_FILE;
     io_uring_sqe_set_data(sqe, iostatus, task);

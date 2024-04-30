@@ -58,6 +58,10 @@ monad_async_io_in_progress(monad_async_io_status const *iostatus, size_t len)
 struct monad_async_task_head
 {
     // These can be set by the user
+    monad_async_result (*user_code)(struct monad_async_task_head *);
+    void *user_ptr;
+
+    // The following are not user modifiable
     struct
     {
         monad_async_priority cpu;
@@ -65,10 +69,6 @@ struct monad_async_task_head
     } priority;
 
     monad_async_result result;
-    monad_async_result (*user_code)(struct monad_async_task_head *);
-    void *user_ptr;
-
-    // The following are not user modifiable
 #ifdef __cplusplus
     std::atomic<monad_async_executor> current_executor;
     std::
@@ -165,6 +165,11 @@ MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_task_attach(
 MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_task_cancel(
     monad_async_executor executor,
     monad_async_task task); // implemented in executor.c
+
+//! \brief Change the CPU or i/o priority of a task
+MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_task_set_priorities(
+    monad_async_task task, monad_async_priority cpu,
+    monad_async_priority io); // implemented in executor.c
 
 //! \brief Ask io_uring to cancel a previously initiated operation. It can take
 //! some time for io_uring to cancel an operation, and it may ignore your

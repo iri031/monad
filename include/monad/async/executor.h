@@ -64,8 +64,21 @@ struct monad_async_executor_attr
         //! i/o! It also no longer initialises io_uring for this executor.
         unsigned entries;
         struct io_uring_params params;
+
+        struct
+        {
+            //! \brief How many small and large buffers to register.
+            unsigned small, large;
+        } registered_buffers;
     } io_uring_ring, io_uring_wr_ring;
 };
+
+//! \brief A registered i/o buffer
+typedef struct monad_async_executor_registered_io_buffer
+{
+    int index;
+    struct iovec iov[1];
+} monad_async_executor_registered_io_buffer;
 
 /*! \brief EXPENSIVE Creates an executor instance. You must create it on the
  kernel thread where it will be used.
@@ -93,6 +106,23 @@ MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_executor_run(
 //! is examined for new work and the sleep reestablished.
 MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_executor_wake(
     monad_async_executor ex, monad_async_result const *cause_run_to_return);
+
+/*! \brief Claim an unused registered buffer, if there is one.
+
+There are two sizes of registered i/o buffer, small and large which are the page
+size of the host platform (e.g. 4Kb and 2Mb if on Intel x64). Through being a
+single page size, DMA using registered i/o buffers has the lowest possible
+overhead.
+*/
+MONAD_ASYNC_NODISCARD extern monad_async_result
+monad_async_executor_claim_registered_io_buffer(
+    monad_async_executor_registered_io_buffer *buffer, monad_async_executor ex,
+    size_t bytes_requested, bool is_for_write);
+
+//! \brief Release a previously claimed registered buffer.
+MONAD_ASYNC_NODISCARD extern monad_async_result
+monad_async_executor_release_registered_io_buffer(
+    monad_async_executor ex, int buffer_index);
 
 #ifdef __cplusplus
 }

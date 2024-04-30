@@ -10,6 +10,7 @@
 #include <linux/ioprio.h>
 #include <poll.h>
 #include <sys/eventfd.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #if MONAD_ASYNC_HAVE_TSAN
@@ -17,6 +18,12 @@
 #endif
 
 typedef struct monad_async_file_head *monad_async_file;
+
+struct monad_async_executor_free_registered_buffer
+{
+    struct monad_async_executor_free_registered_buffer *next;
+    unsigned index;
+};
 
 struct monad_async_executor_impl
 {
@@ -31,8 +38,16 @@ struct monad_async_executor_impl
     LIST_DEFINE_P(tasks_suspended_awaiting, struct monad_async_task_impl);
     LIST_DEFINE_P(tasks_suspended_completed, struct monad_async_task_impl);
     monad_async_result *_Atomic cause_run_to_return;
+
     monad_async_file *file_indices;
     unsigned file_indices_size;
+
+    struct monad_async_executor_impl_registered_buffers_t
+    {
+        struct iovec *buffers;
+        unsigned size;
+        struct monad_async_executor_free_registered_buffer *free[2];
+    } registered_buffers[2];
 
     // all items below this require taking the lock
     atomic_int lock;
@@ -187,6 +202,70 @@ timespec_diff(const struct timespec *a, const struct timespec *b)
     return timespec_to_ns(a) - timespec_to_ns(b);
 }
 
+static inline monad_async_result
+monad_async_executor_create_impl_fill_registered_buffers(
+    struct monad_async_executor_impl_registered_buffers_t *p,
+    unsigned buffers_small, unsigned buffers_large)
+{
+    p->size = buffers_small + buffers_large;
+    if (p->size == 0) {
+        return monad_async_make_success(0);
+    }
+    p->buffers = calloc(p->size, sizeof(struct iovec));
+    if (p->buffers == nullptr) {
+        return monad_async_make_failure(errno);
+    }
+    struct iovec *iov = p->buffers;
+    if (buffers_small > 0) {
+        void *mem = mmap(
+            nullptr,
+            buffers_small * 4096,
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS,
+            -1,
+            0);
+        if (mem == MAP_FAILED) {
+            return monad_async_make_failure(errno);
+        }
+        for (unsigned n = 0; n < buffers_small; n++) {
+            iov->iov_base = (char *)mem + n * 4096;
+            iov->iov_len = 4096;
+            struct monad_async_executor_free_registered_buffer *i =
+                (struct monad_async_executor_free_registered_buffer *)
+                    iov->iov_base;
+            iov++;
+            i->index = (unsigned)(iov - p->buffers);
+            i->next = p->free[0];
+            p->free[0] = i;
+        }
+    }
+    if (buffers_large > 0) {
+        void *mem = mmap(
+            nullptr,
+            buffers_large * 2 * 1024 * 1024,
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB |
+                (21 << MAP_HUGE_SHIFT) /* 2Mb pages */,
+            -1,
+            0);
+        if (mem == MAP_FAILED) {
+            return monad_async_make_failure(errno);
+        }
+        for (unsigned n = 0; n < buffers_large; n++) {
+            iov->iov_base = (char *)mem + n * 2 * 1024 * 1024;
+            iov->iov_len = 2 * 1024 * 1024;
+            struct monad_async_executor_free_registered_buffer *i =
+                (struct monad_async_executor_free_registered_buffer *)
+                    iov->iov_base;
+            iov++;
+            i->index = (unsigned)(iov - p->buffers);
+            i->next = p->free[1];
+            p->free[1] = i;
+        }
+    }
+    return monad_async_make_success(0);
+}
+
 static inline monad_async_result monad_async_executor_create_impl(
     struct monad_async_executor_impl *p, struct monad_async_executor_attr *attr)
 {
@@ -236,6 +315,36 @@ static inline monad_async_result monad_async_executor_create_impl(
         r = io_uring_submit(&p->ring);
         if (r < 0) {
             return monad_async_make_failure(-r);
+        }
+        MONAD_ASYNC_TRY_RESULT(
+            ,
+            monad_async_executor_create_impl_fill_registered_buffers(
+                &p->registered_buffers[0],
+                attr->io_uring_ring.registered_buffers.small,
+                attr->io_uring_ring.registered_buffers.large));
+        if (p->registered_buffers[0].size > 0) {
+            r = io_uring_register_buffers(
+                &p->ring,
+                p->registered_buffers[0].buffers,
+                p->registered_buffers[0].size);
+            if (r < 0) {
+                return monad_async_make_failure(-r);
+            }
+        }
+        MONAD_ASYNC_TRY_RESULT(
+            ,
+            monad_async_executor_create_impl_fill_registered_buffers(
+                &p->registered_buffers[1],
+                attr->io_uring_wr_ring.registered_buffers.small,
+                attr->io_uring_wr_ring.registered_buffers.large));
+        if (p->registered_buffers[1].size > 0) {
+            r = io_uring_register_buffers(
+                &p->wr_ring,
+                p->registered_buffers[1].buffers,
+                p->registered_buffers[1].size);
+            if (r < 0) {
+                return monad_async_make_failure(-r);
+            }
         }
     }
     return monad_async_make_success(0);
@@ -312,6 +421,22 @@ monad_async_executor_destroy_impl(struct monad_async_executor_impl *ex)
         close(ex->eventfd);
         ex->eventfd = -1;
     }
+    for (unsigned n = 0; n < ex->registered_buffers[0].size; n++) {
+        (void)munmap(
+            ex->registered_buffers[0].buffers[n].iov_base,
+            ex->registered_buffers[0].buffers[n].iov_len);
+    }
+    if (ex->registered_buffers[0].buffers != nullptr) {
+        free(ex->registered_buffers[0].buffers);
+    }
+    for (unsigned n = 0; n < ex->registered_buffers[1].size; n++) {
+        (void)munmap(
+            ex->registered_buffers[1].buffers[n].iov_base,
+            ex->registered_buffers[1].buffers[n].iov_len);
+    }
+    if (ex->registered_buffers[1].buffers != nullptr) {
+        free(ex->registered_buffers[1].buffers);
+    }
     return monad_async_make_success(0);
 }
 
@@ -349,6 +474,40 @@ static inline struct io_uring_sqe *get_sqe_suspending_if_necessary(
     }
     assert(ex->within_run == true);
     struct io_uring_sqe *sqe = io_uring_get_sqe(&ex->ring);
+    if (sqe == nullptr) {
+        fprintf(
+            stderr,
+            "TODO: Handle SQE exhaustation via suspend until free SQE "
+            "entries appear.\n");
+        abort();
+    }
+    switch (task->head.priority.io) {
+    default:
+        break;
+    case monad_async_priority_high:
+        sqe->ioprio = IOPRIO_PRIO_VALUE(IOPRIO_CLASS_RT, 7);
+        break;
+    case monad_async_priority_low:
+        sqe->ioprio = IOPRIO_PRIO_VALUE(IOPRIO_CLASS_IDLE, 0);
+        break;
+    }
+    return sqe;
+}
+
+static inline struct io_uring_sqe *get_wrsqe_suspending_if_necessary(
+    struct monad_async_executor_impl *ex, struct monad_async_task_impl *task)
+{
+    if (ex == nullptr ||
+        atomic_load_explicit(&ex->head.current_task, memory_order_acquire) !=
+            &task->head) {
+        fprintf(
+            stderr,
+            "FATAL: Suspending operation invoked not by the "
+            "current task executing.\n");
+        abort();
+    }
+    assert(ex->within_run == true);
+    struct io_uring_sqe *sqe = io_uring_get_sqe(&ex->wr_ring);
     if (sqe == nullptr) {
         fprintf(
             stderr,

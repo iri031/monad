@@ -223,6 +223,8 @@ i/o in flight, the `monad_async_io_status` structure does the same. You supply
 the `monad_async_io_status` structure instance for every i/o you initiate. It
 will get asynchronously completed with the result of the i/o.
 
+Both registered buffer i/o and non-registered buffer i/o
+
 ```c
 static monad_async_result mytask(monad_async_task task)
 {
@@ -237,16 +239,25 @@ static monad_async_result mytask(monad_async_task task)
   r = monad_async_task_file_create(&fh, task, nullptr, "foo.txt", &how);
   CHECK_RESULT(r);
 
-  char buffer[64];
+  // Get a registered buffer for read
+  monad_async_executor_registered_io_buffer buffer;
+  r = monad_async_executor_claim_registered_io_buffer(
+                &buffer, task->current_executor, 64, false);
+  CHECK_RESULT(r);
 
   // Initiate a read. It may suspend and resume the task if there
   // are no more io_uring sqes available.
   monad_async_io_status iostatus;
   memset(&iostatus, 0, sizeof(iostatus));
-  struct iovec iov[] = {
-      {.iov_base = buffer, .iov_len = 64}};
   monad_async_task_file_read(
-      &iostatus, task, fh.get(), &iov[0], 1, 0, 0);
+      &iostatus,     // i/o status to use
+      task,          // this task
+      fh.get(),      // open file to use
+      buffer.index,  // can be zero if use unregistered buffer
+      buffer.iov,    // struct iovec[] sequence
+      1,             // length of struct iovec[] sequence
+      0,             // offset to use
+      0);            // preadv2 flags to use
 
   // Reap i/o completions, suspending the task until more completions
   // appear
@@ -259,6 +270,11 @@ static monad_async_result mytask(monad_async_task task)
     }
     /* handle completed ... */
   }
+
+  // Release the registered buffer
+  r = monad_async_executor_release_registered_io_buffer(
+                          task->current_executor, buffer.index);
+  CHECK_RESULT(r);
 
   // Close the file, This will suspend the task and resume it
   // after the file has been closed.
@@ -274,7 +290,6 @@ static monad_async_result mytask(monad_async_task task)
 ## Todo
 
 - Writes need to use the write io_uring
-- Registered buffer i/o still needed
 - Need to test cancellation works
 - Yet to replace setjmp/longjmp based context switching with something
 much better (Klemens).
