@@ -22,7 +22,7 @@ struct monad_fiber_channel_write_op
   struct monad_fiber_channel_write_op * next;
 };
 
-void monad_fiber_pool_create(monad_fiber_channel_t * this, size_t capacity, size_t element_size)
+void monad_fiber_channel_create(monad_fiber_channel_t * this, size_t capacity, size_t element_size)
 {
   this->capacity = capacity;
   this->size = 0u;
@@ -39,7 +39,7 @@ void monad_fiber_pool_create(monad_fiber_channel_t * this, size_t capacity, size
     this->data = NULL;
 }
 
-void monad_fiber_pool_destroy(monad_fiber_channel_t * this)
+void monad_fiber_channel_destroy(monad_fiber_channel_t * this)
 {
   MONAD_CCALL_ASSERT(pthread_mutex_lock(&this->mutex));
 

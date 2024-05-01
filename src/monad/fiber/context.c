@@ -237,7 +237,7 @@ monad_fiber_context_t * monad_fiber_context_callcc(
 #if defined(MAP_ANON)
     memory = mmap( 0, allocated_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 #else
-    memory = mmap( 0, size__, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    memory = mmap( 0, allocated_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 #endif
     if (memory != NULL)
     {

@@ -19,9 +19,9 @@ typedef struct monad_fiber_channel
 } monad_fiber_channel_t;
 
 // element_size == 0 means there's no buffer, i.e. it's void.
-void monad_fiber_pool_create(
+void monad_fiber_channel_create(
     monad_fiber_channel_t *, size_t capacity, size_t element_size);
-void monad_fiber_pool_destroy(monad_fiber_channel_t *);
+void monad_fiber_channel_destroy(monad_fiber_channel_t *);
 
 bool monad_fiber_try_read(monad_fiber_channel_t *, void *target);
 bool monad_fiber_try_write(monad_fiber_channel_t *, void const *source);
