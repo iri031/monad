@@ -66,7 +66,7 @@ void monad_fiber_channel_destroy(monad_fiber_channel_t * this)
 }
 
 
-bool monad_fiber_try_read(monad_fiber_channel_t * this, void * target)
+bool monad_fiber_channel_try_read(monad_fiber_channel_t * this, void * target)
 {
   MONAD_CCALL_ASSERT(pthread_mutex_lock(&this->mutex));
   bool has_result = false;
@@ -119,7 +119,7 @@ bool monad_fiber_try_read(monad_fiber_channel_t * this, void * target)
   return has_result;
 }
 
-bool monad_fiber_try_write(monad_fiber_channel_t * this, const void * source)
+bool monad_fiber_channel_try_write(monad_fiber_channel_t * this, const void * source)
 {
   MONAD_CCALL_ASSERT(pthread_mutex_lock(&this->mutex));
   bool has_result = false;
@@ -167,14 +167,15 @@ bool monad_fiber_try_write(monad_fiber_channel_t * this, const void * source)
   return has_result;
 }
 
-void monad_fiber_await_unlock_impl(monad_fiber_t * task, void * arg)
+static void monad_fiber_await_unlock_impl(monad_fiber_t * task, void * arg)
 {
+  (void)task;
   MONAD_CCALL_ASSERT(pthread_mutex_unlock(((pthread_mutex_t*)arg)));
 }
 
 
 
-int monad_fiber_read(monad_fiber_channel_t * this, void * target)
+int monad_fiber_channel_read(monad_fiber_channel_t * this, void * target)
 {
   if (target == (void*)UINTPTR_MAX)
     target = NULL;
@@ -238,8 +239,7 @@ int monad_fiber_read(monad_fiber_channel_t * this, void * target)
       op->next = &my_op;
     }
     // ok, set up, not suspend and unlock after suspending -> before is a race condition
-    monad_fiber_await(&monad_fiber_await_unlock_impl,
-                      (void*)&this->mutex);
+    monad_fiber_await(&monad_fiber_await_unlock_impl, (void*)&this->mutex);
 
     if (op->target == (void*)UINTPTR_MAX)
       return EPIPE;
@@ -249,7 +249,7 @@ int monad_fiber_read(monad_fiber_channel_t * this, void * target)
 
 }
 
-int monad_fiber_write(monad_fiber_channel_t * this, const void * source)
+int monad_fiber_channel_write(monad_fiber_channel_t * this, const void * source)
 {
   if (source == (const void*)UINTPTR_MAX)
     source = NULL;
@@ -309,8 +309,7 @@ int monad_fiber_write(monad_fiber_channel_t * this, const void * source)
       op->next = &my_op;
     }
     // ok, set up, not suspend and unlock after suspending -> before is a race condition
-    monad_fiber_await(&monad_fiber_await_unlock_impl,
-                      (void*)&this->mutex);
+    monad_fiber_await(&monad_fiber_await_unlock_impl, (void*)&this->mutex);
 
     if (op->source == (void*)UINTPTR_MAX)
       return EPIPE;

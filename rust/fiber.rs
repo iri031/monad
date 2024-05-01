@@ -261,25 +261,25 @@ extern "C" {
     pub fn monad_fiber_pool_destroy(arg1: *mut monad_fiber_channel_t);
 }
 extern "C" {
-    pub fn monad_fiber_try_read(
+    pub fn monad_fiber_channel_try_read(
         arg1: *mut monad_fiber_channel_t,
         target: *mut ::std::os::raw::c_void,
     ) -> bool;
 }
 extern "C" {
-    pub fn monad_fiber_try_write(
+    pub fn monad_fiber_channel_try_write(
         arg1: *mut monad_fiber_channel_t,
         source: *const ::std::os::raw::c_void,
     ) -> bool;
 }
 extern "C" {
-    pub fn monad_fiber_read(
+    pub fn monad_fiber_channel_read(
         arg1: *mut monad_fiber_channel_t,
         target: *mut ::std::os::raw::c_void,
     ) -> ::std::os::raw::c_int;
 }
 extern "C" {
-    pub fn monad_fiber_write(
+    pub fn monad_fiber_channel_write(
         arg1: *mut monad_fiber_channel_t,
         source: *const ::std::os::raw::c_void,
     ) -> ::std::os::raw::c_int;
