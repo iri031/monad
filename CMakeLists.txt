@@ -39,6 +39,7 @@ add_library(monad_fiber STATIC
   "src/monad/fiber/current.c"
   "src/monad/fiber/task.c"
   "src/monad/fiber/channel.c"
+  "src/monad/fiber/pool.c"
 )
 target_compile_features(monad_fiber PUBLIC c_std_23 cxx_std_20)
 target_compile_options(monad_fiber PUBLIC -Wall -Wextra -Wconversion -Wpedantic)
