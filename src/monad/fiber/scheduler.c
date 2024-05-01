@@ -140,3 +140,17 @@ monad_fiber_task_t * monad_fiber_scheduler_pop_higher_priority_task(monad_fiber_
 
   MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
 }
+
+bool monad_fiber_run_one(monad_fiber_scheduler_t * this)
+{
+  MONAD_CCALL_ASSERT(pthread_mutex_lock(&this->mutex));
+  struct monad_fiber_task_node node = monad_fiber_task_queue_pop_front(&this->task_queue);
+  MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
+  if (node.task != NULL)
+  {
+    node.task->resume(node.task);
+    return true;
+  }
+  else
+    return false;
+}

@@ -1,6 +1,7 @@
 #include <monad/fiber/current.h>
 #include <monad/fiber/assert.h>
 #include <threads.h>
+#include <unistd.h>
 
 
 void _main_fiber_resume (struct monad_fiber_task* const this)
@@ -121,7 +122,19 @@ void monad_fiber_await(
 {
   monad_fiber_t *from = monad_fiber_current();
   // Mustn't be called from main context!
-  assert(from->context != monad_fiber_main_context());
+  if (from->context != monad_fiber_main_context())
+  {
+    MONAD_ASSERT(from->scheduler != NULL);
+
+
+
+    if (!monad_fiber_run_one(from->scheduler))
+      usleep(1000);
+
+
+    return ;
+  }
+
 
   struct monad_fiber_await_impl_t impl =
       {

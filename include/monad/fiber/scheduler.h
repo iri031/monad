@@ -48,6 +48,8 @@ void monad_fiber_scheduler_dispatch(
 monad_fiber_task_t *monad_fiber_scheduler_pop_higher_priority_task(
     monad_fiber_scheduler_t *, size_t priority);
 
+bool monad_fiber_run_one(monad_fiber_scheduler_t *);
+
 #if defined(__cplusplus)
 }
 #endif
