@@ -6,11 +6,13 @@
 
 #include "monad/async/task.h"
 
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 
 /* Post runtime pluggable context switchers:
@@ -328,8 +330,8 @@ TEST(executor, foreign_thread)
         uint32_t ops{0};
     };
 
-    std::vector<executor_thread> executor_threads(
-        std::thread::hardware_concurrency());
+    std::vector<executor_thread> executor_threads{
+        std::thread::hardware_concurrency()};
     std::atomic<int> latch{0};
     for (size_t n = 0; n < executor_threads.size(); n++) {
         executor_threads[n].thread = std::thread(

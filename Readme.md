@@ -1,5 +1,7 @@
 # Proposed replacement executor
 
+[![CI](https://github.com/monad-crypto/fiber-sandbox/actions/workflows/ci.yml/badge.svg)](https://github.com/monad-crypto/fiber-sandbox/actions/workflows/ci.yml)
+
 ## Features:
 
 1. 100% C throughout, easing FFI into Rust and other languages.
