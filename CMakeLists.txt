@@ -10,29 +10,6 @@ find_program(BINDGEN_PROGRAM bindgen)
 
 add_subdirectory("third_party/boost-context")
 
-set(monad_async_INCLUDES
-  "include/monad/async/context_switcher.h"
-  "include/monad/async/executor.h"
-  "include/monad/async/file_io.h"
-  "include/monad/async/task.h"
-  "include/monad/async/util.h"
-  "include/monad/async/work_dispatcher.h"
-)
-add_library(monad_async STATIC
-  "src/monad/async/context_switcher_none.c"
-  "src/monad/async/context_switcher_sjlj.c"
-  "src/monad/async/executor.c"
-  "src/monad/async/file_io.c"
-  "src/monad/async/result.cpp"
-  "src/monad/async/task.c"
-  "src/monad/async/util.cpp"
-  "src/monad/async/work_dispatcher.c"
-)
-target_compile_features(monad_async PUBLIC c_std_23 cxx_std_20)
-target_compile_options(monad_async PUBLIC -Wall -Wextra -Wconversion -Wpedantic)
-target_include_directories(monad_async PUBLIC "include")
-target_link_libraries(monad_async PUBLIC uring Boost::boost)
-
 add_library(monad_fiber STATIC
   "src/monad/fiber/scheduler.c"
   "src/monad/fiber/context.c"
@@ -45,6 +22,30 @@ target_compile_features(monad_fiber PUBLIC c_std_23 cxx_std_20)
 target_compile_options(monad_fiber PUBLIC -Wall -Wextra -Wconversion -Wpedantic)
 target_include_directories(monad_fiber PUBLIC "include")
 target_link_libraries(monad_fiber PUBLIC Boost::context)
+
+set(monad_async_INCLUDES
+  "include/monad/async/context_switcher.h"
+  "include/monad/async/executor.h"
+  "include/monad/async/file_io.h"
+  "include/monad/async/task.h"
+  "include/monad/async/util.h"
+  "include/monad/async/work_dispatcher.h"
+)
+add_library(monad_async STATIC
+  "src/monad/async/context_switcher_monad_fiber.c"
+  "src/monad/async/context_switcher_none.c"
+  "src/monad/async/context_switcher_sjlj.c"
+  "src/monad/async/executor.c"
+  "src/monad/async/file_io.c"
+  "src/monad/async/result.cpp"
+  "src/monad/async/task.c"
+  "src/monad/async/util.cpp"
+  "src/monad/async/work_dispatcher.c"
+)
+target_compile_features(monad_async PUBLIC c_std_23 cxx_std_20)
+target_compile_options(monad_async PUBLIC -Wall -Wextra -Wconversion -Wpedantic)
+target_include_directories(monad_async PUBLIC "include")
+target_link_libraries(monad_async PUBLIC uring Boost::boost monad_fiber)
 
 if(BINDGEN_PROGRAM)
   make_directory("${CMAKE_SOURCE_DIR}/rust")

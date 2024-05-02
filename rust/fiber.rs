@@ -199,6 +199,9 @@ extern "C" {
         priority: size_t,
     ) -> *mut monad_fiber_task_t;
 }
+extern "C" {
+    pub fn monad_fiber_run_one(arg1: *mut monad_fiber_scheduler_t) -> bool;
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct monad_fiber {
@@ -251,14 +254,14 @@ pub struct monad_fiber_channel {
 }
 pub type monad_fiber_channel_t = monad_fiber_channel;
 extern "C" {
-    pub fn monad_fiber_pool_create(
+    pub fn monad_fiber_channel_create(
         arg1: *mut monad_fiber_channel_t,
         capacity: size_t,
         element_size: size_t,
     );
 }
 extern "C" {
-    pub fn monad_fiber_pool_destroy(arg1: *mut monad_fiber_channel_t);
+    pub fn monad_fiber_channel_destroy(arg1: *mut monad_fiber_channel_t);
 }
 extern "C" {
     pub fn monad_fiber_channel_try_read(

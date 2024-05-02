@@ -106,6 +106,36 @@ namespace monad
             return context_switcher_ptr(ex);
         }
 
+        struct context_deleter
+        {
+            monad_async_context_switcher switcher;
+
+            void operator()(monad_async_context t) const
+            {
+                auto r = switcher->destroy(t);
+                if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
+                    throw_exception(r);
+                }
+            }
+        };
+
+        using context_ptr =
+            std::unique_ptr<monad_async_context_head, context_deleter>;
+
+        //! \brief Construct a context instance, and return it in a
+        //! smart pointer
+        context_ptr make_context(
+            monad_async_context_switcher impl,
+            struct monad_async_task_attr &attr)
+        {
+            monad_async_context ex;
+            auto r = impl->create(&ex, impl, nullptr, &attr);
+            if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
+                throw_exception(r);
+            }
+            return context_ptr(ex, {impl});
+        }
+
         struct task_deleter
         {
             void operator()(monad_async_task t) const

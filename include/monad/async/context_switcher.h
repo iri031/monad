@@ -114,6 +114,15 @@ static monad_async_context_switcher_impl const
     monad_async_context_switcher_none = {
         .create = monad_async_context_switcher_none_create};
 
+//! \brief Creates a Monad Fiber context switcher
+MONAD_ASYNC_NODISCARD extern monad_async_result
+monad_async_context_switcher_fiber_create(
+    monad_async_context_switcher *switcher);
+//! \brief Convenience struct for setting a Monad Fiber context switcher
+static monad_async_context_switcher_impl const
+    monad_async_context_switcher_fiber = {
+        .create = monad_async_context_switcher_fiber_create};
+
 #ifdef __cplusplus
 }
 #endif

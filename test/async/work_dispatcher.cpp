@@ -34,7 +34,8 @@ TEST(work_dispatcher, works)
             if (thread.joinable()) {
                 if (ex != nullptr) {
                     auto r = monad_async_make_success(-1);
-                    (void)monad_async_work_dispatcher_executor_wake(ex, &r);
+                    to_result(monad_async_work_dispatcher_executor_wake(ex, &r))
+                        .value();
                 }
                 thread.join();
             }

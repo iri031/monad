@@ -5,6 +5,8 @@ function(monad_test target)
   add_test(NAME ${target} COMMAND $<TARGET_FILE:${target}>)
 endfunction()
 
+monad_test(monad_async_context_switcher_test "async/context_switcher.cpp")
+
 monad_test(monad_async_executor_test "async/executor.cpp")
 
 monad_test(monad_async_file_io_test "async/file_io.cpp")

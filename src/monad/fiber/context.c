@@ -1,310 +1,340 @@
 #include <monad/fiber/context.h>
 
 #include <assert.h>
+#include <errno.h>
 #include <malloc.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
-#include <errno.h>
-#include <string.h>
 
-
-monad_fiber_context_t * monad_fiber_context_switch(monad_fiber_context_t * from, monad_fiber_context_t * to)
+monad_fiber_context_t *monad_fiber_context_switch(
+    monad_fiber_context_t *from, monad_fiber_context_t *to)
 {
 #if defined(MONAD_USE_ASAN)
-  __sanitizer_start_switch_fiber( & to->asan.fake_stack, to->asan.stack_bottom, to->asan.stack_size);
-  from->asan_to_finish = &to->asan;
+    __sanitizer_start_switch_fiber(
+        &to->asan.fake_stack, to->asan.stack_bottom, to->asan.stack_size);
+    from->asan_to_finish = &to->asan;
 #endif
 
 #if defined(MONAD_USE_TSAN)
-  __tsan_switch_to_fiber(to->tsan_fiber, 0);
+    __tsan_switch_to_fiber(to->tsan_fiber, 0);
 #endif
 
-  fcontext_t fiber = to->fiber;
-  to->fiber = NULL;
+    fcontext_t fiber = to->fiber;
+    to->fiber = NULL;
 
-  struct transfer_t t = jump_fcontext(fiber, from);
+    struct transfer_t t = jump_fcontext(fiber, from);
 
-  // in a chain of resumptions t.fctx might point to another coro!
-  // it may also be zero if we're resumed from a destructed fiber
-  monad_fiber_context_t * resumed_from = (monad_fiber_context_t *)t.data;
+    // in a chain of resumptions t.fctx might point to another coro!
+    // it may also be zero if we're resumed from a destructed fiber
+    monad_fiber_context_t *resumed_from = (monad_fiber_context_t *)t.data;
 
-  if (resumed_from)
-  {
+    if (resumed_from) {
 #if defined(MONAD_USE_ASAN)
-    __sanitizer_finish_switch_fiber( (resumed_from->fiber == NULL) ?  NULL : resumed_from->asan_to_finish->fake_stack,
-                                     (const void **) & resumed_from->asan_to_finish->stack_bottom,
-                                     & resumed_from->asan_to_finish->stack_size);
+        __sanitizer_finish_switch_fiber(
+            (resumed_from->fiber == NULL)
+                ? NULL
+                : resumed_from->asan_to_finish->fake_stack,
+            (void const **)&resumed_from->asan_to_finish->stack_bottom,
+            &resumed_from->asan_to_finish->stack_size);
 #endif
-    resumed_from->fiber = t.fctx;
-  }
-  return resumed_from;
+        resumed_from->fiber = t.fctx;
+    }
+    return resumed_from;
 }
 
 struct monad_fiber_context_switch_with_impl_t
 {
-  monad_fiber_context_t  * ctx;
-  monad_fiber_context_t * (*func)(monad_fiber_context_t*, void*);
-  void * data;
+    monad_fiber_context_t *ctx;
+    monad_fiber_context_t *(*func)(monad_fiber_context_t *, void *);
+    void *data;
 };
 
-static
-struct transfer_t monad_fiber_context_switch_with_impl(struct transfer_t fn)
+static struct transfer_t
+monad_fiber_context_switch_with_impl(struct transfer_t fn)
 {
-  struct monad_fiber_context_switch_with_impl_t* tmp = (struct monad_fiber_context_switch_with_impl_t*)fn.data;
+    struct monad_fiber_context_switch_with_impl_t *tmp =
+        (struct monad_fiber_context_switch_with_impl_t *)fn.data;
 
-  monad_fiber_context_t * next = (*tmp->func)(tmp->ctx, tmp->data);
+    monad_fiber_context_t *next = (*tmp->func)(tmp->ctx, tmp->data);
 
-  fn.fctx = next->fiber;
-  fn.data = next;
-  return fn;
+    fn.fctx = next->fiber;
+    fn.data = next;
+    return fn;
 }
 
-monad_fiber_context_t * monad_fiber_context_switch_with(
-    monad_fiber_context_t * from, monad_fiber_context_t * to,
-    monad_fiber_context_t * (*func)(monad_fiber_context_t*, void*), void* arg)
+monad_fiber_context_t *monad_fiber_context_switch_with(
+    monad_fiber_context_t *from, monad_fiber_context_t *to,
+    monad_fiber_context_t *(*func)(monad_fiber_context_t *, void *), void *arg)
 {
 #if defined(MONAD_USE_ASAN)
-  __sanitizer_start_switch_fiber( & to->asan.fake_stack, to->asan.stack_bottom, to->asan.stack_size);
-  from->asan_to_finish = &to->asan;
+    __sanitizer_start_switch_fiber(
+        &to->asan.fake_stack, to->asan.stack_bottom, to->asan.stack_size);
+    from->asan_to_finish = &to->asan;
 #endif
 
 #if defined(MONAD_USE_TSAN)
-  __tsan_switch_to_fiber(to->tsan_fiber, 0);
+    __tsan_switch_to_fiber(to->tsan_fiber, 0);
 #endif
 
-  fcontext_t fiber = to->fiber;
-  to->fiber = NULL;
+    fcontext_t fiber = to->fiber;
+    to->fiber = NULL;
 
-  struct monad_fiber_context_switch_with_impl_t tmp = {
-          .ctx=from,
-          .func=func,
-          .data=arg
-        };
+    struct monad_fiber_context_switch_with_impl_t tmp = {
+        .ctx = from, .func = func, .data = arg};
 
-  struct transfer_t t = ontop_fcontext(fiber, &tmp, &monad_fiber_context_switch_with_impl);
-  // in a chain of resumptions t.fctx might point to another coro!
-  // it may also be zero if we're resumed from a destructed fiber
+    struct transfer_t t =
+        ontop_fcontext(fiber, &tmp, &monad_fiber_context_switch_with_impl);
+    // in a chain of resumptions t.fctx might point to another coro!
+    // it may also be zero if we're resumed from a destructed fiber
 
-  monad_fiber_context_t * resumed_from = (monad_fiber_context_t *)t.data;
-  if (resumed_from)
-  {
+    monad_fiber_context_t *resumed_from = (monad_fiber_context_t *)t.data;
+    if (resumed_from) {
 #if defined(MONAD_USE_ASAN)
-    __sanitizer_finish_switch_fiber( (resumed_from->fiber == NULL) ?  NULL : resumed_from->asan_to_finish->fake_stack,
-                                     (const void **) & resumed_from->asan_to_finish->stack_bottom,
-                                     & resumed_from->asan_to_finish->stack_size);
+        __sanitizer_finish_switch_fiber(
+            (resumed_from->fiber == NULL)
+                ? NULL
+                : resumed_from->asan_to_finish->fake_stack,
+            (void const **)&resumed_from->asan_to_finish->stack_bottom,
+            &resumed_from->asan_to_finish->stack_size);
 #endif
-    resumed_from->fiber = t.fctx;
-  }
-  else
-  {
-    assert(t.fctx == NULL); // if there's no context the fiber must be destroyed as well!
-  }
-  return resumed_from;
+        resumed_from->fiber = t.fctx;
+    }
+    else {
+        assert(
+            t.fctx ==
+            NULL); // if there's no context the fiber must be destroyed as well!
+    }
+    return resumed_from;
 }
 
 static _Thread_local monad_fiber_context_t main_context = {
-    .fiber=NULL,
+    .fiber = NULL,
 #if defined(MONAD_USE_TSAN)
-    .tsan_fiber= NULL,
+    .tsan_fiber = NULL,
 #endif
 #if defined(MONAD_USE_ASAN)
-    .asan = {.fake_stack=NULL,. stack_bottom=NULL,. stack_size=0u}
+    .asan = {.fake_stack = NULL, .stack_bottom = NULL, .stack_size = 0u}
 #endif
 };
 
-monad_fiber_context_t  * monad_fiber_main_context()
+monad_fiber_context_t *monad_fiber_main_context()
 {
 #if defined(MONAD_USE_TSAN)
-  if (main_context.tsan_fiber == NULL)
-    main_context.tsan_fiber = __tsan_get_current_fiber();
+    if (main_context.tsan_fiber == NULL) {
+        main_context.tsan_fiber = __tsan_get_current_fiber();
+    }
 #endif
-  return &main_context;
+    return &main_context;
 }
 
 typedef struct monad_fiber
 {
-  monad_fiber_context_t context;
-  size_t allocated_size;
-  bool is_protected;
+    monad_fiber_context_t context;
+    size_t allocated_size;
+    bool is_protected;
 } monad_fiber_t;
-
 
 struct destroyer
 {
-  struct monad_fiber * this;
-  monad_fiber_context_t * to;
+    struct monad_fiber *this;
+    monad_fiber_context_t *to;
 };
 
 static struct transfer_t self_destroy_impl(struct transfer_t t)
 {
-  // monad_
-  struct destroyer d = *(struct destroyer*)t.data;
-  struct monad_fiber * this = d.this;
+    // monad_
+    struct destroyer d = *(struct destroyer *)t.data;
+    struct monad_fiber *this = d.this;
 #if defined(MONAD_USE_TSAN)
-  __tsan_destroy_fiber(this->context.tsan_fiber);
+    __tsan_destroy_fiber(this->context.tsan_fiber);
 #endif
 
 #if defined(MONAD_USE_ASAN)
-  __sanitizer_finish_switch_fiber(NULL,
-                                  (const void**)&this->context.asan.stack_bottom,
-                                  &this->context.asan.stack_size);
+    __sanitizer_finish_switch_fiber(
+        NULL,
+        (void const **)&this->context.asan.stack_bottom,
+        &this->context.asan.stack_size);
 #endif
 
-  free((char*)this + sizeof(monad_fiber_t) - this->allocated_size);
-  struct transfer_t n = {d.to->fiber, NULL};
-  return n;
+    free((char *)this + sizeof(monad_fiber_t) - this->allocated_size);
+    struct transfer_t n = {d.to->fiber, NULL};
+    return n;
 }
-
 
 static struct transfer_t self_destroy_protected_impl(struct transfer_t t)
 {
-  // monad_
-  struct destroyer d = *(struct destroyer*)t.data;
-  struct monad_fiber * this = d.this;
+    // monad_
+    struct destroyer d = *(struct destroyer *)t.data;
+    struct monad_fiber *this = d.this;
 
 #if defined(MONAD_USE_TSAN)
-  __tsan_destroy_fiber(this->context.tsan_fiber);
+    __tsan_destroy_fiber(this->context.tsan_fiber);
 #endif
 
 #if defined(MONAD_USE_ASAN)
-  __sanitizer_finish_switch_fiber(NULL,
-                                  (const void**)&this->context.asan.stack_bottom,
-                                  &this->context.asan.stack_size);
+    __sanitizer_finish_switch_fiber(
+        NULL,
+        (void const **)&this->context.asan.stack_bottom,
+        &this->context.asan.stack_size);
 #endif
 
-  munmap((char*)this + sizeof(monad_fiber_t) - this->allocated_size, this->allocated_size);
-  struct transfer_t n = {d.to->fiber, NULL};
-  return n;
+    munmap(
+        (char *)this + sizeof(monad_fiber_t) - this->allocated_size,
+        this->allocated_size);
+    struct transfer_t n = {d.to->fiber, NULL};
+    return n;
 }
-
 
 struct callcc_p
 {
-  monad_fiber_context_t * from;
-  monad_fiber_t * fiber;
-  monad_fiber_context_t * (*func)(void*, monad_fiber_context_t *, monad_fiber_context_t *);
-  void * arg;
+    monad_fiber_context_t *from;
+    monad_fiber_t *fiber;
+    monad_fiber_context_t *(*func)(
+        void *, monad_fiber_context_t *, monad_fiber_context_t *);
+    void *arg;
 };
 
 static void __attribute__((noinline)) monad_fiber_impl(struct transfer_t t)
 {
-  struct callcc_p call = *(struct callcc_p*)t.data;
-  monad_fiber_context_t * from = call.from, *to;
+    struct callcc_p call = *(struct callcc_p *)t.data;
+    monad_fiber_context_t *from = call.from, *to;
 
 #if defined(MONAD_USE_ASAN)
-  __sanitizer_finish_switch_fiber(call.fiber->context.asan.fake_stack,
-                                  (const void**)&call.fiber->context.asan.stack_bottom,
-                                  &call.fiber->context.asan.stack_size);
+    __sanitizer_finish_switch_fiber(
+        call.fiber->context.asan.fake_stack,
+        (void const **)&call.fiber->context.asan.stack_bottom,
+        &call.fiber->context.asan.stack_size);
 #endif
-  from->fiber = t.fctx;
-  to = call.func(call.arg, &call.fiber->context, from);
+    from->fiber = t.fctx;
+    to = call.func(call.arg, &call.fiber->context, from);
 
 #if defined(MONAD_USE_ASAN)
-  __sanitizer_start_switch_fiber(&to->asan.fake_stack,
-                                  to->asan.stack_bottom,
-                                  to->asan.stack_size);
-  from->asan_to_finish = &to->asan;
+    __sanitizer_start_switch_fiber(
+        &to->asan.fake_stack, to->asan.stack_bottom, to->asan.stack_size);
+    from->asan_to_finish = &to->asan;
 #endif
 
 #if defined(MONAD_USE_TSAN)
-  __tsan_switch_to_fiber(to->tsan_fiber, 0);
+    __tsan_switch_to_fiber(to->tsan_fiber, 0);
 #endif
 
-  if (from->name)
-    free(from->name);
+    if (from->name) {
+        free((char *)from->name);
+    }
 
-  struct destroyer d = {.this=call.fiber, .to = to};
-  ontop_fcontext(to->fiber, &d,
-                 call.fiber->is_protected ? &self_destroy_protected_impl : &self_destroy_impl);
-  assert("Must never be reached" == NULL);
+    struct destroyer d = {.this = call.fiber, .to = to};
+    ontop_fcontext(
+        to->fiber,
+        &d,
+        call.fiber->is_protected ? &self_destroy_protected_impl
+                                 : &self_destroy_impl);
+    assert("Must never be reached" == NULL);
 }
 
-monad_fiber_context_t * monad_fiber_context_callcc(
-                                   monad_fiber_context_t * from,
-                                   size_t stack_size, bool protected_stack,
-                                   monad_fiber_context_t * (*func)(void* /* func_arg */, monad_fiber_context_t * /* fiber */ , monad_fiber_context_t * /* from */),
-                                   void * func_arg)
+monad_fiber_context_t *monad_fiber_context_callcc(
+    monad_fiber_context_t *from, size_t stack_size, bool protected_stack,
+    monad_fiber_context_t *(*func)(
+        void * /* func_arg */, monad_fiber_context_t * /* fiber */,
+        monad_fiber_context_t * /* from */),
+    void *func_arg)
 {
-  void * memory = NULL;
-  size_t allocated_size = stack_size;
-  if (protected_stack)
-  {
-    // taken from boost.context
-    const size_t page_size = sysconf( _SC_PAGESIZE);
-    const size_t pages = (stack_size + page_size - 1) / page_size;
-    allocated_size = (pages + 1) * page_size;
+    void *memory = NULL;
+    size_t allocated_size = stack_size;
+    if (protected_stack) {
+        // taken from boost.context
+        size_t const page_size = (size_t)sysconf(_SC_PAGESIZE);
+        size_t const pages = (stack_size + page_size - 1) / page_size;
+        allocated_size = (pages + 1) * page_size;
 
 #if defined(MAP_ANON)
-    memory = mmap( 0, allocated_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        memory = mmap(
+            0,
+            allocated_size,
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS,
+            -1,
+            0);
 #else
-    memory = mmap( 0, allocated_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        memory = mmap(
+            0,
+            allocated_size,
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS,
+            -1,
+            0);
 #endif
-    if (memory != NULL)
-    {
-      if (mprotect( memory, page_size, PROT_NONE) != 0)
-      {
-         int err = errno;
-         int r = munmap(memory, allocated_size);
-         assert(r == 0); // PANIC - we just mapped this, what could've gone wrong?
-         errno = err; // reset the error
-         return NULL;
-      }
+        if (memory != NULL) {
+            if (mprotect(memory, page_size, PROT_NONE) != 0) {
+                int err = errno;
+                int r = munmap(memory, allocated_size);
+                (void)r;
+                assert(r == 0); // PANIC - we just mapped this, what could've
+                                // gone wrong?
+                errno = err; // reset the error
+                return NULL;
+            }
+        }
     }
-  }
-  else
-    memory = malloc(stack_size);
+    else {
+        memory = malloc(stack_size);
+    }
 
-  if (memory == NULL) // errno can still be checked
-    return NULL;
+    if (memory == NULL) { // errno can still be checked
+        return NULL;
+    }
 
-  void * sp = ((char*)memory + allocated_size) - sizeof(monad_fiber_t );
-  monad_fiber_t * fb = (monad_fiber_t*)sp;
-  fb->allocated_size = allocated_size;
-  fb->context.name = NULL;
-  fb->context.fiber = make_fcontext(sp, stack_size - sizeof(monad_fiber_t), &monad_fiber_impl);
-  fb->is_protected = protected_stack;
+    void *sp = ((char *)memory + allocated_size) - sizeof(monad_fiber_t);
+    monad_fiber_t *fb = (monad_fiber_t *)sp;
+    fb->allocated_size = allocated_size;
+    fb->context.name = NULL;
+    fb->context.fiber = make_fcontext(
+        sp, stack_size - sizeof(monad_fiber_t), &monad_fiber_impl);
+    fb->is_protected = protected_stack;
 
 #if defined(MONAD_USE_TSAN)
-  fb->context.tsan_fiber = __tsan_create_fiber(0);
-  __tsan_switch_to_fiber(fb->context.tsan_fiber, 0);
+    fb->context.tsan_fiber = __tsan_create_fiber(0);
+    __tsan_switch_to_fiber(fb->context.tsan_fiber, 0);
 
 #endif
 
 #if defined(MONAD_USE_ASAN)
-  fb->context.asan.fake_stack = NULL;
-  fb->context.asan.stack_size = stack_size - sizeof(monad_fiber_t);
-  fb->context.asan.stack_bottom = (char*)sp - fb->context.asan.stack_size;
-  __sanitizer_start_switch_fiber( & fb->context.asan.fake_stack,
-                                  fb->context.asan.stack_bottom,
-                                  fb->context.asan.stack_size);
+    fb->context.asan.fake_stack = NULL;
+    fb->context.asan.stack_size = stack_size - sizeof(monad_fiber_t);
+    fb->context.asan.stack_bottom = (char *)sp - fb->context.asan.stack_size;
+    __sanitizer_start_switch_fiber(
+        &fb->context.asan.fake_stack,
+        fb->context.asan.stack_bottom,
+        fb->context.asan.stack_size);
 #endif
 
-  struct callcc_p cc = {
-    .from=from, .fiber=fb,
-    .func=func, .arg=func_arg
-  };
+    struct callcc_p cc = {
+        .from = from, .fiber = fb, .func = func, .arg = func_arg};
 
-  struct transfer_t t = jump_fcontext(fb->context.fiber, &cc);
+    struct transfer_t t = jump_fcontext(fb->context.fiber, &cc);
 
-  monad_fiber_context_t * resumed_from = (monad_fiber_context_t *)t.data;
-  if (resumed_from)
-  {
+    monad_fiber_context_t *resumed_from = (monad_fiber_context_t *)t.data;
+    if (resumed_from) {
 #if defined(MONAD_USE_ASAN)
-    __sanitizer_finish_switch_fiber( (resumed_from->fiber == NULL) ?  NULL : resumed_from->asan_to_finish->fake_stack,
-                                     (const void **) & resumed_from->asan_to_finish->stack_bottom,
-                                     & resumed_from->asan_to_finish->stack_size);
+        __sanitizer_finish_switch_fiber(
+            (resumed_from->fiber == NULL)
+                ? NULL
+                : resumed_from->asan_to_finish->fake_stack,
+            (void const **)&resumed_from->asan_to_finish->stack_bottom,
+            &resumed_from->asan_to_finish->stack_size);
 #endif
-    resumed_from->fiber = t.fctx;
-  }
-  else
-  {
-    assert(t.fctx == NULL); // if there's no context the fiber must be destroyed as well!
-  }
-  return resumed_from;
+        resumed_from->fiber = t.fctx;
+    }
+    else {
+        assert(
+            t.fctx ==
+            NULL); // if there's no context the fiber must be destroyed as well!
+    }
+    return resumed_from;
 }
 
-void monad_fiber_set_name(monad_fiber_context_t * this, const char * name)
+void monad_fiber_set_name(monad_fiber_context_t *this, char const *name)
 {
-  this->name = malloc(strlen(name) + 1);
-  strcpy(this->name, name);
+    this->name = malloc(strlen(name) + 1);
+    strcpy((char *)this->name, name);
 }

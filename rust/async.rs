@@ -155,6 +155,12 @@ extern "C" {
         switcher: *mut monad_async_context_switcher,
     ) -> monad_async_result;
 }
+extern "C" {
+    #[doc = "! \\brief Creates a Monad Fiber context switcher"]
+    pub fn monad_async_context_switcher_fiber_create(
+        switcher: *mut monad_async_context_switcher,
+    ) -> monad_async_result;
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct iovec {
