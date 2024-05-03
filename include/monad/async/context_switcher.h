@@ -2,6 +2,7 @@
 
 #include "config.h"
 
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
 
@@ -24,7 +25,10 @@ typedef struct monad_async_context_switcher_head
     // The following are not user modifiable
 
     //! The number of contexts existing
-    size_t contexts;
+#ifdef __cplusplus
+    std::
+#endif
+        atomic_uint contexts;
 
     //! \brief Destroys self
     monad_async_result (*const self_destroy)(
@@ -70,7 +74,11 @@ typedef struct monad_async_context_head
 {
     // The following are not user modifiable
     bool is_running, is_suspended;
-    monad_async_context_switcher switcher;
+#ifdef __cplusplus
+    std::atomic<monad_async_context_switcher> switcher;
+#else
+    _Atomic monad_async_context_switcher switcher;
+#endif
 
     struct
     {
@@ -103,7 +111,8 @@ for threadpool implementation.
 
 As this context switcher never suspends and resumes, it is safe to use a single
 instance of this across multiple threads. In fact, the current implementation
-always returns a static instance, and destruction does nothing.
+always returns a static instance, and destruction does nothing. You may
+therefore find `monad_async_context_switcher_none_instance()` more useful.
 */
 MONAD_ASYNC_NODISCARD extern monad_async_result
 monad_async_context_switcher_none_create(
@@ -113,6 +122,9 @@ monad_async_context_switcher_none_create(
 static monad_async_context_switcher_impl const
     monad_async_context_switcher_none = {
         .create = monad_async_context_switcher_none_create};
+//! \brief Convenience obtainer of the static none context switcher.
+extern monad_async_context_switcher
+monad_async_context_switcher_none_instance();
 
 //! \brief Creates a Monad Fiber context switcher
 MONAD_ASYNC_NODISCARD extern monad_async_result

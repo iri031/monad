@@ -25,7 +25,8 @@ monad_async_result monad_async_task_create(
         *task = nullptr;
         return r;
     }
-    p->context->switcher = switcher;
+    atomic_store_explicit(
+        &p->context->switcher, switcher, memory_order_release);
     return monad_async_make_success(0);
 }
 
@@ -49,7 +50,10 @@ monad_async_result monad_async_task_destroy(monad_async_task task)
             }
         }
     }
-    MONAD_ASYNC_TRY_RESULT(, p->context->switcher->destroy(p->context));
+    MONAD_ASYNC_TRY_RESULT(
+        ,
+        atomic_load_explicit(&p->context->switcher, memory_order_acquire)
+            ->destroy(p->context));
     free(task);
     return monad_async_make_success(0);
 }

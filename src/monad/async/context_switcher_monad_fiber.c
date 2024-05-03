@@ -1,3 +1,7 @@
+// #define MONAD_ASYNC_CONTEXT_PRINTING 1
+
+#define _GNU_SOURCE
+
 #include "monad/async/context_switcher.h"
 
 #include "monad/async/task.h"
@@ -91,7 +95,8 @@ monad_async_result monad_async_context_switcher_fiber_create(
         .resume_many = monad_async_context_fiber_resume_many};
     memcpy(&p->head, &to_copy, sizeof(to_copy));
     p->resume_many_context.fiber = monad_fiber_main_context();
-    p->resume_many_context.head.switcher = &p->head;
+    atomic_store_explicit(
+        &p->resume_many_context.head.switcher, &p->head, memory_order_release);
     *switcher = (monad_async_context_switcher)p;
     return monad_async_make_success(0);
 }
@@ -99,7 +104,7 @@ monad_async_result monad_async_context_switcher_fiber_create(
 /*****************************************************************************/
 struct monad_async_context_fiber_task_runner_info_t
 {
-    monad_async_task task;
+    monad_async_task const task;
     struct monad_async_context_fiber *context;
     struct monad_async_context_switcher_fiber *switcher;
 };
@@ -108,7 +113,7 @@ static monad_fiber_context_t *monad_async_context_fiber_task_runner(
     void *info_, monad_fiber_context_t *me, monad_fiber_context_t *)
 {
     // Immediately take a copy, as it will disappear
-    const struct monad_async_context_fiber_task_runner_info_t info =
+    struct monad_async_context_fiber_task_runner_info_t info =
         *(struct monad_async_context_fiber_task_runner_info_t *)info_;
     info.context->fiber = me;
     for (;;) {
@@ -116,19 +121,28 @@ static monad_fiber_context_t *monad_async_context_fiber_task_runner(
         printf(
             "*** Execution context %p suspends in base task runner "
             "awaiting code to run\n",
-            info.context);
+            (void *)info.context);
         fflush(stdout);
 #endif
         assert(info.switcher->within_resume_many);
         monad_async_context_fiber_suspend_and_call_resume(
             &info.context->head, &info.switcher->resume_many_context.head);
+        struct monad_async_context_switcher_fiber *newswitcher =
+            (struct monad_async_context_switcher_fiber *)atomic_load_explicit(
+                &info.context->head.switcher, memory_order_acquire);
+        bool const task_has_been_moved_between_switchers =
+            (newswitcher != info.switcher);
+        (void)task_has_been_moved_between_switchers;
 #if MONAD_ASYNC_CONTEXT_PRINTING
         printf(
-            "*** Execution context %p resumes in base task runner, begins "
-            "executing task\n",
-            info.context);
+            "*** %d: Execution context %p resumes in base task runner, begins "
+            "executing task. task_has_been_moved_between_switchers=%d\n",
+            gettid(),
+            (void *)info.context,
+            task_has_been_moved_between_switchers);
         fflush(stdout);
 #endif
+        info.switcher = newswitcher;
         if (info.context->please_exit) {
             // This causes fiber resource deallocation
             info.context->fiber = nullptr;
@@ -140,7 +154,7 @@ static monad_fiber_context_t *monad_async_context_fiber_task_runner(
         printf(
             "*** Execution context %p returns to base task runner, task has "
             "exited\n",
-            info.context);
+            (void *)info.context);
         fflush(stdout);
 #endif
         monad_async_executor_task_exited(info.task);
@@ -159,7 +173,7 @@ static monad_async_result monad_async_context_fiber_create(
     if (p == nullptr) {
         return monad_async_make_failure(errno);
     }
-    p->head.switcher = switcher_;
+    atomic_store_explicit(&p->head.switcher, switcher_, memory_order_release);
     size_t stack_size = attr->stack_size;
     if (stack_size == 0) {
         stack_size = get_rlimit_stack();
@@ -178,7 +192,7 @@ static monad_async_result monad_async_context_fiber_create(
         return monad_async_make_failure(ec);
     }
     switcher->within_resume_many = false;
-    switcher_->contexts++;
+    atomic_fetch_add_explicit(&switcher_->contexts, 1, memory_order_relaxed);
     *context = (monad_async_context)p;
     return monad_async_make_success(0);
 }
@@ -190,13 +204,18 @@ monad_async_context_fiber_destroy(monad_async_context context)
         (struct monad_async_context_fiber *)context;
     if (p->fiber != nullptr) {
         struct monad_async_context_switcher_fiber *switcher =
-            (struct monad_async_context_switcher_fiber *)p->head.switcher;
+            (struct monad_async_context_switcher_fiber *)atomic_load_explicit(
+                &p->head.switcher, memory_order_acquire);
         p->please_exit = true;
         monad_async_context_fiber_resume(
             &switcher->resume_many_context.head, context);
         assert(p->fiber == nullptr);
     }
-    context->switcher->contexts--;
+    atomic_fetch_sub_explicit(
+        &atomic_load_explicit(&context->switcher, memory_order_acquire)
+             ->contexts,
+        1,
+        memory_order_relaxed);
     free(context);
     return monad_async_make_success(0);
 }
@@ -208,11 +227,13 @@ static void monad_async_context_fiber_suspend_and_call_resume(
         (struct monad_async_context_fiber *)current_context;
     // Set last suspended
     struct monad_async_context_switcher_fiber *switcher =
-        (struct monad_async_context_switcher_fiber *)p->head.switcher;
+        (struct monad_async_context_switcher_fiber *)atomic_load_explicit(
+            &p->head.switcher, memory_order_acquire);
     switcher->last_suspended = p;
     if (new_context != nullptr) {
         // Call resume on the destination switcher
-        new_context->switcher->resume(current_context, new_context);
+        atomic_load_explicit(&new_context->switcher, memory_order_acquire)
+            ->resume(current_context, new_context);
         // Some switchers return, and that's okay
     }
     else {
@@ -227,14 +248,15 @@ static void monad_async_context_fiber_resume(
 {
 #if MONAD_ASYNC_CONTEXT_PRINTING
     struct monad_async_context_switcher_fiber *switcher =
-        (struct monad_async_context_switcher_fiber *)new_context->switcher;
+        (struct monad_async_context_switcher_fiber *)atomic_load_explicit(
+            &new_context->switcher, memory_order_acquire);
     bool new_context_is_resume_all_context =
         (new_context == &switcher->resume_many_context.head);
     printf(
         "*** Execution context %p initiates resumption of execution in context "
         "%p (is_resume_many_context = %d)\n",
-        current_context,
-        new_context,
+        (void *)current_context,
+        (void *)new_context,
         new_context_is_resume_all_context);
     fflush(stdout);
 #endif
