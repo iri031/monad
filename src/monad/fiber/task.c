@@ -52,7 +52,7 @@ monad_fiber_task_queue_pop_front(struct monad_fiber_task_queue *this)
 
 void monad_fiber_task_queue_insert(
     struct monad_fiber_task_queue *this, monad_fiber_task_t *task,
-    size_t priority)
+    int64_t priority)
 {
     if (this->size == this->capacity) { // resize
         monad_fiber_task_queue_grow(this);
@@ -61,13 +61,27 @@ void monad_fiber_task_queue_insert(
     struct monad_fiber_task_node *itr = this->data,
                                  *end = this->data + this->size;
 
-    if (this->size == 0u) {
+    if (this->size == 0u)
+    {
         this->size++;
         itr = this->data = this->memory;
         itr->task = task;
         itr->priority = priority;
         return;
     }
+
+  // push back & push front
+  if (this->data->priority > priority) // we can push front
+  {
+    if (this->data == this->memory)
+      this->data = this->memory + this->capacity;
+
+    itr = --this->data;
+    itr->priority = priority;
+    itr->task = task;
+    this->size++;
+    return ;
+  }
 
     if (end >= (this->memory + this->capacity)) {
         end -= this->capacity;
@@ -76,7 +90,7 @@ void monad_fiber_task_queue_insert(
     MONAD_ASSERT(end >= this->memory);
 
     while (itr != end) {
-        if (itr->priority <= priority) {
+        if (itr->priority > priority) {
             break;
         }
 
@@ -94,11 +108,11 @@ void monad_fiber_task_queue_insert(
         {
             struct monad_fiber_task_node *mem_end =
                 this->memory + this->capacity;
-            // this shifts the lower part (DEF in the below example)
 
+            // this shifts the lower part (DEF in the below example)
             memmove(
-                this->data + 1,
-                this->data,
+                this->memory + 1,
+                this->memory,
                 (size_t)(end - this->memory) *
                     sizeof(struct monad_fiber_task_node));
             if (itr == mem_end) // we're at the end of memory, no need to do a

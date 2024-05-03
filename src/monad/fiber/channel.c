@@ -195,7 +195,7 @@ int monad_fiber_channel_read(monad_fiber_channel_t * this, void * target)
 
     monad_fiber_t * current = monad_fiber_current();
 
-    const size_t my_priority = current->priority;
+    const int64_t my_priority = current->priority;
     if (op->fiber->priority > my_priority &&
         op->fiber->scheduler == current->scheduler)
     {

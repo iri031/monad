@@ -60,7 +60,7 @@ typedef struct monad_fiber_pool
 
 void monad_fiber_pool_create  (monad_fiber_pool_t *, size_t fiber);
 void monad_fiber_pool_destroy (monad_fiber_pool_t *);
-void monad_fiber_pool_run     (monad_fiber_pool_t *, monad_fiber_task_t * task, size_t priority);
+void monad_fiber_pool_run     (monad_fiber_pool_t *, monad_fiber_task_t * task, int64_t priority);
 
 
 #if defined(__cplusplus)

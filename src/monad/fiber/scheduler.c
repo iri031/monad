@@ -57,7 +57,7 @@ void monad_fiber_scheduler_destroy(monad_fiber_scheduler_t *this)
 }
 
 void monad_fiber_scheduler_post(
-    monad_fiber_scheduler_t *this, monad_fiber_task_t *task, size_t priority)
+    monad_fiber_scheduler_t *this, monad_fiber_task_t *task, int64_t priority)
 {
     MONAD_ASSERT(task != 0);
 
@@ -69,7 +69,7 @@ void monad_fiber_scheduler_post(
 }
 
 void monad_fiber_scheduler_dispatch(
-    monad_fiber_scheduler_t *this, monad_fiber_task_t *task, size_t priority)
+    monad_fiber_scheduler_t *this, monad_fiber_task_t *task, int64_t priority)
 {
     if (this == monad_fiber_scheduler_current_) // check priority
     {
@@ -127,7 +127,7 @@ void monad_fiber_scheduler_work(monad_fiber_scheduler_t *this)
 }
 
 monad_fiber_task_t *monad_fiber_scheduler_pop_higher_priority_task(
-    monad_fiber_scheduler_t *this, size_t priority)
+    monad_fiber_scheduler_t *this, int64_t priority)
 {
     MONAD_CCALL_ASSERT(pthread_mutex_lock(&this->mutex));
 
@@ -138,8 +138,8 @@ monad_fiber_task_t *monad_fiber_scheduler_pop_higher_priority_task(
         result = monad_fiber_task_queue_pop_front(&this->task_queue).task;
     }
 
-    MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
-    return result;
+  MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
+  return result ;
 }
 
 bool monad_fiber_run_one(monad_fiber_scheduler_t *this)

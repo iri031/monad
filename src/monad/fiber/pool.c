@@ -35,7 +35,7 @@ monad_fiber_context_t * monad_fiber_pool_impl(void* arg,
     // beyond here, we need some handling of the *current*
     while (true)
     {
-        this->fiber.priority = SIZE_MAX;
+        this->fiber.priority = INT64_MIN;
         monad_fiber_channel_read(&pool->queue_semaphore, NULL);
         // suspend here and wait for a task
 
@@ -123,7 +123,7 @@ void monad_fiber_pool_destroy (monad_fiber_pool_t * this)
   monad_fiber_task_queue_destroy(&this->queue);
 }
 
-void monad_fiber_pool_run     (monad_fiber_pool_t * this, monad_fiber_task_t * task, size_t priority)
+void monad_fiber_pool_run     (monad_fiber_pool_t * this, monad_fiber_task_t * task, int64_t priority)
 {
   MONAD_CCALL_ASSERT(pthread_mutex_lock(&this->queue_mutex)); // insert the task
   monad_fiber_task_queue_insert(&this->queue, task, priority);
