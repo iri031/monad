@@ -545,12 +545,30 @@ Db::Db(ReadOnlyOnDiskDbConfig const &config)
 
 Db::~Db() = default;
 
+Result<NodeCursor> generate_db_error(find_result_msg const error)
+{
+    switch (error) {
+    case (find_result_msg::branch_not_exist_failure):
+        return DbError::branch_not_exist_failure;
+    case (find_result_msg::key_ends_earlier_than_node_failure):
+        return DbError::key_ends_earlier_than_node_failure;
+    case (find_result_msg::key_mismatch_failure):
+        return DbError::key_mismatch_failure;
+    case (find_result_msg::root_node_is_null_failure):
+        return DbError::root_node_is_null_failure;
+    case (find_result_msg::node_is_not_leaf_failure):
+        return DbError::node_is_not_leaf_failure;
+    default:
+        return DbError::unknown;
+    }
+}
+
 Result<NodeCursor> Db::get(NodeCursor root, NibblesView const key) const
 {
     MONAD_ASSERT(impl_);
     auto const result = impl_->find_fiber_blocking(root, key);
     if (result.msg != find_result_msg::success) {
-        return DbError::key_not_found;
+        return generate_db_error(result.msg);
     }
     MONAD_DEBUG_ASSERT(result.cursor.node != nullptr);
     MONAD_DEBUG_ASSERT(result.cursor.node->has_value());
@@ -560,37 +578,28 @@ Result<NodeCursor> Db::get(NodeCursor root, NibblesView const key) const
 Result<byte_string_view>
 Db::get(NibblesView const key, uint64_t const block_id) const
 {
-    auto res = get(root(), serialize_as_big_endian<BLOCK_NUM_BYTES>(block_id));
-    if (!res.has_value()) {
-        return DbError::key_not_found;
-    }
-    res = get(res.value(), key);
-    if (!res.has_value()) {
-        return DbError::key_not_found;
-    }
-    return res.value().node->value();
+    BOOST_OUTCOME_TRY(
+        NodeCursor const block_cursor,
+        get(root(), serialize_as_big_endian<BLOCK_NUM_BYTES>(block_id)));
+    BOOST_OUTCOME_TRY(NodeCursor const leaf_cursor, get(block_cursor, key));
+    return leaf_cursor.node->value();
 }
 
 Result<byte_string_view>
 Db::get_data(NodeCursor root, NibblesView const key) const
 {
-    auto res = get(root, key);
-    if (!res.has_value()) {
-        return DbError::key_not_found;
-    }
-    MONAD_DEBUG_ASSERT(res.value().node != nullptr);
-
-    return res.value().node->data();
+    BOOST_OUTCOME_TRY(NodeCursor const node_cursor, get(root, key));
+    MONAD_DEBUG_ASSERT(node_cursor.is_valid());
+    return node_cursor.node->data();
 }
 
 Result<byte_string_view>
 Db::get_data(NibblesView const key, uint64_t const block_id) const
 {
-    auto res = get(root(), serialize_as_big_endian<BLOCK_NUM_BYTES>(block_id));
-    if (!res.has_value()) {
-        return DbError::key_not_found;
-    }
-    return get_data(res.value(), key);
+    BOOST_OUTCOME_TRY(
+        NodeCursor const block_cursor,
+        get(root(), serialize_as_big_endian<BLOCK_NUM_BYTES>(block_id)));
+    return get_data(block_cursor, key);
 }
 
 void Db::upsert(
