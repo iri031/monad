@@ -4,7 +4,6 @@
 #include <monad/core/receipt.hpp>
 
 #include <limits>
-#include <tuple>
 
 MONAD_NAMESPACE_BEGIN
 
