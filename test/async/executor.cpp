@@ -149,7 +149,7 @@ TEST(executor, works)
                     EXPECT_EQ(current_executor->tasks_running, 1);
                     EXPECT_EQ(current_executor->tasks_suspended, 0);
                     CHECK_RESULT(monad_async_task_suspend_for_duration(
-                        nullptr, task, 100000000ULL)); // 100 milliseconds
+                        nullptr, task, 10000000ULL)); // 10 milliseconds
                     *(int *)task->user_ptr = 2;
                     current_executor =
                         task->current_executor.load(std::memory_order_acquire);
@@ -159,6 +159,7 @@ TEST(executor, works)
                     EXPECT_EQ(current_executor->tasks_suspended, 0);
                     return monad_async_make_success(5);
                 };
+                const auto suspend_begins = std::chrono::steady_clock::now();
                 auto r = monad_async_task_attach(ex.get(), t1.get(), nullptr);
                 CHECK_RESULT(r);
                 EXPECT_TRUE(t1->is_pending_launch);
@@ -198,6 +199,20 @@ TEST(executor, works)
                 EXPECT_FALSE(t1->is_suspended_completed);
                 CHECK_RESULT(t1->result);
                 EXPECT_EQ(t1->result.value, 5);
+                if (auto diff =
+                        std::chrono::steady_clock::now() - suspend_begins;
+                    diff < std::chrono::milliseconds(10)) {
+                    std::cout << "   NOTE: On iteration " << n << ": "
+                              << std::chrono::duration_cast<
+                                     std::chrono::milliseconds>(diff)
+                                     .count()
+                              << " milliseconds have elapsed since suspend "
+                                 "initiation. If it went to completed in "
+                                 "less than 10 milliseconds, there is "
+                                 "something wrong with the implementation."
+                              << std::endl;
+                    EXPECT_GE(diff, std::chrono::milliseconds(10));
+                }
                 if (n == 9) {
                     std::cout << "\n   Task attach to task initiate took "
                               << (ticks_when_resumed - t1->ticks_when_attached)

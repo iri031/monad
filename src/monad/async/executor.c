@@ -1021,17 +1021,17 @@ monad_async_result monad_async_task_suspend_for_duration(
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
+    // timespec must live until resumption
+    struct __kernel_timespec ts;
     if (ns != (uint64_t)-1 || completed == nullptr) {
         struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task);
-        // timespec must live until resumption
-        struct __kernel_timespec ts;
         if (ns == 0) {
             io_uring_prep_nop(sqe);
         }
         else {
             ts.tv_sec = (long long)(ns / 1000000000);
             ts.tv_nsec = (long long)(ns % 1000000000);
-            io_uring_prep_timeout(sqe, &ts, (unsigned)-1, 0);
+            io_uring_prep_timeout(sqe, &ts, 0, 0);
         }
         io_uring_sqe_set_data(sqe, task, task);
     }
