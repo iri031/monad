@@ -1,0 +1,32 @@
+1. build to allow insecure
+
+docker buildx create --buildkitd-flags '--allow-insecure-entitlement security.insecure' --name insecure
+
+2. comment out test in release.Dockerfile
+
+3. build execution client image
+
+docker build --builder insecure --allow security.insecure -f docker/release.Dockerfile --load -t peach10.monad.spacetime.org/monad-crypto/monad:kai1 . --build-arg GIT_COMMIT_HASH=$(git rev-parse HEAD)
+
+4. create profile.json
+5. create genesis.json (set initial ETH balance for the account that we want to use)
+
+6. create triedb (first need to truncate the file)
+
+TAG=kai1; docker run --security-opt seccomp:/home/eerkaijun/profile.json --volume /home/eerkaijun/local-devnet:/monad peach10.monad.spacetime.org/monad-crypto/monad:$TAG monad_mpt --storage /monad/triedb/test.db --create
+
+7. Run execution client
+
+TAG=kai1; docker run -it --security-opt seccomp:/home/eerkaijun/profile.json --volume /home/eerkaijun/local-devnet:/monad peach10.monad.spacetime.org/monad-crypto/monad:$TAG test_run_loop --db /monad/triedb/test.db --block_db /monad/ledger --genesis_file /monad/genesis.json
+
+8. Run the consensus node (make sure to clear out the ledger before that): set ledger and triedb path
+
+cargo run --bin monad-node -- --secp-identity docker/devnet/monad/config/id-secp --bls-identity docker/devnet/monad/config/id-bls --node-config docker/devnet/monad/config/node.toml --genesis-config docker/devnet/monad/config/genesis.toml --wal-path docker/devnet/monad/wal --mempool-ipc-path docker/devnet/monad/mempool.sock --execution-ledger-path ~/local-devnet/ledger --blockdb-path docker/devnet/monad/blockdb
+
+9. Run RPC server: set ledger and triedb path
+
+CXX=/usr/bin/g++-13 CC=/usr/bin/gcc-13 ASMFLAGS=-march=haswell CFLAGS="-march=haswell" CXXFLAGS="-march=haswell" ETH_CALL_TARGET=monad_shared TRIEDB_TARGET=triedb_driver cargo run --bin monad-rpc -- --ipc-path docker/devnet/monad/mempool.sock --blockdb-path docker/devnet/monad/blockdb --execution-ledger-path ~/local-devnet/ledger --triedb-path ~/local-devnet/triedb
+
+10. Cleaning up triedb
+
+TAG=kai1; docker run -it --security-opt seccomp:/home/eerkaijun/profile.json --volume ./home/eerkaijun/local-devnet:/monad peach10.monad.spacetime.org/monad-crypto/monad:$TAG monad_mpt --storage /monad/triedb/test.db --truncate
