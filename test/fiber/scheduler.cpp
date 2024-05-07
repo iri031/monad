@@ -1,11 +1,27 @@
 #include <gtest/gtest.h>
 
 #include <monad/fiber/scheduler.h>
+#include <algorithm>
+#include <shared_mutex>
 #include <vector>
+#include "monad/fiber/assert.h"
 
 monad_fiber_scheduler sched;
 std::atomic_size_t resumed;
 size_t priority = 0;
+
+void wait(monad_fiber_scheduler_t & s)
+{
+  while (true)
+  {
+    MONAD_CCALL_ASSERT(pthread_mutex_lock(&s.mutex));
+    auto sz = s.task_queue.size;
+    MONAD_CCALL_ASSERT(pthread_mutex_unlock(&s.mutex));
+    if (sz == 0u)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+}
 
 struct task : monad_fiber_task_t
 {
@@ -42,23 +58,281 @@ struct task : monad_fiber_task_t
     }
 };
 
-TEST(scheduler, basics)
+struct snapshots_4
 {
-    std::vector<task> tasks{2048};
-    monad_fiber_scheduler_create(&sched, 2);
+  std::atomic<std::uint64_t> id_source{0};
+  std::atomic<std::uint64_t> pointer{0};
 
-    for (auto &t : tasks) {
-        monad_fiber_scheduler_dispatch(&sched, &t, priority--);
+  constexpr static std::size_t size_per_thread = 65536;
+  std::array<std::array<std::pair<std::int64_t, std::uint64_t>, size_per_thread>, 4u> state;
+
+  snapshots_4()
+  {
+    for (auto & s : state)
+      for (auto & st : s)
+        st = {INT64_MIN, UINT64_MAX};
+  }
+
+  struct snapshotter_t
+  {
+    std::uint64_t id;
+    snapshots_4 & db;
+    bool done = false;
+
+    snapshotter_t(snapshots_4 & db) : id(db.id_source++) ,db(db)
+    {
+
+      assert(id < 4);
     }
 
-    for (auto r = resumed.load(); r < tasks.size() * 2; r = resumed.load()) {
-        resumed.wait(r);
+    void operator()(std::int64_t priority) noexcept
+    {
+      if (done)
+        return ; // no overflow plz
+      // 0 -> 2^0, 1 -> 2^16
+      const auto offset =  1ull << (id * 16ull);
+
+      const auto ptr = db.pointer.fetch_add(offset);
+      const auto idx = (ptr >> (id * 16ull)) & 0xFFFFu;
+
+
+      if (idx == 0xFFFFu)
+      {
+        db.pointer -= offset; // so we're not len == 0
+        done = true;
+      }
+      db.state[id][idx] = {priority, ptr};
+    }
+  };
+
+  snapshotter_t snap() {return snapshotter_t{*this};}
+
+};
+
+
+struct snapshots_8
+{
+  std::atomic<std::uint64_t> id_source{0b1};
+  std::atomic<std::uint64_t> pointer{0};
+
+  constexpr static std::size_t size_per_thread = 256;
+
+  std::array<std::array<std::pair<std::int64_t, std::uint64_t>, size_per_thread>, 8u> state;
+
+  struct snapshotter_t
+  {
+    std::uint64_t id;
+    snapshots_8 & db;
+
+    snapshotter_t(snapshots_8 & db) : id(db.id_source++) ,db(db)
+    {
+      assert(id < 8);
     }
 
-    for (auto &t : tasks) {
-        monad_fiber_scheduler_post(&sched, &t, priority--);
+    void operator()(std::int64_t priority)
+    {
+      // 0 -> 2^0, 1 -> 2^16
+      const auto offset =  1 << (id * 8ull);
+      const auto ptr = db.pointer.fetch_add(offset);
+      const auto idx = (ptr >> (id * 8ull)) & 0xFF;
+      db.state[id][idx] = {priority, ptr};
     }
+  };
 
-    monad_fiber_scheduler_stop(&sched);
-    monad_fiber_scheduler_destroy(&sched);
+  snapshotter_t snap() {return snapshotter_t{*this};}
+};
+
+template<typename Func>
+struct lambda_task : monad_fiber_task_t
+{
+
+  template<typename Func_>
+  lambda_task(Func_ && func) : func(std::forward<Func_>(func))
+  {
+    this->resume  = +[](monad_fiber_task_t * task){auto lt = static_cast<lambda_task*>(task); lt->func(); delete lt;};
+    this->destroy = +[](monad_fiber_task_t * task){delete static_cast<lambda_task*>(task);};
+  }
+
+  Func func;
+};
+
+template<typename Func>
+lambda_task<std::decay_t<Func>> * make_lt(Func && f)
+{
+  return new lambda_task<std::decay_t<Func>>(std::forward<Func>(f));
+}
+
+TEST(scheduler, post)
+{
+  bool ran = false;
+
+  monad_fiber_scheduler_t s;
+  monad_fiber_scheduler_create(&s, 4);
+  monad_fiber_scheduler_post(&s, make_lt([&]{ran = true;}), 0);
+  wait(s);
+  monad_fiber_scheduler_destroy(&s);
+
+  EXPECT_TRUE(ran);
+}
+
+
+TEST(scheduler, dispatch)
+{
+  bool ran = false;
+
+  monad_fiber_scheduler_t s;
+  monad_fiber_scheduler_create(&s, 4);
+  monad_fiber_scheduler_dispatch(&s, make_lt([&]{ran = true;}), 0);
+  std::this_thread::yield();
+  wait(s);
+  monad_fiber_scheduler_destroy(&s);
+
+  EXPECT_TRUE(ran);
+}
+
+TEST(scheduler, post_dispatch_ordered)
+{
+  bool ran = false, ran2;
+
+  monad_fiber_scheduler_t s;
+  monad_fiber_scheduler_create(&s, 4);
+  monad_fiber_scheduler_post(
+      &s,
+      make_lt(
+          [&]
+          {
+            ran = true;
+            monad_fiber_scheduler_dispatch(&s,
+                                           make_lt([&] { ran2 = true; }), 0);
+            EXPECT_TRUE(ran2);
+          }),
+      1);
+  wait(s);
+  monad_fiber_scheduler_destroy(&s);
+
+  EXPECT_TRUE(ran);
+}
+
+TEST(scheduler, DISABLED_post_dispatch_prioritized)
+{
+  bool ran = false, ran2;
+
+  monad_fiber_scheduler_t s;
+  monad_fiber_scheduler_create(&s, 4);
+  monad_fiber_scheduler_post(
+      &s,
+      make_lt(
+          [&]
+          {
+            ran = true;
+            monad_fiber_scheduler_dispatch(&s,
+                                           make_lt([&] { ran2 = true; }), 1);
+            EXPECT_FALSE(ran2);
+          }),
+      0);
+  monad_fiber_scheduler_destroy(&s);
+
+  EXPECT_TRUE(ran);
+  EXPECT_TRUE(ran2);
+}
+
+TEST(scheduler, post_post)
+{
+  bool ran = false, ran2;
+
+  monad_fiber_scheduler_t s;
+  monad_fiber_scheduler_create(&s, 4);
+  monad_fiber_scheduler_post(
+      &s,
+      make_lt(
+          [&]
+          {
+            ran = true;
+            monad_fiber_scheduler_post(&s, make_lt([&] { usleep(1000); ran2 = true; }), 0);
+            EXPECT_FALSE(ran2);
+          }),
+      1);
+
+  wait(s);
+  monad_fiber_scheduler_destroy(&s);
+
+  EXPECT_TRUE(ran);
+  EXPECT_TRUE(ran2);
+}
+
+TEST(scheduler, ordered_4)
+{
+  static bool once = false;
+  ASSERT_FALSE(once);
+  once = true;
+  auto sp = std::make_unique<snapshots_4>();
+  auto & ss = *sp;
+
+  monad_fiber_scheduler_t s;
+  monad_fiber_scheduler_create(&s, 4);
+
+  std::shared_mutex mtx; // block all threads during posting
+  mtx.lock();
+  for (std::uint64_t i = 0ull; i < 4; i++)
+    monad_fiber_scheduler_post(&s,
+                               make_lt(
+                                   [&]
+                                   {
+                                     mtx.lock_shared();
+                                     mtx.unlock_shared();
+                                   }
+                               ),
+                               INT64_MIN);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+  for (std::uint64_t i = 0; i < (4 * ss.size_per_thread) - 4; i++)
+    monad_fiber_scheduler_post(&s,
+                               make_lt(
+                                   [&, i]
+                                   {
+                                     thread_local static auto s = ss.snap();
+                                     s(i);
+                                   }
+                                   ),
+                               i);
+
+  mtx.unlock();
+  wait(s);
+  monad_fiber_scheduler_destroy(&s);
+
+  // make sure it's ordered now.
+  for (auto i = 0ull; i < 4ull; i++)
+  {
+    const auto & series = ss.state[i];
+    const auto len = (ss.pointer.load() >> (i * 16ull)) & 0xFFFFull;
+    ASSERT_GT(len, 0);
+    const auto begin = series.begin(), end = series.begin() + len;
+    ASSERT_LE(end, series.end());
+    EXPECT_TRUE(std::is_sorted(begin, end));
+    for (auto itr = std::next(begin); itr != end; itr++)
+    {
+      EXPECT_LT(std::prev(itr)->first, itr->first)
+          << " of thread " << i << " at pos " << std::distance(begin, itr); // first = priority
+
+      auto priority = itr->first;
+      // check the others
+
+      for (auto j = 0ull; j < 4ull; j++)
+      {
+        if (i == j)
+          continue;
+
+        const auto idx = (itr->second >> (j * 16ull)) & 0xFFFFull;
+
+        if (idx < 3)
+          continue;
+        EXPECT_LE(ss.state[j][idx - 2].first, priority) // 32 is
+                  << " of thread " << i << " at pos " << std::distance(begin, itr)
+                  << " compared to thread " << j << " at pos " << idx; // first = priority
+        //const auto ll =
+      }
+
+    }
+  }
 }
