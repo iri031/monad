@@ -323,14 +323,15 @@ TEST(scheduler, ordered_4)
         if (i == j)
           continue;
 
-        const auto idx = (itr->second >> (j * 16ull)) & 0xFFFFull;
+        // we check what was completed before the current task.
+        const auto idx = (std::prev(itr)->second >> (j * 16ull)) & 0xFFFFull;
 
-        if (idx < 3)
+        // idx points to the current, so we need to decrement it as well.
+        if (idx <  2)
           continue;
-        EXPECT_LE(ss.state[j][idx - 2].first, priority) // 32 is
+        EXPECT_LE(ss.state[j][idx - 1].first, priority) // 32 is
                   << " of thread " << i << " at pos " << std::distance(begin, itr)
                   << " compared to thread " << j << " at pos " << idx; // first = priority
-        //const auto ll =
       }
 
     }
