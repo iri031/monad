@@ -37,6 +37,9 @@ pub const monad_async_priority_monad_async_priority_unchanged: monad_async_prior
 #[doc = "! \\brief Task priority classes"]
 pub type monad_async_priority = ::std::os::raw::c_uchar;
 pub type size_t = ::std::os::raw::c_ulong;
+pub type atomic_bool = u8;
+pub type atomic_uint = u32;
+pub type atomic_size_t = u64;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct timespec {
@@ -49,8 +52,7 @@ pub type monad_async_context = *mut monad_async_context_head;
 #[derive(Debug, Copy, Clone)]
 pub struct monad_async_context_switcher_head {
     pub user_ptr: *mut ::std::os::raw::c_void,
-    #[doc = "! The number of contexts existing"]
-    pub contexts: size_t,
+    pub contexts: atomic_uint,
     #[doc = "! \\brief Destroys self"]
     pub self_destroy: ::std::option::Option<
         unsafe extern "C" fn(
@@ -121,7 +123,7 @@ pub struct monad_async_context_switcher_impl {
 pub struct monad_async_context_head {
     pub is_running: bool,
     pub is_suspended: bool,
-    pub switcher: monad_async_context_switcher,
+    pub switcher: u64,
     pub sanitizer: monad_async_context_head__bindgen_ty_1,
 }
 #[repr(C)]
@@ -150,10 +152,15 @@ extern "C" {
     #[doc = ""]
     #[doc = "As this context switcher never suspends and resumes, it is safe to use a single"]
     #[doc = "instance of this across multiple threads. In fact, the current implementation"]
-    #[doc = "always returns a static instance, and destruction does nothing."]
+    #[doc = "always returns a static instance, and destruction does nothing. You may"]
+    #[doc = "therefore find `monad_async_context_switcher_none_instance()` more useful."]
     pub fn monad_async_context_switcher_none_create(
         switcher: *mut monad_async_context_switcher,
     ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief Convenience obtainer of the static none context switcher."]
+    pub fn monad_async_context_switcher_none_instance() -> monad_async_context_switcher;
 }
 extern "C" {
     #[doc = "! \\brief Creates a Monad Fiber context switcher"]
@@ -216,9 +223,6 @@ pub struct io_uring_params {
     pub sq_off: io_sqring_offsets,
     pub cq_off: io_cqring_offsets,
 }
-pub type atomic_bool = u8;
-pub type atomic_uint = u32;
-pub type atomic_size_t = u64;
 #[doc = "! \\brief The public attributes of an executor"]
 pub type monad_async_executor = *mut monad_async_executor_head;
 #[doc = "! \\brief An i/o status state used to identify an i/o in progress. Must NOT"]

@@ -59,6 +59,11 @@ monad_async_context_switcher_none_create(monad_async_context_switcher *switcher)
     return monad_async_make_success(0);
 }
 
+monad_async_context_switcher monad_async_context_switcher_none_instance()
+{
+    return &context_switcher_none_instance.head;
+}
+
 /*****************************************************************************/
 
 static monad_async_result monad_async_context_none_create(
@@ -72,8 +77,8 @@ static monad_async_result monad_async_context_none_create(
         return monad_async_make_failure(errno);
     }
     p->task = task;
-    p->head.switcher = switcher_;
-    switcher_->contexts++;
+    atomic_store_explicit(&p->head.switcher, switcher_, memory_order_release);
+    atomic_fetch_add_explicit(&switcher_->contexts, 1, memory_order_relaxed);
     *context = (monad_async_context)p;
     return monad_async_make_success(0);
 }
@@ -81,7 +86,11 @@ static monad_async_result monad_async_context_none_create(
 static monad_async_result
 monad_async_context_none_destroy(monad_async_context context)
 {
-    context->switcher->contexts--;
+    atomic_fetch_sub_explicit(
+        &atomic_load_explicit(&context->switcher, memory_order_acquire)
+             ->contexts,
+        1,
+        memory_order_relaxed);
     free(context);
     return monad_async_make_success(0);
 }

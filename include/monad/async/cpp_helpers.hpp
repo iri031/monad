@@ -125,11 +125,11 @@ namespace monad
         //! \brief Construct a context instance, and return it in a
         //! smart pointer
         context_ptr make_context(
-            monad_async_context_switcher impl,
+            monad_async_context_switcher impl, monad_async_task task,
             struct monad_async_task_attr &attr)
         {
             monad_async_context ex;
-            auto r = impl->create(&ex, impl, nullptr, &attr);
+            auto r = impl->create(&ex, impl, task, &attr);
             if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
                 throw_exception(r);
             }

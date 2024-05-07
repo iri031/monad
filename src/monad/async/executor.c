@@ -83,8 +83,8 @@ static inline monad_async_result monad_async_executor_impl_launch_pending_tasks(
                 memory_order_release);
             // This may suspend, in which case we shall either resume above
             // or it wil return (depends on context switch implementation)
-            task->context->switcher->resume(
-                fake_current_context, task->context);
+            atomic_load_explicit(&task->context->switcher, memory_order_acquire)
+                ->resume(fake_current_context, task->context);
         }
     }
 exit:
@@ -123,8 +123,8 @@ static inline monad_async_result monad_async_executor_impl_resume_tasks(
             struct monad_async_task_impl *task =
                 state->ex->tasks_suspended_completed[state->current_priority]
                     .front;
-            task->context->switcher->resume(
-                fake_current_context, task->context);
+            atomic_load_explicit(&task->context->switcher, memory_order_acquire)
+                ->resume(fake_current_context, task->context);
         }
     }
 exit:
@@ -211,10 +211,13 @@ static inline monad_async_result monad_async_executor_run_impl(
                     struct monad_async_task_impl *task =
                         launch_pending_tasks_state.tasks_pending_launch[n]
                             .front;
+                    monad_async_context_switcher task_switcher =
+                        atomic_load_explicit(
+                            &task->context->switcher, memory_order_acquire);
                     MONAD_ASYNC_TRY_RESULT(
                         ,
-                        task->context->switcher->resume_many(
-                            task->context->switcher,
+                        task_switcher->resume_many(
+                            task_switcher,
                             monad_async_executor_impl_launch_pending_tasks,
                             &launch_pending_tasks_state));
                     if (launch_pending_tasks_state.items >= max_items) {
@@ -517,10 +520,13 @@ static inline monad_async_result monad_async_executor_run_impl(
                         ex->tasks_suspended_completed[resume_tasks_state
                                                           .current_priority]
                             .front;
+                    monad_async_context_switcher task_switcher =
+                        atomic_load_explicit(
+                            &task->context->switcher, memory_order_acquire);
                     MONAD_ASYNC_TRY_RESULT(
                         ,
-                        task->context->switcher->resume_many(
-                            task->context->switcher,
+                        task_switcher->resume_many(
+                            task_switcher,
                             monad_async_executor_impl_resume_tasks,
                             &resume_tasks_state));
                     break;
@@ -620,7 +626,8 @@ monad_async_result monad_async_executor_suspend_impl(
 #if MONAD_ASYNC_EXECUTOR_PRINTING
     printf("*** Executor %p suspends task %p\n", (void *)ex, (void *)task);
 #endif
-    task->context->switcher->suspend_and_call_resume(task->context, nullptr);
+    atomic_load_explicit(&task->context->switcher, memory_order_acquire)
+        ->suspend_and_call_resume(task->context, nullptr);
 #if MONAD_ASYNC_EXECUTOR_PRINTING
     printf("*** Executor %p resumes task %p\n", (void *)ex, (void *)task);
 #endif
@@ -758,8 +765,7 @@ monad_async_result monad_async_task_attach(
             fprintf(
                 stderr,
                 "FATAL: You must detach a task on the same kernel "
-                "thread on "
-                "which its executor is run.\n");
+                "thread on which its executor is run.\n");
             abort();
         }
 #endif
@@ -806,17 +812,28 @@ monad_async_result monad_async_task_attach(
         }
         atomic_unlock(&ex->lock);
     }
-    if (opt_reparent_switcher) {
-        if (opt_reparent_switcher->create != task->context->switcher->create) {
+    monad_async_context_switcher task_switcher =
+        atomic_load_explicit(&task->context->switcher, memory_order_acquire);
+    if (opt_reparent_switcher && opt_reparent_switcher != task_switcher) {
+        if (opt_reparent_switcher->create != task_switcher->create) {
             fprintf(
                 stderr,
                 "FATAL: If reparenting context switcher, the new parent must "
                 "be the same type of context switcher.\n");
             abort();
         }
-        task->context->switcher->contexts--;
-        task->context->switcher = opt_reparent_switcher;
-        task->context->switcher->contexts++;
+        if (opt_reparent_switcher !=
+            monad_async_context_switcher_none_instance()) {
+            atomic_fetch_sub_explicit(
+                &task_switcher->contexts, 1, memory_order_relaxed);
+            atomic_store_explicit(
+                &task->context->switcher,
+                opt_reparent_switcher,
+                memory_order_release);
+            task_switcher = opt_reparent_switcher;
+            atomic_fetch_add_explicit(
+                &task_switcher->contexts, 1, memory_order_relaxed);
+        }
     }
     atomic_store_explicit(
         &task->head.current_executor,
@@ -1004,17 +1021,17 @@ monad_async_result monad_async_task_suspend_for_duration(
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
+    // timespec must live until resumption
+    struct __kernel_timespec ts;
     if (ns != (uint64_t)-1 || completed == nullptr) {
         struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task);
-        // timespec must live until resumption
-        struct __kernel_timespec ts;
         if (ns == 0) {
             io_uring_prep_nop(sqe);
         }
         else {
             ts.tv_sec = (long long)(ns / 1000000000);
             ts.tv_nsec = (long long)(ns % 1000000000);
-            io_uring_prep_timeout(sqe, &ts, (unsigned)-1, 0);
+            io_uring_prep_timeout(sqe, &ts, 0, 0);
         }
         io_uring_sqe_set_data(sqe, task, task);
     }

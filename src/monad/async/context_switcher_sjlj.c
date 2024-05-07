@@ -1,6 +1,7 @@
 // Prevent glibc stack check for longjmp
 #undef _FORTIFY_SOURCE
 #define _FORTIFY_SOURCE 0
+#define _GNU_SOURCE
 
 // #define MONAD_ASYNC_CONTEXT_PRINTING 1
 
@@ -15,6 +16,7 @@ extern void monad_async_executor_task_exited(monad_async_task task);
 #include <setjmp.h>
 #include <stdio.h>
 #include <string.h>
+#include <threads.h>
 
 #include <sys/mman.h>
 #include <sys/resource.h>
@@ -77,6 +79,7 @@ struct monad_async_context_sjlj
 struct monad_async_context_switcher_sjlj
 {
     struct monad_async_context_switcher_head head;
+    thrd_t owning_thread;
     size_t within_resume_many;
     struct monad_async_context_sjlj *last_suspended;
     struct monad_async_context_sjlj resume_many_context;
@@ -111,7 +114,9 @@ monad_async_context_switcher_sjlj_create(monad_async_context_switcher *switcher)
         .resume = monad_async_context_sjlj_resume,
         .resume_many = monad_async_context_sjlj_resume_many};
     memcpy(&p->head, &to_copy, sizeof(to_copy));
-    p->resume_many_context.head.switcher = &p->head;
+    p->owning_thread = thrd_current();
+    atomic_store_explicit(
+        &p->resume_many_context.head.switcher, &p->head, memory_order_release);
 #if MONAD_ASYNC_HAVE_TSAN
     p->resume_many_context.tsan.fiber = __tsan_get_current_fiber();
 #endif
@@ -164,9 +169,6 @@ static inline void finish_switch_context(
 static void monad_async_context_sjlj_task_runner(
     struct monad_async_context_sjlj *context, monad_async_task task)
 {
-    struct monad_async_context_switcher_sjlj *switcher =
-        (struct monad_async_context_switcher_sjlj *)context->head.switcher;
-    (void)switcher;
     // We are now at the base of our custom stack
     //
     // WARNING: This custom stack will get freed without unwind
@@ -193,7 +195,10 @@ static void monad_async_context_sjlj_task_runner(
         &context->head.sanitizer.bottom,
         &context->head.sanitizer.size);
 #if MONAD_ASYNC_CONTEXT_PRINTING
-    printf("*** New execution context %p launches\n", context);
+    printf(
+        "*** %d: New execution context %p launches\n",
+        gettid(),
+        (void *)context);
     fflush(stdout);
 #endif
     size_t const page_size = (size_t)getpagesize();
@@ -209,28 +214,43 @@ static void monad_async_context_sjlj_task_runner(
             stack_front, context->uctx.uc_stack.ss_size - page_size, MADV_FREE);
 #if MONAD_ASYNC_CONTEXT_PRINTING
         printf(
-            "*** Execution context %p suspends in base task runner "
+            "*** %d: Execution context %p suspends in base task runner "
             "awaiting code to run\n",
-            context);
+            gettid(),
+            (void *)context);
         fflush(stdout);
 #endif
-        assert(switcher->within_resume_many);
         monad_async_context_sjlj_suspend_and_call_resume(
             &context->head, nullptr);
 #if MONAD_ASYNC_CONTEXT_PRINTING
         printf(
-            "*** Execution context %p resumes in base task runner, begins "
-            "executing task\n",
-            context);
+            "*** %d: Execution context %p resumes in base task runner, begins "
+            "executing task.\n",
+            gettid(),
+            (void *)context);
         fflush(stdout);
+#endif
+#ifndef NDEBUG
+        struct monad_async_context_switcher_sjlj *switcher =
+            (struct monad_async_context_switcher_sjlj *)atomic_load_explicit(
+                &context->head.switcher, memory_order_acquire);
+        if (switcher->owning_thread != thrd_current()) {
+            fprintf(
+                stderr,
+                "FATAL: Context being switched on a kernel thread different to "
+                "the assigned context switcher.\n");
+            abort();
+        }
 #endif
         // Execute the task
         task->result = task->user_code(task);
 #if MONAD_ASYNC_CONTEXT_PRINTING
         printf(
-            "*** Execution context %p returns to base task runner, task has "
+            "*** %d: Execution context %p returns to base task runner, task "
+            "has "
             "exited\n",
-            context);
+            gettid(),
+            (void *)context);
         fflush(stdout);
 #endif
         monad_async_executor_task_exited(task);
@@ -249,7 +269,7 @@ static monad_async_result monad_async_context_sjlj_create(
     if (p == nullptr) {
         return monad_async_make_failure(errno);
     }
-    p->head.switcher = switcher_;
+    atomic_store_explicit(&p->head.switcher, switcher_, memory_order_release);
     size_t stack_size = attr->stack_size;
     if (stack_size == 0) {
         stack_size = get_rlimit_stack();
@@ -279,12 +299,14 @@ static monad_async_result monad_async_context_sjlj_create(
         0);
 #if MONAD_ASYNC_CONTEXT_PRINTING
     printf(
-        "*** New execution context %p is given stack between %p-%p with guard "
+        "*** %d: New execution context %p is given stack between %p-%p with "
+        "guard "
         "page at %p\n",
-        p,
-        stack_front,
-        stack_base,
-        p->stack_storage);
+        gettid(),
+        (void *)p,
+        (void *)stack_front,
+        (void *)stack_base,
+        (void *)p->stack_storage);
     fflush(stdout);
 #endif
     // Clone the current execution context
@@ -323,7 +345,7 @@ static monad_async_result monad_async_context_sjlj_create(
         nullptr,
         nullptr);
     switcher->within_resume_many = false;
-    switcher_->contexts++;
+    atomic_fetch_add_explicit(&switcher_->contexts, 1, memory_order_relaxed);
     *context = (monad_async_context)p;
     return monad_async_make_success(0);
 }
@@ -341,7 +363,10 @@ monad_async_context_sjlj_destroy(monad_async_context context)
 #endif
     if (p->stack_storage != nullptr) {
 #if MONAD_ASYNC_CONTEXT_PRINTING
-        printf("*** Execution context %p is destroyed\n", context);
+        printf(
+            "*** %d: Execution context %p is destroyed\n",
+            gettid(),
+            (void *)context);
         fflush(stdout);
 #endif
         size_t const page_size = (size_t)getpagesize();
@@ -351,7 +376,11 @@ monad_async_context_sjlj_destroy(monad_async_context context)
         }
         p->stack_storage = nullptr;
     }
-    context->switcher->contexts--;
+    atomic_fetch_sub_explicit(
+        &atomic_load_explicit(&context->switcher, memory_order_acquire)
+             ->contexts,
+        1,
+        memory_order_relaxed);
     free(context);
     return monad_async_make_success(0);
 }
@@ -374,11 +403,13 @@ static void monad_async_context_sjlj_suspend_and_call_resume(
     }
     // Set last suspended
     struct monad_async_context_switcher_sjlj *switcher =
-        (struct monad_async_context_switcher_sjlj *)p->head.switcher;
+        (struct monad_async_context_switcher_sjlj *)atomic_load_explicit(
+            &p->head.switcher, memory_order_acquire);
     switcher->last_suspended = p;
     if (new_context != nullptr) {
         // Call resume on the destination switcher
-        new_context->switcher->resume(current_context, new_context);
+        atomic_load_explicit(&new_context->switcher, memory_order_acquire)
+            ->resume(current_context, new_context);
         // Some switchers return, and that's okay
     }
     else {
@@ -392,17 +423,22 @@ static void monad_async_context_sjlj_resume(
     monad_async_context current_context, monad_async_context new_context)
 {
 #if MONAD_ASYNC_CONTEXT_PRINTING
-    struct monad_async_context_switcher_sjlj *switcher =
-        (struct monad_async_context_switcher_sjlj *)new_context->switcher;
-    bool new_context_is_resume_all_context =
-        (new_context == &switcher->resume_many_context.head);
-    printf(
-        "*** Execution context %p initiates resumption of execution in context "
-        "%p (is_resume_many_context = %d)\n",
-        current_context,
-        new_context,
-        new_context_is_resume_all_context);
-    fflush(stdout);
+    {
+        struct monad_async_context_switcher_sjlj *switcher =
+            (struct monad_async_context_switcher_sjlj *)atomic_load_explicit(
+                &new_context->switcher, memory_order_acquire);
+        bool new_context_is_resume_all_context =
+            (new_context == &switcher->resume_many_context.head);
+        printf(
+            "*** %d: Execution context %p initiates resumption of execution in "
+            "context "
+            "%p (is_resume_many_context = %d)\n",
+            gettid(),
+            (void *)current_context,
+            (void *)new_context,
+            new_context_is_resume_all_context);
+        fflush(stdout);
+    }
 #endif
     struct monad_async_context_sjlj *p =
         (struct monad_async_context_sjlj *)new_context;
