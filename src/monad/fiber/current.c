@@ -41,7 +41,7 @@ monad_fiber_t *monad_fiber_current()
     return _current;
 }
 
-monad_fiber_t *activate_fiber(monad_fiber_t *new_current)
+monad_fiber_t *monad_fiber_activate_fiber(monad_fiber_t *new_current)
 {
     monad_fiber_t *pre = monad_fiber_current();
     _current = new_current;
@@ -70,7 +70,7 @@ monad_fiber_yield_impl(monad_fiber_context_t *, void *arg_)
 {
     monad_fiber_task_t *task = (monad_fiber_task_t *)arg_;
     monad_fiber_t *ctx = monad_fiber_main();
-    activate_fiber(ctx);
+    monad_fiber_activate_fiber(ctx);
     task->resume(task);
     return ctx->context;
 }
@@ -88,7 +88,7 @@ void monad_fiber_yield()
     monad_fiber_context_switch_with(
         cc->context, monad_fiber_main_context(), &monad_fiber_yield_impl, &t);
 
-    activate_fiber(cc);
+  monad_fiber_activate_fiber(cc);
 }
 
 struct monad_fiber_await_impl_t
