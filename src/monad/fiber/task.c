@@ -70,25 +70,46 @@ void monad_fiber_task_queue_insert(
         return;
     }
 
-  // push back & push front
-  if (this->data->priority > priority) // we can push front
-  {
-    if (this->data == this->memory)
-      this->data = this->memory + this->capacity;
+    // push back & push front
+    if (this->data->priority > priority) // we can push front
+    {
+      if (this->data == this->memory)
+        this->data = this->memory + this->capacity;
 
-    itr = --this->data;
-    itr->priority = priority;
-    itr->task = task;
-    this->size++;
-    return ;
-  }
+      itr = --this->data;
+      itr->priority = priority;
+      itr->task = task;
+      this->size++;
+      return ;
+    }
+
 
     if (end >= (this->memory + this->capacity)) {
-        end -= this->capacity;
+      end -= this->capacity;
     }
+
+    // push back
+    if (this->size > 0u)
+    {
+      struct monad_fiber_task_node * last = this->data + (this->size - 1);
+      if (last >= (this->memory + this->capacity)) {
+        last -= this->capacity;
+      }
+      if (last->priority <= priority) {
+        end->priority = priority;
+        end->task = task;
+        this->size++;
+        return ;
+      }
+
+    }
+
+
+
 
     MONAD_ASSERT(end >= this->memory);
 
+    // this can potentially be optimized through a binary search algorithm.
     while (itr != end) {
         if (itr->priority > priority) {
             break;
