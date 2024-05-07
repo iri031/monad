@@ -91,6 +91,16 @@ monad_async_context_switcher_sjlj_destroy(monad_async_context_switcher switcher)
     struct monad_async_context_switcher_sjlj *p =
         (struct monad_async_context_switcher_sjlj *)switcher;
     assert(!p->within_resume_many);
+    unsigned contexts =
+        atomic_load_explicit(&p->head.contexts, memory_order_acquire);
+    if (contexts != 0) {
+        fprintf(
+            stderr,
+            "FATAL: Context switcher destroyed whilst %u contexts still using "
+            "it.\n",
+            contexts);
+        abort();
+    }
     free(p);
     return monad_async_make_success(0);
 }

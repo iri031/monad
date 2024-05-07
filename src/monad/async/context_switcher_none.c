@@ -26,8 +26,18 @@ monad_async_context_none_resume_many(
     void *user_ptr);
 
 static inline monad_async_result
-monad_async_context_switcher_none_destroy(monad_async_context_switcher)
+monad_async_context_switcher_none_destroy(monad_async_context_switcher p)
 {
+    unsigned contexts =
+        atomic_load_explicit(&p->contexts, memory_order_acquire);
+    if (contexts != 0) {
+        fprintf(
+            stderr,
+            "FATAL: Context switcher destroyed whilst %u contexts still using "
+            "it.\n",
+            contexts);
+        abort();
+    }
     return monad_async_make_success(0);
 }
 

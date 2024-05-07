@@ -496,6 +496,12 @@ static inline monad_async_result monad_async_executor_run_impl(
                 }
             }
         }
+        while (ex->tasks_exited.count > 0) {
+            struct monad_async_task_impl *task = ex->tasks_exited.front;
+            LIST_REMOVE(ex->tasks_exited, task, (size_t *)nullptr);
+            atomic_store_explicit(
+                &task->head.current_executor, nullptr, memory_order_release);
+        }
         if (atomic_load_explicit(
                 &ex->cause_run_to_return, memory_order_acquire) != nullptr) {
             atomic_lock(&ex->lock);
@@ -536,6 +542,14 @@ static inline monad_async_result monad_async_executor_run_impl(
                 get_ticks_count(memory_order_relaxed);
             ex->head.total_ticks_in_task_completion =
                 completions_end - completions_begin;
+            while (ex->tasks_exited.count > 0) {
+                struct monad_async_task_impl *task = ex->tasks_exited.front;
+                LIST_REMOVE(ex->tasks_exited, task, (size_t *)nullptr);
+                atomic_store_explicit(
+                    &task->head.current_executor,
+                    nullptr,
+                    memory_order_release);
+            }
         }
         size_t items_processed =
             launch_pending_tasks_state.items + resume_tasks_state.items;
@@ -728,20 +742,19 @@ void monad_async_executor_task_exited(monad_async_task task_)
     assert(
         atomic_load_explicit(&ex->head.current_task, memory_order_acquire) ==
         task_);
-    atomic_lock(&ex->lock);
-    LIST_REMOVE_ATOMIC_COUNTER(
-        ex->tasks_running[task->head.priority.cpu],
-        task,
-        &ex->head.tasks_running);
-    atomic_unlock(&ex->lock);
     atomic_store_explicit(
         &ex->head.current_task, nullptr, memory_order_release);
     task_->ticks_when_detached = get_ticks_count(memory_order_relaxed);
     task_->total_ticks_executed +=
         task_->ticks_when_detached - task_->ticks_when_resumed;
     atomic_store_explicit(&task_->is_running, false, memory_order_release);
-    atomic_store_explicit(
-        &task_->current_executor, nullptr, memory_order_release);
+    atomic_lock(&ex->lock);
+    LIST_REMOVE_ATOMIC_COUNTER(
+        ex->tasks_running[task->head.priority.cpu],
+        task,
+        &ex->head.tasks_running);
+    LIST_APPEND(ex->tasks_exited, task, (size_t *)nullptr);
+    atomic_unlock(&ex->lock);
 }
 
 /****************************************************************************/

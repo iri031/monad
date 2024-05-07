@@ -83,6 +83,9 @@ TEST(executor, works)
             *(bool *)task->user_ptr = true;
             auto *current_executor =
                 task->current_executor.load(std::memory_order_acquire);
+            if (current_executor == nullptr) {
+                abort();
+            }
             EXPECT_EQ(current_executor->current_task, task);
             EXPECT_EQ(current_executor->tasks_pending_launch, 0);
             EXPECT_EQ(current_executor->tasks_running, 1);
@@ -389,8 +392,8 @@ TEST(executor, foreign_thread)
             uint32_t ops{0};
         };
 
-        std::vector<executor_thread> executor_threads{2/*
-            std::thread::hardware_concurrency()*/};
+        std::vector<executor_thread> executor_threads{
+            std::thread::hardware_concurrency()};
         std::atomic<int> latch{0};
         for (size_t n = 0; n < executor_threads.size(); n++) {
             executor_threads[n].thread = std::thread(
@@ -471,8 +474,7 @@ TEST(executor, foreign_thread)
             CHECK_RESULT(monad_async_task_attach(ex, task, switcher));
             EXPECT_TRUE(task->is_pending_launch || task->is_running);
             EXPECT_TRUE(ex->tasks_pending_launch > 0 || ex->tasks_running > 0);
-            while (task->is_pending_launch || task->is_running ||
-                   ex->tasks_running > 0) {
+            while (!monad_async_task_has_exited(task)) {
                 std::this_thread::yield();
             }
             EXPECT_EQ(ex->tasks_pending_launch, 0);
@@ -490,7 +492,7 @@ TEST(executor, foreign_thread)
         size_t n = 0;
         do {
             for (auto &i : tasks) {
-                if (i.task->current_executor == nullptr) {
+                if (monad_async_task_has_exited(i.task.get())) {
                     auto &threadstate = executor_threads[n++];
                     CHECK_RESULT(monad_async_task_attach(
                         threadstate.executor.get(),
@@ -527,8 +529,19 @@ TEST(executor, foreign_thread)
                   << executor_threads.size() << " kernel threads at "
                   << (1000000000.0 * double(task_ops) / diff) << " ops/sec ("
                   << (diff / double(task_ops)) << " ns/op)" << std::endl;
+#if 1
+        std::cout
+            << "   Starting destroying tasks (this currently segfaults in "
+               "Klemens' code because the thread local state for the thread "
+               "which last context switched his fiber has disappeared) ..."
+            << std::endl;
+        for (auto &i : tasks) {
+            i.task.reset();
+        }
+        std::cout << "   Ended destroying tasks ..." << std::endl;
+#endif
     };
     test(monad_async_context_switcher_none, "none");
-    // test(monad_async_context_switcher_sjlj, "setjmp/longjmp");
-    // test(monad_async_context_switcher_fiber, "monad fiber");
+    test(monad_async_context_switcher_sjlj, "setjmp/longjmp");
+    test(monad_async_context_switcher_fiber, "monad fiber");
 }

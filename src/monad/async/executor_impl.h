@@ -37,6 +37,7 @@ struct monad_async_executor_impl
     LIST_DEFINE_P(tasks_running, struct monad_async_task_impl);
     LIST_DEFINE_P(tasks_suspended_awaiting, struct monad_async_task_impl);
     LIST_DEFINE_P(tasks_suspended_completed, struct monad_async_task_impl);
+    LIST_DEFINE_N(tasks_exited, struct monad_async_task_impl);
     monad_async_result *_Atomic cause_run_to_return;
 
     monad_async_file *file_indices;

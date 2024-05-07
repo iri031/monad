@@ -292,9 +292,9 @@ static monad_async_result mytask(monad_async_task task)
 ## Todo
 
 - Writes need to use the write io_uring
+- Need to test moving a fiber between my executor and Klemens' executor
+as proof that the execution bridge works as intended.
 - Need to test cancellation works
-- Yet to replace setjmp/longjmp based context switching with something
-much better (Klemens).
 - A test should make 1 billion tasks to prove it works without issue
 and scales without issue.
 - SQE submission queue overflow not handled yet.

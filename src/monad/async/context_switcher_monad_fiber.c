@@ -71,6 +71,16 @@ static inline monad_async_result monad_async_context_switcher_fiber_destroy(
     struct monad_async_context_switcher_fiber *p =
         (struct monad_async_context_switcher_fiber *)switcher;
     assert(!p->within_resume_many);
+    unsigned contexts =
+        atomic_load_explicit(&p->head.contexts, memory_order_acquire);
+    if (contexts != 0) {
+        fprintf(
+            stderr,
+            "FATAL: Context switcher destroyed whilst %u contexts still using "
+            "it.\n",
+            contexts);
+        abort();
+    }
     free(p);
     return monad_async_make_success(0);
 }
