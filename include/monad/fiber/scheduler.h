@@ -4,7 +4,6 @@
 
 #if defined(__cplusplus)
     #include <atomic>
-using std::atomic_int;
 
 extern "C"
 {
@@ -30,7 +29,10 @@ typedef struct monad_fiber_scheduler
     pthread_cond_t cond;
 
     monad_fiber_task_queue_t task_queue;
-    atomic_int thread_id_source; // if this is zero we're stoppping
+#if defined(__cplusplus)
+    std::
+#endif
+        atomic_int thread_id_source; // if this is zero we're stoppping
 } monad_fiber_scheduler_t;
 
 monad_fiber_scheduler_t *monad_fiber_scheduler_current();
@@ -42,7 +44,8 @@ void monad_fiber_scheduler_stop(monad_fiber_scheduler_t *);
 
 void monad_fiber_scheduler_post(
     monad_fiber_scheduler_t *, monad_fiber_task_t *task, int64_t priority);
-// does not yet respect priorities. we should figure out if we need this function first.
+// does not yet respect priorities. we should figure out if we need this
+// function first.
 void monad_fiber_scheduler_dispatch(
     monad_fiber_scheduler_t *, monad_fiber_task_t *task, int64_t priority);
 

@@ -14,6 +14,8 @@ typedef struct monad_async_executor_head *monad_async_executor;
 
 typedef struct monad_async_task_head *monad_async_task;
 
+struct monad_fiber_task;
+
 //! \brief An i/o status state used to identify an i/o in progress. Must NOT
 //! move in memory until the operation completes.
 typedef struct monad_async_io_status
@@ -218,6 +220,16 @@ static inline monad_async_result monad_async_task_suspend_until_completed_io(
     return monad_async_make_success(
         1 + (intptr_t)task->io_completed_not_reaped);
 }
+
+//! \brief Retrieve the `monad_fiber_task` structure for the async task, from
+//! which later on its original `monad_async_task` can be retrieved.
+extern struct monad_fiber_task *
+monad_fiber_task_from_async_task(monad_async_task task);
+
+//! \brief Retrieve the original `monad_async_task` from a fiber task structure
+//! previously returned by `monad_fiber_task_from_async_task`.
+extern monad_async_task
+monad_async_task_from_fiber_task(struct monad_fiber_task *task);
 
 #ifdef __cplusplus
 }

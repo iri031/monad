@@ -2,6 +2,8 @@
 
 #include "monad/async/task.h"
 
+#include "monad/fiber/task.h"
+
 #include <assert.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -95,6 +97,8 @@ struct monad_async_task_impl
     } io_submitted, io_completed;
 
     monad_async_io_status **completed;
+
+    struct monad_fiber_task fiber_task;
 };
 
 #define LIST_DEFINE_N(name, type)                                              \

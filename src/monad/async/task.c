@@ -57,3 +57,16 @@ monad_async_result monad_async_task_destroy(monad_async_task task)
     free(task);
     return monad_async_make_success(0);
 }
+
+struct monad_fiber_task *monad_fiber_task_from_async_task(monad_async_task task)
+{
+    struct monad_async_task_impl *p = (struct monad_async_task_impl *)task;
+    return &p->fiber_task;
+}
+
+monad_async_task monad_async_task_from_fiber_task(struct monad_fiber_task *task)
+{
+    return (
+        monad_async_task)((uintptr_t)task -
+                          offsetof(struct monad_async_task_impl, fiber_task));
+}

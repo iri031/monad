@@ -305,3 +305,10 @@ based on some condition e.g. there are now SQE entries free.
 is rather irritating. https://github.com/rust-lang/rust-bindgen/issues/2151
 is the issue tracker for it, looks like somebody just needs to go implement
 support and submit a PR.
+- A context switcher implementing C++ coroutines would be nice. Some notes
+on that:
+    - MSVC coroutine frame: Promise | Frame prefix | Local variables. Coroutine
+frame is: `struct msvc_frame_prefix { void(*factivate)(void*); uint16_t index, flag; };`.
+Implementation is a state machine based on switching `index`.
+    - GCC/clang coroutine frame: Frame prefix | Promise | Unknown | Local
+variables. Coroutine frame is: `struct clang_frame_prefix { void(*factivate)(void*); void(*fdestroy)(void*);};`.

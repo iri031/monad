@@ -225,6 +225,11 @@ pub struct io_uring_params {
 }
 #[doc = "! \\brief The public attributes of an executor"]
 pub type monad_async_executor = *mut monad_async_executor_head;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct monad_fiber_task {
+    _unused: [u8; 0],
+}
 #[doc = "! \\brief An i/o status state used to identify an i/o in progress. Must NOT"]
 #[doc = "! move in memory until the operation completes."]
 #[repr(C)]
@@ -358,6 +363,11 @@ extern "C" {
         task: monad_async_task,
         ns: u64,
     ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief Retrieve the original `monad_async_task` from a fiber task structure"]
+    #[doc = "! previously returned by `monad_fiber_task_from_async_task`."]
+    pub fn monad_async_task_from_fiber_task(task: *mut monad_fiber_task) -> monad_async_task;
 }
 #[doc = "! \\brief The public attributes of an executor"]
 #[repr(C)]
