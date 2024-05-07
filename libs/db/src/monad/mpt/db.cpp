@@ -63,7 +63,7 @@ struct Db::Impl
         UpdateList &&, uint64_t, bool enable_compaction,
         bool can_write_to_fast) = 0;
 
-    virtual find_result_type
+    virtual FindResultType
     find_fiber_blocking(NodeCursor const &root, NibblesView const &key) = 0;
     virtual bool is_latest() const = 0;
     virtual void load_latest_fiber_blocking() = 0;
@@ -130,7 +130,7 @@ struct Db::ROOnDisk final : public Db::Impl
         MONAD_ASSERT(false);
     }
 
-    virtual find_result_type
+    virtual FindResultType
     find_fiber_blocking(NodeCursor const &root, NibblesView const &key) override
     {
         return find_blocking(aux(), root, key);
@@ -185,7 +185,7 @@ struct Db::InMemory final : public Db::Impl
             std::move(root_), machine_, std::move(list), block_id, false);
     }
 
-    virtual find_result_type
+    virtual FindResultType
     find_fiber_blocking(NodeCursor const &root, NibblesView const &key) override
     {
         return find_blocking(aux(), root, key);
@@ -225,7 +225,7 @@ struct Db::RWOnDisk final : public Db::Impl
     };
 
     using Comms = std::variant<
-        std::monostate, fiber_find_request_t, FiberUpsertRequest,
+        std::monostate, FiberFindRequest, FiberUpsertRequest,
         FiberLoadAllFromBlockRequest>;
     ::moodycamel::ConcurrentQueue<Comms> comms_;
 
@@ -300,7 +300,7 @@ struct Db::RWOnDisk final : public Db::Impl
         {
             inflight_map_t inflights;
             ::boost::container::deque<
-                threadsafe_boost_fibers_promise<find_result_type>>
+                threadsafe_boost_fibers_promise<FindResultType>>
                 find_promises;
             ::boost::container::deque<
                 threadsafe_boost_fibers_promise<Node::UniquePtr>>
@@ -457,12 +457,11 @@ struct Db::RWOnDisk final : public Db::Impl
     }
 
     // threadsafe
-    virtual find_result_type find_fiber_blocking(
+    virtual FindResultType find_fiber_blocking(
         NodeCursor const &start, NibblesView const &key) override
     {
-        threadsafe_boost_fibers_promise<find_result_type> promise;
-        fiber_find_request_t req{
-            .promise = &promise, .start = start, .key = key};
+        threadsafe_boost_fibers_promise<FindResultType> promise;
+        FiberFindRequest req{.promise = &promise, .start = start, .key = key};
         auto fut = promise.get_future();
         comms_.enqueue(req);
         // promise is racily emptied after this point
@@ -516,7 +515,7 @@ struct Db::RWOnDisk final : public Db::Impl
         threadsafe_boost_fibers_promise<size_t> promise;
         auto fut = promise.get_future();
         comms_.enqueue(FiberLoadAllFromBlockRequest{
-            .promise = &promise, .root = res.first, .sm = machine_});
+            .promise = &promise, .root = res.cursor, .sm = machine_});
         // promise is racily emptied after this point
         if (worker_->sleeping.load(std::memory_order_acquire)) {
             std::unique_lock const g(lock_);
@@ -549,13 +548,13 @@ Db::~Db() = default;
 Result<NodeCursor> Db::get(NodeCursor root, NibblesView const key) const
 {
     MONAD_ASSERT(impl_);
-    auto const [it, result] = impl_->find_fiber_blocking(root, key);
-    if (result != find_result::success) {
+    auto const result = impl_->find_fiber_blocking(root, key);
+    if (result.msg != find_result_msg::success) {
         return DbError::key_not_found;
     }
-    MONAD_DEBUG_ASSERT(it.node != nullptr);
-    MONAD_DEBUG_ASSERT(it.node->has_value());
-    return it;
+    MONAD_DEBUG_ASSERT(result.cursor.node != nullptr);
+    MONAD_DEBUG_ASSERT(result.cursor.node->has_value());
+    return result.cursor;
 }
 
 Result<byte_string_view>
