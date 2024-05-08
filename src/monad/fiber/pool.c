@@ -30,8 +30,10 @@ monad_fiber_context_t * monad_fiber_pool_impl(void* arg,
     char name[24];
     snprintf(name, 24, "worker fiber %u", ++(pool->fiber_id_source));
     monad_fiber_set_name(fiber, name);
-    monad_fiber_yield();
 
+
+    monad_fiber_context_switch(this->fiber.context, from);
+    MONAD_ASSERT(monad_fiber_is_current(fiber));
     // beyond here, we need some handling of the *current*
     while (true)
     {

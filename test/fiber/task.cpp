@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 
-
 #include <monad/fiber/task.h>
 
+#include <algorithm>
 
 TEST(task, grow)
 {
@@ -17,7 +17,6 @@ TEST(task, grow)
   EXPECT_EQ(cap * 2, q.capacity);
 
   monad_fiber_task_queue_destroy(&q);
-
 }
 
 TEST(task, insert_many)
@@ -49,6 +48,10 @@ TEST(task, insert_many)
 
   EXPECT_EQ(cap  * 4, q.capacity);
 
+  std::vector<std::int64_t> priorities;
+  priorities.reserve(q.size);
+
+
   for (std::size_t n = 0u; n < cap; n++)
   {
     struct monad_fiber_task_node qq[4] = {
@@ -62,8 +65,13 @@ TEST(task, insert_many)
     {
       EXPECT_EQ(q.priority, n);
       EXPECT_EQ(q.task,  (monad_fiber_task_t*)n);
+      priorities.push_back(q.priority);
     }
   }
+
+  EXPECT_TRUE(std::is_sorted(priorities.begin(), priorities.end()));
+
+
 
   monad_fiber_task_queue_destroy(&q);
 }
@@ -75,7 +83,7 @@ TEST(task, wrap_around)
   monad_fiber_task_queue_t q;
   monad_fiber_task_queue_init(&q);
 
-  monad_fiber_task_t t1, t2, t3, t4;
+  monad_fiber_task_t t1, t2, t3;
 
   const auto cap = static_cast<std::int64_t>(q.capacity);
 
@@ -113,11 +121,15 @@ TEST(task, wrap_around)
   EXPECT_EQ(q.data->priority, 0u);
 
 
+  std::vector<std::int64_t> priorities;
+  priorities.reserve(q.size);
+
   for (std::int64_t n = 0; n < (cap / 4); n++)
   {
     auto qq = monad_fiber_task_queue_pop_front(&q);
     EXPECT_EQ(qq.priority, n);
     EXPECT_EQ(qq.task , &t2);
+    priorities.push_back(qq.priority);
   }
 
   for (std::int64_t n = 0; n < (cap / 2); n++)
@@ -125,6 +137,7 @@ TEST(task, wrap_around)
     auto qq = monad_fiber_task_queue_pop_front(&q);
     EXPECT_EQ(qq.priority, n + (cap / 2));
     EXPECT_EQ(qq.task , &t1);
+    priorities.push_back(qq.priority);
   }
 
   for (std::int64_t n = 0; n < (cap / 4); n++)
@@ -132,7 +145,11 @@ TEST(task, wrap_around)
     auto qq = monad_fiber_task_queue_pop_front(&q);
     EXPECT_EQ(qq.priority, n + cap);
     EXPECT_EQ(qq.task , &t3);
+    priorities.push_back(qq.priority);
   }
+
+
+  EXPECT_TRUE(std::is_sorted(priorities.begin(), priorities.end()));
 
   monad_fiber_task_queue_destroy(&q);
 
