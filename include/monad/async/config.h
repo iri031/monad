@@ -20,10 +20,12 @@
     #endif
 #endif
 
-#if defined __STDC_VERSION__ && __STDC_VERSION__ >= 202000L
-    #define MONAD_ASYNC_NODISCARD [[nodiscard]]
-#else
-    #define MONAD_ASYNC_NODISCARD __attribute__((warn_unused_result))
+#ifndef MONAD_ASYNC_NODISCARD
+    #if defined __STDC_VERSION__ && __STDC_VERSION__ >= 202000L
+        #define MONAD_ASYNC_NODISCARD [[nodiscard]]
+    #else
+        #define MONAD_ASYNC_NODISCARD __attribute__((warn_unused_result))
+    #endif
 #endif
 
 #ifdef __cplusplus

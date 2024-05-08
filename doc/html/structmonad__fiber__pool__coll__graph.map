@@ -1,0 +1,11 @@
+<map id="monad_fiber_pool" name="monad_fiber_pool">
+<area shape="rect" id="node1" title=" " alt="" coords="377,377,501,404"/>
+<area shape="rect" id="node3" href="$structmonad__fiber__pooled.html" title=" " alt="" coords="219,467,357,493"/>
+<area shape="rect" id="node2" href="$structmonad__fiber__channel.html" title=" " alt="" coords="531,288,677,315"/>
+<area shape="rect" id="node4" href="$structmonad__fiber__task.html" title=" " alt="" coords="161,5,287,32"/>
+<area shape="rect" id="node5" href="$structmonad__fiber.html" title=" " alt="" coords="204,377,297,404"/>
+<area shape="rect" id="node8" href="$structmonad__fiber__task__node.html" title=" " alt="" coords="271,95,431,121"/>
+<area shape="rect" id="node6" href="$structmonad__fiber__scheduler.html" title=" " alt="" coords="262,288,418,315"/>
+<area shape="rect" id="node7" href="$structmonad__fiber__task__queue.html" title=" " alt="" coords="278,199,445,225"/>
+<area shape="rect" id="node9" href="$structmonad__fiber__context.html" title=" " alt="" coords="43,288,186,315"/>
+</map>
