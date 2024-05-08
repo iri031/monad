@@ -91,9 +91,8 @@ struct snapshots_4
         return ; // no overflow plz
       // 0 -> 2^0, 1 -> 2^16
       const auto offset =  1ull << (id * 16ull);
-
       const auto ptr = db.pointer.fetch_add(offset);
-      const auto idx = (ptr >> (id * 16ull)) & 0xFFFFu;
+      const auto idx = (ptr >> (id * 16ull)) & 0xFFFFull;
 
 
       if (idx == 0xFFFFu)
@@ -112,17 +111,25 @@ struct snapshots_4
 
 struct snapshots_8
 {
-  std::atomic<std::uint64_t> id_source{0b1};
+  std::atomic<std::uint64_t> id_source{0};
   std::atomic<std::uint64_t> pointer{0};
 
   constexpr static std::size_t size_per_thread = 256;
 
   std::array<std::array<std::pair<std::int64_t, std::uint64_t>, size_per_thread>, 8u> state;
 
+  snapshots_8()
+  {
+    for (auto & s : state)
+      for (auto & st : s)
+        st = {INT64_MIN, UINT64_MAX};
+  }
+
   struct snapshotter_t
   {
     std::uint64_t id;
     snapshots_8 & db;
+    bool done = false;
 
     snapshotter_t(snapshots_8 & db) : id(db.id_source++) ,db(db)
     {
@@ -131,10 +138,21 @@ struct snapshots_8
 
     void operator()(std::int64_t priority)
     {
-      // 0 -> 2^0, 1 -> 2^16
-      const auto offset =  1 << (id * 8ull);
+      if (done)
+        return ; // no overflow plz
+      // 0 -> 2^0, 1 -> 2^8
+      const auto offset =  1ull << (id * 8ull);
+
+
       const auto ptr = db.pointer.fetch_add(offset);
-      const auto idx = (ptr >> (id * 8ull)) & 0xFF;
+      const auto idx = (ptr >> (id * 8ull)) & 0xFFull;
+
+      if (idx == 0xFFu)
+      {
+        db.pointer -= offset; // so we're not len == 0
+        done = true;
+      }
+
       db.state[id][idx] = {priority, ptr};
     }
   };
@@ -260,13 +278,90 @@ TEST(scheduler, post_post)
   EXPECT_TRUE(ran2);
 }
 
+void check_sorted(snapshots_4 & ss)
+{
+  // make sure it's ordered now.
+  for (auto i = 0ull; i < 4ull; i++)
+  {
+    const auto & series = ss.state[i];
+    const auto len = (ss.pointer.load() >> (i * 16ull)) & 0xFFFFull;
+    ASSERT_GT(len, 0);
+    const auto begin = series.begin(), end = series.begin() + len;
+    ASSERT_LE(end, series.end());
+    EXPECT_TRUE(std::is_sorted(begin, end));
+    for (auto itr = std::next(begin); itr != end; itr++)
+    {
+      EXPECT_LT(std::prev(itr)->first, itr->first)
+                << " of thread " << i << " at pos " << std::distance(begin, itr); // first = priority
+
+      auto priority = itr->first;
+      // check the others
+
+      for (auto j = 0ull; j < 4ull; j++)
+      {
+        if (i == j)
+          continue;
+
+        // we check what was completed before the current task.
+        const auto idx = (std::prev(itr)->second >> (j * 16ull)) & 0xFFFFull;
+
+        // idx points to the current, so we need to decrement it as well.
+        if (idx <  2)
+          continue;
+        EXPECT_LE(ss.state[j][idx - 1].first, priority) // 32 is
+                                                            << " of thread " << i << " at pos " << std::distance(begin, itr)
+                                                            << " compared to thread " << j << " at pos " << idx; // first = priority
+      }
+    }
+  }
+}
+
+void check_sorted(snapshots_8 & ss)
+{
+  // make sure it's ordered now.
+  for (auto i = 0ull; i < ss.state.size(); i++)
+  {
+    const auto & series = ss.state[i];
+    const auto len = (ss.pointer.load() >> (i * 8ull)) & 0xFFull;
+    ASSERT_GT(len, 0);
+    const auto begin = series.begin(), end = series.begin() + len;
+    ASSERT_LE(end, series.end());
+    EXPECT_TRUE(std::is_sorted(begin, end));
+    for (auto itr = std::next(begin); itr != end; itr++)
+    {
+      EXPECT_LT(std::prev(itr)->first, itr->first)
+                << " of thread " << i << " at pos " << std::distance(begin, itr); // first = priority
+
+      auto priority = itr->first;
+      // check the others
+
+      for (auto j = 0ull; j < 8ull; j++)
+      {
+        if (i == j)
+          continue;
+
+        // we check what was completed before the current task.
+        const auto idx = (std::prev(itr)->second >> (j * 8ull)) & 0xFFull;
+        continue;
+
+        // idx points to the current, so we need to decrement it as well.
+        if (idx <  2)
+          continue;
+        EXPECT_LE(ss.state[j][idx - 1].first, priority) // 32 is
+                                                            << " of thread " << i << " at pos " << std::distance(begin, itr)
+                                                            << " compared to thread " << j << " at pos " << idx; // first = priority
+      }
+
+    }
+  }
+}
+
 TEST(scheduler, ordered_4)
 {
   static bool once = false;
   ASSERT_FALSE(once);
   once = true;
-  auto sp = std::make_unique<snapshots_4>();
-  auto & ss = *sp;
+  snapshots_4 ss;
 
   monad_fiber_scheduler_t s;
   monad_fiber_scheduler_create(&s, 4);
@@ -301,39 +396,138 @@ TEST(scheduler, ordered_4)
   wait(s);
   monad_fiber_scheduler_destroy(&s);
 
-  // make sure it's ordered now.
-  for (auto i = 0ull; i < 4ull; i++)
+  check_sorted(ss);
+}
+
+
+TEST(scheduler, ordered_8)
+{
+  static bool once = false;
+  ASSERT_FALSE(once);
+  once = true;
+  snapshots_8 ss;
+
+  monad_fiber_scheduler_t s;
+  monad_fiber_scheduler_create(&s, 8);
+
+  std::shared_mutex mtx; // block all threads during posting
+  mtx.lock();
+  for (std::uint64_t i = 0ull; i < 8; i++)
+    monad_fiber_scheduler_post(&s,
+                               make_lt(
+                                   [&]
+                                   {
+                                     mtx.lock_shared();
+                                     mtx.unlock_shared();
+                                   }
+                               ),
+                               INT64_MIN);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+  for (std::uint64_t i = 0; i < (8 * ss.size_per_thread) - 8; i++)
+    monad_fiber_scheduler_post(&s,
+                               make_lt(
+                                   [&, i]
+                                   {
+                                     thread_local static auto s = ss.snap();
+                                     s(i);
+                                   }
+                               ),
+                               i);
+
+  mtx.unlock();
+  wait(s);
+  monad_fiber_scheduler_destroy(&s);
+
+  check_sorted(ss);
+}
+
+TEST(scheduler, inverted_4)
+{
+  static bool once = false;
+  ASSERT_FALSE(once);
+  once = true;
+  snapshots_4 ss;
+
+  monad_fiber_scheduler_t s;
+  monad_fiber_scheduler_create(&s, 4);
+
+  std::shared_mutex mtx; // block all threads during posting
+  mtx.lock();
+  for (std::uint64_t i = 0ull; i < 4; i++)
+    monad_fiber_scheduler_post(&s,
+                               make_lt(
+                                   [&]
+                                   {
+                                     mtx.lock_shared();
+                                     mtx.unlock_shared();
+                                   }
+                               ),
+                               INT64_MIN);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+  for (std::int64_t i = (4 * ss.size_per_thread) - 4; i > 0; i--)
   {
-    const auto & series = ss.state[i];
-    const auto len = (ss.pointer.load() >> (i * 16ull)) & 0xFFFFull;
-    ASSERT_GT(len, 0);
-    const auto begin = series.begin(), end = series.begin() + len;
-    ASSERT_LE(end, series.end());
-    EXPECT_TRUE(std::is_sorted(begin, end));
-    for (auto itr = std::next(begin); itr != end; itr++)
-    {
-      EXPECT_LT(std::prev(itr)->first, itr->first)
-          << " of thread " << i << " at pos " << std::distance(begin, itr); // first = priority
+    monad_fiber_scheduler_post(&s,
+                               make_lt(
+                                   [&, i]
+                                   {
+                                     thread_local static auto s = ss.snap();
+                                     s(i);
+                                   }
+                               ), i);
 
-      auto priority = itr->first;
-      // check the others
 
-      for (auto j = 0ull; j < 4ull; j++)
-      {
-        if (i == j)
-          continue;
-
-        // we check what was completed before the current task.
-        const auto idx = (std::prev(itr)->second >> (j * 16ull)) & 0xFFFFull;
-
-        // idx points to the current, so we need to decrement it as well.
-        if (idx <  2)
-          continue;
-        EXPECT_LE(ss.state[j][idx - 1].first, priority) // 32 is
-                  << " of thread " << i << " at pos " << std::distance(begin, itr)
-                  << " compared to thread " << j << " at pos " << idx; // first = priority
-      }
-
-    }
   }
+
+  mtx.unlock();
+  wait(s);
+  monad_fiber_scheduler_destroy(&s);
+
+  check_sorted(ss);
+}
+
+TEST(scheduler, inverted_8)
+{
+  static bool once = false;
+  ASSERT_FALSE(once);
+  once = true;
+  snapshots_8 ss;
+
+  monad_fiber_scheduler_t s;
+  monad_fiber_scheduler_create(&s, 8);
+
+  std::shared_mutex mtx; // block all threads during posting
+  mtx.lock();
+  for (std::uint64_t i = 0ull; i < 8; i++)
+    monad_fiber_scheduler_post(&s,
+                               make_lt(
+                                   [&]
+                                   {
+                                     mtx.lock_shared();
+                                     mtx.unlock_shared();
+                                   }
+                               ),
+                               INT64_MIN);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+  for (std::int64_t i = 0; i < (8 * ss.size_per_thread) - 8; i++)
+    monad_fiber_scheduler_post(&s,
+                               make_lt(
+                                   [&, i = -i]
+                                   {
+                                     thread_local static auto s = ss.snap();
+                                     s(i);
+                                   }
+                               ),
+                               -i);
+
+  mtx.unlock();
+  wait(s);
+  monad_fiber_scheduler_destroy(&s);
+
+  check_sorted(ss);
 }
