@@ -83,7 +83,7 @@ pub struct monad_async_context_switcher_head {
     #[doc = "! \\brief Resume execution of a previously suspended switchable context."]
     #[doc = "! Some context switchers will return from this function when the resumed"]
     #[doc = "! task next suspends, others will resume at the suspension point set by"]
-    #[doc = "! `executor_resume_many`."]
+    #[doc = "! `resume_many`."]
     pub resume: ::std::option::Option<
         unsafe extern "C" fn(
             current_context: monad_async_context,
@@ -101,7 +101,7 @@ pub struct monad_async_context_switcher_head {
             resumed: ::std::option::Option<
                 unsafe extern "C" fn(
                     user_ptr: *mut ::std::os::raw::c_void,
-                    fake_current_context: monad_async_context,
+                    current_context_to_use_when_resuming: monad_async_context,
                 ) -> monad_async_result,
             >,
             user_ptr: *mut ::std::os::raw::c_void,
@@ -267,6 +267,7 @@ pub struct monad_async_task_head {
     pub is_running: atomic_bool,
     pub is_suspended_awaiting: atomic_bool,
     pub is_suspended_completed: atomic_bool,
+    pub is_running_on_foreign_executor: atomic_bool,
     pub pending_launch_queue_: monad_async_priority,
     pub ticks_when_submitted: monad_async_cpu_ticks_count_t,
     pub ticks_when_attached: monad_async_cpu_ticks_count_t,

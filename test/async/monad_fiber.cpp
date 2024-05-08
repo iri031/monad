@@ -12,14 +12,15 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-TEST(monad_fiber, works)
+TEST(monad_fiber_bridge, works)
 {
-    return; // not finished
-
     struct shared_state_t
     {
         char tempfilepath[256];
         pid_t io_executor_tid;
+        executor_ptr io_ex;
+        context_switcher_ptr io_cs;
+        monad_fiber_scheduler_t compute_ex;
         std::atomic<bool> done{false};
 
         shared_state_t()
@@ -31,11 +32,21 @@ TEST(monad_fiber, works)
             }
             close(fd);
             io_executor_tid = gettid();
+
+            // Make an i/o executor and context switcher
+            monad_async_executor_attr io_ex_attr{};
+            io_ex_attr.io_uring_ring.entries = 64;
+            io_ex = make_executor(io_ex_attr);
+            io_cs = make_context_switcher(monad_async_context_switcher_fiber);
+
+            // Make a compute executor of four kernel threads
+            monad_fiber_scheduler_create(&compute_ex, 4);
         }
 
         ~shared_state_t()
         {
             unlink(tempfilepath);
+            monad_fiber_scheduler_destroy(&compute_ex);
         }
 
         monad_async_result task(monad_async_task task)
@@ -44,10 +55,25 @@ TEST(monad_fiber, works)
             if (gettid() == io_executor_tid) {
                 abort();
             }
+            EXPECT_FALSE(task->is_pending_launch);
+            EXPECT_FALSE(task->is_running);
+            EXPECT_TRUE(task->is_running_on_foreign_executor);
+            EXPECT_EQ(task->current_executor, nullptr);
 
             // Before we can do i/o, we need to transfer ourselves to the i/o
             // executor
-            // TODO
+            MONAD_ASYNC_TRY_RESULT(
+                ,
+                monad_fiber_resume_on_io_executor(
+                    io_ex.get(), task, io_cs.get()));
+
+            // We should now be running on the i/o executor
+            if (gettid() != io_executor_tid) {
+                abort();
+            }
+            EXPECT_FALSE(task->is_pending_launch);
+            EXPECT_TRUE(task->is_running);
+            EXPECT_FALSE(task->is_running_on_foreign_executor);
 
             // Open the file
             struct open_how how
@@ -100,6 +126,7 @@ TEST(monad_fiber, works)
             EXPECT_EQ(task->io_submitted, 0);
             EXPECT_EQ(task->io_completed_not_reaped, 0);
 
+            // Need to close the file while still on the i/o executor
             fh.reset();
             std::cout << "   Closing the file took "
                       << (task->ticks_when_suspended_completed -
@@ -107,7 +134,10 @@ TEST(monad_fiber, works)
                       << " ticks." << std::endl;
 
             // Transfer ourselves back to the compute executor
-            // TODO
+            MONAD_ASYNC_TRY_RESULT(
+                ,
+                monad_fiber_resume_on_compute_executor(
+                    &compute_ex, task, 0, nullptr));
 
             EXPECT_STREQ(buffer, "hello world");
             EXPECT_EQ(to_result(iostatus[0].result).value(), 6);
@@ -125,19 +155,9 @@ TEST(monad_fiber, works)
         }
     } shared_state;
 
-    // Make a compute executor of four kernel threads
-    monad_fiber_scheduler_t compute_ex;
-    monad_fiber_scheduler_create(&compute_ex, 4);
-
-    // Make an i/o executor
-    monad_async_executor_attr io_ex_attr{};
-    io_ex_attr.io_uring_ring.entries = 64;
-    auto io_ex = make_executor(io_ex_attr);
-
-    // Make a context switcher and a task
-    auto s = make_context_switcher(monad_async_context_switcher_fiber);
+    // Make a task
     monad_async_task_attr t_attr{};
-    auto io_task = make_task(s.get(), t_attr);
+    auto io_task = make_task(shared_state.io_cs.get(), t_attr);
     io_task->user_ptr = (void *)&shared_state;
     io_task->user_code = +[](monad_async_task task) -> monad_async_result {
         return ((shared_state_t *)task->user_ptr)->task(task);
@@ -145,7 +165,9 @@ TEST(monad_fiber, works)
 
     // Post the task onto the compute executor
     monad_fiber_scheduler_post(
-        &compute_ex, monad_fiber_task_from_async_task(io_task.get()), 0);
+        &shared_state.compute_ex,
+        monad_fiber_task_from_async_task(io_task.get()),
+        0);
 
     // The task will initiate some i/o. This will cause it to take itself off
     // the compute executor and attach itself to the i/o executor, which runs in
@@ -156,12 +178,22 @@ TEST(monad_fiber, works)
     };
 
     while (!shared_state.done) {
-        auto r =
-            to_result(monad_async_executor_run(io_ex.get(), size_t(-1), &ts));
+        auto r = to_result(monad_async_executor_run(
+            shared_state.io_ex.get(), size_t(-1), &ts));
         if (!r) {
-            if (r.error() != errc::timed_out) {
+            if (r.error() != errc::timed_out &&
+                r.error() != errc::stream_timeout) {
                 r.value();
             }
         }
+    }
+    while (true) {
+        pthread_mutex_lock(&shared_state.compute_ex.mutex);
+        auto sz = shared_state.compute_ex.task_queue.size;
+        pthread_mutex_unlock(&shared_state.compute_ex.mutex);
+        if (sz == 0u) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }

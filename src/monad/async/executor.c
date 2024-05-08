@@ -501,6 +501,13 @@ static inline monad_async_result monad_async_executor_run_impl(
             LIST_REMOVE(ex->tasks_exited, task, (size_t *)nullptr);
             atomic_store_explicit(
                 &task->head.current_executor, nullptr, memory_order_release);
+            if (task->fiber_task_after_suspend != nullptr) {
+                monad_async_result (*fiber_task_after_suspend)(
+                    struct monad_async_task_impl *task) =
+                    task->fiber_task_after_suspend;
+                task->fiber_task_after_suspend = nullptr;
+                MONAD_ASYNC_TRY_RESULT(, fiber_task_after_suspend(task));
+            }
         }
         if (atomic_load_explicit(
                 &ex->cause_run_to_return, memory_order_acquire) != nullptr) {
@@ -549,6 +556,13 @@ static inline monad_async_result monad_async_executor_run_impl(
                     &task->head.current_executor,
                     nullptr,
                     memory_order_release);
+                if (task->fiber_task_after_suspend != nullptr) {
+                    monad_async_result (*fiber_task_after_suspend)(
+                        struct monad_async_task_impl *task) =
+                        task->fiber_task_after_suspend;
+                    task->fiber_task_after_suspend = nullptr;
+                    MONAD_ASYNC_TRY_RESULT(, fiber_task_after_suspend(task));
+                }
             }
         }
         size_t items_processed =
@@ -732,29 +746,32 @@ monad_async_result monad_async_executor_release_registered_io_buffer(
     return monad_async_make_success(0);
 }
 
-void monad_async_executor_task_exited(monad_async_task task_)
+void monad_async_executor_task_detach(monad_async_task task_)
 {
     struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
-    assert(atomic_load_explicit(&task_->is_running, memory_order_acquire));
-    struct monad_async_executor_impl *ex =
-        (struct monad_async_executor_impl *)atomic_load_explicit(
-            &task->head.current_executor, memory_order_acquire);
-    assert(
-        atomic_load_explicit(&ex->head.current_task, memory_order_acquire) ==
-        task_);
-    atomic_store_explicit(
-        &ex->head.current_task, nullptr, memory_order_release);
-    task_->ticks_when_detached = get_ticks_count(memory_order_relaxed);
-    task_->total_ticks_executed +=
-        task_->ticks_when_detached - task_->ticks_when_resumed;
-    atomic_store_explicit(&task_->is_running, false, memory_order_release);
-    atomic_lock(&ex->lock);
-    LIST_REMOVE_ATOMIC_COUNTER(
-        ex->tasks_running[task->head.priority.cpu],
-        task,
-        &ex->head.tasks_running);
-    LIST_APPEND(ex->tasks_exited, task, (size_t *)nullptr);
-    atomic_unlock(&ex->lock);
+    if (!atomic_load_explicit(
+            &task_->is_running_on_foreign_executor, memory_order_acquire)) {
+        assert(atomic_load_explicit(&task_->is_running, memory_order_acquire));
+        struct monad_async_executor_impl *ex =
+            (struct monad_async_executor_impl *)atomic_load_explicit(
+                &task->head.current_executor, memory_order_acquire);
+        assert(
+            atomic_load_explicit(
+                &ex->head.current_task, memory_order_acquire) == task_);
+        atomic_store_explicit(
+            &ex->head.current_task, nullptr, memory_order_release);
+        task_->ticks_when_detached = get_ticks_count(memory_order_relaxed);
+        task_->total_ticks_executed +=
+            task_->ticks_when_detached - task_->ticks_when_resumed;
+        atomic_store_explicit(&task_->is_running, false, memory_order_release);
+        atomic_lock(&ex->lock);
+        LIST_REMOVE_ATOMIC_COUNTER(
+            ex->tasks_running[task->head.priority.cpu],
+            task,
+            &ex->head.tasks_running);
+        LIST_APPEND(ex->tasks_exited, task, (size_t *)nullptr);
+        atomic_unlock(&ex->lock);
+    }
 }
 
 /****************************************************************************/

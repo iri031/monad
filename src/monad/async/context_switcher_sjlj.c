@@ -9,7 +9,7 @@
 
 #include "monad/async/task.h"
 
-extern void monad_async_executor_task_exited(monad_async_task task);
+extern void monad_async_executor_task_detach(monad_async_task task);
 
 #include <assert.h>
 #include <errno.h>
@@ -263,7 +263,7 @@ static void monad_async_context_sjlj_task_runner(
             (void *)context);
         fflush(stdout);
 #endif
-        monad_async_executor_task_exited(task);
+        monad_async_executor_task_detach(task);
     }
 }
 

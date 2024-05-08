@@ -99,6 +99,10 @@ struct monad_async_task_impl
     monad_async_io_status **completed;
 
     struct monad_fiber_task fiber_task;
+    bool fiber_task_please_resume_as_foreign_executor;
+    monad_async_result (*fiber_task_after_suspend)(
+        struct monad_async_task_impl *task);
+    void *fiber_task_after_suspend_data;
 };
 
 #define LIST_DEFINE_N(name, type)                                              \

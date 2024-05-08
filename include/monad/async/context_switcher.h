@@ -48,7 +48,7 @@ typedef struct monad_async_context_switcher_head
     //! \brief Resume execution of a previously suspended switchable context.
     //! Some context switchers will return from this function when the resumed
     //! task next suspends, others will resume at the suspension point set by
-    //! `executor_resume_many`.
+    //! `resume_many`.
     void (*const resume)(
         monad_async_context current_context, monad_async_context new_context);
     //! \brief To avoid having to set a resumption point per task when resuming
@@ -59,7 +59,8 @@ typedef struct monad_async_context_switcher_head
     monad_async_result (*const resume_many)(
         struct monad_async_context_switcher_head *switcher,
         monad_async_result (*resumed)(
-            void *user_ptr, monad_async_context fake_current_context),
+            void *user_ptr,
+            monad_async_context current_context_to_use_when_resuming),
         void *user_ptr);
 } *monad_async_context_switcher;
 

@@ -1,6 +1,6 @@
 #include "monad/async/context_switcher.h"
 
-extern void monad_async_executor_task_exited(monad_async_task task);
+extern void monad_async_executor_task_detach(monad_async_task task);
 
 #include "task_impl.h"
 
@@ -129,7 +129,7 @@ static void monad_async_context_none_resume(
         (struct monad_async_context_none *)new_context;
     // Execute the task
     p->task->result = p->task->user_code(p->task);
-    monad_async_executor_task_exited(p->task);
+    monad_async_executor_task_detach(p->task);
 }
 
 static monad_async_result monad_async_context_none_resume_many(

@@ -6,7 +6,7 @@
 
 #include "monad/async/task.h"
 
-extern void monad_async_executor_task_exited(monad_async_task task);
+extern void monad_async_executor_task_detach(monad_async_task task);
 
 #include <assert.h>
 #include <errno.h>
@@ -167,7 +167,7 @@ static monad_fiber_context_t *monad_async_context_fiber_task_runner(
             (void *)info.context);
         fflush(stdout);
 #endif
-        monad_async_executor_task_exited(info.task);
+        monad_async_executor_task_detach(info.task);
     }
 }
 

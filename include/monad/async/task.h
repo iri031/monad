@@ -15,6 +15,7 @@ typedef struct monad_async_executor_head *monad_async_executor;
 typedef struct monad_async_task_head *monad_async_task;
 
 struct monad_fiber_task;
+struct monad_fiber_scheduler;
 
 //! \brief An i/o status state used to identify an i/o in progress. Must NOT
 //! move in memory until the operation completes.
@@ -71,6 +72,9 @@ struct monad_async_task_head
     } priority;
 
     monad_async_result result;
+    // All of these next refer to the i/o executor only i.e. if running on a
+    // foreign executor, is_running will be false as that is not the i/o
+    // executor.
 #ifdef __cplusplus
     std::atomic<monad_async_executor> current_executor;
     std::
@@ -79,7 +83,7 @@ struct monad_async_task_head
 #endif
         atomic_bool is_awaiting_dispatch,
         is_pending_launch, is_running, is_suspended_awaiting,
-        is_suspended_completed;
+        is_suspended_completed, is_running_on_foreign_executor;
 
     monad_async_priority pending_launch_queue_;
 
@@ -100,12 +104,16 @@ static inline bool monad_async_task_has_exited(monad_async_task const task)
 #ifdef __cplusplus
     return task->is_awaiting_dispatch.load(std::memory_order_acquire) ==
                false &&
-           task->current_executor.load(std::memory_order_acquire) == nullptr;
+           task->current_executor.load(std::memory_order_acquire) == nullptr &&
+           task->is_running_on_foreign_executor.load(
+               std::memory_order_acquire) == false;
 #else
     return atomic_load_explicit(
                &task->is_awaiting_dispatch, memory_order_acquire) == false &&
            atomic_load_explicit(
-               &task->current_executor, memory_order_acquire) == NULL;
+               &task->current_executor, memory_order_acquire) == NULL &&
+           atomic_load_explicit(
+               &task->is_running_on_foreign_executor, memory_order_acquire);
 #endif
 }
 
@@ -221,8 +229,23 @@ static inline monad_async_result monad_async_task_suspend_until_completed_io(
         1 + (intptr_t)task->io_completed_not_reaped);
 }
 
-//! \brief Retrieve the `monad_fiber_task` structure for the async task, from
-//! which later on its original `monad_async_task` can be retrieved.
+/***************************************************************************/
+
+/*! \brief Retrieve the `monad_fiber_task` structure for the async task, from
+which later on its original `monad_async_task` can be retrieved.
+
+The `resume` member is set to resume the context, invoking the task's
+`user_code` as if the task were attached to an i/o executor (but the task is NOT
+attached to the i/o executor, as it is executing on a compute executor). After
+`resume` is invoked, `is_running_on_foreign_executor` will be true up until/if
+the task is attached to an i/o executor, or it returns to the compute executor.
+
+The `destroy` member is set to null and will need to be filled in by calling
+code. It is suggested that if the task is currently attached to an i/o executor
+(`current_executor` is not null), `monad_async_task_cancel()` is used to attempt
+a cancellation of any pending i/o.
+
+*/
 extern struct monad_fiber_task *
 monad_fiber_task_from_async_task(monad_async_task task);
 
@@ -230,6 +253,30 @@ monad_fiber_task_from_async_task(monad_async_task task);
 //! previously returned by `monad_fiber_task_from_async_task`.
 extern monad_async_task
 monad_async_task_from_fiber_task(struct monad_fiber_task *task);
+
+/*! \brief THREADSAFE Suspend the calling task and call
+`monad_async_task_attach()` to have the context resume execution on the
+specified i/o executor.
+
+Control flow will return to the caller of `resume` after this so it can go
+execute other compute work. After this `is_running_on_foreign_executor` will
+be false.
+*/
+MONAD_ASYNC_NODISCARD extern monad_async_result
+monad_fiber_resume_on_io_executor(
+    monad_async_executor executor, monad_async_task task,
+    monad_async_context_switcher opt_reparent_switcher);
+
+/*! \brief THREADSAFE Suspend the calling task and call
+`monad_fiber_scheduler_post()` to have the context resume execution on the
+specified computer executor.
+
+After this `is_running_on_foreign_executor` will be true.
+*/
+MONAD_ASYNC_NODISCARD extern monad_async_result
+monad_fiber_resume_on_compute_executor(
+    struct monad_fiber_scheduler *scheduler, monad_async_task task,
+    int64_t priority, monad_async_context_switcher opt_reparent_switcher);
 
 #ifdef __cplusplus
 }
