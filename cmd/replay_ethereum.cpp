@@ -30,6 +30,10 @@
 #include <string>
 #include <vector>
 
+#include <fstream>
+#include <map>
+#include <monad/state3/state.hpp>
+
 #include <sys/sysinfo.h>
 
 MONAD_NAMESPACE_BEGIN
@@ -196,8 +200,16 @@ int main(int const argc, char const *argv[])
 
     DbCache db_cache{db};
 
+    std::map<Address, std::map<bytes32_t, std::vector<AccessOp>>>
+        storage_accesses;
+
     auto const result = replay_eth.run(
-        db_cache, block_db, priority_pool, start_block_number, nblocks);
+        db_cache,
+        block_db,
+        priority_pool,
+        start_block_number,
+        nblocks,
+        storage_accesses);
 
     if (MONAD_UNLIKELY(result.has_error())) {
         return EXIT_FAILURE;

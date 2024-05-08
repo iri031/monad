@@ -57,7 +57,11 @@ Result<std::vector<Receipt>> BlockchainTest::execute(
 
     BOOST_OUTCOME_TRY(static_validate_block<rev>(block));
 
-    return execute_block<rev>(block, db, block_hash_buffer, *pool_);
+    std::map<Address, std::map<bytes32_t, std::vector<AccessOp>>>
+        storage_accesses{};
+
+    return execute_block<rev>(
+        block, db, block_hash_buffer, *pool_, storage_accesses);
 }
 
 Result<std::vector<Receipt>> BlockchainTest::execute_dispatch(

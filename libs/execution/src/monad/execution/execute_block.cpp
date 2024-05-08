@@ -85,7 +85,9 @@ commit(BlockState &block_state, std::vector<Receipt> const &receipts = {})
 template <evmc_revision rev>
 Result<std::vector<Receipt>> execute_block(
     Block &block, Db &db, BlockHashBuffer const &block_hash_buffer,
-    fiber::PriorityPool &priority_pool)
+    fiber::PriorityPool &priority_pool,
+    std::map<Address, std::map<bytes32_t, std::vector<AccessOp>>>
+        &storage_accesses)
 {
     TRACE_BLOCK_EVENT(StartBlock);
 
@@ -114,14 +116,16 @@ Result<std::vector<Receipt>> execute_block(
              &transaction = block.transactions[i],
              &header = block.header,
              &block_hash_buffer = block_hash_buffer,
-             &block_state] {
+             &block_state,
+             &storage_accesses] {
                 results[i] = execute<rev>(
                     i,
                     transaction,
                     header,
                     block_hash_buffer,
                     block_state,
-                    promises[i]);
+                    promises[i],
+                    storage_accesses);
                 promises[i + 1].set_value();
             });
     }
@@ -179,43 +183,45 @@ EXPLICIT_EVMC_REVISION(execute_block);
 Result<std::vector<Receipt>> execute_block(
     evmc_revision const rev, Block &block, Db &db,
     BlockHashBuffer const &block_hash_buffer,
-    fiber::PriorityPool &priority_pool)
+    fiber::PriorityPool &priority_pool,
+    std::map<Address, std::map<bytes32_t, std::vector<AccessOp>>>
+        &storage_accesses)
 {
     switch (rev) {
     case EVMC_SHANGHAI:
         return execute_block<EVMC_SHANGHAI>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, storage_accesses);
     case EVMC_PARIS:
         return execute_block<EVMC_PARIS>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, storage_accesses);
     case EVMC_LONDON:
         return execute_block<EVMC_LONDON>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, storage_accesses);
     case EVMC_BERLIN:
         return execute_block<EVMC_BERLIN>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, storage_accesses);
     case EVMC_ISTANBUL:
         return execute_block<EVMC_ISTANBUL>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, storage_accesses);
     case EVMC_PETERSBURG:
     case EVMC_CONSTANTINOPLE:
         return execute_block<EVMC_PETERSBURG>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, storage_accesses);
     case EVMC_BYZANTIUM:
         return execute_block<EVMC_BYZANTIUM>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, storage_accesses);
     case EVMC_SPURIOUS_DRAGON:
         return execute_block<EVMC_SPURIOUS_DRAGON>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, storage_accesses);
     case EVMC_TANGERINE_WHISTLE:
         return execute_block<EVMC_TANGERINE_WHISTLE>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, storage_accesses);
     case EVMC_HOMESTEAD:
         return execute_block<EVMC_HOMESTEAD>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, storage_accesses);
     case EVMC_FRONTIER:
         return execute_block<EVMC_FRONTIER>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, storage_accesses);
     default:
         break;
     }

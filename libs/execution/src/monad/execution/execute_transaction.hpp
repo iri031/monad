@@ -2,6 +2,7 @@
 
 #include <monad/config.hpp>
 #include <monad/core/address.hpp>
+#include <monad/core/bytes.hpp>
 #include <monad/core/int.hpp>
 #include <monad/core/result.hpp>
 
@@ -11,6 +12,9 @@
 
 #include <cstdint>
 
+#include <map>
+#include <vector>
+
 MONAD_NAMESPACE_BEGIN
 
 class BlockHashBuffer;
@@ -19,6 +23,7 @@ class BlockState;
 struct Receipt;
 class State;
 struct Transaction;
+enum class AccessOp;
 
 template <evmc_revision rev>
 struct EvmcHost;
@@ -32,11 +37,15 @@ evmc::Result execute_impl_no_validation(
 template <evmc_revision rev>
 Result<Receipt> execute_impl(
     uint64_t i, Transaction const &, Address const &sender, BlockHeader const &,
-    BlockHashBuffer const &, BlockState &, boost::fibers::promise<void> &prev);
+    BlockHashBuffer const &, BlockState &, boost::fibers::promise<void> &prev,
+    std::map<Address, std::map<bytes32_t, std::vector<AccessOp>>>
+        &storage_accesses);
 
 template <evmc_revision rev>
 Result<Receipt> execute(
     uint64_t i, Transaction const &, BlockHeader const &,
-    BlockHashBuffer const &, BlockState &, boost::fibers::promise<void> &prev);
+    BlockHashBuffer const &, BlockState &, boost::fibers::promise<void> &prev,
+    std::map<Address, std::map<bytes32_t, std::vector<AccessOp>>>
+        &storage_accesses);
 
 MONAD_NAMESPACE_END

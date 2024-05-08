@@ -61,8 +61,11 @@ TEST(TransactionProcessor, irrevocable_gas_and_refund_new_contract)
     boost::fibers::promise<void> prev{};
     prev.set_value();
 
+    std::map<Address, std::map<bytes32_t, std::vector<AccessOp>>>
+        storage_accesses{};
+
     auto const result = execute_impl<EVMC_SHANGHAI>(
-        0, tx, from, header, block_hash_buffer, bs, prev);
+        0, tx, from, header, block_hash_buffer, bs, prev, storage_accesses);
 
     ASSERT_TRUE(!result.has_error());
 

@@ -30,6 +30,14 @@
 
 MONAD_NAMESPACE_BEGIN
 
+void merge(
+    [[maybe_unused]] std::map<
+        Address, std::map<bytes32_t, std::vector<AccessOp>>> &a,
+    [[maybe_unused]] std::map<
+        Address, std::map<bytes32_t, std::vector<AccessOp>>> const &b)
+{
+}
+
 // YP Sec 6.2 "irrevocable_change"
 template <evmc_revision rev>
 constexpr void irrevocable_change(
@@ -194,7 +202,9 @@ Result<Receipt> execute_impl(
     [[maybe_unused]] uint64_t const i, Transaction const &tx,
     Address const &sender, BlockHeader const &hdr,
     BlockHashBuffer const &block_hash_buffer, BlockState &block_state,
-    boost::fibers::promise<void> &prev)
+    boost::fibers::promise<void> &prev,
+    std::map<Address, std::map<bytes32_t, std::vector<AccessOp>>>
+        &storage_accesses)
 {
     BOOST_OUTCOME_TRY(
         static_validate_transaction<rev>(tx, hdr.base_fee_per_gas));
@@ -224,6 +234,9 @@ Result<Receipt> execute_impl(
                 result.value(),
                 hdr.beneficiary);
             block_state.merge(state);
+
+            // merge1
+            merge(storage_accesses, state.storage_accesses_);
             return receipt;
         }
     }
@@ -248,6 +261,7 @@ Result<Receipt> execute_impl(
             hdr.beneficiary);
         block_state.merge(state);
 
+        merge(storage_accesses, state.storage_accesses_);
         return receipt;
     }
 }
@@ -258,7 +272,9 @@ template <evmc_revision rev>
 Result<Receipt> execute(
     [[maybe_unused]] uint64_t const i, Transaction const &tx,
     BlockHeader const &hdr, BlockHashBuffer const &block_hash_buffer,
-    BlockState &block_state, boost::fibers::promise<void> &prev)
+    BlockState &block_state, boost::fibers::promise<void> &prev,
+    std::map<Address, std::map<bytes32_t, std::vector<AccessOp>>>
+        &storage_accesses)
 {
     TRACE_TXN_EVENT(StartTxn);
 
@@ -269,7 +285,14 @@ Result<Receipt> execute(
     }
 
     return execute_impl<rev>(
-        i, tx, sender.value(), hdr, block_hash_buffer, block_state, prev);
+        i,
+        tx,
+        sender.value(),
+        hdr,
+        block_hash_buffer,
+        block_state,
+        prev,
+        storage_accesses);
 }
 
 EXPLICIT_EVMC_REVISION(execute);

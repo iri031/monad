@@ -23,6 +23,7 @@
 
 #include <cstdint>
 #include <fstream>
+#include <map>
 #include <optional>
 
 MONAD_NAMESPACE_BEGIN
@@ -62,7 +63,9 @@ public:
     Result<uint64_t> run_fork(
         Db &db, BlockDb &block_db, BlockHashBuffer &block_hash_buffer,
         fiber::PriorityPool &priority_pool, uint64_t const start_block_number,
-        uint64_t const nblocks)
+        uint64_t const nblocks,
+        std::map<Address, std::map<bytes32_t, std::vector<AccessOp>>>
+            &storage_accesses)
     {
         MONAD_ASSERT(start_block_number);
 
@@ -97,8 +100,13 @@ public:
 
             BOOST_OUTCOME_TRY(static_validate_block(rev, block));
 
-            auto const receipts =
-                execute_block(rev, block, db, block_hash_buffer, priority_pool);
+            auto const receipts = execute_block(
+                rev,
+                block,
+                db,
+                block_hash_buffer,
+                priority_pool,
+                storage_accesses);
 
             n_transactions += block.transactions.size();
 
@@ -117,7 +125,9 @@ public:
 
     Result<uint64_t>
     run(Db &db, BlockDb &block_db, fiber::PriorityPool &priority_pool,
-        uint64_t const start_block_number, uint64_t const nblocks)
+        uint64_t const start_block_number, uint64_t const nblocks,
+        std::map<Address, std::map<bytes32_t, std::vector<AccessOp>>>
+            &storage_accesses)
     {
         Block block{};
 
@@ -137,7 +147,8 @@ public:
             block_hash_buffer,
             priority_pool,
             start_block_number,
-            nblocks);
+            nblocks,
+            storage_accesses);
     }
 };
 
