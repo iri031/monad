@@ -238,11 +238,13 @@ int main(int const argc, char const *argv[])
     std::ofstream storage_trie_ofile("storage_trie_stats.txt");
     std::ofstream one_storage_ofile("one_storage_stats.txt");
     std::ofstream node_size_ofile("node_size_stats.txt");
+    std::ofstream storage_value_ofile("storage_value_stats.csv");
 
     db.generate_report(
         state_trie_ofile,
         storage_trie_ofile,
         one_storage_ofile,
+        storage_value_ofile,
         node_size_ofile,
         address_map);
 

@@ -936,8 +936,8 @@ void TrieDb::load_latest()
 
 void TrieDb::generate_report(
     std::ostream &state_trie, std::ostream &storage_trie,
-    std::ostream &one_storage, std::ofstream &node_size,
-    std::map<byte_string, Address> &address_map)
+    std::ostream &one_storage, std::ostream &storage_value,
+    std::ostream &node_size, std::map<byte_string, Address> &address_map)
 {
     struct Traverse : public TraverseMachine
     {
@@ -951,6 +951,7 @@ void TrieDb::generate_report(
         uint64_t current_storage_trie_depth_;
         uint64_t current_storage_trie_max_depth_;
         uint64_t current_storage_trie_num_;
+        uint64_t current_storage_trie_zero_num_;
 
         std::map<std::string, uint64_t> state_trie_node_type_path_;
         std::map<uint64_t, uint64_t> state_trie_depth_;
@@ -960,6 +961,8 @@ void TrieDb::generate_report(
         std::ostream &state_trie_ofile_;
         std::ostream &storage_trie_ofile_;
         std::ostream &one_storage_ofile_;
+        std::ostream &storage_value_ofile_; // use to record how many zero /
+                                            // non-zero storage values
         std::map<byte_string, Address> &address_map_;
 
         std::chrono::time_point<std::chrono::steady_clock> start_time_;
@@ -967,11 +970,12 @@ void TrieDb::generate_report(
         // node size recorder
         std::map<uint64_t, uint64_t> account_leaf_node_sizes_;
         std::map<uint64_t, uint64_t> account_branch_node_children_;
-        std::ofstream &node_size_ofile_;
+        std::ostream &node_size_ofile_;
 
         Traverse(
             TrieDb &db, std::ostream &state_trie, std::ostream &storage_trie,
-            std::ostream &one_storage, std::ofstream &node_size,
+            std::ostream &one_storage, std::ostream &storage_value,
+            std::ostream &node_size,
             std::map<byte_string, Address> &address_map)
             : db_(db)
             , path_()
@@ -981,6 +985,7 @@ void TrieDb::generate_report(
             , current_storage_trie_depth_(0)
             , current_storage_trie_max_depth_(1)
             , current_storage_trie_num_(0)
+            , current_storage_trie_zero_num_(0)
             , state_trie_node_type_path_{}
             , state_trie_depth_{}
             , storage_trie_depth_{}
@@ -988,6 +993,7 @@ void TrieDb::generate_report(
             , state_trie_ofile_(state_trie)
             , storage_trie_ofile_(storage_trie)
             , one_storage_ofile_(one_storage)
+            , storage_value_ofile_(storage_value)
             , address_map_(address_map)
             , account_leaf_node_sizes_{}
             , account_branch_node_children_{}
@@ -1121,8 +1127,9 @@ void TrieDb::generate_report(
             // write_state_trie_stats();
             // write_storage_trie_stats();
 
-            write_node_size_stats();
-            one_storage_ofile_.flush();
+            // write_node_size_stats();
+            // one_storage_ofile_.flush();
+            storage_value_ofile_.flush();
 
             auto const finished_time = std::chrono::steady_clock::now();
             auto const elapsed =
@@ -1209,6 +1216,11 @@ void TrieDb::generate_report(
                 current_storage_trie_max_depth_ = std::max(
                     current_storage_trie_depth_,
                     current_storage_trie_max_depth_);
+
+                if (node.value() == byte_string{0x00} || node.value_len == 0 ||
+                    node.value_len == 1) {
+                    ++current_storage_trie_zero_num_;
+                }
             }
             else { //  2 * KECCAK <  path_.nibble_size() < 4 * KECCAK
                 ++current_storage_trie_depth_;
@@ -1227,91 +1239,114 @@ void TrieDb::generate_report(
                         ++storage_trie_depth_[current_storage_trie_max_depth_];
                         ++storage_trie_num_[current_storage_trie_num_];
 
+                        MONAD_ASSERT(
+                            current_storage_trie_zero_num_ <=
+                            current_storage_trie_num_);
+
+                        // code to output how many zero / non-zero storage:
+
+                        auto const path_key =
+                            NibblesView{path_}.substr(0, KECCAK256_SIZE * 2);
+
+                        auto const keccaked_acct_key =
+                            byte_string(path_key.data_, 32);
+                        storage_value_ofile_
+                            << fmt::format(
+                                   "0x{:02x}",
+                                   fmt::join(
+                                       std::as_bytes(
+                                           std::span(keccaked_acct_key)),
+                                       ""))
+                            << ", " << current_storage_trie_num_ << ", "
+                            << current_storage_trie_zero_num_ << "\n";
+
                         // code to output CA with 1 storage
-                        if (current_storage_trie_num_ == 1) {
-                            auto encoded_account = node.value();
-                            auto const acct =
-                                decode_account_db(encoded_account);
-                            MONAD_DEBUG_ASSERT(!acct.has_error());
-                            MONAD_DEBUG_ASSERT(encoded_account.empty());
+                        // if (current_storage_trie_num_ == 1) {
+                        //     auto encoded_account = node.value();
+                        //     auto const acct =
+                        //         decode_account_db(encoded_account);
+                        //     MONAD_DEBUG_ASSERT(!acct.has_error());
+                        //     MONAD_DEBUG_ASSERT(encoded_account.empty());
 
-                            auto const path_key = NibblesView{path_}.substr(
-                                0, KECCAK256_SIZE * 2);
+                        //     auto const path_key = NibblesView{path_}.substr(
+                        //         0, KECCAK256_SIZE * 2);
 
-                            auto const keccaked_acct_key =
-                                byte_string(path_key.data_, 32);
+                        //     auto const keccaked_acct_key =
+                        //         byte_string(path_key.data_, 32);
 
-                            if (address_map_.find(keccaked_acct_key) !=
-                                address_map_.end()) {
-                                auto const &addr =
-                                    address_map_
-                                        .find(byte_string{keccaked_acct_key})
-                                        ->second;
+                        //     if (address_map_.find(keccaked_acct_key) !=
+                        //         address_map_.end()) {
+                        //         auto const &addr =
+                        //             address_map_
+                        //                 .find(byte_string{keccaked_acct_key})
+                        //                 ->second;
 
-                                one_storage_ofile_
-                                    << fmt::format(
-                                           "0x{:02x}",
-                                           fmt::join(
-                                               std::as_bytes(std::span(
-                                                   keccaked_acct_key)),
-                                               ""))
-                                    << ", "
-                                    << fmt::format(
-                                           "0x{:02x}",
-                                           fmt::join(
-                                               std::as_bytes(
-                                                   std::span(addr.bytes)),
-                                               ""))
-                                    << ", ";
+                        //         one_storage_ofile_
+                        //             << fmt::format(
+                        //                    "0x{:02x}",
+                        //                    fmt::join(
+                        //                        std::as_bytes(std::span(
+                        //                            keccaked_acct_key)),
+                        //                        ""))
+                        //             << ", "
+                        //             << fmt::format(
+                        //                    "0x{:02x}",
+                        //                    fmt::join(
+                        //                        std::as_bytes(
+                        //                            std::span(addr.bytes)),
+                        //                        ""))
+                        //             << ", ";
 
-                                // TODO: only works for in-memory
-                                for (unsigned char i = 0; i < 16; ++i) {
-                                    if (node.mask & (1u << i)) {
-                                        auto const idx =
-                                            static_cast<unsigned char>(
-                                                node.to_child_index(i));
-                                        auto const *const child =
-                                            node.next(idx);
+                        //         // TODO: only works for in-memory
+                        //         for (unsigned char i = 0; i < 16; ++i) {
+                        //             if (node.mask & (1u << i)) {
+                        //                 auto const idx =
+                        //                     static_cast<unsigned char>(
+                        //                         node.to_child_index(i));
+                        //                 auto const *const child =
+                        //                     node.next(idx);
 
-                                        auto const child_path = concat(
-                                            NibblesView{path_},
-                                            idx,
-                                            child->path_nibble_view());
-                                        auto const keccaked_storage_key_path =
-                                            child_path.substr(
-                                                KECCAK256_SIZE * 2,
-                                                KECCAK256_SIZE * 2);
-                                        auto const keccaked_storage_key =
-                                            byte_string(
-                                                keccaked_storage_key_path.data_,
-                                                32);
+                        //                 auto const child_path = concat(
+                        //                     NibblesView{path_},
+                        //                     idx,
+                        //                     child->path_nibble_view());
+                        //                 auto const keccaked_storage_key_path
+                        //                 =
+                        //                     child_path.substr(
+                        //                         KECCAK256_SIZE * 2,
+                        //                         KECCAK256_SIZE * 2);
+                        //                 auto const keccaked_storage_key =
+                        //                     byte_string(
+                        //                         keccaked_storage_key_path.data_,
+                        //                         32);
 
-                                        one_storage_ofile_
-                                            << fmt::format(
-                                                   "0x{:02x}",
-                                                   fmt::join(
-                                                       std::as_bytes(std::span(
-                                                           keccaked_storage_key)),
-                                                       ""))
-                                            << ", ";
+                        //                 one_storage_ofile_
+                        //                     << fmt::format(
+                        //                            "0x{:02x}",
+                        //                            fmt::join(
+                        //                                std::as_bytes(std::span(
+                        //                                    keccaked_storage_key)),
+                        //                                ""))
+                        //                     << ", ";
 
-                                        auto encoded_storage_value =
-                                            child->value();
-                                        one_storage_ofile_
-                                            << fmt::format(
-                                                   "0x{:02x}",
-                                                   fmt::join(
-                                                       std::as_bytes(std::span(
-                                                           encoded_storage_value)),
-                                                       ""))
-                                            << "\n";
-                                    }
-                                }
-                            }
-                        }
+                        //                 auto encoded_storage_value =
+                        //                     child->value();
+                        //                 one_storage_ofile_
+                        //                     << fmt::format(
+                        //                            "0x{:02x}",
+                        //                            fmt::join(
+                        //                                std::as_bytes(std::span(
+                        //                                    encoded_storage_value)),
+                        //                                ""))
+                        //                     << "\n";
+                        //             }
+                        //         }
+                        //     }
+                        // }
                         // end of 1 storage code
 
                         current_storage_trie_num_ = 0;
+                        current_storage_trie_zero_num_ = 0;
                         current_storage_trie_depth_ = 0;
                         current_storage_trie_max_depth_ =
                             1; // can be either 1 or 0
@@ -1342,7 +1377,13 @@ void TrieDb::generate_report(
             path_ = path_view.substr(0, static_cast<unsigned>(rem_size));
         }
     } traverse(
-        *this, state_trie, storage_trie, one_storage, node_size, address_map);
+        *this,
+        state_trie,
+        storage_trie,
+        one_storage,
+        storage_value,
+        node_size,
+        address_map);
 
     db_.traverse(state_nibbles, traverse, block_number_);
 }
