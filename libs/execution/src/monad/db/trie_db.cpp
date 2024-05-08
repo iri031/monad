@@ -1122,6 +1122,91 @@ void TrieDb::generate_report(
             node_size_ofile_.flush();
         }
 
+        // code to output CA with 1 storage
+        void write_one_storage_stats(Node const &node)
+        {
+            auto encoded_account = node.value();
+            auto const acct = decode_account_db(encoded_account);
+            MONAD_DEBUG_ASSERT(!acct.has_error());
+            MONAD_DEBUG_ASSERT(encoded_account.empty());
+
+            auto const path_key =
+                NibblesView{path_}.substr(0, KECCAK256_SIZE * 2);
+
+            auto const keccaked_acct_key = byte_string(path_key.data_, 32);
+
+            if (address_map_.find(keccaked_acct_key) != address_map_.end()) {
+                auto const &addr =
+                    address_map_.find(byte_string{keccaked_acct_key})->second;
+
+                one_storage_ofile_
+                    << fmt::format(
+                           "0x{:02x}",
+                           fmt::join(
+                               std::as_bytes(std::span(keccaked_acct_key)), ""))
+                    << ", "
+                    << fmt::format(
+                           "0x{:02x}",
+                           fmt::join(std::as_bytes(std::span(addr.bytes)), ""))
+                    << ", ";
+
+                // TODO: only works for in-memory
+                for (unsigned char i = 0; i < 16; ++i) {
+                    if (node.mask & (1u << i)) {
+                        auto const idx =
+                            static_cast<unsigned char>(node.to_child_index(i));
+                        auto const *const child = node.next(idx);
+
+                        auto const child_path = concat(
+                            NibblesView{path_}, idx, child->path_nibble_view());
+                        auto const keccaked_storage_key_path =
+                            child_path.substr(
+                                KECCAK256_SIZE * 2, KECCAK256_SIZE * 2);
+                        auto const keccaked_storage_key =
+                            byte_string(keccaked_storage_key_path.data_, 32);
+
+                        one_storage_ofile_
+                            << fmt::format(
+                                   "0x{:02x}",
+                                   fmt::join(
+                                       std::as_bytes(
+                                           std::span(keccaked_storage_key)),
+                                       ""))
+                            << ", ";
+
+                        auto encoded_storage_value = child->value();
+                        one_storage_ofile_
+                            << fmt::format(
+                                   "0x{:02x}",
+                                   fmt::join(
+                                       std::as_bytes(
+                                           std::span(encoded_storage_value)),
+                                       ""))
+                            << "\n";
+                    }
+                }
+            }
+        }
+
+        // code to output how many zero / non-zero storage:
+        void write_storage_value_stats()
+        {
+            MONAD_ASSERT(
+                current_storage_trie_zero_num_ <= current_storage_trie_num_);
+
+            auto const path_key =
+                NibblesView{path_}.substr(0, KECCAK256_SIZE * 2);
+
+            auto const keccaked_acct_key = byte_string(path_key.data_, 32);
+            storage_value_ofile_
+                << fmt::format(
+                       "0x{:02x}",
+                       fmt::join(
+                           std::as_bytes(std::span(keccaked_acct_key)), ""))
+                << ", " << current_storage_trie_num_ << ", "
+                << current_storage_trie_zero_num_ << "\n";
+        }
+
         ~Traverse()
         {
             // write_state_trie_stats();
@@ -1239,111 +1324,11 @@ void TrieDb::generate_report(
                         ++storage_trie_depth_[current_storage_trie_max_depth_];
                         ++storage_trie_num_[current_storage_trie_num_];
 
-                        MONAD_ASSERT(
-                            current_storage_trie_zero_num_ <=
-                            current_storage_trie_num_);
+                        write_storage_value_stats();
 
-                        // code to output how many zero / non-zero storage:
-
-                        auto const path_key =
-                            NibblesView{path_}.substr(0, KECCAK256_SIZE * 2);
-
-                        auto const keccaked_acct_key =
-                            byte_string(path_key.data_, 32);
-                        storage_value_ofile_
-                            << fmt::format(
-                                   "0x{:02x}",
-                                   fmt::join(
-                                       std::as_bytes(
-                                           std::span(keccaked_acct_key)),
-                                       ""))
-                            << ", " << current_storage_trie_num_ << ", "
-                            << current_storage_trie_zero_num_ << "\n";
-
-                        // code to output CA with 1 storage
-                        // if (current_storage_trie_num_ == 1) {
-                        //     auto encoded_account = node.value();
-                        //     auto const acct =
-                        //         decode_account_db(encoded_account);
-                        //     MONAD_DEBUG_ASSERT(!acct.has_error());
-                        //     MONAD_DEBUG_ASSERT(encoded_account.empty());
-
-                        //     auto const path_key = NibblesView{path_}.substr(
-                        //         0, KECCAK256_SIZE * 2);
-
-                        //     auto const keccaked_acct_key =
-                        //         byte_string(path_key.data_, 32);
-
-                        //     if (address_map_.find(keccaked_acct_key) !=
-                        //         address_map_.end()) {
-                        //         auto const &addr =
-                        //             address_map_
-                        //                 .find(byte_string{keccaked_acct_key})
-                        //                 ->second;
-
-                        //         one_storage_ofile_
-                        //             << fmt::format(
-                        //                    "0x{:02x}",
-                        //                    fmt::join(
-                        //                        std::as_bytes(std::span(
-                        //                            keccaked_acct_key)),
-                        //                        ""))
-                        //             << ", "
-                        //             << fmt::format(
-                        //                    "0x{:02x}",
-                        //                    fmt::join(
-                        //                        std::as_bytes(
-                        //                            std::span(addr.bytes)),
-                        //                        ""))
-                        //             << ", ";
-
-                        //         // TODO: only works for in-memory
-                        //         for (unsigned char i = 0; i < 16; ++i) {
-                        //             if (node.mask & (1u << i)) {
-                        //                 auto const idx =
-                        //                     static_cast<unsigned char>(
-                        //                         node.to_child_index(i));
-                        //                 auto const *const child =
-                        //                     node.next(idx);
-
-                        //                 auto const child_path = concat(
-                        //                     NibblesView{path_},
-                        //                     idx,
-                        //                     child->path_nibble_view());
-                        //                 auto const keccaked_storage_key_path
-                        //                 =
-                        //                     child_path.substr(
-                        //                         KECCAK256_SIZE * 2,
-                        //                         KECCAK256_SIZE * 2);
-                        //                 auto const keccaked_storage_key =
-                        //                     byte_string(
-                        //                         keccaked_storage_key_path.data_,
-                        //                         32);
-
-                        //                 one_storage_ofile_
-                        //                     << fmt::format(
-                        //                            "0x{:02x}",
-                        //                            fmt::join(
-                        //                                std::as_bytes(std::span(
-                        //                                    keccaked_storage_key)),
-                        //                                ""))
-                        //                     << ", ";
-
-                        //                 auto encoded_storage_value =
-                        //                     child->value();
-                        //                 one_storage_ofile_
-                        //                     << fmt::format(
-                        //                            "0x{:02x}",
-                        //                            fmt::join(
-                        //                                std::as_bytes(std::span(
-                        //                                    encoded_storage_value)),
-                        //                                ""))
-                        //                     << "\n";
-                        //             }
-                        //         }
-                        //     }
-                        // }
-                        // end of 1 storage code
+                        if (current_storage_trie_num_ == 1) {
+                            write_one_storage_stats(node);
+                        }
 
                         current_storage_trie_num_ = 0;
                         current_storage_trie_zero_num_ = 0;
