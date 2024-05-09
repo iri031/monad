@@ -98,6 +98,8 @@ add_library(
   "src/monad/execution/precompiles.cpp"
   "src/monad/execution/precompiles.hpp"
   "src/monad/execution/replay_block_db.hpp"
+  "src/monad/execution/result_buffer.hpp"
+  "src/monad/execution/result_buffer.cpp"
   "src/monad/execution/trace.cpp"
   "src/monad/execution/trace.hpp"
   "src/monad/execution/transaction_gas.cpp"

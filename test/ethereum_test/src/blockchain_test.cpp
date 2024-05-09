@@ -13,6 +13,7 @@
 #include <monad/core/rlp/block_rlp.hpp>
 #include <monad/execution/block_hash_buffer.hpp>
 #include <monad/execution/execute_block.hpp>
+#include <monad/execution/result_buffer.hpp>
 #include <monad/execution/validate_block.hpp>
 #include <monad/fiber/priority_pool.hpp>
 #include <monad/state2/block_state.hpp>
@@ -51,42 +52,54 @@ MONAD_TEST_NAMESPACE_BEGIN
 
 template <evmc_revision rev>
 Result<std::vector<Receipt>> BlockchainTest::execute(
-    Block &block, test::db_t &db, BlockHashBuffer const &block_hash_buffer)
+    Block &block, test::db_t &db, BlockHashBuffer const &block_hash_buffer,
+    ResultBuffer &result_buffer)
 {
     using namespace monad::test;
 
     BOOST_OUTCOME_TRY(static_validate_block<rev>(block));
 
-    return execute_block<rev>(block, db, block_hash_buffer, *pool_);
+    return execute_block<rev>(
+        block, db, block_hash_buffer, *pool_, result_buffer);
 }
 
 Result<std::vector<Receipt>> BlockchainTest::execute_dispatch(
     evmc_revision const rev, Block &block, test::db_t &db,
-    BlockHashBuffer const &block_hash_buffer)
+    BlockHashBuffer const &block_hash_buffer, ResultBuffer &result_buffer)
 {
     switch (rev) {
     case EVMC_FRONTIER:
-        return execute<EVMC_FRONTIER>(block, db, block_hash_buffer);
+        return execute<EVMC_FRONTIER>(
+            block, db, block_hash_buffer, result_buffer);
     case EVMC_HOMESTEAD:
-        return execute<EVMC_HOMESTEAD>(block, db, block_hash_buffer);
+        return execute<EVMC_HOMESTEAD>(
+            block, db, block_hash_buffer, result_buffer);
     case EVMC_TANGERINE_WHISTLE:
-        return execute<EVMC_TANGERINE_WHISTLE>(block, db, block_hash_buffer);
+        return execute<EVMC_TANGERINE_WHISTLE>(
+            block, db, block_hash_buffer, result_buffer);
     case EVMC_SPURIOUS_DRAGON:
-        return execute<EVMC_SPURIOUS_DRAGON>(block, db, block_hash_buffer);
+        return execute<EVMC_SPURIOUS_DRAGON>(
+            block, db, block_hash_buffer, result_buffer);
     case EVMC_BYZANTIUM:
-        return execute<EVMC_BYZANTIUM>(block, db, block_hash_buffer);
+        return execute<EVMC_BYZANTIUM>(
+            block, db, block_hash_buffer, result_buffer);
     case EVMC_PETERSBURG:
-        return execute<EVMC_PETERSBURG>(block, db, block_hash_buffer);
+        return execute<EVMC_PETERSBURG>(
+            block, db, block_hash_buffer, result_buffer);
     case EVMC_ISTANBUL:
-        return execute<EVMC_ISTANBUL>(block, db, block_hash_buffer);
+        return execute<EVMC_ISTANBUL>(
+            block, db, block_hash_buffer, result_buffer);
     case EVMC_BERLIN:
-        return execute<EVMC_BERLIN>(block, db, block_hash_buffer);
+        return execute<EVMC_BERLIN>(
+            block, db, block_hash_buffer, result_buffer);
     case EVMC_LONDON:
-        return execute<EVMC_LONDON>(block, db, block_hash_buffer);
+        return execute<EVMC_LONDON>(
+            block, db, block_hash_buffer, result_buffer);
     case EVMC_PARIS:
-        return execute<EVMC_PARIS>(block, db, block_hash_buffer);
+        return execute<EVMC_PARIS>(block, db, block_hash_buffer, result_buffer);
     case EVMC_SHANGHAI:
-        return execute<EVMC_SHANGHAI>(block, db, block_hash_buffer);
+        return execute<EVMC_SHANGHAI>(
+            block, db, block_hash_buffer, result_buffer);
     default:
         MONAD_ASSERT(false);
     }
@@ -214,8 +227,9 @@ void BlockchainTest::TestBody()
                 block.value().header.number - 1,
                 block.value().header.parent_hash);
 
-            auto const result =
-                execute_dispatch(rev, block.value(), db, block_hash_buffer);
+            ResultBuffer result_buffer{0};
+            auto const result = execute_dispatch(
+                rev, block.value(), db, block_hash_buffer, result_buffer);
             if (!result.has_error()) {
                 EXPECT_FALSE(j_block.contains("expectException"));
                 EXPECT_EQ(db.state_root(), block.value().header.state_root)

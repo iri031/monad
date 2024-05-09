@@ -12,6 +12,7 @@
 #include <monad/execution/execute_block.hpp>
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/explicit_evmc_revision.hpp>
+#include <monad/execution/result_buffer.hpp>
 #include <monad/execution/trace.hpp>
 #include <monad/execution/validate_block.hpp>
 #include <monad/fiber/priority_pool.hpp>
@@ -85,7 +86,7 @@ commit(BlockState &block_state, std::vector<Receipt> const &receipts = {})
 template <evmc_revision rev>
 Result<std::vector<Receipt>> execute_block(
     Block &block, Db &db, BlockHashBuffer const &block_hash_buffer,
-    fiber::PriorityPool &priority_pool)
+    fiber::PriorityPool &priority_pool, ResultBuffer &result_buffer)
 {
     TRACE_BLOCK_EVENT(StartBlock);
 
@@ -144,12 +145,13 @@ Result<std::vector<Receipt>> execute_block(
     }
 
     // YP eq. 33
-    if (compute_bloom(receipts) != block.header.logs_bloom) {
+    auto const bloom = compute_bloom(receipts);
+    if (result_buffer.get_bloom(bloom) != block.header.logs_bloom) {
         return BlockError::WrongLogsBloom;
     }
 
     // YP eq. 170
-    if (cumulative_gas_used != block.header.gas_used) {
+    if (result_buffer.get_gas(cumulative_gas_used) != block.header.gas_used) {
         return BlockError::InvalidGasUsed;
     }
 
@@ -171,6 +173,8 @@ Result<std::vector<Receipt>> execute_block(
 
     commit(block_state, receipts);
 
+    result_buffer.push(bloom, cumulative_gas_used);
+
     return receipts;
 }
 
@@ -179,43 +183,43 @@ EXPLICIT_EVMC_REVISION(execute_block);
 Result<std::vector<Receipt>> execute_block(
     evmc_revision const rev, Block &block, Db &db,
     BlockHashBuffer const &block_hash_buffer,
-    fiber::PriorityPool &priority_pool)
+    fiber::PriorityPool &priority_pool, ResultBuffer &result_buffer)
 {
     switch (rev) {
     case EVMC_SHANGHAI:
         return execute_block<EVMC_SHANGHAI>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, result_buffer);
     case EVMC_PARIS:
         return execute_block<EVMC_PARIS>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, result_buffer);
     case EVMC_LONDON:
         return execute_block<EVMC_LONDON>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, result_buffer);
     case EVMC_BERLIN:
         return execute_block<EVMC_BERLIN>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, result_buffer);
     case EVMC_ISTANBUL:
         return execute_block<EVMC_ISTANBUL>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, result_buffer);
     case EVMC_PETERSBURG:
     case EVMC_CONSTANTINOPLE:
         return execute_block<EVMC_PETERSBURG>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, result_buffer);
     case EVMC_BYZANTIUM:
         return execute_block<EVMC_BYZANTIUM>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, result_buffer);
     case EVMC_SPURIOUS_DRAGON:
         return execute_block<EVMC_SPURIOUS_DRAGON>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, result_buffer);
     case EVMC_TANGERINE_WHISTLE:
         return execute_block<EVMC_TANGERINE_WHISTLE>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, result_buffer);
     case EVMC_HOMESTEAD:
         return execute_block<EVMC_HOMESTEAD>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, result_buffer);
     case EVMC_FRONTIER:
         return execute_block<EVMC_FRONTIER>(
-            block, db, block_hash_buffer, priority_pool);
+            block, db, block_hash_buffer, priority_pool, result_buffer);
     default:
         break;
     }

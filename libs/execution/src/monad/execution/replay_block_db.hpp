@@ -13,6 +13,7 @@
 #include <monad/execution/evmc_host.hpp>
 #include <monad/execution/execute_block.hpp>
 #include <monad/execution/genesis.hpp>
+#include <monad/execution/result_buffer.hpp>
 #include <monad/execution/validate_block.hpp>
 #include <monad/fiber/priority_pool.hpp>
 #include <monad/state2/block_state.hpp>
@@ -60,9 +61,9 @@ public:
     }
 
     Result<uint64_t> run_fork(
-        Db &db, BlockDb &block_db, BlockHashBuffer &block_hash_buffer,
-        fiber::PriorityPool &priority_pool, uint64_t const start_block_number,
-        uint64_t const nblocks)
+        Db &db, BlockDb &block_db, ResultBuffer &result_buffer,
+        BlockHashBuffer &block_hash_buffer, fiber::PriorityPool &priority_pool,
+        uint64_t const start_block_number, uint64_t const nblocks)
     {
         MONAD_ASSERT(start_block_number);
 
@@ -97,8 +98,13 @@ public:
 
             BOOST_OUTCOME_TRY(static_validate_block(rev, block));
 
-            auto const receipts =
-                execute_block(rev, block, db, block_hash_buffer, priority_pool);
+            auto const receipts = execute_block(
+                rev,
+                block,
+                db,
+                block_hash_buffer,
+                priority_pool,
+                result_buffer);
 
             n_transactions += block.transactions.size();
 
@@ -121,6 +127,7 @@ public:
     {
         Block block{};
 
+        ResultBuffer result_buffer{0};
         BlockHashBuffer block_hash_buffer;
         uint64_t block_number =
             start_block_number < 256 ? 1 : start_block_number - 255;
@@ -134,6 +141,7 @@ public:
         return run_fork(
             db,
             block_db,
+            result_buffer,
             block_hash_buffer,
             priority_pool,
             start_block_number,
