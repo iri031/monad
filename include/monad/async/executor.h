@@ -94,9 +94,17 @@ MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_executor_create(
 MONAD_ASYNC_NODISCARD extern monad_async_result
 monad_async_executor_destroy(monad_async_executor ex);
 
-//! \brief Processes no more than `max_items` work items, returning the number
-//! of items processed which will be at least one. A null `timeout` means wait
-//! forever, and a zero timeout will poll without blocking.
+/*! \brief Processes no more than `max_items` work items, returning the number
+of items processed. A null `timeout` means wait forever, and a zero timeout will
+poll without blocking.
+
+Note that this function is particularly prone to early return i.e. partly
+or entirely ignoring timeout. Causes can include being woken externally by
+`monad_async_executor_wake()`, there being write i/o pending (as then two
+rings need to be checked), and the usual spurious early timeouts from Linux.
+If you do complex processing around calling this function, it may be wise
+to only do that processing if the value returned is not zero.
+*/
 MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_executor_run(
     monad_async_executor ex, size_t max_items, struct timespec *timeout);
 

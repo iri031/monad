@@ -76,7 +76,7 @@ extern void monad_async_task_file_write(
 //! nor tells the storage device to flush.
 extern void monad_async_task_file_range_sync(
     monad_async_io_status *iostatus, monad_async_task task,
-    monad_async_file file, unsigned bytes, monad_async_file_offset offset,
+    monad_async_file file, monad_async_file_offset offset, unsigned bytes,
     int flags);
 
 //! \brief EXPENSIVE Initiate a durable sync of an open file using `iostatus` as

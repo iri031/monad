@@ -432,9 +432,16 @@ extern "C" {
     pub fn monad_async_executor_destroy(ex: monad_async_executor) -> monad_async_result;
 }
 extern "C" {
-    #[doc = "! \\brief Processes no more than `max_items` work items, returning the number"]
-    #[doc = "! of items processed which will be at least one. A null `timeout` means wait"]
-    #[doc = "! forever, and a zero timeout will poll without blocking."]
+    #[doc = " \\brief Processes no more than `max_items` work items, returning the number"]
+    #[doc = "of items processed. A null `timeout` means wait forever, and a zero timeout will"]
+    #[doc = "poll without blocking."]
+    #[doc = ""]
+    #[doc = "Note that this function is particularly prone to early return i.e. partly"]
+    #[doc = "or entirely ignoring timeout. Causes can include being woken externally by"]
+    #[doc = "`monad_async_executor_wake()`, there being write i/o pending (as then two"]
+    #[doc = "rings need to be checked), and the usual spurious early timeouts from Linux."]
+    #[doc = "If you do complex processing around calling this function, it may be wise"]
+    #[doc = "to only do that processing if the value returned is not zero."]
     pub fn monad_async_executor_run(
         ex: monad_async_executor,
         max_items: size_t,
@@ -566,8 +573,8 @@ extern "C" {
         iostatus: *mut monad_async_io_status,
         task: monad_async_task,
         file: monad_async_file,
-        bytes: ::std::os::raw::c_uint,
         offset: monad_async_file_offset,
+        bytes: ::std::os::raw::c_uint,
         flags: ::std::os::raw::c_int,
     );
 }

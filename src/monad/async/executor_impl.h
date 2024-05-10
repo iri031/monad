@@ -34,6 +34,7 @@ struct monad_async_executor_impl
     atomic_bool need_to_empty_eventfd;
     monad_async_context run_context;
     struct io_uring ring, wr_ring;
+    unsigned wr_ring_ops_outstanding;
     LIST_DEFINE_P(tasks_running, struct monad_async_task_impl);
     LIST_DEFINE_P(tasks_suspended_awaiting, struct monad_async_task_impl);
     LIST_DEFINE_P(tasks_suspended_completed, struct monad_async_task_impl);
@@ -474,6 +475,7 @@ static inline struct io_uring_sqe *get_sqe_suspending_if_necessary(
         abort();
     }
     assert(ex->within_run == true);
+    assert(ex->ring.ring_fd != 0); // was the ring created?
     struct io_uring_sqe *sqe = io_uring_get_sqe(&ex->ring);
     if (sqe == nullptr) {
         fprintf(
@@ -508,6 +510,7 @@ static inline struct io_uring_sqe *get_wrsqe_suspending_if_necessary(
         abort();
     }
     assert(ex->within_run == true);
+    assert(ex->wr_ring.ring_fd != 0); // was the write ring created?
     struct io_uring_sqe *sqe = io_uring_get_sqe(&ex->wr_ring);
     if (sqe == nullptr) {
         fprintf(
@@ -526,6 +529,10 @@ static inline struct io_uring_sqe *get_wrsqe_suspending_if_necessary(
         sqe->ioprio = IOPRIO_PRIO_VALUE(IOPRIO_CLASS_IDLE, 0);
         break;
     }
+    // The write ring must always complete the preceding operation before it
+    // initiates the next operation
+    sqe->flags |= IOSQE_IO_DRAIN;
+    ex->wr_ring_ops_outstanding++;
     return sqe;
 }
 
@@ -547,6 +554,18 @@ static inline unsigned monad_async_executor_alloc_file_index(
                 "FATAL: io_uring_register_files fails with '%s'\n",
                 strerror(-r));
             abort();
+        }
+        if (ex->wr_ring.ring_fd != 0) {
+            r = io_uring_register_files(
+                &ex->wr_ring, (int const *)ex->file_indices, 4);
+            if (r < 0) {
+                fprintf(
+                    stderr,
+                    "FATAL: io_uring_register_files (write ring) fails with "
+                    "'%s'\n",
+                    strerror(-r));
+                abort();
+            }
         }
         memset(ex->file_indices, 0, 4 * sizeof(int));
     }
@@ -571,6 +590,21 @@ static inline unsigned monad_async_executor_alloc_file_index(
             "FATAL: io_uring_register_files_update fails with '%s'\n",
             strerror(-r));
         abort();
+    }
+    if (ex->wr_ring.ring_fd != 0) {
+        r = io_uring_register_files_update(
+            &ex->wr_ring,
+            ex->file_indices_size,
+            updlist,
+            ex->file_indices_size);
+        if (r < 0) {
+            fprintf(
+                stderr,
+                "FATAL: io_uring_register_files_update (write ring) fails with "
+                "'%s'\n",
+                strerror(-r));
+            abort();
+        }
     }
     memset(
         new_file_indices + ex->file_indices_size,

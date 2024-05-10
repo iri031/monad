@@ -141,8 +141,9 @@ exit:
 
 static inline monad_async_result monad_async_executor_run_impl(
     struct monad_async_executor_impl *ex, size_t max_items,
-    struct timespec *timeout)
+    struct timespec *timeout_)
 {
+    struct timespec *timeout = timeout_;
     struct launch_pending_tasks_state launch_pending_tasks_state = {
         .ex = ex, .max_items = &max_items};
     bool timed_out = false;
@@ -190,7 +191,9 @@ static inline monad_async_result monad_async_executor_run_impl(
             }
             atomic_unlock(&ex->lock);
         }
-        struct timespec no_waiting = {.tv_sec = 0, .tv_nsec = 0};
+        struct timespec no_waiting = {.tv_sec = 0, .tv_nsec = 0},
+                        single_millisecond_waiting = {
+                            .tv_sec = 0, .tv_nsec = 1000000};
         if (ex->head.tasks_suspended > 0) {
             for (int n = 0; max_items > 0 && n < monad_async_priority_max;
                  n++) {
@@ -239,69 +242,91 @@ static inline monad_async_result monad_async_executor_run_impl(
                 get_ticks_count(memory_order_relaxed);
             // Submit all enqueued ops, and wait for some completions
             struct io_uring_cqe *cqe = nullptr;
-            int r = io_uring_peek_cqe(&ex->ring, &cqe);
+            struct io_uring *ring = nullptr;
+            int r = 1;
+            if (ex->wr_ring_ops_outstanding > 0) {
+                ring = &ex->wr_ring;
+                r = io_uring_submit(ring);
+                if (r < 0) {
+                    return monad_async_make_failure(-r);
+                }
+                r = io_uring_peek_cqe(ring, &cqe);
+                if (timeout == nullptr || timeout != &no_waiting ||
+                    timespec_to_ns(timeout) > 1000000) {
+                    timeout = &single_millisecond_waiting;
+                }
+                if (0 == r) {
+                    ex->wr_ring_ops_outstanding--;
+                }
+            }
             if (0 != r) {
-                if (timeout == nullptr) {
+                ring = &ex->ring;
+                r = io_uring_peek_cqe(ring, &cqe);
+                if (0 != r) {
+                    if (timeout == nullptr) {
 #if MONAD_ASYNC_EXECUTOR_PRINTING
-                    printf(
-                        "*** Executor %p submits and waits forever due to "
-                        "infinite timeout. sqes=%u cqes=%u\n",
-                        (void *)ex,
-                        io_uring_sq_ready(&ex->ring),
-                        io_uring_cq_ready(&ex->ring));
+                        printf(
+                            "*** Executor %p submits and waits forever due to "
+                            "infinite timeout. sqes=%u cqes=%u\n",
+                            (void *)ex,
+                            io_uring_sq_ready(ring),
+                            io_uring_cq_ready(ring));
 #endif
-                    monad_async_cpu_ticks_count_t const sleep_begin =
-                        get_ticks_count(memory_order_relaxed);
-                    r = io_uring_submit_and_wait(&ex->ring, 1);
-                    monad_async_cpu_ticks_count_t const sleep_end =
-                        get_ticks_count(memory_order_relaxed);
-                    ex->head.total_ticks_sleeping = sleep_end - sleep_begin;
-                    if (r < 0) {
-                        return monad_async_make_failure(-r);
-                    }
-                    r = io_uring_peek_cqe(&ex->ring, &cqe);
-                }
-                else if (timeout->tv_sec == 0 && timeout->tv_nsec == 0) {
-#if MONAD_ASYNC_EXECUTOR_PRINTING
-                    printf(
-                        "*** Executor %p submits and does not wait due to zero "
-                        "timeout. sqes=%u cqes=%u\n",
-                        (void *)ex,
-                        io_uring_sq_ready(&ex->ring),
-                        io_uring_cq_ready(&ex->ring));
-
-#endif
-                    r = io_uring_submit(&ex->ring);
-                    if (r < 0) {
-                        return monad_async_make_failure(-r);
-                    }
-                    r = io_uring_peek_cqe(&ex->ring, &cqe);
-                }
-                else {
-#if MONAD_ASYNC_EXECUTOR_PRINTING
-                    printf(
-                        "*** Executor %p submits and waits for a non-infinite "
-                        "timeout %ld-%ld. sqes=%u cqes=%u\n",
-                        (void *)ex,
-                        timeout->tv_sec,
-                        timeout->tv_nsec,
-                        io_uring_sq_ready(&ex->ring),
-                        io_uring_cq_ready(&ex->ring));
-
-#endif
-                    if (ex->ring.features & IORING_FEAT_EXT_ARG) {
-                        r = io_uring_submit(&ex->ring);
+                        monad_async_cpu_ticks_count_t const sleep_begin =
+                            get_ticks_count(memory_order_relaxed);
+                        r = io_uring_submit_and_wait(ring, 1);
+                        monad_async_cpu_ticks_count_t const sleep_end =
+                            get_ticks_count(memory_order_relaxed);
+                        ex->head.total_ticks_sleeping = sleep_end - sleep_begin;
                         if (r < 0) {
                             return monad_async_make_failure(-r);
                         }
+                        r = io_uring_peek_cqe(ring, &cqe);
                     }
-                    monad_async_cpu_ticks_count_t const sleep_begin =
-                        get_ticks_count(memory_order_relaxed);
-                    r = io_uring_wait_cqe_timeout(
-                        &ex->ring, &cqe, (struct __kernel_timespec *)timeout);
-                    monad_async_cpu_ticks_count_t const sleep_end =
-                        get_ticks_count(memory_order_relaxed);
-                    ex->head.total_ticks_sleeping = sleep_end - sleep_begin;
+                    else if (timeout->tv_sec == 0 && timeout->tv_nsec == 0) {
+#if MONAD_ASYNC_EXECUTOR_PRINTING
+                        printf(
+                            "*** Executor %p submits and does not wait due to "
+                            "zero "
+                            "timeout. sqes=%u cqes=%u\n",
+                            (void *)ex,
+                            io_uring_sq_ready(ring),
+                            io_uring_cq_ready(ring));
+
+#endif
+                        r = io_uring_submit(ring);
+                        if (r < 0) {
+                            return monad_async_make_failure(-r);
+                        }
+                        r = io_uring_peek_cqe(ring, &cqe);
+                    }
+                    else {
+#if MONAD_ASYNC_EXECUTOR_PRINTING
+                        printf(
+                            "*** Executor %p submits and waits for a "
+                            "non-infinite "
+                            "timeout %ld-%ld. sqes=%u cqes=%u\n",
+                            (void *)ex,
+                            timeout->tv_sec,
+                            timeout->tv_nsec,
+                            io_uring_sq_ready(ring),
+                            io_uring_cq_ready(ring));
+
+#endif
+                        if (ring->features & IORING_FEAT_EXT_ARG) {
+                            r = io_uring_submit(ring);
+                            if (r < 0) {
+                                return monad_async_make_failure(-r);
+                            }
+                        }
+                        monad_async_cpu_ticks_count_t const sleep_begin =
+                            get_ticks_count(memory_order_relaxed);
+                        r = io_uring_wait_cqe_timeout(
+                            ring, &cqe, (struct __kernel_timespec *)timeout);
+                        monad_async_cpu_ticks_count_t const sleep_end =
+                            get_ticks_count(memory_order_relaxed);
+                        ex->head.total_ticks_sleeping = sleep_end - sleep_begin;
+                    }
                 }
             }
             if (r < 0) {
@@ -317,17 +342,19 @@ static inline monad_async_result monad_async_executor_run_impl(
             }
 #if MONAD_ASYNC_EXECUTOR_PRINTING
             printf(
-                "*** Executor %p sees cqe=%p from io_uring wait. sqes=%u "
+                "*** Executor %p sees cqe=%p from io_uring wait. wr_ring=%d. "
+                "sqes=%u "
                 "cqes=%u\n",
                 (void *)ex,
                 (void *)cqe,
-                io_uring_sq_ready(&ex->ring),
-                io_uring_cq_ready(&ex->ring));
+                ring == &ex->wr_ring,
+                io_uring_sq_ready(ring),
+                io_uring_cq_ready(ring));
 #endif
             // Always empty the completions queue irrespective of max_items
             unsigned head;
             unsigned i = 0;
-            io_uring_for_each_cqe(&ex->ring, head, cqe)
+            io_uring_for_each_cqe(ring, head, cqe)
             {
                 i++;
                 struct monad_async_task_impl *task;
@@ -426,7 +453,7 @@ static inline monad_async_result monad_async_executor_run_impl(
                 (void *)ex,
                 i);
 #endif
-            io_uring_cq_advance(&ex->ring, i);
+            io_uring_cq_advance(ring, i);
             monad_async_cpu_ticks_count_t const io_uring_end =
                 get_ticks_count(memory_order_relaxed);
             ex->head.total_ticks_in_io_uring += io_uring_end - io_uring_begin;
@@ -572,8 +599,8 @@ static inline monad_async_result monad_async_executor_run_impl(
         }
     }
     while (retry_after_this);
-    return timed_out ? monad_async_make_failure(ETIME)
-                     : monad_async_make_success(0);
+    return (timed_out && timeout_ != nullptr) ? monad_async_make_failure(ETIME)
+                                              : monad_async_make_success(0);
 }
 
 monad_async_result monad_async_executor_run(

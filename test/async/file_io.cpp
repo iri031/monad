@@ -22,9 +22,6 @@ TEST(file_io, unregistered_buffers)
         {
             int fd = monad_async_make_temporary_file(
                 tempfilepath, sizeof(tempfilepath));
-            if (-1 == write(fd, "hello world", 11)) {
-                abort();
-            }
             close(fd);
         }
 
@@ -38,7 +35,7 @@ TEST(file_io, unregistered_buffers)
             // Open the file
             struct open_how how
             {
-                .flags = O_RDONLY, .mode = 0, .resolve = 0
+                .flags = O_RDWR, .mode = 0, .resolve = 0
             };
 
             auto fh = make_file(task, nullptr, tempfilepath, how);
@@ -47,6 +44,34 @@ TEST(file_io, unregistered_buffers)
                       << (task->ticks_when_suspended_completed -
                           task->ticks_when_suspended_awaiting)
                       << " ticks." << std::endl;
+
+            // Write to the file
+            {
+                monad_async_io_status iostatus{};
+                struct iovec iov[] = {
+                    {.iov_base = (void *)"hello world", .iov_len = 11}};
+                EXPECT_FALSE(monad_async_is_io_in_progress(&iostatus));
+                monad_async_task_file_write(
+                    &iostatus, task, fh.get(), 0, &iov[0], 1, 0, 0);
+                EXPECT_TRUE(monad_async_is_io_in_progress(&iostatus));
+                EXPECT_EQ(task->io_submitted, 1);
+                EXPECT_EQ(task->io_completed_not_reaped, 0);
+                monad_async_io_status *completed = nullptr;
+                EXPECT_EQ(
+                    to_result(monad_async_task_suspend_until_completed_io(
+                                  &completed, task, (uint64_t)-1))
+                        .value(),
+                    1);
+                EXPECT_EQ(task->io_submitted, 0);
+                EXPECT_EQ(task->io_completed_not_reaped, 0);
+                EXPECT_EQ(completed, &iostatus);
+                EXPECT_FALSE(monad_async_is_io_in_progress(&iostatus));
+                to_result(iostatus.result).value();
+                std::cout << "   The write took "
+                          << (iostatus.ticks_when_completed -
+                              iostatus.ticks_when_initiated)
+                          << " ticks." << std::endl;
+            }
 
             char buffer[64]{};
             // Initiate two concurrent reads
@@ -110,6 +135,7 @@ TEST(file_io, unregistered_buffers)
     // Make an executor
     monad_async_executor_attr ex_attr{};
     ex_attr.io_uring_ring.entries = 64;
+    ex_attr.io_uring_wr_ring.entries = 8;
     auto ex = make_executor(ex_attr);
 
     // Make a context switcher and a task, and attach the task to the executor
@@ -139,9 +165,6 @@ TEST(file_io, registered_buffers)
         {
             int fd = monad_async_make_temporary_file(
                 tempfilepath, sizeof(tempfilepath));
-            if (-1 == write(fd, "hello world", 11)) {
-                abort();
-            }
             close(fd);
         }
 
@@ -155,7 +178,7 @@ TEST(file_io, registered_buffers)
             // Open the file
             struct open_how how
             {
-                .flags = O_RDONLY, .mode = 0, .resolve = 0
+                .flags = O_RDWR, .mode = 0, .resolve = 0
             };
 
             auto fh = make_file(task, nullptr, tempfilepath, how);
@@ -164,6 +187,42 @@ TEST(file_io, registered_buffers)
                       << (task->ticks_when_suspended_completed -
                           task->ticks_when_suspended_awaiting)
                       << " ticks." << std::endl;
+
+            // Write to the file
+            {
+                monad_async_executor_registered_io_buffer buffer;
+                to_result(monad_async_executor_claim_registered_io_buffer(
+                              &buffer, task->current_executor, 4097, true))
+                    .value();
+                monad_async_io_status iostatus{};
+                memcpy(buffer.iov->iov_base, "hello world", 11);
+                EXPECT_FALSE(monad_async_is_io_in_progress(&iostatus));
+                struct iovec iov[] = {
+                    {.iov_base = buffer.iov[0].iov_base, .iov_len = 11}};
+                monad_async_task_file_write(
+                    &iostatus, task, fh.get(), buffer.index, &iov[0], 1, 0, 0);
+                EXPECT_TRUE(monad_async_is_io_in_progress(&iostatus));
+                EXPECT_EQ(task->io_submitted, 1);
+                EXPECT_EQ(task->io_completed_not_reaped, 0);
+                monad_async_io_status *completed = nullptr;
+                EXPECT_EQ(
+                    to_result(monad_async_task_suspend_until_completed_io(
+                                  &completed, task, (uint64_t)-1))
+                        .value(),
+                    1);
+                EXPECT_EQ(task->io_submitted, 0);
+                EXPECT_EQ(task->io_completed_not_reaped, 0);
+                EXPECT_EQ(completed, &iostatus);
+                EXPECT_FALSE(monad_async_is_io_in_progress(&iostatus));
+                to_result(iostatus.result).value();
+                std::cout << "   The write took "
+                          << (iostatus.ticks_when_completed -
+                              iostatus.ticks_when_initiated)
+                          << " ticks." << std::endl;
+                to_result(monad_async_executor_release_registered_io_buffer(
+                              task->current_executor, buffer.index))
+                    .value();
+            }
 
             // Get my registered buffer
             monad_async_executor_registered_io_buffer buffer;
@@ -236,6 +295,160 @@ TEST(file_io, registered_buffers)
     monad_async_executor_attr ex_attr{};
     ex_attr.io_uring_ring.entries = 64;
     ex_attr.io_uring_ring.registered_buffers.large = 1;
+    ex_attr.io_uring_wr_ring.entries = 8;
+    ex_attr.io_uring_wr_ring.registered_buffers.large = 1;
+    auto ex = make_executor(ex_attr);
+
+    // Make a context switcher and a task, and attach the task to the executor
+    auto s = make_context_switcher(monad_async_context_switcher_sjlj);
+    monad_async_task_attr t_attr{};
+    auto t = make_task(s.get(), t_attr);
+    t->user_ptr = (void *)&shared_state;
+    t->user_code = +[](monad_async_task task) -> monad_async_result {
+        return ((shared_state_t *)task->user_ptr)->task(task);
+    };
+    to_result(monad_async_task_attach(ex.get(), t.get(), nullptr)).value();
+
+    // Run the executor until all tasks exit
+    while (monad_async_executor_has_work(ex.get())) {
+        to_result(monad_async_executor_run(ex.get(), size_t(-1), nullptr))
+            .value();
+    }
+}
+
+TEST(file_io, misc_ops)
+{
+    struct shared_state_t
+    {
+        char tempfilepath[256];
+
+        shared_state_t()
+        {
+            int fd = monad_async_make_temporary_file(
+                tempfilepath, sizeof(tempfilepath));
+            close(fd);
+        }
+
+        ~shared_state_t()
+        {
+            unlink(tempfilepath);
+        }
+
+        monad_async_result task(monad_async_task task)
+        {
+            // Open the file
+            struct open_how how
+            {
+                .flags = O_RDWR, .mode = 0, .resolve = 0
+            };
+
+            auto fh = make_file(task, nullptr, tempfilepath, how);
+            EXPECT_EQ(fh->executor, task->current_executor);
+            std::cout << "   Opening the file took "
+                      << (task->ticks_when_suspended_completed -
+                          task->ticks_when_suspended_awaiting)
+                      << " ticks." << std::endl;
+
+            // Preallocate the contents
+            to_result(monad_async_task_file_fallocate(
+                          task, fh.get(), FALLOC_FL_ZERO_RANGE, 0, 11))
+                .value();
+            std::cout << "   Preallocating the file took "
+                      << (task->ticks_when_suspended_completed -
+                          task->ticks_when_suspended_awaiting)
+                      << " ticks." << std::endl;
+
+            // Write to the file
+            monad_async_io_status iostatus{};
+            struct iovec iov[] = {
+                {.iov_base = (void *)"hello world", .iov_len = 11}};
+            EXPECT_FALSE(monad_async_is_io_in_progress(&iostatus));
+            monad_async_task_file_write(
+                &iostatus, task, fh.get(), 0, &iov[0], 1, 0, 0);
+            EXPECT_TRUE(monad_async_is_io_in_progress(&iostatus));
+            EXPECT_EQ(task->io_submitted, 1);
+            EXPECT_EQ(task->io_completed_not_reaped, 0);
+            monad_async_io_status *completed = nullptr;
+            EXPECT_EQ(
+                to_result(monad_async_task_suspend_until_completed_io(
+                              &completed, task, (uint64_t)-1))
+                    .value(),
+                1);
+            EXPECT_EQ(task->io_submitted, 0);
+            EXPECT_EQ(task->io_completed_not_reaped, 0);
+            EXPECT_EQ(completed, &iostatus);
+            EXPECT_FALSE(monad_async_is_io_in_progress(&iostatus));
+            to_result(iostatus.result).value();
+            std::cout << "   The write took "
+                      << (iostatus.ticks_when_completed -
+                          iostatus.ticks_when_initiated)
+                      << " ticks." << std::endl;
+
+            // Initialise sync to disc for the range without waiting for it to
+            // reach the disc
+            EXPECT_FALSE(monad_async_is_io_in_progress(&iostatus));
+            monad_async_task_file_range_sync(
+                &iostatus,
+                task,
+                fh.get(),
+                0,
+                11,
+                SYNC_FILE_RANGE_WAIT_BEFORE | SYNC_FILE_RANGE_WRITE);
+            EXPECT_TRUE(monad_async_is_io_in_progress(&iostatus));
+            EXPECT_EQ(task->io_submitted, 1);
+            EXPECT_EQ(task->io_completed_not_reaped, 0);
+            completed = nullptr;
+            EXPECT_EQ(
+                to_result(monad_async_task_suspend_until_completed_io(
+                              &completed, task, (uint64_t)-1))
+                    .value(),
+                1);
+            EXPECT_EQ(task->io_submitted, 0);
+            EXPECT_EQ(task->io_completed_not_reaped, 0);
+            EXPECT_EQ(completed, &iostatus);
+            EXPECT_FALSE(monad_async_is_io_in_progress(&iostatus));
+            to_result(iostatus.result).value();
+            std::cout << "   The write barrier took "
+                      << (iostatus.ticks_when_completed -
+                          iostatus.ticks_when_initiated)
+                      << " ticks." << std::endl;
+
+            // Synchronise the writes to the file fully with storage in a sudden
+            // power loss retrievable way
+            EXPECT_FALSE(monad_async_is_io_in_progress(&iostatus));
+            monad_async_task_file_durable_sync(&iostatus, task, fh.get());
+            EXPECT_TRUE(monad_async_is_io_in_progress(&iostatus));
+            EXPECT_EQ(task->io_submitted, 1);
+            EXPECT_EQ(task->io_completed_not_reaped, 0);
+            completed = nullptr;
+            EXPECT_EQ(
+                to_result(monad_async_task_suspend_until_completed_io(
+                              &completed, task, (uint64_t)-1))
+                    .value(),
+                1);
+            EXPECT_EQ(task->io_submitted, 0);
+            EXPECT_EQ(task->io_completed_not_reaped, 0);
+            EXPECT_EQ(completed, &iostatus);
+            EXPECT_FALSE(monad_async_is_io_in_progress(&iostatus));
+            to_result(iostatus.result).value();
+            std::cout << "   The durable sync took "
+                      << (iostatus.ticks_when_completed -
+                          iostatus.ticks_when_initiated)
+                      << " ticks." << std::endl;
+
+            fh.reset();
+            std::cout << "   Closing the file took "
+                      << (task->ticks_when_suspended_completed -
+                          task->ticks_when_suspended_awaiting)
+                      << " ticks." << std::endl;
+            return monad_async_make_success(0);
+        }
+    } shared_state;
+
+    // Make an executor
+    monad_async_executor_attr ex_attr{};
+    ex_attr.io_uring_ring.entries = 8;
+    ex_attr.io_uring_wr_ring.entries = 8;
     auto ex = make_executor(ex_attr);
 
     // Make a context switcher and a task, and attach the task to the executor
