@@ -266,6 +266,14 @@ Result<Receipt> execute(
 
     auto const sender = recover_sender(tx);
 
+    LOG_DEBUG(
+        "executing txn {} block {} from={} to={} nonce={}",
+        i,
+        hdr.number,
+        sender,
+        tx.to,
+        tx.nonce);
+
     if (MONAD_UNLIKELY(!sender.has_value())) {
         return TransactionError::MissingSender;
     }

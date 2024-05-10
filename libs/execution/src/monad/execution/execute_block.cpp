@@ -135,6 +135,7 @@ Result<std::vector<Receipt>> execute_block(
                 "txn {} {}",
                 i,
                 results[i].value().assume_error().message().c_str());
+            //LOG_ERROR("Transaction details: {}", block.transactions[i].c_str()); // Assuming to_string() method exists for transaction
             receipts.emplace_back();
         }
         else {

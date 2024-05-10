@@ -1,6 +1,7 @@
 #include <monad/config.hpp>
 #include <monad/core/account.hpp>
 #include <monad/core/bytes.hpp>
+#include <monad/core/fmt/address_fmt.hpp>
 #include <monad/core/int.hpp>
 #include <monad/core/likely.h>
 #include <monad/core/result.hpp>
@@ -12,6 +13,8 @@
 #include <evmc/evmc.h>
 
 #include <intx/intx.hpp>
+
+#include <quill/Quill.h>
 
 #include <boost/outcome/config.hpp>
 // TODO unstable paths between versions
@@ -125,6 +128,10 @@ Result<void> validate_transaction(
     if (MONAD_UNLIKELY(!sender_account.has_value())) {
         // YP (71)
         if (tx.nonce) {
+            LOG_ERROR(
+                "bad nonce due to no sender account to={} nonce={}",
+                tx.to,
+                tx.nonce);
             return TransactionError::BadNonce;
         }
         // YP (71)
@@ -141,6 +148,8 @@ Result<void> validate_transaction(
 
     // YP (71)
     if (MONAD_UNLIKELY(sender_account->nonce != tx.nonce)) {
+        LOG_ERROR(
+            "bad nonce tx {} expected {}:", tx.nonce, sender_account->nonce);
         return TransactionError::BadNonce;
     }
 
