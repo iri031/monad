@@ -47,9 +47,6 @@ void monad_fiber_task_queue_grow(struct monad_fiber_task_queue *this)
         else
           this->data = memmove(this->data + monad_fiber_task_queue_chunk, this->data,
                                pre_wrapped * sizeof(struct monad_fiber_task_node));
-        // just move back data
-
-
     }
 }
 
