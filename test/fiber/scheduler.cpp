@@ -94,7 +94,6 @@ struct snapshots_4
       const auto ptr = db.pointer.fetch_add(offset);
       const auto idx = (ptr >> (id * 16ull)) & 0xFFFFull;
 
-
       if (idx == 0xFFFFu)
       {
         db.pointer -= offset; // so we're not len == 0
@@ -525,6 +524,98 @@ TEST(scheduler, inverted_8)
                                ),
                                -i);
 
+  mtx.unlock();
+  wait(s);
+  monad_fiber_scheduler_destroy(&s);
+
+  check_sorted(ss);
+}
+
+TEST(scheduler, split_4)
+{
+  static bool once = false;
+  ASSERT_FALSE(once);
+  once = true;
+  snapshots_4 ss;
+
+  monad_fiber_scheduler_t s;
+  monad_fiber_scheduler_create(&s, 4);
+
+  std::shared_mutex mtx; // block all threads during posting
+  mtx.lock();
+  for (std::uint64_t i = 0ull; i < 4; i++)
+    monad_fiber_scheduler_post(&s,
+                               make_lt(
+                                   [&]
+                                   {
+                                     mtx.lock_shared();
+                                     mtx.unlock_shared();
+                                   }
+                               ),
+                               INT64_MIN);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+  for (std::int64_t i = (4 * ss.size_per_thread) - 4; i > 0; i--)
+  {
+    const std::int64_t j = i % 2 ? i : -i;
+    monad_fiber_scheduler_post(&s,
+                               make_lt(
+                                   [&,  j]
+                                   {
+                                     thread_local static auto s = ss.snap();
+                                     s(j);
+                                   }
+                               ), j);
+
+
+  }
+
+  mtx.unlock();
+  wait(s);
+  monad_fiber_scheduler_destroy(&s);
+
+  check_sorted(ss);
+}
+
+TEST(scheduler, split_8)
+{
+  static bool once = false;
+  ASSERT_FALSE(once);
+  once = true;
+  snapshots_8 ss;
+
+  monad_fiber_scheduler_t s;
+  monad_fiber_scheduler_create(&s, 8);
+
+  std::shared_mutex mtx; // block all threads during posting
+  mtx.lock();
+  for (std::uint64_t i = 0ull; i < 8; i++)
+    monad_fiber_scheduler_post(&s,
+                               make_lt(
+                                   [&]
+                                   {
+                                     mtx.lock_shared();
+                                     mtx.unlock_shared();
+                                   }
+                               ),
+                               INT64_MIN);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+  for (std::int64_t i = 0; i < (8 * ss.size_per_thread) - 8; i++)
+  {
+    const std::int64_t j = i % 2 ? i : -i;
+    monad_fiber_scheduler_post(&s,
+                               make_lt(
+                                   [&, j]
+                                   {
+                                     thread_local static auto s = ss.snap();
+                                     s(j);
+                                   }
+                               ),
+                               j);
+}
   mtx.unlock();
   wait(s);
   monad_fiber_scheduler_destroy(&s);
