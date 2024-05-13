@@ -233,20 +233,23 @@ int main(int const argc, char const *argv[])
         write_to_file(db.to_json(), dump_snapshot, last_block_number);
     }
 
-    // TODO: temp testing code
-    std::ofstream state_trie_ofile("state_trie_stats.txt");
-    std::ofstream storage_trie_ofile("storage_trie_stats.txt");
-    std::ofstream one_storage_ofile("one_storage_stats.txt");
-    std::ofstream node_size_ofile("node_size_stats.txt");
-    std::ofstream storage_value_ofile("storage_value_stats.csv");
+    // generate code size report
+    db.generate_code_size_report();
 
-    db.generate_report(
-        state_trie_ofile,
-        storage_trie_ofile,
-        one_storage_ofile,
-        storage_value_ofile,
-        node_size_ofile,
-        address_map);
+    // TODO: temp testing code
+    // std::ofstream state_trie_ofile("state_trie_stats.txt");
+    // std::ofstream storage_trie_ofile("storage_trie_stats.txt");
+    // std::ofstream one_storage_ofile("one_storage_stats.txt");
+    // std::ofstream node_size_ofile("node_size_stats.txt");
+    // std::ofstream storage_value_ofile("storage_value_stats.csv");
+
+    // db.generate_report(
+    //     state_trie_ofile,
+    //     storage_trie_ofile,
+    //     one_storage_ofile,
+    //     storage_value_ofile,
+    //     node_size_ofile,
+    //     address_map);
 
     return 0;
 }

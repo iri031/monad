@@ -64,6 +64,8 @@ public:
     bool is_latest() const;
     void load_latest();
     uint64_t current_block_number() const;
+
+    void generate_code_size_report();
     void generate_report(
         std::ostream &state_trie, std::ostream &storage_trie,
         std::ostream &one_storage, std::ostream &storage_value,

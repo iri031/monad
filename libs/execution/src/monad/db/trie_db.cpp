@@ -65,6 +65,9 @@
 #include <utility>
 #include <vector>
 
+#include <iomanip>
+#include <iostream>
+
 MONAD_NAMESPACE_BEGIN
 
 using namespace monad::mpt;
@@ -932,6 +935,76 @@ void TrieDb::load_latest()
 {
     MONAD_ASSERT(mode_ == Mode::OnDiskReadOnly);
     db_.load_latest();
+}
+
+void TrieDb::generate_code_size_report()
+{
+    struct Traverse : public TraverseMachine
+    {
+        TrieDb &db_;
+        Nibbles path_{};
+        uint64_t total_code_size_{0};
+
+        explicit Traverse(TrieDb &db)
+            : db_(db)
+        {
+        }
+
+        ~Traverse()
+        {
+            std::cout << "Total Code Size: " << total_code_size_ << std::endl;
+        }
+
+        virtual void down(unsigned char const branch, Node const &node) override
+        {
+            if (branch == INVALID_BRANCH) {
+                MONAD_ASSERT(node.path_nibble_view().nibble_size() == 0);
+                return;
+            }
+            path_ = concat(NibblesView{path_}, branch, node.path_nibble_view());
+
+            if (path_.nibble_size() == (KECCAK256_SIZE * 2)) {
+                handle_account(node);
+            }
+        }
+
+        virtual void up(unsigned char const branch, Node const &node) override
+        {
+            auto const path_view = NibblesView{path_};
+            auto const rem_size = [&] {
+                if (branch == INVALID_BRANCH) {
+                    MONAD_ASSERT(path_view.nibble_size() == 0);
+                    return 0;
+                }
+                int const rem_size = path_view.nibble_size() - 1 -
+                                     node.path_nibble_view().nibble_size();
+                MONAD_ASSERT(rem_size >= 0);
+                MONAD_ASSERT(
+                    path_view.substr(static_cast<unsigned>(rem_size)) ==
+                    concat(branch, node.path_nibble_view()));
+                return rem_size;
+            }();
+            path_ = path_view.substr(0, static_cast<unsigned>(rem_size));
+        }
+
+        void handle_account(Node const &node)
+        {
+            MONAD_ASSERT(node.has_value());
+
+            auto encoded_account = node.value();
+
+            auto acct = decode_account_db(encoded_account);
+            MONAD_DEBUG_ASSERT(!acct.has_error());
+            MONAD_DEBUG_ASSERT(encoded_account.empty());
+
+            auto const code_analysis = db_.read_code(acct.value().code_hash);
+            MONAD_ASSERT(code_analysis);
+            total_code_size_ += code_analysis->executable_code.size();
+        }
+
+    } traverse(*this);
+
+    db_.traverse(state_nibbles, traverse, block_number_);
 }
 
 void TrieDb::generate_report(
