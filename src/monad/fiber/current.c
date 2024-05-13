@@ -3,66 +3,74 @@
 #include <threads.h>
 #include <unistd.h>
 
-void _main_fiber_resume(struct monad_fiber_task *const this)
-{
-    monad_fiber_switch_to_fiber((monad_fiber_t *const)this);
-}
+#if defined(MONAD_USE_TSAN)
+#include <sanitizer/tsan_interface.h>
+#endif
 
-void _main_fiber_destroy(struct monad_fiber_task *const this)
-{
-    (void)this;
-    pthread_exit(NULL);
-}
+extern thread_local monad_fiber_context_t  monad_fiber_main_fiber_context_;
+extern thread_local monad_fiber_t monad_fiber_main_fiber_;
 
-static thread_local monad_fiber_t _main_fiber = {
-    .task = {.resume = &_main_fiber_resume, .destroy = &_main_fiber_destroy},
-    .context = NULL,
-    .priority = 0u,
-    .scheduler = NULL};
+extern int pthread_getname_np(pthread_t thread, char *name, size_t size);
+
 
 monad_fiber_t *monad_fiber_main()
 {
-    return &_main_fiber;
+    MONAD_DEBUG_ASSERT(monad_fiber_main_fiber_.context != NULL);
+    return &monad_fiber_main_fiber_;
 }
 
-bool monad_fiber_is_main(monad_fiber_t *const this)
+extern thread_local monad_fiber_t *monad_fiber_current_;
+
+void monad_fiber_init_main()
 {
-    return this->task.destroy == _main_fiber_destroy;
+  if (monad_fiber_main_fiber_.context == NULL)
+  {
+
+    char buffer[256];
+    if (0 == pthread_getname_np(pthread_self(), buffer, 256ull))
+      monad_fiber_set_name(&monad_fiber_main_fiber_context_, buffer);
+    monad_fiber_main_fiber_.context = &monad_fiber_main_fiber_context_;
+    MONAD_DEBUG_ASSERT(monad_fiber_main_fiber_.context->fiber == NULL);
+#if defined(MONAD_USE_TSAN)
+    monad_fiber_main_fiber_.context->tsan_fiber = __tsan_get_current_fiber();
+#endif
+  }
+
+  MONAD_DEBUG_ASSERT(monad_fiber_current_ == NULL);
+  monad_fiber_current_ = &monad_fiber_main_fiber_;
 }
 
-static thread_local monad_fiber_t *_current = NULL;
 
+extern thread_local monad_fiber_t *monad_fiber_current_;
 monad_fiber_t *monad_fiber_current()
 {
-    if (_current == NULL) {
-        _current = &_main_fiber;
-        _main_fiber.context = monad_fiber_main_context();
-    }
-    return _current;
+  MONAD_DEBUG_ASSERT(monad_fiber_current_ != NULL);
+  return monad_fiber_current_;
 }
 
 monad_fiber_t *monad_fiber_activate_fiber(monad_fiber_t *new_current)
 {
     monad_fiber_t *pre = monad_fiber_current();
-    _current = new_current;
+    monad_fiber_current_ = new_current;
     return pre;
 }
 
 void monad_fiber_switch_to_fiber(monad_fiber_t *target)
 {
+    MONAD_DEBUG_ASSERT(target != NULL);
     monad_fiber_t *pre = monad_fiber_current();
-    _current = target;
+    monad_fiber_current_ = target;
 
     // LOG here
     (void)monad_fiber_context_switch(pre->context, target->context);
-    MONAD_ASSERT(_current == pre); // make sure we switched back through
-                                   // monad_fiber_switch_current_fiber
+    MONAD_ASSERT(monad_fiber_current_ == pre); // make sure we switched back through
+    // monad_fiber_switch_current_fiber
 }
 
 void monad_fiber_switch_to_main()
 {
     // LOG here
-    monad_fiber_switch_to_fiber(&_main_fiber);
+    monad_fiber_switch_to_fiber(monad_fiber_main());
 }
 
 static monad_fiber_context_t *
@@ -79,6 +87,7 @@ void monad_fiber_yield()
 {
     // check
     monad_fiber_t *cc = monad_fiber_current();
+    MONAD_ASSERT(cc->scheduler != NULL);
     monad_fiber_task_t *t = monad_fiber_scheduler_pop_higher_priority_task(
         cc->scheduler, cc->priority);
     if (t == NULL) {

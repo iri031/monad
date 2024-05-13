@@ -1,4 +1,5 @@
 #include <monad/fiber/context.h>
+#include <monad/fiber/assert.h>
 
 #include <assert.h>
 #include <errno.h>
@@ -7,9 +8,11 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+
 monad_fiber_context_t *monad_fiber_context_switch(
     monad_fiber_context_t *from, monad_fiber_context_t *to)
 {
+  MONAD_DEBUG_ASSERT(to != NULL);
 #if defined(MONAD_USE_ASAN)
     __sanitizer_start_switch_fiber(
         &to->asan.fake_stack, to->asan.stack_bottom, to->asan.stack_size);
@@ -120,12 +123,8 @@ static _Thread_local monad_fiber_context_t main_context = {
 
 monad_fiber_context_t *monad_fiber_main_context()
 {
-#if defined(MONAD_USE_TSAN)
-    if (main_context.tsan_fiber == NULL) {
-        main_context.tsan_fiber = __tsan_get_current_fiber();
-    }
-#endif
-    return &main_context;
+
+   return &main_context;
 }
 
 typedef struct monad_fiber
@@ -307,7 +306,7 @@ monad_fiber_context_t *monad_fiber_context_callcc(
         fb->context.asan.stack_bottom,
         fb->context.asan.stack_size);
 #endif
-
+    MONAD_ASSERT(from != NULL);
     struct callcc_p cc = {
         .from = from, .fiber = fb, .func = func, .arg = func_arg};
 
@@ -324,11 +323,6 @@ monad_fiber_context_t *monad_fiber_context_callcc(
             &resumed_from->asan_to_finish->stack_size);
 #endif
         resumed_from->fiber = t.fctx;
-    }
-    else {
-        assert(
-            t.fctx ==
-            NULL); // if there's no context the fiber must be destroyed as well!
     }
     return resumed_from;
 }

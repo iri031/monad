@@ -14,6 +14,7 @@ add_library(monad_fiber STATIC
   "src/monad/fiber/scheduler.c"
   "src/monad/fiber/context.c"
   "src/monad/fiber/current.c"
+  "src/monad/fiber/current_thread_local.c"
   "src/monad/fiber/task.c"
   "src/monad/fiber/channel.c"
   "src/monad/fiber/pool.c"
