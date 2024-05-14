@@ -31,11 +31,37 @@
 MONAD_NAMESPACE_BEGIN
 
 void merge(
-    [[maybe_unused]] std::map<
-        Address, std::map<bytes32_t, std::vector<AccessOp>>> &a,
-    [[maybe_unused]] std::map<
-        Address, std::map<bytes32_t, std::vector<AccessOp>>> const &b)
+    std::map<Address, std::map<bytes32_t, std::vector<AccessOp>>> &a,
+    std::map<Address, std::map<bytes32_t, std::vector<AccessOp>>> const &b)
 {
+    for (auto const &b_outer_pair : b) {
+        Address const &b_address = b_outer_pair.first;
+        auto const &b_inner_map = b_outer_pair.second;
+
+        if (a.find(b_address) == a.end()) {
+            // If key does not exist in `a`, insert the whole sub-map from `b`
+            a[b_address] = b_inner_map;
+        }
+        else {
+            // If key exists, merge the inner maps
+            auto &a_inner_map = a[b_address];
+            for (auto const &b_inner_pair : b_inner_map) {
+                bytes32_t const &b_key = b_inner_pair.first;
+                std::vector<AccessOp> const &b_vector = b_inner_pair.second;
+
+                if (a_inner_map.find(b_key) == a_inner_map.end()) {
+                    // If inner key does not exist, insert the whole vector
+                    a_inner_map[b_key] = b_vector;
+                }
+                else {
+                    // If inner key exists, append the vector
+                    auto &a_vector = a_inner_map[b_key];
+                    a_vector.insert(
+                        a_vector.end(), b_vector.begin(), b_vector.end());
+                }
+            }
+        }
+    }
 }
 
 // YP Sec 6.2 "irrevocable_change"

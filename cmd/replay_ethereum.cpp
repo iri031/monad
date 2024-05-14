@@ -30,11 +30,14 @@
 #include <string>
 #include <vector>
 
+#include <sys/sysinfo.h>
+
+// temp code
 #include <fstream>
 #include <map>
+#include <monad/core/fmt/address_fmt.hpp>
 #include <monad/state3/state.hpp>
-
-#include <sys/sysinfo.h>
+#include <quill/detail/LogMacros.h>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -214,6 +217,23 @@ int main(int const argc, char const *argv[])
     if (MONAD_UNLIKELY(result.has_error())) {
         return EXIT_FAILURE;
     }
+
+    std::ofstream ofile("storage_access_patterns.csv");
+    for (auto const &[addr, storage] : storage_accesses) {
+        for (auto const &[key, accesses] : storage) {
+            ofile << fmt::format(
+                         "0x{:02x}",
+                         fmt::join(std::as_bytes(std::span(addr.bytes)), ""))
+                  << ", ";
+            ofile << fmt::format(
+                "0x{:02x}", fmt::join(std::as_bytes(std::span(key.bytes)), ""));
+            for (auto const &access : accesses) {
+                ofile << ", " << static_cast<int>(access);
+            }
+            ofile << "\n";
+        }
+    }
+    ofile.flush();
 
     nblocks = result.assume_value();
     uint64_t const last_block_number = start_block_number + nblocks - 1;
