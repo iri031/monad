@@ -15,6 +15,8 @@
 #include <thread>
 #include <utility>
 
+extern "C" void monad_fiber_init_main();
+
 /* Post runtime pluggable context switchers:
 
    Task attach to task initiate took 360 ticks.
@@ -50,6 +52,8 @@ TEST(async_result, works)
 
 TEST(executor, works)
 {
+    monad_fiber_init_main();
+
     monad_async_executor_attr ex_attr{};
     ex_attr.io_uring_ring.entries = 64;
     auto ex = make_executor(ex_attr);
@@ -162,7 +166,7 @@ TEST(executor, works)
                     EXPECT_EQ(current_executor->tasks_suspended, 0);
                     return monad_async_make_success(5);
                 };
-                const auto suspend_begins = std::chrono::steady_clock::now();
+                auto const suspend_begins = std::chrono::steady_clock::now();
                 auto r = monad_async_task_attach(ex.get(), t1.get(), nullptr);
                 CHECK_RESULT(r);
                 EXPECT_TRUE(t1->is_pending_launch);
@@ -380,6 +384,8 @@ TEST(executor, works)
 
 TEST(executor, foreign_thread)
 {
+    monad_fiber_init_main();
+
     auto test = [](monad_async_context_switcher_impl switcher_impl,
                    char const *desc) {
         std::cout << "\n   With " << desc << " context switcher ..."
