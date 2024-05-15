@@ -11,6 +11,9 @@
 #include <monad/execution/trace.hpp>
 #include <monad/fiber/priority_pool.hpp>
 #include <monad/mpt/ondisk_db_config.hpp>
+#include <monad/statesync/statesync_server.h>
+#include <monad/statesync/statesync_server_context.hpp>
+#include <monad/statesync/statesync_server_network.hpp>
 
 #include <CLI/CLI.hpp>
 
@@ -37,6 +40,13 @@ MONAD_NAMESPACE_BEGIN
 quill::Logger *tracer = nullptr;
 
 MONAD_NAMESPACE_END
+
+sig_atomic_t volatile stop;
+
+void signal_handler(int)
+{
+    stop = 1;
+}
 
 int main(int const argc, char const *argv[])
 {
@@ -111,6 +121,9 @@ int main(int const argc, char const *argv[])
     tracer = quill::create_logger(
         "trace", quill::file_handler(trace_log, handler_cfg));
 #endif
+
+    std::unique_ptr<monad_statesync_server_context> ctx;
+    std::jthread sync_thread;
 
     uint64_t last_block_number;
     {
@@ -205,7 +218,28 @@ int main(int const argc, char const *argv[])
 
         auto const start_time = std::chrono::steady_clock::now();
 
-        DbCache db_cache{triedb};
+        MONAD_ASSERT(on_disk);
+        ctx = std::make_unique<monad_statesync_server_context>(triedb);
+        DbCache db_cache{*ctx};
+        sync_thread = std::jthread([&](std::stop_token const token) {
+            pthread_setname_np(pthread_self(), "statesync thread");
+            monad_statesync_server_network net{"/tmp/monadlive"};
+            auto *const sync = monad_statesync_server_create(
+                ctx.get(),
+                &net,
+                &statesync_server_recv,
+                &statesync_server_send_upsert,
+                &statesync_server_send_done);
+            mpt::Db ro{mpt::ReadOnlyOnDiskDbConfig{
+                .sq_thread_cpu = sq_thread_cpu - 1,
+                .dbname_paths = dbname_paths}};
+            ctx->ro = &ro;
+            while (!token.stop_requested()) {
+                monad_statesync_server_run_once(sync);
+            }
+            ctx->ro = nullptr;
+            monad_statesync_server_destroy(sync);
+        });
 
         auto const result = replay_eth.run(
             db_cache, block_db, priority_pool, start_block_number, nblocks);
@@ -223,7 +257,8 @@ int main(int const argc, char const *argv[])
 
         LOG_INFO(
             "Finish running, finish(stopped) block number = {}, "
-            "number of blocks run = {}, time_elapsed = {}, num transactions = "
+            "number of blocks run = {}, time_elapsed = {}, num "
+            "transactions = "
             "{}, "
             "tps = {}",
             last_block_number,
@@ -232,7 +267,19 @@ int main(int const argc, char const *argv[])
             replay_eth.n_transactions,
             replay_eth.n_transactions /
                 std::max(1UL, static_cast<uint64_t>(elapsed.count())));
+
+        if (!dump_snapshot.empty() && !on_disk) { // dump in memory db
+            LOG_INFO("Dump db of block: {}", last_block_number);
+            write_to_file(triedb.to_json(), dump_snapshot, last_block_number);
+            return 0;
+        }
     }
+
+    signal(SIGINT, signal_handler);
+    while (stop == 0) {
+    }
+
+    sync_thread.request_stop();
 
     if (!dump_snapshot.empty()) {
         LOG_INFO("Dump db of block: {}", last_block_number);
@@ -245,5 +292,6 @@ int main(int const argc, char const *argv[])
         // memory
         write_to_file(ro_db.to_json(), dump_snapshot, last_block_number);
     }
+
     return 0;
 }

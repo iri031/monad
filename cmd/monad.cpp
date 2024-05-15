@@ -16,6 +16,9 @@
 #include <monad/fiber/priority_pool.hpp>
 #include <monad/mpt/db.hpp>
 #include <monad/state2/block_state.hpp>
+#include <monad/statesync/statesync_server.h>
+#include <monad/statesync/statesync_server_context.hpp>
+#include <monad/statesync/statesync_server_network.hpp>
 
 #include <CLI/CLI.hpp>
 #include <quill/Quill.h>
@@ -43,10 +46,31 @@ void signal_handler(int)
 
 void run_monad(
     Chain const &chain, fs::path const &block_db, Db &db,
-    fiber::PriorityPool &priority_pool)
+    fiber::PriorityPool &priority_pool, size_t block_number)
 {
     BlockHashBuffer block_hash_buffer;
-    size_t block_number = 1;
+
+    for (size_t i = block_number < 256 ? 1 : block_number - 255;
+         i < block_number;) {
+        auto const path = block_db / std::to_string(i);
+        if (!fs::exists(path)) {
+            continue;
+        }
+        MONAD_ASSERT(fs::is_regular_file(path));
+        std::ifstream istream(path);
+        std::ostringstream buf;
+        buf << istream.rdbuf();
+        auto view = byte_string_view{
+            (unsigned char *)buf.view().data(), buf.view().size()};
+        auto block_result = rlp::decode_block(view);
+        if (block_result.has_error()) {
+            continue;
+        }
+        MONAD_ASSERT(view.empty());
+        auto &block = block_result.assume_value();
+        block_hash_buffer.set(i - 1, block.header.parent_hash);
+        ++i;
+    }
 
     signal(SIGINT, signal_handler);
     stop = 0;
@@ -131,7 +155,9 @@ int main(int const argc, char const *argv[])
     unsigned nthreads = 4;
     unsigned nfibers = 32;
     unsigned sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 1);
+    unsigned sync_sq_thread_cpu = sq_thread_cpu - 1;
     auto log_level = quill::LogLevel::Info;
+    std::string statesync_path;
 
     cli.add_option("--block_db", block_db, "block_db directory")->required();
     cli.add_option("--trace_log", trace_log, "path to output trace file");
@@ -147,7 +173,13 @@ int main(int const argc, char const *argv[])
         sq_thread_cpu,
         "sq_thread_cpu field in io_uring_params, to specify the cpu set "
         "kernel poll thread is bound to in SQPOLL mode");
+    cli.add_option(
+        "--sync_sq_thread_cpu",
+        sync_sq_thread_cpu,
+        "sq_thread_cpu to use for the statesync thread");
     cli.add_option("--db", db_path, "path to db");
+    cli.add_option(
+        "--statesync_path", statesync_path, "used for statesync communication");
 
     try {
         cli.parse(argc, argv);
@@ -187,32 +219,80 @@ int main(int const argc, char const *argv[])
             return mpt::Db{
                 *machine,
                 mpt::OnDiskDbConfig{
-                    .append = false,
+                    .append = true,
                     .compaction = true,
                     .rd_buffers = 8192,
                     .wr_buffers = 32,
                     .uring_entries = 128,
-                    .sq_thread_cpu = get_nprocs() - 1,
+                    .sq_thread_cpu = sq_thread_cpu,
                     .dbname_paths = {db_path.value()}}};
         }
         machine = std::make_unique<InMemoryMachine>();
         return mpt::Db{*machine};
     }();
     TrieDb triedb{db};
-    read_genesis(genesis_file, triedb);
+    std::unique_ptr<monad_statesync_server_network> net;
+    std::unique_ptr<monad_statesync_server_context> ctx;
+    std::jthread sync_thread;
+    monad_statesync_server *sync = nullptr;
+    if (!statesync_path.empty()) {
+        MONAD_ASSERT(db.root().is_valid());
+        net = std::make_unique<monad_statesync_server_network>(
+            statesync_path.c_str());
+        ctx = std::make_unique<monad_statesync_server_context>(triedb);
+        sync = monad_statesync_server_create(
+            ctx.get(),
+            net.get(),
+            &statesync_server_recv,
+            &statesync_server_send_upsert,
+            &statesync_server_send_done);
+        sync_thread = std::jthread([&](std::stop_token const token) {
+            pthread_setname_np(pthread_self(), "statesync thread");
+            mpt::Db ro{mpt::ReadOnlyOnDiskDbConfig{
+                .sq_thread_cpu = sync_sq_thread_cpu,
+                .dbname_paths = {db_path.value()}}};
+            ctx->ro = &ro;
+            while (!token.stop_requested()) {
+                monad_statesync_server_run_once(sync);
+            }
+            ctx->ro = nullptr;
+        });
+    }
+    else if (!db.root().is_valid()) {
+        read_genesis(genesis_file, triedb);
+    }
+
     LOG_INFO(
-        "finished initializing db, time elapsed = {}",
+        "finished initializing db at block {}, time elapsed = {}",
+        triedb.get_block_number(),
         std::chrono::steady_clock::now() - before);
 
     fiber::PriorityPool priority_pool{nthreads, nfibers};
     auto const start_time = std::chrono::steady_clock::now();
-    DbCache db_cache{triedb};
+    auto db_cache = [&] {
+        if (sync) {
+            return DbCache{*ctx};
+        }
+        return DbCache{triedb};
+    }();
+
     // TODO: replace with monad specfiic mainnet
     EthereumMainnet const chain{};
-    run_monad(chain, block_db, db_cache, priority_pool);
+    run_monad(
+        chain,
+        block_db,
+        db_cache,
+        priority_pool,
+        triedb.get_block_number() + 1);
     LOG_INFO(
         "finished running, time_elapsed = {}",
         std::chrono::steady_clock::now() - start_time);
+
+    if (sync) {
+        sync_thread.request_stop();
+        sync_thread.join();
+        monad_statesync_server_destroy(sync);
+    }
 
     return 0;
 }
