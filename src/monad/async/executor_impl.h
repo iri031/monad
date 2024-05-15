@@ -25,6 +25,9 @@ struct monad_async_executor_free_registered_buffer
     unsigned index;
 };
 
+LIST_DECLARE_N(struct monad_async_task_impl);
+LIST_DECLARE_P(struct monad_async_task_impl);
+
 struct monad_async_executor_impl
 {
     struct monad_async_executor_head head;
@@ -36,6 +39,10 @@ struct monad_async_executor_impl
     struct io_uring ring, wr_ring;
     unsigned wr_ring_ops_outstanding;
     LIST_DEFINE_P(tasks_running, struct monad_async_task_impl);
+    LIST_DEFINE_P(
+        tasks_suspended_submission_ring, struct monad_async_task_impl);
+    LIST_DEFINE_P(
+        tasks_suspended_submission_wr_ring, struct monad_async_task_impl);
     LIST_DEFINE_P(tasks_suspended_awaiting, struct monad_async_task_impl);
     LIST_DEFINE_P(tasks_suspended_completed, struct monad_async_task_impl);
     LIST_DEFINE_N(tasks_exited, struct monad_async_task_impl);
@@ -65,9 +72,13 @@ extern monad_async_result monad_async_executor_suspend_impl(
     monad_async_result (*please_cancel)(struct monad_async_task_impl *task),
     monad_async_io_status **completed);
 
-// diseased dead beef in hex, last bit set so won't be a pointer
+// diseased dead beef in hex, last three bits set
 static uintptr_t const EXECUTOR_EVENTFD_READY_IO_URING_DATA_MAGIC =
     (uintptr_t)0xd15ea5eddeadbeef;
+
+// dead beef in hex, last three bits set
+static uintptr_t const CANCELLED_OP_IO_URING_DATA_MAGIC =
+    (uintptr_t)0x00000000deadbeef;
 
 // Cannot exceed three bits
 enum io_uring_user_data_type : uint8_t
@@ -462,8 +473,105 @@ static inline monad_async_result monad_async_executor_wake_impl(
     return monad_async_make_success(0);
 }
 
+static inline struct io_uring_sqe *get_sqe_suspending_if_necessary_impl(
+    struct io_uring *ring,
+    struct list_define_p_monad_async_task_impl_t wait_list[],
+    atomic_bool *wait_list_task_flag, struct monad_async_executor_impl *ex,
+    struct monad_async_task_impl *task, bool is_cancellation_point)
+{
+    struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+    struct monad_async_task_impl *newtask = nullptr;
+    // If there is any higher or equal priority work waiting on a SQE, they get
+    // first dibs
+    if (sqe != nullptr) {
+        for (uint8_t priority = monad_async_priority_high;
+             priority <= task->head.priority.cpu;
+             priority++) {
+            if (wait_list[priority].count > 0) {
+                newtask = wait_list[priority].front;
+                break;
+            }
+        }
+    }
+    // Will we need to suspend?
+    if (sqe == nullptr || newtask != nullptr) {
+        atomic_store_explicit(
+            &ex->head.current_task, nullptr, memory_order_release);
+        task->please_cancel = nullptr;
+        task->completed = nullptr;
+        atomic_store_explicit(
+            &task->head.is_running, false, memory_order_release);
+        LIST_REMOVE_ATOMIC_COUNTER(
+            ex->tasks_running[task->head.priority.cpu],
+            task,
+            &ex->head.tasks_running);
+        atomic_store_explicit(wait_list_task_flag, true, memory_order_release);
+        LIST_APPEND_ATOMIC_COUNTER(
+            wait_list[task->head.priority.cpu],
+            task,
+            &ex->head.tasks_suspended_sqe_exhaustion);
+        task->head.ticks_when_suspended_awaiting =
+            get_ticks_count(memory_order_relaxed);
+        task->head.total_ticks_executed +=
+            task->head.ticks_when_suspended_awaiting -
+            task->head.ticks_when_resumed;
+#if MONAD_ASYNC_EXECUTOR_PRINTING
+        printf(
+            "*** Executor %p suspends task %p due to SQE exhaustion\n",
+            (void *)ex,
+            (void *)task);
+#endif
+        atomic_load_explicit(&task->context->switcher, memory_order_acquire)
+            ->suspend_and_call_resume(
+                task->context,
+                (newtask != nullptr) ? newtask->context : nullptr);
+#if MONAD_ASYNC_EXECUTOR_PRINTING
+        printf(
+            "*** Executor %p resumes task %p from SQE exhaustion\n",
+            (void *)ex,
+            (void *)task);
+#endif
+        task->head.ticks_when_resumed = get_ticks_count(memory_order_relaxed);
+        assert(atomic_load_explicit(wait_list_task_flag, memory_order_acquire));
+        atomic_store_explicit(wait_list_task_flag, false, memory_order_release);
+        LIST_REMOVE_ATOMIC_COUNTER(
+            wait_list[task->head.priority.cpu],
+            task,
+            &ex->head.tasks_suspended_sqe_exhaustion);
+        atomic_store_explicit(
+            &task->head.is_running, true, memory_order_release);
+        LIST_APPEND_ATOMIC_COUNTER(
+            ex->tasks_running[task->head.priority.cpu],
+            task,
+            &ex->head.tasks_running);
+        assert(
+            atomic_load_explicit(
+                &ex->head.current_task, memory_order_acquire) == nullptr);
+        atomic_store_explicit(
+            &ex->head.current_task, &task->head, memory_order_release);
+        task->please_cancel_invoked = false;
+        task->please_cancel = nullptr;
+        task->completed = nullptr;
+
+        // The SQE will have already been fetched by the code resuming us, so we
+        // just need to "peek" the current SQE
+        struct io_uring_sq *sq = &ring->sq;
+        sqe = &sq->sqes[sq->sqe_tail & *sq->kring_mask];
+        if (is_cancellation_point && task->please_cancel_invoked) {
+            // We need to "throw away" this SQE, as the task has been cancelled
+            // We do this by setting the SQE to a noop with
+            // CANCELLED_OP_IO_URING_DATA_MAGIC
+            io_uring_prep_nop(sqe);
+            io_uring_sqe_set_data(sqe, CANCELLED_OP_IO_URING_DATA_MAGIC, task);
+            return nullptr;
+        }
+    }
+    return sqe;
+}
+
 static inline struct io_uring_sqe *get_sqe_suspending_if_necessary(
-    struct monad_async_executor_impl *ex, struct monad_async_task_impl *task)
+    struct monad_async_executor_impl *ex, struct monad_async_task_impl *task,
+    bool is_cancellation_point)
 {
     if (ex == nullptr ||
         atomic_load_explicit(&ex->head.current_task, memory_order_acquire) !=
@@ -476,13 +584,15 @@ static inline struct io_uring_sqe *get_sqe_suspending_if_necessary(
     }
     assert(ex->within_run == true);
     assert(ex->ring.ring_fd != 0); // was the ring created?
-    struct io_uring_sqe *sqe = io_uring_get_sqe(&ex->ring);
+    struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary_impl(
+        &ex->ring,
+        ex->tasks_suspended_submission_ring,
+        &task->head.is_suspended_sqe_exhaustion,
+        ex,
+        task,
+        is_cancellation_point);
     if (sqe == nullptr) {
-        fprintf(
-            stderr,
-            "TODO: Handle SQE exhaustation via suspend until free SQE "
-            "entries appear.\n");
-        abort();
+        return nullptr;
     }
     switch (task->head.priority.io) {
     default:
@@ -498,7 +608,8 @@ static inline struct io_uring_sqe *get_sqe_suspending_if_necessary(
 }
 
 static inline struct io_uring_sqe *get_wrsqe_suspending_if_necessary(
-    struct monad_async_executor_impl *ex, struct monad_async_task_impl *task)
+    struct monad_async_executor_impl *ex, struct monad_async_task_impl *task,
+    bool is_cancellation_point)
 {
     if (ex == nullptr ||
         atomic_load_explicit(&ex->head.current_task, memory_order_acquire) !=
@@ -511,13 +622,15 @@ static inline struct io_uring_sqe *get_wrsqe_suspending_if_necessary(
     }
     assert(ex->within_run == true);
     assert(ex->wr_ring.ring_fd != 0); // was the write ring created?
-    struct io_uring_sqe *sqe = io_uring_get_sqe(&ex->wr_ring);
+    struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary_impl(
+        &ex->wr_ring,
+        ex->tasks_suspended_submission_wr_ring,
+        &task->head.is_suspended_sqe_exhaustion_wr,
+        ex,
+        task,
+        is_cancellation_point);
     if (sqe == nullptr) {
-        fprintf(
-            stderr,
-            "TODO: Handle SQE exhaustation via suspend until free SQE "
-            "entries appear.\n");
-        abort();
+        return nullptr;
     }
     switch (task->head.priority.io) {
     default:

@@ -98,25 +98,42 @@ struct monad_async_task_impl
 
     monad_async_io_status **completed;
 
+    /* Set this to have it executed next time executor run regains control at:
+
+    - After task has exited and been fully detached from its executor.
+    */
+    monad_async_result (*call_after_suspend_to_executor)(
+        struct monad_async_task_impl *task);
+    void *call_after_suspend_to_executor_data;
+
     struct monad_fiber_task fiber_task;
     bool fiber_task_please_resume_as_foreign_executor;
-    monad_async_result (*fiber_task_after_suspend)(
-        struct monad_async_task_impl *task);
-    void *fiber_task_after_suspend_data;
 };
 
+#define LIST_DEFINE_REMOVE_STRUCT_struct
+#define LIST_DEFINE_TYPE_NAME3(prefix, x) prefix##_##x##_t
+#define LIST_DEFINE_TYPE_NAME2(prefix, x) LIST_DEFINE_TYPE_NAME3(prefix, x)
+#define LIST_DEFINE_TYPE_NAME(prefix, x)                                       \
+    LIST_DEFINE_TYPE_NAME2(prefix, LIST_DEFINE_REMOVE_STRUCT_##x)
+
+#define LIST_DECLARE_N(type)                                                   \
+    struct LIST_DEFINE_TYPE_NAME(list_define_n, type)                          \
+    {                                                                          \
+        type *front, *back;                                                    \
+        size_t count;                                                          \
+    }
+#define LIST_DECLARE_P(type)                                                   \
+    struct LIST_DEFINE_TYPE_NAME(list_define_p, type)                          \
+    {                                                                          \
+        type *front, *back;                                                    \
+        size_t count;                                                          \
+    }
+
 #define LIST_DEFINE_N(name, type)                                              \
-    struct                                                                     \
-    {                                                                          \
-        type *front, *back;                                                    \
-        size_t count;                                                          \
-    } name
+    struct LIST_DEFINE_TYPE_NAME(list_define_n, type) name
 #define LIST_DEFINE_P(name, type)                                              \
-    struct                                                                     \
-    {                                                                          \
-        type *front, *back;                                                    \
-        size_t count;                                                          \
-    } name[monad_async_priority_max]
+    struct LIST_DEFINE_TYPE_NAME(list_define_p, type)                          \
+        name[monad_async_priority_max]
 #ifdef NDEBUG
     #define LIST_CHECK(list)
 #else

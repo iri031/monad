@@ -19,8 +19,8 @@ typedef struct monad_async_file_head
     monad_async_executor executor;
 } *monad_async_file;
 
-/*! \brief EXPENSIVE Suspend execution of the task until the file has been
-opened. See `man open2` to explain parameters.
+/*! \brief EXPENSIVE, CANCELLATION POINT Suspend execution of the task until the
+file has been opened. See `man open2` to explain parameters.
 
 This is a relatively expensive operation as it may do up to two mallocs and
 several syscalls per call.
@@ -33,8 +33,9 @@ MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_task_file_create(
 MONAD_ASYNC_NODISCARD extern monad_async_result
 monad_async_task_file_destroy(monad_async_task task, monad_async_file file);
 
-//! \brief Suspend execution of the task until the file's valid extents have
-//! been modified as per the `fallocate` call, see `man fallocate` for more.
+//! \brief CANCELLATION POINT Suspend execution of the task until the file's
+//! valid extents have been modified as per the `fallocate` call, see `man
+//! fallocate` for more.
 MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_task_file_fallocate(
     monad_async_task task, monad_async_file file, int mode,
     monad_async_file_offset offset, monad_async_file_offset len);

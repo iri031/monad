@@ -265,6 +265,8 @@ pub struct monad_async_task_head {
     pub is_awaiting_dispatch: atomic_bool,
     pub is_pending_launch: atomic_bool,
     pub is_running: atomic_bool,
+    pub is_suspended_sqe_exhaustion: atomic_bool,
+    pub is_suspended_sqe_exhaustion_wr: atomic_bool,
     pub is_suspended_awaiting: atomic_bool,
     pub is_suspended_completed: atomic_bool,
     pub is_running_on_foreign_executor: atomic_bool,
@@ -355,10 +357,10 @@ extern "C" {
     pub fn monad_async_task_completed_io(task: monad_async_task) -> *mut monad_async_io_status;
 }
 extern "C" {
-    #[doc = "! \\brief Suspend execution of a task for a given duration, which can be zero"]
-    #[doc = "! (which equates \"yield\"). If `completed` is not null, if any i/o which the"]
-    #[doc = "! task has initiated completes during the suspension, resume the task setting"]
-    #[doc = "! `completed` to which i/o has just completed."]
+    #[doc = "! \\brief CANCELLATION POINT Suspend execution of a task for a given duration,"]
+    #[doc = "! which can be zero (which equates \"yield\"). If `completed` is not null, if"]
+    #[doc = "! any i/o which the task has initiated completes during the suspension, resume"]
+    #[doc = "! the task setting `completed` to which i/o has just completed."]
     pub fn monad_async_task_suspend_for_duration(
         completed: *mut *mut monad_async_io_status,
         task: monad_async_task,
@@ -377,6 +379,7 @@ pub struct monad_async_executor_head {
     pub current_task: u64,
     pub tasks_pending_launch: atomic_size_t,
     pub tasks_running: atomic_size_t,
+    pub tasks_suspended_sqe_exhaustion: atomic_size_t,
     pub tasks_suspended: atomic_size_t,
     pub total_ticks_in_run: monad_async_cpu_ticks_count_t,
     pub total_ticks_in_task_launch: monad_async_cpu_ticks_count_t,
@@ -490,8 +493,8 @@ pub struct monad_async_file_head {
 #[doc = "! \\brief The public attributes of an open file"]
 pub type monad_async_file = *mut monad_async_file_head;
 extern "C" {
-    #[doc = " \\brief EXPENSIVE Suspend execution of the task until the file has been"]
-    #[doc = "opened. See `man open2` to explain parameters."]
+    #[doc = " \\brief EXPENSIVE, CANCELLATION POINT Suspend execution of the task until the"]
+    #[doc = "file has been opened. See `man open2` to explain parameters."]
     #[doc = ""]
     #[doc = "This is a relatively expensive operation as it may do up to two mallocs and"]
     #[doc = "several syscalls per call."]
@@ -511,8 +514,9 @@ extern "C" {
     ) -> monad_async_result;
 }
 extern "C" {
-    #[doc = "! \\brief Suspend execution of the task until the file's valid extents have"]
-    #[doc = "! been modified as per the `fallocate` call, see `man fallocate` for more."]
+    #[doc = "! \\brief CANCELLATION POINT Suspend execution of the task until the file's"]
+    #[doc = "! valid extents have been modified as per the `fallocate` call, see `man"]
+    #[doc = "! fallocate` for more."]
     pub fn monad_async_task_file_fallocate(
         task: monad_async_task,
         file: monad_async_file,

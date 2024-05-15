@@ -23,11 +23,13 @@ typedef struct monad_async_executor_head
     std::atomic<monad_async_task> current_task;
     std::atomic_size_t tasks_pending_launch;
     std::atomic_size_t tasks_running;
+    std::atomic_size_t tasks_suspended_sqe_exhaustion;
     std::atomic_size_t tasks_suspended;
 #else
     _Atomic monad_async_task current_task;
     atomic_size_t tasks_pending_launch;
     atomic_size_t tasks_running;
+    atomic_size_t tasks_suspended_sqe_exhaustion;
     atomic_size_t tasks_suspended;
 #endif
     monad_async_cpu_ticks_count_t total_ticks_in_run;

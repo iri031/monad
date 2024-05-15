@@ -293,13 +293,18 @@ static monad_async_result mytask(monad_async_task task)
 
 - Rename `monad_async_*` to `monad_executor_io_*`.
 - Rename `monad_fiber_*` to `monad_executor_compute_*`?
-- Need to test cancellation works
+- Need to test cancellation works at every possible lifecycle and suspend state
+a task can have.
 - A test should make 1 billion tasks to prove it works without issue
 and scales without issue.
 - SQE submission queue overflow not handled yet.
     - Needs yet to be written "resumption queue" facility which lets
 you suspend tasks into a specific queue which can then be resumed
 based on some condition e.g. there are now SQE entries free.
+- Really do need a Rust unit test written. I keep assuming the bindings
+will work, but without a test we don't know for sure. Also Rust probably
+could do with some helper traits to wrap the async and awaitables and manage
+the C object lifetimes automatically.
 - Rust's bindgen does not generate Rust atomics from C atomics, which
 is rather irritating. https://github.com/rust-lang/rust-bindgen/issues/2151
 is the issue tracker for it, looks like somebody just needs to go implement

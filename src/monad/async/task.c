@@ -109,12 +109,12 @@ static monad_async_result monad_fiber_task_from_async_task_compute_resume_impl(
             (void *)task);
         fflush(stdout);
 #endif
-        if (task->fiber_task_after_suspend != nullptr) {
-            monad_async_result (*fiber_task_after_suspend)(
+        if (task->call_after_suspend_to_executor != nullptr) {
+            monad_async_result (*call_after_suspend_to_executor)(
                 struct monad_async_task_impl *task) =
-                task->fiber_task_after_suspend;
-            task->fiber_task_after_suspend = nullptr;
-            return fiber_task_after_suspend(task);
+                task->call_after_suspend_to_executor;
+            task->call_after_suspend_to_executor = nullptr;
+            return call_after_suspend_to_executor(task);
         }
         return monad_async_make_success(0);
     }
@@ -185,22 +185,22 @@ monad_async_task monad_async_task_from_fiber_task(struct monad_fiber_task *task)
 
 //
 
-struct monad_fiber_resume_on_io_executor_fiber_task_after_suspend_data
+struct monad_fiber_resume_on_io_executor_call_after_suspend_to_executor_data
 {
     monad_async_executor executor;
     monad_async_context_switcher opt_reparent_switcher;
 };
 
 static monad_async_result
-monad_fiber_resume_on_io_executor_fiber_task_after_suspend(
+monad_fiber_resume_on_io_executor_call_after_suspend_to_executor(
     struct monad_async_task_impl *task)
 {
     // We are currently running on the compute executor
-    struct monad_fiber_resume_on_io_executor_fiber_task_after_suspend_data
+    struct monad_fiber_resume_on_io_executor_call_after_suspend_to_executor_data
         *data =
             (struct
-             monad_fiber_resume_on_io_executor_fiber_task_after_suspend_data *)
-                task->fiber_task_after_suspend_data;
+             monad_fiber_resume_on_io_executor_call_after_suspend_to_executor_data
+                 *)task->call_after_suspend_to_executor_data;
 #if MONAD_ASYNC_FIBER_PRINTING
     printf(
         "*** %d: monad fiber task attaches task %p to native executor %p.\n",
@@ -251,13 +251,13 @@ monad_async_result monad_fiber_resume_on_io_executor(
         (void *)executor);
     fflush(stdout);
 #endif
-    struct monad_fiber_resume_on_io_executor_fiber_task_after_suspend_data
+    struct monad_fiber_resume_on_io_executor_call_after_suspend_to_executor_data
         data = {
             .executor = executor,
             .opt_reparent_switcher = opt_reparent_switcher};
-    task->fiber_task_after_suspend_data = &data;
-    task->fiber_task_after_suspend =
-        monad_fiber_resume_on_io_executor_fiber_task_after_suspend;
+    task->call_after_suspend_to_executor_data = &data;
+    task->call_after_suspend_to_executor =
+        monad_fiber_resume_on_io_executor_call_after_suspend_to_executor;
     task->head.ticks_when_suspended_awaiting =
         get_ticks_count(memory_order_relaxed);
     atomic_load_explicit(&task->context->switcher, memory_order_acquire)
@@ -278,7 +278,8 @@ monad_async_result monad_fiber_resume_on_io_executor(
 
 //
 
-struct monad_fiber_resume_on_compute_executor_fiber_task_after_suspend_data
+struct
+    monad_fiber_resume_on_compute_executor_call_after_suspend_to_executor_data
 {
     struct monad_fiber_scheduler *scheduler;
     int64_t priority;
@@ -286,15 +287,15 @@ struct monad_fiber_resume_on_compute_executor_fiber_task_after_suspend_data
 };
 
 static monad_async_result
-monad_fiber_resume_on_compute_executor_fiber_task_after_suspend(
+monad_fiber_resume_on_compute_executor_call_after_suspend_to_executor(
     struct monad_async_task_impl *task)
 {
     // We are currently running in the i/o executor run loop
-    struct monad_fiber_resume_on_compute_executor_fiber_task_after_suspend_data
+    struct monad_fiber_resume_on_compute_executor_call_after_suspend_to_executor_data
         *data =
             (struct
-             monad_fiber_resume_on_compute_executor_fiber_task_after_suspend_data
-                 *)task->fiber_task_after_suspend_data;
+             monad_fiber_resume_on_compute_executor_call_after_suspend_to_executor_data
+                 *)task->call_after_suspend_to_executor_data;
 #if MONAD_ASYNC_FIBER_PRINTING
     printf(
         "*** %d: monad fiber task post task %p to foreign executor %p.\n",
@@ -330,14 +331,15 @@ monad_async_result monad_fiber_resume_on_compute_executor(
     // true
     atomic_store_explicit(
         &task->head.is_running_on_foreign_executor, true, memory_order_release);
-    struct monad_fiber_resume_on_compute_executor_fiber_task_after_suspend_data
-        data = {
-            .scheduler = scheduler,
-            .priority = priority,
-            .opt_reparent_switcher = opt_reparent_switcher};
-    task->fiber_task_after_suspend_data = &data;
-    task->fiber_task_after_suspend =
-        monad_fiber_resume_on_compute_executor_fiber_task_after_suspend;
+    struct
+        monad_fiber_resume_on_compute_executor_call_after_suspend_to_executor_data
+            data = {
+                .scheduler = scheduler,
+                .priority = priority,
+                .opt_reparent_switcher = opt_reparent_switcher};
+    task->call_after_suspend_to_executor_data = &data;
+    task->call_after_suspend_to_executor =
+        monad_fiber_resume_on_compute_executor_call_after_suspend_to_executor;
     task->head.ticks_when_suspended_awaiting =
         get_ticks_count(memory_order_relaxed);
     atomic_load_explicit(&task->context->switcher, memory_order_acquire)

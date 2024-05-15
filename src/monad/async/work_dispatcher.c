@@ -15,6 +15,8 @@ struct monad_async_work_dispatcher_executor_impl
     struct timespec last_work_executed;
 };
 
+LIST_DECLARE_N(struct monad_async_work_dispatcher_executor_impl);
+
 struct monad_async_work_dispatcher_impl
 {
     struct monad_async_work_dispatcher_head head;

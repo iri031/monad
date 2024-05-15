@@ -82,7 +82,8 @@ struct monad_async_task_head
     _Atomic monad_async_executor current_executor;
 #endif
         atomic_bool is_awaiting_dispatch,
-        is_pending_launch, is_running, is_suspended_awaiting,
+        is_pending_launch, is_running, is_suspended_sqe_exhaustion,
+        is_suspended_sqe_exhaustion_wr, is_suspended_awaiting,
         is_suspended_completed, is_running_on_foreign_executor;
 
     monad_async_priority pending_launch_queue_;
@@ -194,16 +195,16 @@ MONAD_ASYNC_NODISCARD extern monad_async_io_status *
 monad_async_task_completed_io(
     monad_async_task task); // implemented in executor.c
 
-//! \brief Suspend execution of a task for a given duration, which can be zero
-//! (which equates "yield"). If `completed` is not null, if any i/o which the
-//! task has initiated completes during the suspension, resume the task setting
-//! `completed` to which i/o has just completed.
+//! \brief CANCELLATION POINT Suspend execution of a task for a given duration,
+//! which can be zero (which equates "yield"). If `completed` is not null, if
+//! any i/o which the task has initiated completes during the suspension, resume
+//! the task setting `completed` to which i/o has just completed.
 MONAD_ASYNC_NODISCARD extern monad_async_result
 monad_async_task_suspend_for_duration(
     monad_async_io_status **completed, monad_async_task task,
     uint64_t ns); // implemented in executor.c
 
-//! \brief Combines `monad_async_task_completed_io()` and
+//! \brief CANCELLATION POINT Combines `monad_async_task_completed_io()` and
 //! `monad_async_task_suspend_for_duration()` to conveniently reap completed
 //! i/o, suspending the task until more i/o completes. Returns zero when no more
 //! i/o, otherwise returns i/o completed not reaped including i/o
