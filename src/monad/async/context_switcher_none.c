@@ -8,6 +8,9 @@ extern void monad_async_executor_task_detach(monad_async_task task);
 #include <stdio.h>
 #include <threads.h>
 
+monad_async_context_switcher_impl const monad_async_context_switcher_none = {
+    .create = monad_async_context_switcher_none_create};
+
 MONAD_ASYNC_NODISCARD static inline monad_async_result
 monad_async_context_none_create(
     monad_async_context *context, monad_async_context_switcher switcher,

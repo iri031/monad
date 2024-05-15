@@ -18,6 +18,9 @@ extern void monad_async_executor_task_detach(monad_async_task task);
 
 #include <monad/fiber/context.h>
 
+monad_async_context_switcher_impl const monad_async_context_switcher_fiber = {
+    .create = monad_async_context_switcher_fiber_create};
+
 MONAD_ASYNC_NODISCARD static inline monad_async_result
 monad_async_context_fiber_create(
     monad_async_context *context, monad_async_context_switcher switcher,

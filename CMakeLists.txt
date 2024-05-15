@@ -55,10 +55,12 @@ if(BINDGEN_PROGRAM)
     "${CMAKE_SOURCE_DIR}/include/monad/async/all.h"
     --allowlist-function "monad_async.*"
     --allowlist-type "monad_async.*"
+    --allowlist-var "monad_async.*"
     --generate-inline-functions
     --no-layout-tests
     --no-derive-copy
     --with-derive-default
+#    --must-use-type cxx_result_status_code_system_monad_async
     DEPENDS ${monad_async_INCLUDES}
   )
   add_custom_command(OUTPUT "${CMAKE_SOURCE_DIR}/rust/fiber.rs"
@@ -66,10 +68,12 @@ if(BINDGEN_PROGRAM)
     "${CMAKE_SOURCE_DIR}/include/monad/fiber/all.h"
     --allowlist-function "monad_fiber.*"
     --allowlist-type "monad_fiber.*"
+    --allowlist-var "monad_fiber.*"
     --generate-inline-functions
     --no-layout-tests
     --no-derive-copy
     --with-derive-default
+#    --must-use-type cxx_result_status_code_system_monad_async
     DEPENDS "${CMAKE_SOURCE_DIR}/include/monad/fiber/all.h"
   )
   add_custom_target(monad_async_regenerate_rust_bindings DEPENDS "${CMAKE_SOURCE_DIR}/rust/async.rs" "${CMAKE_SOURCE_DIR}/rust/fiber.rs")
@@ -92,11 +96,12 @@ if(RUSTC_PROGRAM AND NOT CMAKE_C_FLAGS_INIT MATCHES "fsanitize=")
     -l stdc++
     -l uring
     DEPENDS
+      "${CMAKE_SOURCE_DIR}/rust/async_with_rust_helpers.rs"
       "${CMAKE_SOURCE_DIR}/rust/test.rs"
       "${CMAKE_SOURCE_DIR}/rust/async.rs"
       "${CMAKE_SOURCE_DIR}/rust/fiber.rs"
   )
   add_custom_target(monad_async_rust_tests ALL DEPENDS "${CMAKE_BINARY_DIR}/test/rust_tests")
   add_dependencies(monad_async_rust_tests monad_async monad_fiber)
-  add_test(NAME monad_async_rust_tests COMMAND "${CMAKE_BINARY_DIR}/test/rust_tests")
+  add_test(NAME monad_async_rust_tests COMMAND "${CMAKE_BINARY_DIR}/test/rust_tests" --nocapture)
 endif()

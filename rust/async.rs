@@ -192,6 +192,11 @@ extern "C" {
     ) -> monad_async_result;
 }
 extern "C" {
+    #[doc = "! \\brief Convenience struct for setting a `setjmp`/`longjmp` based context"]
+    #[doc = "! switcher"]
+    pub static monad_async_context_switcher_sjlj: monad_async_context_switcher_impl;
+}
+extern "C" {
     #[doc = " \\brief Creates a none context switcher which can't suspend-resume. Useful"]
     #[doc = "for threadpool implementation."]
     #[doc = ""]
@@ -204,6 +209,11 @@ extern "C" {
     ) -> monad_async_result;
 }
 extern "C" {
+    #[doc = "! \\brief Convenience struct for setting a none context"]
+    #[doc = "! switcher"]
+    pub static monad_async_context_switcher_none: monad_async_context_switcher_impl;
+}
+extern "C" {
     #[doc = "! \\brief Convenience obtainer of the static none context switcher."]
     pub fn monad_async_context_switcher_none_instance() -> monad_async_context_switcher;
 }
@@ -212,6 +222,10 @@ extern "C" {
     pub fn monad_async_context_switcher_fiber_create(
         switcher: *mut monad_async_context_switcher,
     ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief Convenience struct for setting a Monad Fiber context switcher"]
+    pub static monad_async_context_switcher_fiber: monad_async_context_switcher_impl;
 }
 #[repr(C)]
 #[derive(Debug)]

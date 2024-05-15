@@ -2,7 +2,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-include!{"rust_helpers.rs"}
+include!{"async_with_rust_helpers.rs"}
 
 #[cfg(test)]
 mod tests {
@@ -13,10 +13,11 @@ mod tests {
     {
       let mut ex_attr = monad_async_executor_attr{..Default::default()};
       ex_attr.io_uring_ring.entries = 64;
-      let mut ex : monad_async_executor = std::ptr::null_mut();
-      unsafe { monad_async_executor_create(&mut ex, &mut ex_attr); }
+      let ex = monad_async_executor_ptr::new(&mut ex_attr).unwrap();
+      println!("ex = {:?}", ex);
+      println!("ex->tasks_running = {}", unsafe { (*ex.head).tasks_running });
 
-      let test = | _switcher: monad_async_context_switcher,
+      let test = | _switcher: &monad_async_context_switcher_ptr,
                    _desc: &str| {
 /*          static size_t n;
           monad_async_task_attr t_attr{};
@@ -134,8 +135,8 @@ mod tests {
           }
           */
       };
-      let switcher: monad_async_context_switcher = std::ptr::null_mut();
-      test(switcher, "setjmp/longjmp");
+      let switcher = unsafe { monad_async_context_switcher_ptr::new(&monad_async_context_switcher_sjlj).unwrap() };
+      test(&switcher, "setjmp/longjmp");
 /*      test(
           make_context_switcher(monad_async_context_switcher_sjlj).get(),
           "setjmp/longjmp");

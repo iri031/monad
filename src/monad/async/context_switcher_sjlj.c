@@ -10,7 +10,6 @@
 #include "monad/async/task.h"
 
 extern void monad_async_executor_task_detach(monad_async_task task);
-
 #include <assert.h>
 #include <errno.h>
 #include <setjmp.h>
@@ -29,6 +28,9 @@ extern void monad_async_executor_task_detach(monad_async_task task);
 #if MONAD_ASYNC_HAVE_TSAN
     #include <sanitizer/tsan_interface.h>
 #endif
+
+monad_async_context_switcher_impl const monad_async_context_switcher_sjlj = {
+    .create = monad_async_context_switcher_sjlj_create};
 
 MONAD_ASYNC_NODISCARD static inline monad_async_result
 monad_async_context_sjlj_create(

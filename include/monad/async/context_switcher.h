@@ -103,9 +103,8 @@ monad_async_context_switcher_sjlj_create(
     monad_async_context_switcher *switcher);
 //! \brief Convenience struct for setting a `setjmp`/`longjmp` based context
 //! switcher
-static monad_async_context_switcher_impl const
-    monad_async_context_switcher_sjlj = {
-        .create = monad_async_context_switcher_sjlj_create};
+extern monad_async_context_switcher_impl const
+    monad_async_context_switcher_sjlj;
 
 /*! \brief Creates a none context switcher which can't suspend-resume. Useful
 for threadpool implementation.
@@ -120,9 +119,8 @@ monad_async_context_switcher_none_create(
     monad_async_context_switcher *switcher);
 //! \brief Convenience struct for setting a none context
 //! switcher
-static monad_async_context_switcher_impl const
-    monad_async_context_switcher_none = {
-        .create = monad_async_context_switcher_none_create};
+extern monad_async_context_switcher_impl const
+    monad_async_context_switcher_none;
 //! \brief Convenience obtainer of the static none context switcher.
 extern monad_async_context_switcher
 monad_async_context_switcher_none_instance();
@@ -132,9 +130,8 @@ MONAD_ASYNC_NODISCARD extern monad_async_result
 monad_async_context_switcher_fiber_create(
     monad_async_context_switcher *switcher);
 //! \brief Convenience struct for setting a Monad Fiber context switcher
-static monad_async_context_switcher_impl const
-    monad_async_context_switcher_fiber = {
-        .create = monad_async_context_switcher_fiber_create};
+extern monad_async_context_switcher_impl const
+    monad_async_context_switcher_fiber;
 
 #ifdef __cplusplus
 }

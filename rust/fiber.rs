@@ -89,6 +89,7 @@ extern "C" {
         arg: *mut ::std::os::raw::c_void,
     ) -> *mut monad_fiber_context_t;
 }
+pub const monad_fiber_default_stack_size: size_t = 131072;
 extern "C" {
     pub fn monad_fiber_context_callcc(
         from: *mut monad_fiber_context_t,
