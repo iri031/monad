@@ -84,7 +84,7 @@ bool monad_fiber_channel_try_read(monad_fiber_channel_t * this, void * target)
 
     monad_fiber_t * current = monad_fiber_current();
 
-    const size_t my_priority = current->priority;
+    const int64_t my_priority = current->priority;
     if (op->fiber->priority > my_priority &&
         op->fiber->scheduler == current->scheduler)
     {
@@ -135,7 +135,7 @@ bool monad_fiber_channel_try_write(monad_fiber_channel_t * this, const void * so
     MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
 
     monad_fiber_t * current = monad_fiber_current();
-    const size_t my_priority = current->priority;
+    const int64_t my_priority = current->priority;
     if (op->fiber->priority > my_priority &&
         op->fiber->scheduler == current->scheduler)
     {
@@ -268,7 +268,7 @@ int monad_fiber_channel_write(monad_fiber_channel_t * this, const void * source)
     MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
 
     monad_fiber_t * current = monad_fiber_current();
-    const size_t my_priority = current->priority;
+    const int64_t my_priority = current->priority;
     if (op->fiber->priority > my_priority &&
         op->fiber->scheduler == current->scheduler)
     {
