@@ -7,6 +7,7 @@ option(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(GTest REQUIRED)
 find_package(Boost REQUIRED)
 find_program(BINDGEN_PROGRAM bindgen)
+find_program(RUSTC_PROGRAM rustc)
 
 add_subdirectory("third_party/boost-context")
 
@@ -49,15 +50,15 @@ target_include_directories(monad_async PUBLIC "include")
 target_link_libraries(monad_async PUBLIC uring Boost::boost monad_fiber)
 
 if(BINDGEN_PROGRAM)
-  make_directory("${CMAKE_SOURCE_DIR}/rust")
   add_custom_command(OUTPUT "${CMAKE_SOURCE_DIR}/rust/async.rs"
     COMMAND "${BINDGEN_PROGRAM}" -o "${CMAKE_SOURCE_DIR}/rust/async.rs"
     "${CMAKE_SOURCE_DIR}/include/monad/async/all.h"
     --allowlist-function "monad_async.*"
     --allowlist-type "monad_async.*"
-    --block-extern-crate
     --generate-inline-functions
     --no-layout-tests
+    --no-derive-copy
+    --with-derive-default
     DEPENDS ${monad_async_INCLUDES}
   )
   add_custom_command(OUTPUT "${CMAKE_SOURCE_DIR}/rust/fiber.rs"
@@ -65,9 +66,10 @@ if(BINDGEN_PROGRAM)
     "${CMAKE_SOURCE_DIR}/include/monad/fiber/all.h"
     --allowlist-function "monad_fiber.*"
     --allowlist-type "monad_fiber.*"
-    --block-extern-crate
     --generate-inline-functions
     --no-layout-tests
+    --no-derive-copy
+    --with-derive-default
     DEPENDS "${CMAKE_SOURCE_DIR}/include/monad/fiber/all.h"
   )
   add_custom_target(monad_async_regenerate_rust_bindings DEPENDS "${CMAKE_SOURCE_DIR}/rust/async.rs" "${CMAKE_SOURCE_DIR}/rust/fiber.rs")
@@ -80,3 +82,21 @@ endif()
 enable_testing()
 
 add_subdirectory("test")
+
+if(RUSTC_PROGRAM AND NOT CMAKE_C_FLAGS_INIT MATCHES "fsanitize=")
+  add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/test/rust_tests"
+    COMMAND "${RUSTC_PROGRAM}" --test -o "${CMAKE_BINARY_DIR}/test/rust_tests"
+    "${CMAKE_SOURCE_DIR}/rust/test.rs"
+    -L "$<TARGET_FILE_DIR:monad_async>"
+    -l $<TARGET_NAME:monad_async>
+    -l stdc++
+    -l uring
+    DEPENDS
+      "${CMAKE_SOURCE_DIR}/rust/test.rs"
+      "${CMAKE_SOURCE_DIR}/rust/async.rs"
+      "${CMAKE_SOURCE_DIR}/rust/fiber.rs"
+  )
+  add_custom_target(monad_async_rust_tests ALL DEPENDS "${CMAKE_BINARY_DIR}/test/rust_tests")
+  add_dependencies(monad_async_rust_tests monad_async monad_fiber)
+  add_test(NAME monad_async_rust_tests COMMAND "${CMAKE_BINARY_DIR}/test/rust_tests")
+endif()
