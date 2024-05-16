@@ -5,7 +5,7 @@ pub type __uint64_t = ::std::os::raw::c_ulong;
 pub type __time_t = ::std::os::raw::c_long;
 pub type __syscall_slong_t = ::std::os::raw::c_long;
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct cxx_status_code_system {
     pub domain: *mut ::std::os::raw::c_void,
     pub value: isize,
@@ -20,7 +20,7 @@ impl Default for cxx_status_code_system {
     }
 }
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct cxx_result_status_code_system_monad_async {
     pub value: isize,
     pub flags: ::std::os::raw::c_uint,
@@ -59,7 +59,7 @@ pub type atomic_bool = u8;
 pub type atomic_uint = u32;
 pub type atomic_size_t = u64;
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone)]
 pub struct timespec {
     pub tv_sec: __time_t,
     pub tv_nsec: __syscall_slong_t,
@@ -67,7 +67,7 @@ pub struct timespec {
 pub type monad_async_task = *mut monad_async_task_head;
 pub type monad_async_context = *mut monad_async_context_head;
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct monad_async_context_switcher_head {
     pub user_ptr: *mut ::std::os::raw::c_void,
     pub contexts: atomic_uint,
@@ -137,7 +137,7 @@ impl Default for monad_async_context_switcher_head {
 }
 pub type monad_async_context_switcher = *mut monad_async_context_switcher_head;
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone)]
 pub struct monad_async_context_switcher_impl {
     #[doc = "! \\brief Create a switcher of contexts. The"]
     #[doc = "! executor creates one of these per executor."]
@@ -146,7 +146,7 @@ pub struct monad_async_context_switcher_impl {
     >,
 }
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct monad_async_context_head {
     pub is_running: bool,
     pub is_suspended: bool,
@@ -154,7 +154,7 @@ pub struct monad_async_context_head {
     pub sanitizer: monad_async_context_head__bindgen_ty_1,
 }
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct monad_async_context_head__bindgen_ty_1 {
     pub fake_stack_save: *mut ::std::os::raw::c_void,
     pub bottom: *const ::std::os::raw::c_void,
@@ -228,7 +228,7 @@ extern "C" {
     pub static monad_async_context_switcher_fiber: monad_async_context_switcher_impl;
 }
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct iovec {
     pub iov_base: *mut ::std::os::raw::c_void,
     pub iov_len: size_t,
@@ -245,14 +245,14 @@ impl Default for iovec {
 pub type __u32 = ::std::os::raw::c_uint;
 pub type __u64 = ::std::os::raw::c_ulonglong;
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone)]
 pub struct open_how {
     pub flags: u64,
     pub mode: u64,
     pub resolve: u64,
 }
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone)]
 pub struct io_sqring_offsets {
     pub head: __u32,
     pub tail: __u32,
@@ -265,7 +265,7 @@ pub struct io_sqring_offsets {
     pub resv2: __u64,
 }
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone)]
 pub struct io_cqring_offsets {
     pub head: __u32,
     pub tail: __u32,
@@ -278,7 +278,7 @@ pub struct io_cqring_offsets {
     pub resv2: __u64,
 }
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone)]
 pub struct io_uring_params {
     pub sq_entries: __u32,
     pub cq_entries: __u32,
@@ -294,14 +294,14 @@ pub struct io_uring_params {
 #[doc = "! \\brief The public attributes of an executor"]
 pub type monad_async_executor = *mut monad_async_executor_head;
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct monad_fiber_task {
     _unused: [u8; 0],
 }
 #[doc = "! \\brief An i/o status state used to identify an i/o in progress. Must NOT"]
 #[doc = "! move in memory until the operation completes."]
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct monad_async_io_status {
     pub prev: *mut monad_async_io_status,
     pub next: *mut monad_async_io_status,
@@ -330,7 +330,7 @@ impl Default for monad_async_io_status {
 }
 #[doc = "! \\brief The public attributes of a task"]
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct monad_async_task_head {
     pub user_code: ::std::option::Option<
         unsafe extern "C" fn(arg1: *mut monad_async_task_head) -> monad_async_result,
@@ -359,7 +359,7 @@ pub struct monad_async_task_head {
     pub io_completed_not_reaped: size_t,
 }
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct monad_async_task_head__bindgen_ty_1 {
     pub cpu: monad_async_priority,
     pub io: monad_async_priority,
@@ -384,7 +384,7 @@ impl Default for monad_async_task_head {
 }
 #[doc = "! \\brief Attributes by which to construct a task"]
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone)]
 pub struct monad_async_task_attr {
     #[doc = "! \\brief 0 chooses platform default stack size"]
     pub stack_size: size_t,
@@ -469,7 +469,7 @@ extern "C" {
 }
 #[doc = "! \\brief The public attributes of an executor"]
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone)]
 pub struct monad_async_executor_head {
     pub current_task: u64,
     pub tasks_pending_launch: atomic_size_t,
@@ -484,13 +484,13 @@ pub struct monad_async_executor_head {
 }
 #[doc = "! \\brief Attributes by which to construct an executor"]
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone)]
 pub struct monad_async_executor_attr {
     pub io_uring_ring: monad_async_executor_attr__bindgen_ty_1,
     pub io_uring_wr_ring: monad_async_executor_attr__bindgen_ty_1,
 }
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone)]
 pub struct monad_async_executor_attr__bindgen_ty_1 {
     #[doc = "! \\brief If this is zero, this executor will be incapable of doing"]
     #[doc = "! i/o! It also no longer initialises io_uring for this executor."]
@@ -499,7 +499,7 @@ pub struct monad_async_executor_attr__bindgen_ty_1 {
     pub registered_buffers: monad_async_executor_attr__bindgen_ty_1__bindgen_ty_1,
 }
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone)]
 pub struct monad_async_executor_attr__bindgen_ty_1__bindgen_ty_1 {
     #[doc = "! \\brief How many small and large buffers to register."]
     pub small: ::std::os::raw::c_uint,
@@ -508,7 +508,7 @@ pub struct monad_async_executor_attr__bindgen_ty_1__bindgen_ty_1 {
 }
 #[doc = "! \\brief A registered i/o buffer"]
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct monad_async_executor_registered_io_buffer {
     pub index: ::std::os::raw::c_int,
     pub iov: [iovec; 1usize],
@@ -590,7 +590,7 @@ extern "C" {
 pub type monad_async_file_offset = u64;
 #[doc = "! \\brief The public attributes of an open file"]
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct monad_async_file_head {
     pub executor: monad_async_executor,
 }
@@ -728,13 +728,13 @@ extern "C" {
 }
 #[doc = "! \\brief The public attributes of a work dispatcher"]
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone)]
 pub struct monad_async_work_dispatcher_head {
     pub executors: monad_async_work_dispatcher_head__bindgen_ty_1,
     pub tasks_awaiting_dispatch: atomic_size_t,
 }
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone)]
 pub struct monad_async_work_dispatcher_head__bindgen_ty_1 {
     pub working: atomic_uint,
     pub idle: atomic_uint,
@@ -743,7 +743,7 @@ pub struct monad_async_work_dispatcher_head__bindgen_ty_1 {
 pub type monad_async_work_dispatcher = *mut monad_async_work_dispatcher_head;
 #[doc = "! \\brief The public attributes of a work dispatcher"]
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct monad_async_work_dispatcher_executor_head {
     pub derived: *mut monad_async_executor_head,
     pub dispatcher: monad_async_work_dispatcher,
@@ -763,7 +763,7 @@ impl Default for monad_async_work_dispatcher_executor_head {
 pub type monad_async_work_dispatcher_executor = *mut monad_async_work_dispatcher_executor_head;
 #[doc = "! \\brief Attributes by which to construct a work dispatcher"]
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone)]
 pub struct monad_async_work_dispatcher_attr {
     #[doc = "! Dispatcher executors should spin the CPU for this many milliseconds"]
     #[doc = "! before sleeping"]
@@ -771,7 +771,7 @@ pub struct monad_async_work_dispatcher_attr {
 }
 #[doc = "! \\brief Attributes by which to construct a work dispatcher"]
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone)]
 pub struct monad_async_work_dispatcher_executor_attr {
     pub derived: monad_async_executor_attr,
 }

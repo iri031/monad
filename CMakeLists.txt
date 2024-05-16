@@ -59,7 +59,7 @@ if(BINDGEN_PROGRAM)
     --allowlist-var "monad_async.*"
     --generate-inline-functions
     --no-layout-tests
-    --no-derive-copy
+    --no-copy "'(?!cxx_result_status_code_system_monad_async)'"
     --with-derive-default
 #    --must-use-type cxx_result_status_code_system_monad_async
     DEPENDS ${monad_async_INCLUDES}
@@ -72,7 +72,7 @@ if(BINDGEN_PROGRAM)
     --allowlist-var "monad_fiber.*"
     --generate-inline-functions
     --no-layout-tests
-    --no-derive-copy
+    --no-copy "'(?!cxx_result_status_code_system_monad_async)'"
     --with-derive-default
 #    --must-use-type cxx_result_status_code_system_monad_async
     DEPENDS "${CMAKE_SOURCE_DIR}/include/monad/fiber/all.h"
@@ -94,6 +94,9 @@ if(RUSTC_PROGRAM AND NOT CMAKE_C_FLAGS_INIT MATCHES "fsanitize=")
     "${CMAKE_SOURCE_DIR}/rust/test.rs"
     -L "$<TARGET_FILE_DIR:monad_async>"
     -l $<TARGET_NAME:monad_async>
+    -l $<TARGET_NAME:monad_fiber>
+    -L "$<TARGET_FILE_DIR:boost_context>"
+    -l $<TARGET_NAME:boost_context>
     -l stdc++
     -l uring
     DEPENDS
