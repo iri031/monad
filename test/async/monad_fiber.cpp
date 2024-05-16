@@ -8,6 +8,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <thread>
 
 #include <fcntl.h>
 #include <unistd.h>
