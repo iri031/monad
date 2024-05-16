@@ -59,6 +59,7 @@ monad_fiber_context_switch_with_impl(struct transfer_t fn)
     struct monad_fiber_context_switch_with_impl_t *tmp =
         (struct monad_fiber_context_switch_with_impl_t *)fn.data;
 
+    tmp->ctx->fiber = fn.fctx;
     monad_fiber_context_t *next = (*tmp->func)(tmp->ctx, tmp->data);
 
     fn.fctx = next->fiber;
@@ -85,7 +86,7 @@ monad_fiber_context_t *monad_fiber_context_switch_with(
 
     struct monad_fiber_context_switch_with_impl_t tmp = {
         .ctx = from, .func = func, .data = arg};
-
+    MONAD_DEBUG_ASSERT(fiber != NULL);
     struct transfer_t t =
         ontop_fcontext(fiber, &tmp, &monad_fiber_context_switch_with_impl);
     // in a chain of resumptions t.fctx might point to another coro!
@@ -111,20 +112,12 @@ monad_fiber_context_t *monad_fiber_context_switch_with(
     return resumed_from;
 }
 
-static _Thread_local monad_fiber_context_t main_context = {
-    .fiber = NULL,
-#if defined(MONAD_USE_TSAN)
-    .tsan_fiber = NULL,
-#endif
-#if defined(MONAD_USE_ASAN)
-    .asan = {.fake_stack = NULL, .stack_bottom = NULL, .stack_size = 0u}
-#endif
-};
+extern thread_local monad_fiber_context_t monad_fiber_main_context_;
+
 
 monad_fiber_context_t *monad_fiber_main_context()
 {
-
-   return &main_context;
+   return &monad_fiber_main_context_;
 }
 
 typedef struct monad_fiber
@@ -223,6 +216,7 @@ static void __attribute__((noinline)) monad_fiber_impl(struct transfer_t t)
     }
 
     struct destroyer d = {.this = call.fiber, .to = to};
+    MONAD_DEBUG_ASSERT(to->fiber != NULL);
     ontop_fcontext(
         to->fiber,
         &d,
@@ -329,6 +323,6 @@ monad_fiber_context_t *monad_fiber_context_callcc(
 
 void monad_fiber_set_name(monad_fiber_context_t *this, char const *name)
 {
-    this->name = malloc(strlen(name) + 1);
+    this->name = realloc((void*)this->name, strlen(name) + 1);
     strcpy((char *)this->name, name);
 }

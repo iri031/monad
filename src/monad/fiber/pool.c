@@ -95,7 +95,7 @@ void monad_fiber_pool_create  (monad_fiber_pool_t * this, size_t fibers)
     f->fiber.task.destroy = monad_fiber_pool_impl_destroy;
     f->fiber.scheduler = monad_fiber_scheduler_current();
     f->fiber.context= monad_fiber_context_callcc(
-                  monad_fiber_main_context(),
+                  monad_fiber_main()->context,
                   true,
                   monad_fiber_default_stack_size,
                   &monad_fiber_pool_impl,
@@ -115,7 +115,7 @@ void monad_fiber_pool_destroy (monad_fiber_pool_t * this)
   {
     monad_fiber_pooled_t * fiber = &this->fibers_data[i];
     monad_fiber_context_switch_with(
-        monad_fiber_main_context(), // replace with current!
+        monad_fiber_main()->context, // replace with current!
         fiber->fiber.context,
         &monad_fiber_pool_destroy_destroy_fiber,
         fiber);

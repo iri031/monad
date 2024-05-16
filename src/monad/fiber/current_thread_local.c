@@ -11,19 +11,6 @@ static void _main_fiber_destroy(struct monad_fiber_task *const this)
   pthread_exit(NULL);
 }
 
-thread_local monad_fiber_context_t  monad_fiber_main_fiber_context_ =
-{
-  .fiber=NULL,
-#if defined(MONAD_USE_TSAN)
-  .tsan_fiber = NULL,
-#endif
-#if defined(MONAD_USE_ASAN)
-  .asan = {NULL, NULL, 0ull},
-  .asan_to_finish=NULL,
-#endif
-  NULL
-};
-
 thread_local monad_fiber_t monad_fiber_main_fiber_ = {
     .task = {.resume = &_main_fiber_resume, .destroy = &_main_fiber_destroy},
     .context = NULL,

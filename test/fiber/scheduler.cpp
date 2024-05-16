@@ -91,7 +91,7 @@ struct snapshots_4
         return ; // no overflow plz
       // 0 -> 2^0, 1 -> 2^16
       const auto offset =  1ull << (id * 16ull);
-      const auto ptr = db.pointer.fetch_add(offset);
+      const auto ptr = db.pointer.fetch_add(offset, std::memory_order_acq_rel);
       const auto idx = (ptr >> (id * 16ull)) & 0xFFFFull;
 
       if (idx == 0xFFFFu)
@@ -230,7 +230,7 @@ TEST(scheduler, post_dispatch_ordered)
   EXPECT_TRUE(ran);
 }
 
-TEST(scheduler, DISABLED_post_dispatch_prioritized)
+TEST(scheduler, post_dispatch_prioritized)
 {
   bool ran = false, ran2;
 
@@ -305,7 +305,7 @@ void check_sorted(snapshots_4 & ss)
         const auto idx = (std::prev(itr)->second >> (j * 16ull)) & 0xFFFFull;
 
         // idx points to the current, so we need to decrement it as well.
-        if (idx <  2)
+        if (idx <  2 || idx == 65535)
           continue;
         EXPECT_LE(ss.state[j][idx - 1].first, priority) // 32 is
                                                             << " of thread " << i << " at pos " << std::distance(begin, itr)

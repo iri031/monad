@@ -16,7 +16,7 @@ void fiber_impl(struct transfer_t t)
     fiber_state++;
 
     //  jump_fcontext(t.fctx, &fiber_state - 2);
-
+    assert(t.fctx != NULL);
     // unwind the fcontext
     ontop_fcontext(
         t.fctx, nullptr, +[](struct transfer_t) -> struct transfer_t {
