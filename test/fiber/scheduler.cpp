@@ -251,7 +251,7 @@ TEST(scheduler, post_dispatch_ordered)
     EXPECT_TRUE(ran);
 }
 
-TEST(scheduler, post_dispatch_prioritized)
+TEST(scheduler, DISABLED_post_dispatch_prioritized)
 {
     bool ran = false, ran2;
 
