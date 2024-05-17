@@ -74,12 +74,13 @@ $(function() {
 <div class="line"><a name="l00003"></a><span class="lineno">    3</span>&#160;<span class="preprocessor">#include &lt;<a class="code" href="assert_8h.html">assert.h</a>&gt;</span></div>
 <div class="line"><a name="l00004"></a><span class="lineno">    4</span>&#160; </div>
 <div class="line"><a name="l00005"></a><span class="lineno"><a class="line" href="assert_8h.html#a0fa67abeaf73f38a7187d9292417f2c7">    5</a></span>&#160;<span class="preprocessor">#define MONAD_ASSERT(Expression) assert(Expression)</span></div>
-<div class="line"><a name="l00006"></a><span class="lineno"><a class="line" href="assert_8h.html#aa6ba8372485339f1396e766b96f83db2">    6</a></span>&#160;<span class="preprocessor">#define MONAD_CCALL_ASSERT(Expression)                                         \</span></div>
-<div class="line"><a name="l00007"></a><span class="lineno">    7</span>&#160;<span class="preprocessor">    {                                                                          \</span></div>
-<div class="line"><a name="l00008"></a><span class="lineno">    8</span>&#160;<span class="preprocessor">        int _return_value_ = Expression;                                       \</span></div>
-<div class="line"><a name="l00009"></a><span class="lineno">    9</span>&#160;<span class="preprocessor">        (void)_return_value_;                                                  \</span></div>
-<div class="line"><a name="l00010"></a><span class="lineno">   10</span>&#160;<span class="preprocessor">        MONAD_ASSERT(!_return_value_);                                         \</span></div>
-<div class="line"><a name="l00011"></a><span class="lineno">   11</span>&#160;<span class="preprocessor">    }</span></div>
+<div class="line"><a name="l00006"></a><span class="lineno"><a class="line" href="assert_8h.html#a9289c8df007873700503cd7bb261e551">    6</a></span>&#160;<span class="preprocessor">#define MONAD_DEBUG_ASSERT(Expression) assert(Expression)</span></div>
+<div class="line"><a name="l00007"></a><span class="lineno"><a class="line" href="assert_8h.html#aa6ba8372485339f1396e766b96f83db2">    7</a></span>&#160;<span class="preprocessor">#define MONAD_CCALL_ASSERT(Expression)                                         \</span></div>
+<div class="line"><a name="l00008"></a><span class="lineno">    8</span>&#160;<span class="preprocessor">    {                                                                          \</span></div>
+<div class="line"><a name="l00009"></a><span class="lineno">    9</span>&#160;<span class="preprocessor">        int _return_value_ = Expression;                                       \</span></div>
+<div class="line"><a name="l00010"></a><span class="lineno">   10</span>&#160;<span class="preprocessor">        (void)_return_value_;                                                  \</span></div>
+<div class="line"><a name="l00011"></a><span class="lineno">   11</span>&#160;<span class="preprocessor">        MONAD_ASSERT(!_return_value_);                                         \</span></div>
+<div class="line"><a name="l00012"></a><span class="lineno">   12</span>&#160;<span class="preprocessor">    }</span></div>
 <div class="ttc" id="aassert_8h_html"><div class="ttname"><a href="assert_8h.html">assert.h</a></div></div>
 </div><!-- fragment --></div><!-- contents -->
 <!-- start footer part -->

@@ -16,5 +16,7 @@ var searchData=
   ['is_5fsuspended_75',['is_suspended',['../structmonad__async__context__head.html#a5419865338d032e5c6ce94ef5dd55dd3',1,'monad_async_context_head']]],
   ['is_5fsuspended_5fawaiting_76',['is_suspended_awaiting',['../structmonad__async__task__head.html#a2f3bef5ff59a0ca83d701543514f0879',1,'monad_async_task_head']]],
   ['is_5fsuspended_5fcompleted_77',['is_suspended_completed',['../structmonad__async__task__head.html#af5e33c8176f70e80d1dad022f9c10720',1,'monad_async_task_head']]],
-  ['is_5fworking_78',['is_working',['../structmonad__async__work__dispatcher__executor__head.html#a6f50bf60eb37014a3cf32f3db04f7cdc',1,'monad_async_work_dispatcher_executor_head']]]
+  ['is_5fsuspended_5fsqe_5fexhaustion_78',['is_suspended_sqe_exhaustion',['../structmonad__async__task__head.html#aaa88038444cf4f0c3c9565d1473adbaa',1,'monad_async_task_head']]],
+  ['is_5fsuspended_5fsqe_5fexhaustion_5fwr_79',['is_suspended_sqe_exhaustion_wr',['../structmonad__async__task__head.html#a24a05321c761644dd7937c76f0bdb076',1,'monad_async_task_head']]],
+  ['is_5fworking_80',['is_working',['../structmonad__async__work__dispatcher__executor__head.html#a6f50bf60eb37014a3cf32f3db04f7cdc',1,'monad_async_work_dispatcher_executor_head']]]
 ];
