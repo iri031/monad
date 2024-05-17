@@ -46,6 +46,8 @@ static inline bool monad_async_executor_has_work(monad_async_executor ex)
     return ex->current_task.load(std::memory_order_acquire) != nullptr ||
            ex->tasks_pending_launch.load(std::memory_order_acquire) > 0 ||
            ex->tasks_running.load(std::memory_order_acquire) > 0 ||
+           ex->tasks_suspended_sqe_exhaustion.load(std::memory_order_acquire) >
+               0 ||
            ex->tasks_suspended.load(std::memory_order_acquire) > 0;
 #else
     return atomic_load_explicit(&ex->current_task, memory_order_acquire) !=
@@ -53,6 +55,8 @@ static inline bool monad_async_executor_has_work(monad_async_executor ex)
            atomic_load_explicit(
                &ex->tasks_pending_launch, memory_order_acquire) > 0 ||
            atomic_load_explicit(&ex->tasks_running, memory_order_acquire) > 0 ||
+           atomic_load_explicit(
+               &ex->tasks_suspended_sqe_exhaustion, memory_order_acquire) > 0 ||
            atomic_load_explicit(&ex->tasks_suspended, memory_order_acquire) > 0;
 #endif
 }

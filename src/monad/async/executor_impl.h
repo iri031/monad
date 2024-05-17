@@ -1,5 +1,7 @@
 #pragma once
 
+// #define MONAD_ASYNC_EXECUTOR_PRINTING 1
+
 #include "task_impl.h"
 
 #include <assert.h>
@@ -520,17 +522,12 @@ static inline struct io_uring_sqe *get_sqe_suspending_if_necessary_impl(
             "*** Executor %p suspends task %p due to SQE exhaustion\n",
             (void *)ex,
             (void *)task);
+        fflush(stdout);
 #endif
         atomic_load_explicit(&task->context->switcher, memory_order_acquire)
             ->suspend_and_call_resume(
                 task->context,
                 (newtask != nullptr) ? newtask->context : nullptr);
-#if MONAD_ASYNC_EXECUTOR_PRINTING
-        printf(
-            "*** Executor %p resumes task %p from SQE exhaustion\n",
-            (void *)ex,
-            (void *)task);
-#endif
         task->head.ticks_when_resumed = get_ticks_count(memory_order_relaxed);
         assert(atomic_load_explicit(wait_list_task_flag, memory_order_acquire));
         atomic_store_explicit(wait_list_task_flag, false, memory_order_release);
@@ -556,7 +553,18 @@ static inline struct io_uring_sqe *get_sqe_suspending_if_necessary_impl(
         // The SQE will have already been fetched by the code resuming us, so we
         // just need to "peek" the current SQE
         struct io_uring_sq *sq = &ring->sq;
-        sqe = &sq->sqes[sq->sqe_tail & *sq->kring_mask];
+        sqe = &sq->sqes[(sq->sqe_tail - 1) & *sq->kring_mask];
+#if MONAD_ASYNC_EXECUTOR_PRINTING
+        printf(
+            "*** Executor %p resumes task %p from SQE exhaustion. sqe=%p. "
+            "is_cancellation_point=%d. please_cancel_invoked=%d\n",
+            (void *)ex,
+            (void *)task,
+            (void *)sqe,
+            is_cancellation_point,
+            task->please_cancel_invoked);
+        fflush(stdout);
+#endif
         if (is_cancellation_point && task->please_cancel_invoked) {
             // We need to "throw away" this SQE, as the task has been cancelled
             // We do this by setting the SQE to a noop with

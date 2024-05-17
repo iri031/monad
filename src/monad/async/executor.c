@@ -4,8 +4,6 @@
 
 #include "monad/async/task.h"
 
-// #define MONAD_ASYNC_EXECUTOR_PRINTING 1
-
 #include "executor_impl.h"
 
 #include <stdatomic.h>
@@ -100,7 +98,7 @@ exit:
 struct resume_tasks_state
 {
     struct monad_async_executor_impl *ex;
-    size_t const *max_items;
+    size_t const *global_max_items, local_max_items;
     struct list_define_p_monad_async_task_impl_t *wait_list;
 
     size_t items;
@@ -113,15 +111,18 @@ static inline monad_async_result monad_async_executor_impl_resume_tasks(
     struct resume_tasks_state *state = (struct resume_tasks_state *)user_ptr;
     for (; state->current_priority < monad_async_priority_max;
          state->current_priority++) {
-        while (state->wait_list[state->current_priority].count > 0) {
-            if (++state->items > *state->max_items) {
+        struct list_define_p_monad_async_task_impl_t *wait_list =
+            &state->wait_list[state->current_priority];
+        while (wait_list->count > 0) {
+            if (state->items >= *state->global_max_items ||
+                state->items >= state->local_max_items) {
                 goto exit;
             }
+            ++state->items;
             // Resume execution of the task. If it suspends on
             // another operation, or exits, the loop will resume
             // iterating above or return here
-            struct monad_async_task_impl *task =
-                state->wait_list[state->current_priority].front;
+            struct monad_async_task_impl *task = wait_list->front;
             atomic_load_explicit(&task->context->switcher, memory_order_acquire)
                 ->resume(fake_current_context, task->context);
         }
@@ -256,19 +257,36 @@ static inline monad_async_result monad_async_executor_run_impl(
                        io_uring_sq_space_left(&ex->wr_ring) > 0) {
                     struct resume_tasks_state resume_tasks_state = {
                         .ex = ex,
-                        .max_items = &max_items,
+                        .global_max_items = &max_items,
+                        .local_max_items = 1,
                         .wait_list = ex->tasks_suspended_submission_wr_ring};
                     for (; resume_tasks_state.current_priority <
                            monad_async_priority_max;
                          resume_tasks_state.current_priority++) {
                         if (ex->tasks_suspended_submission_wr_ring
-                                    [resume_tasks_state.current_priority]
-                                        .count > 0 &&
-                            io_uring_get_sqe(&ex->wr_ring) != nullptr) {
+                                [resume_tasks_state.current_priority]
+                                    .count > 0) {
+                            struct io_uring_sqe *sqe =
+                                io_uring_get_sqe(&ex->wr_ring);
+                            if (sqe == nullptr) {
+                                break;
+                            }
                             struct monad_async_task_impl *task =
                                 ex->tasks_suspended_submission_wr_ring
                                     [resume_tasks_state.current_priority]
                                         .front;
+#if MONAD_ASYNC_EXECUTOR_PRINTING
+                            printf(
+                                "*** Executor %p initiates resumption of "
+                                "task %p from write SQE exhaustion. "
+                                "sqe=%p. sqes=%u cqes=%u.\n",
+                                (void *)ex,
+                                (void *)task,
+                                (void *)sqe,
+                                io_uring_sq_ready(&ex->wr_ring),
+                                io_uring_cq_ready(&ex->wr_ring));
+                            fflush(stdout);
+#endif
                             monad_async_context_switcher task_switcher =
                                 atomic_load_explicit(
                                     &task->context->switcher,
@@ -279,6 +297,9 @@ static inline monad_async_result monad_async_executor_run_impl(
                                     task_switcher,
                                     monad_async_executor_impl_resume_tasks,
                                     &resume_tasks_state));
+                            if (resume_tasks_state.items > 0) {
+                                max_items--;
+                            }
                             break;
                         }
                     }
@@ -296,10 +317,72 @@ static inline monad_async_result monad_async_executor_run_impl(
                 ring = &ex->ring;
                 r = io_uring_peek_cqe(ring, &cqe);
                 if (0 != r) {
+                    while (max_items > 0 &&
+                           atomic_load_explicit(
+                               &ex->head.tasks_suspended_sqe_exhaustion,
+                               memory_order_acquire) > 0 &&
+                           io_uring_sq_space_left(&ex->ring) > 0) {
+                        struct resume_tasks_state resume_tasks_state = {
+                            .ex = ex,
+                            .global_max_items = &max_items,
+                            .local_max_items = 1,
+                            .wait_list = ex->tasks_suspended_submission_ring};
+                        for (; resume_tasks_state.current_priority <
+                               monad_async_priority_max;
+                             resume_tasks_state.current_priority++) {
+                            if (ex->tasks_suspended_submission_ring
+                                    [resume_tasks_state.current_priority]
+                                        .count > 0) {
+                                struct io_uring_sqe *sqe =
+                                    io_uring_get_sqe(&ex->ring);
+                                if (sqe == nullptr) {
+                                    break;
+                                }
+                                struct monad_async_task_impl *task =
+                                    ex->tasks_suspended_submission_ring
+                                        [resume_tasks_state.current_priority]
+                                            .front;
+#if MONAD_ASYNC_EXECUTOR_PRINTING
+                                printf(
+                                    "*** Executor %p initiates resumption of "
+                                    "task %p from non-write SQE exhaustion. "
+                                    "sqe=%p. sqes=%u cqes=%u.\n",
+                                    (void *)ex,
+                                    (void *)task,
+                                    (void *)sqe,
+                                    io_uring_sq_ready(&ex->ring),
+                                    io_uring_cq_ready(&ex->ring));
+                                fflush(stdout);
+#endif
+                                monad_async_context_switcher task_switcher =
+                                    atomic_load_explicit(
+                                        &task->context->switcher,
+                                        memory_order_acquire);
+                                MONAD_ASYNC_TRY_RESULT(
+                                    ,
+                                    task_switcher->resume_many(
+                                        task_switcher,
+                                        monad_async_executor_impl_resume_tasks,
+                                        &resume_tasks_state));
+                                if (resume_tasks_state.items > 0) {
+                                    max_items--;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    if (atomic_load_explicit(
+                            &ex->head.tasks_suspended_sqe_exhaustion,
+                            memory_order_acquire) > 0) {
+                        // SQEs should get consumed quite quickly, so don't
+                        // stall unblocking tasks waiting on SQEs
+                        timeout = &no_waiting;
+                    }
                     if (timeout == nullptr) {
 #if MONAD_ASYNC_EXECUTOR_PRINTING
                         printf(
-                            "*** Executor %p submits and waits forever due to "
+                            "*** Executor %p submits and waits forever due "
+                            "to "
                             "infinite timeout. sqes=%u cqes=%u\n",
                             (void *)ex,
                             io_uring_sq_ready(ring),
@@ -319,7 +402,8 @@ static inline monad_async_result monad_async_executor_run_impl(
                     else if (timeout->tv_sec == 0 && timeout->tv_nsec == 0) {
 #if MONAD_ASYNC_EXECUTOR_PRINTING
                         printf(
-                            "*** Executor %p submits and does not wait due to "
+                            "*** Executor %p submits and does not wait due "
+                            "to "
                             "zero "
                             "timeout. sqes=%u cqes=%u\n",
                             (void *)ex,
@@ -375,7 +459,8 @@ static inline monad_async_result monad_async_executor_run_impl(
             }
 #if MONAD_ASYNC_EXECUTOR_PRINTING
             printf(
-                "*** Executor %p sees cqe=%p from io_uring wait. wr_ring=%d. "
+                "*** Executor %p sees cqe=%p from io_uring wait. "
+                "wr_ring=%d. "
                 "sqes=%u "
                 "cqes=%u\n",
                 (void *)ex,
@@ -401,10 +486,13 @@ static inline monad_async_result monad_async_executor_run_impl(
                             memory_order_acquire)) {
 #if MONAD_ASYNC_EXECUTOR_PRINTING
                         printf(
-                            "*** %u. Executor %p resumes suspended task %p\n",
+                            "*** %u. Executor %p resumes suspended task "
+                            "%p (cpu priority=%d, i/o priority=%d)\n",
                             i,
                             (void *)ex,
-                            (void *)task);
+                            (void *)task,
+                            (int)task->head.priority.cpu,
+                            (int)task->head.priority.io);
 #endif
                         task->head.ticks_when_suspended_completed =
                             get_ticks_count(memory_order_relaxed);
@@ -444,13 +532,17 @@ static inline monad_async_result monad_async_executor_run_impl(
                     task = *(struct monad_async_task_impl **)&iostatus->result;
 #if MONAD_ASYNC_EXECUTOR_PRINTING
                     printf(
-                        "*** %u. Executor %p gets result of i/o %p initiated "
-                        "by task %p\n",
+                        "*** %u. Executor %p gets result of i/o %p "
+                        "initiated "
+                        "by task %p (cpu priority=%d, i/o priority=%d)\n",
                         i,
                         (void *)ex,
                         (void *)iostatus,
-                        (void *)task);
+                        (void *)task,
+                        (int)task->head.priority.cpu,
+                        (int)task->head.priority.io);
 #endif
+                    assert(task != nullptr);
                     LIST_REMOVE(
                         task->io_submitted, iostatus, &task->head.io_submitted);
                     LIST_APPEND(
@@ -480,15 +572,17 @@ static inline monad_async_result monad_async_executor_run_impl(
                     retry_after_this = true;
                 }
                 else if (magic == CANCELLED_OP_IO_URING_DATA_MAGIC) {
-                    /* Used when a SQE has been retrieved but the task has been
-                     * cancelled and the SQE needs to be filled with something,
-                     * which will be an io_uring noop with this magic. */
+                    /* Used when a SQE has been retrieved but the task has
+                     * been cancelled and the SQE needs to be filled with
+                     * something, which will be an io_uring noop with this
+                     * magic. */
                     retry_after_this = true;
                 }
             }
 #if MONAD_ASYNC_EXECUTOR_PRINTING
             printf(
-                "*** Executor %p has dequeued %u completions from io_uring\n",
+                "*** Executor %p has dequeued %u completions from "
+                "io_uring\n",
                 (void *)ex,
                 i);
 #endif
@@ -498,8 +592,8 @@ static inline monad_async_result monad_async_executor_run_impl(
             ex->head.total_ticks_in_io_uring += io_uring_end - io_uring_begin;
         }
         else {
-            // If io_uring was not enabled for this executor, use the eventfd as
-            // the synchronisation object
+            // If io_uring was not enabled for this executor, use the
+            // eventfd as the synchronisation object
             if (timeout == nullptr) {
 #if MONAD_ASYNC_EXECUTOR_PRINTING
                 printf(
@@ -586,7 +680,12 @@ static inline monad_async_result monad_async_executor_run_impl(
         }
         struct resume_tasks_state resume_tasks_state = {
             .ex = ex,
-            .max_items = &max_items,
+            .global_max_items = &max_items,
+            .local_max_items =
+                ex->tasks_suspended_completed[monad_async_priority_high].count +
+                ex->tasks_suspended_completed[monad_async_priority_normal]
+                    .count +
+                ex->tasks_suspended_completed[monad_async_priority_low].count,
             .wait_list = ex->tasks_suspended_completed};
         if (max_items > 0) {
             monad_async_cpu_ticks_count_t const completions_begin =
@@ -610,6 +709,12 @@ static inline monad_async_result monad_async_executor_run_impl(
                             task_switcher,
                             monad_async_executor_impl_resume_tasks,
                             &resume_tasks_state));
+                    if (resume_tasks_state.items >= max_items) {
+                        max_items = 0;
+                    }
+                    else {
+                        max_items -= resume_tasks_state.items;
+                    }
                     break;
                 }
             }
@@ -640,6 +745,7 @@ static inline monad_async_result monad_async_executor_run_impl(
             return monad_async_make_success((intptr_t)items_processed);
         }
     }
+
     while (retry_after_this);
     return (timed_out && timeout_ != nullptr) ? monad_async_make_failure(ETIME)
                                               : monad_async_make_success(0);
@@ -726,7 +832,12 @@ monad_async_result monad_async_executor_suspend_impl(
     atomic_load_explicit(&task->context->switcher, memory_order_acquire)
         ->suspend_and_call_resume(task->context, nullptr);
 #if MONAD_ASYNC_EXECUTOR_PRINTING
-    printf("*** Executor %p resumes task %p\n", (void *)ex, (void *)task);
+    printf(
+        "*** Executor %p resumes task %p (cpu priority=%d, i/o priority=%d)\n",
+        (void *)ex,
+        (void *)task,
+        (int)task->head.priority.cpu,
+        (int)task->head.priority.io);
 #endif
     task->head.ticks_when_resumed = get_ticks_count(memory_order_relaxed);
     assert(!atomic_load_explicit(
@@ -918,7 +1029,8 @@ monad_async_result monad_async_task_attach(
         if (opt_reparent_switcher->create != task_switcher->create) {
             fprintf(
                 stderr,
-                "FATAL: If reparenting context switcher, the new parent must "
+                "FATAL: If reparenting context switcher, the new parent "
+                "must "
                 "be the same type of context switcher.\n");
             abort();
         }

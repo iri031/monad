@@ -59,7 +59,7 @@ if(BINDGEN_PROGRAM)
     --allowlist-var "monad_async.*"
     --generate-inline-functions
     --no-layout-tests
-    --no-copy "'(?!cxx_result_status_code_system_monad_async)'"
+    --no-copy "monad_async.*"
     --with-derive-default
 #    --must-use-type cxx_result_status_code_system_monad_async
     DEPENDS ${monad_async_INCLUDES}
@@ -72,7 +72,7 @@ if(BINDGEN_PROGRAM)
     --allowlist-var "monad_fiber.*"
     --generate-inline-functions
     --no-layout-tests
-    --no-copy "'(?!cxx_result_status_code_system_monad_async)'"
+    --no-copy "monad_async.*"
     --with-derive-default
 #    --must-use-type cxx_result_status_code_system_monad_async
     DEPENDS "${CMAKE_SOURCE_DIR}/include/monad/fiber/all.h"

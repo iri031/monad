@@ -514,7 +514,7 @@ TEST(file_io, benchmark)
             to_result(monad_async_executor_claim_registered_io_buffer(
                           &buffer, task->current_executor, 1, false))
                 .value();
-            std::vector<monad_async_io_status> iostatus(64);
+            std::vector<monad_async_io_status> iostatus(128);
             uint32_t ops = 0;
 
             auto const begin = std::chrono::steady_clock::now();
