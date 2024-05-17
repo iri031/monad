@@ -36,6 +36,11 @@ monad_fiber_t *monad_fiber_main();
 void monad_fiber_await(
     void (*suspend_to)(monad_fiber_t * /*task */, void * /*arg*/), void *arg);
 
+monad_fiber_t * monad_fiber_create(
+    size_t stack_size, bool protected_stack,
+    void func(void*),
+    void * arg);
+
 #ifdef __cplusplus
 }
 #endif

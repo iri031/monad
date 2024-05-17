@@ -206,3 +206,80 @@ TEST(current, await_from_thread)
     monad_fiber_scheduler_work(&shed);
     EXPECT_TRUE(ran);
 }
+
+TEST(current, monad_fiber_create_noop)
+{
+  monad_fiber_init_main();
+  auto f = monad_fiber_create(
+      4096, true,
+      +[](void * ) {},
+      NULL);
+
+  EXPECT_EQ(f, nullptr);
+}
+
+TEST(current, monad_fiber_create_switch_once)
+{
+  monad_fiber_init_main();
+  int pos = 0;
+  auto f = monad_fiber_create(
+      4096, true,
+      +[](void * pos_ )
+      {
+          int & pos = *static_cast<int*>(pos_);
+          pos = 1;
+          monad_fiber_switch_to_main();
+          pos = 2;
+      },
+      &pos);
+
+  EXPECT_NE(f, nullptr);
+  EXPECT_EQ(pos, 1);
+
+  monad_fiber_switch_to_fiber(f);
+  EXPECT_EQ(pos, 2); // should be destroyed now
+  EXPECT_EQ(monad_fiber_main(), monad_fiber_current());
+}
+
+TEST(current, monad_fiber_create_destroy)
+{
+  monad_fiber_init_main();
+  int pos = 0;
+  auto f = monad_fiber_create(
+      4096, true,
+      +[](void * pos_ )
+      {
+        int & pos = *static_cast<int*>(pos_);
+        pos = 1;
+        monad_fiber_switch_to_main();
+        pos = 2;
+      },
+      &pos);
+
+  EXPECT_NE(f, nullptr);
+  EXPECT_EQ(pos, 1);
+
+  f->task.destroy(&f->task);
+  EXPECT_EQ(pos, 1); // should be skipped
+  EXPECT_EQ(monad_fiber_main(), monad_fiber_current());
+}
+
+TEST(current, monad_fiber_create_self_destroy)
+{
+  monad_fiber_init_main();
+  int pos = 0;
+  auto f = monad_fiber_create(
+      4096, true,
+      +[](void * pos_ )
+      {
+        int & pos = *static_cast<int*>(pos_);
+        pos = 1;
+        monad_fiber_current()->task.destroy(&monad_fiber_current()->task);
+        pos = 2;
+      },
+      &pos);
+
+  EXPECT_EQ(f, nullptr);
+  EXPECT_EQ(pos, 1);
+}
+

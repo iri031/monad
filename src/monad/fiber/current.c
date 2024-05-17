@@ -3,6 +3,7 @@
 #include <threads.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <setjmp.h>
 
 #if defined(MONAD_USE_TSAN)
     #include <sanitizer/tsan_interface.h>
@@ -139,4 +140,96 @@ void monad_fiber_await(
         monad_fiber_main()->context,
         &monad_fiber_await_impl,
         &impl);
+}
+
+struct monad_fiber_create_arg_t
+{
+  void * arg;
+  void (*func)(void*);
+
+  monad_fiber_t  ** res;
+};
+
+struct monad_fiber_impl
+{
+  monad_fiber_t base;
+  jmp_buf exit_jmp;
+};
+
+static void monad_fiber_create_impl_resume(monad_fiber_task_t * task)
+{
+  // note this doesn't post yet. the resumer must take care of this!
+  monad_fiber_switch_to_fiber((monad_fiber_t*)task);
+}
+
+static monad_fiber_context_t * monad_fiber_create_impl_destroy_impl(monad_fiber_context_t * ctx, void * buf)
+{
+  longjmp(buf, 1);
+  return ctx;
+}
+
+static void monad_fiber_create_impl_destroy(monad_fiber_task_t * task)
+{
+  struct monad_fiber_impl* impl = (struct monad_fiber_impl*)task;
+
+  if (impl->base.context->fiber == NULL) // we're in the context
+      longjmp(((struct monad_fiber_impl*)task)->exit_jmp, 1);
+  else // must context_switch first!
+    monad_fiber_context_switch_with(
+        monad_fiber_current()->context,
+        impl->base.context,
+        &monad_fiber_create_impl_destroy_impl,
+        &impl->exit_jmp);
+
+}
+
+monad_fiber_context_t * monad_fiber_create_impl(
+    void * arg_,
+    monad_fiber_context_t * fiber,
+    monad_fiber_context_t * /*from*/)
+{
+  struct monad_fiber_create_arg_t *arg = (struct monad_fiber_create_arg_t*)arg_;
+  monad_fiber_t ** ff = arg->res;
+
+  void (*func)(void*) = arg->func;
+  void * func_arg = arg->arg;
+  struct monad_fiber_impl f = {
+      .base={.context = fiber, .scheduler = NULL,
+      .task = {.resume=&monad_fiber_create_impl_resume, .destroy=&monad_fiber_create_impl_destroy},
+      .priority=0}};
+  *ff = &f.base;
+
+  monad_fiber_activate_fiber(*ff);
+
+  if (!setjmp(f.exit_jmp))
+    func(func_arg);
+
+
+  monad_fiber_activate_fiber(monad_fiber_main());
+  return monad_fiber_main()->context;
+}
+
+monad_fiber_t * monad_fiber_create(
+    size_t stack_size, bool protected_stack,
+    void func(void*),
+    void * arg)
+{
+  monad_fiber_t * res = NULL;
+  struct monad_fiber_create_arg_t monad_fiber_create_arg = {.arg=arg, .func=func, .res=&res};
+  monad_fiber_context_t * ctx =
+      monad_fiber_context_callcc(
+          monad_fiber_main()->context,
+          stack_size, protected_stack,
+          &monad_fiber_create_impl,
+          &monad_fiber_create_arg
+          );
+
+  monad_fiber_activate_fiber(monad_fiber_main());
+
+  if (res != NULL && ctx != NULL)
+    res->context = ctx;
+  else
+    return NULL;
+
+  return res;
 }

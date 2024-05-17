@@ -213,12 +213,15 @@ static void __attribute__((noinline)) monad_fiber_impl(struct transfer_t t)
 
     if (from->name) {
         free((char *)from->name);
+        from->name = NULL;
     }
 
     struct destroyer d = {.this = call.fiber, .to = to};
     MONAD_DEBUG_ASSERT(to->fiber != NULL);
+    fcontext_t fctx = to->fiber;
+    to->fiber = NULL;
     ontop_fcontext(
-        to->fiber,
+        fctx,
         &d,
         call.fiber->is_protected ? &self_destroy_protected_impl
                                  : &self_destroy_impl);
@@ -304,7 +307,9 @@ monad_fiber_context_t *monad_fiber_context_callcc(
     struct callcc_p cc = {
         .from = from, .fiber = fb, .func = func, .arg = func_arg};
 
-    struct transfer_t t = jump_fcontext(fb->context.fiber, &cc);
+    fcontext_t ctx = fb->context.fiber;
+    fb->context.fiber = NULL;
+    struct transfer_t t = jump_fcontext(ctx, &cc);
 
     monad_fiber_context_t *resumed_from = (monad_fiber_context_t *)t.data;
     if (resumed_from) {
