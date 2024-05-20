@@ -25,17 +25,19 @@ void monad_fiber_init_main()
 {
     if (monad_fiber_main_fiber_.context == NULL) {
 
-    //+monad_fiber_main_fiber_.scheduler = scheduler;
-    char buffer[256];
-    if (0 == pthread_getname_np(pthread_self(), buffer, 256ull)){
-            monad_fiber_set_name(monad_fiber_main_context(), buffer);
-        }
         monad_fiber_main_fiber_.context = monad_fiber_main_context();
-        //MONAD_DEBUG_ASSERT(monad_fiber_main_fiber_.context->fiber == NULL);
 #if defined(MONAD_USE_TSAN)
         monad_fiber_main_fiber_.context->tsan_fiber =
             __tsan_get_current_fiber();
 #endif
+        //+monad_fiber_main_fiber_.scheduler = scheduler;
+        char buffer[256];
+
+        if (0 == pthread_getname_np(pthread_self(), buffer, 256ull)) {
+              monad_fiber_set_name(monad_fiber_main_context(), buffer);
+        }
+        //MONAD_DEBUG_ASSERT(monad_fiber_main_fiber_.context->fiber == NULL);
+
     }
 
     MONAD_DEBUG_ASSERT(
@@ -164,6 +166,11 @@ static void monad_fiber_create_impl_resume(monad_fiber_task_t * task)
 
 static monad_fiber_context_t * monad_fiber_create_impl_destroy_impl(monad_fiber_context_t * ctx, void * buf)
 {
+  // ASAN check goes here.
+#if defined(MONAD_USE_ASAN)
+  monad_fiber_finish_switch(&monad_fiber_current()->context->asan, &ctx->asan);
+#endif
+
   longjmp(buf, 1);
   return ctx;
 }

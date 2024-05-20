@@ -7,7 +7,6 @@ thread_local monad_fiber_context_t monad_fiber_main_context_ = {
 #endif
 #if defined(MONAD_USE_ASAN)
     .asan = {.fake_stack = NULL, .stack_bottom = NULL, .stack_size = 0u},
-    .asan_to_finish=NULL,
 #endif
     .name=NULL
 };
