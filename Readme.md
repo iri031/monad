@@ -295,8 +295,6 @@ static monad_async_result mytask(monad_async_task task)
 - Rename `monad_fiber_*` to `monad_executor_compute_*`?
 - Need to test cancellation works at every possible lifecycle and suspend state
 a task can have.
-- A test should make 1 billion tasks to prove it works without issue
-and scales without issue.
 - A context switcher implementing C++ coroutines would be nice. Some notes
 on that:
     - MSVC coroutine frame: Promise | Frame prefix | Local variables. Coroutine

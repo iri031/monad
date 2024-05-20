@@ -31,6 +31,16 @@
    Constructed and destroyed monad fiber switcher contexts at 286373 ops/sec
    which is 3492.37 ns/op.
 
+
+Max creation limits before we run out of RAM:
+
+    - none switcher was stopped after 2 billion instances, likely could go on
+for much longer.
+
+    - SJLJ and monad fiber switchers create about 32,743 instances before
+ENOMEM. The cause is the Linux kernel per process VMA limit of 64k, each
+stack and its guard page is a VMA region, so you get under half the 64k process
+limit.
 */
 
 TEST(context_switcher, works)
@@ -77,4 +87,54 @@ TEST(context_switcher, works)
     test_creation_destruction(cs_none.get(), "none switcher");
     test_creation_destruction(cs_sjlj.get(), "setjmp/longjmp switcher");
     test_creation_destruction(cs_fiber.get(), "monad fiber switcher");
+}
+
+TEST(context_switcher, scaling)
+{
+    auto test_scaling = [](monad_async_context_switcher switcher,
+                           char const *desc) {
+        {
+            monad_async_task_attr attr{.stack_size = 512};
+            std::vector<context_ptr> contexts(16384);
+            for (;;) {
+                std::cout << "\n   Testing " << desc << " with "
+                          << contexts.size() << " contexts ..." << std::endl;
+                size_t items = 0;
+                try {
+                    for (auto &i : contexts) {
+                        if (!i) {
+                            i = make_context(switcher, nullptr, attr);
+                        }
+                        items++;
+                    }
+                }
+                catch (std::exception const &e) {
+                    std::cout << "\n      At item count " << items
+                              << " failed to create context due to '"
+                              << e.what() << "'." << std::endl;
+#if 0
+                    std::cout << "\n   Holding until Return is pressed so "
+                                 "diagnostics can be run ..."
+                              << std::endl;
+                    getchar();
+#endif
+                    break;
+                }
+                contexts.resize(contexts.size() << 1);
+            }
+            for (auto &i : contexts) {
+                i.reset();
+            }
+        }
+    };
+    // test_scaling(cs_none.get(), "none switcher");
+    {
+        auto cs_sjlj = make_context_switcher(monad_async_context_switcher_sjlj);
+        test_scaling(cs_sjlj.get(), "setjmp/longjmp switcher");
+    }
+    {
+        auto cs_fiber =
+            make_context_switcher(monad_async_context_switcher_fiber);
+        test_scaling(cs_fiber.get(), "monad fiber switcher");
+    }
 }

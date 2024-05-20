@@ -295,8 +295,17 @@ static monad_async_result monad_async_context_sjlj_create(
         -1,
         0);
     if (p->stack_storage == MAP_FAILED) {
+        monad_async_result ret = monad_async_make_failure(errno);
         p->stack_storage = nullptr;
-        return monad_async_make_failure(errno);
+        if (errno == ENOMEM) {
+            fprintf(
+                stderr,
+                "NOTE: if mmap() fails to allocate a stack, and there is "
+                "plenty of memory free, the cause is the Linux kernel VMA "
+                "region limit being hit whereby no process may allocate more "
+                "than 64k mmaps.\n");
+        }
+        return ret;
     }
     void *stack_base =
         (void *)((uintptr_t)p->stack_storage + stack_size + page_size);

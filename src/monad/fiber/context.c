@@ -1,5 +1,5 @@
-#include <monad/fiber/context.h>
 #include <monad/fiber/assert.h>
+#include <monad/fiber/context.h>
 
 #include <assert.h>
 #include <errno.h>
@@ -8,13 +8,12 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-
 monad_fiber_context_t *monad_fiber_context_switch(
     monad_fiber_context_t *from, monad_fiber_context_t *to)
 {
-  MONAD_DEBUG_ASSERT(to != NULL);
+    MONAD_DEBUG_ASSERT(to != NULL);
 #if defined(MONAD_USE_ASAN)
-  monad_fiber_start_switch(&from->asan, &to->asan);
+    monad_fiber_start_switch(&from->asan, &to->asan);
 #endif
 
 #if defined(MONAD_USE_TSAN)
@@ -33,9 +32,9 @@ monad_fiber_context_t *monad_fiber_context_switch(
 
     if (resumed_from) {
 #if defined(MONAD_USE_ASAN)
-      monad_fiber_finish_switch(&resumed_from->asan, &from->asan);
+        monad_fiber_finish_switch(&resumed_from->asan, &from->asan);
 #endif
-      resumed_from->fiber = t.fctx;
+        resumed_from->fiber = t.fctx;
     }
     return resumed_from;
 }
@@ -101,10 +100,9 @@ monad_fiber_context_t *monad_fiber_context_switch_with(
 
 extern thread_local monad_fiber_context_t monad_fiber_main_context_;
 
-
 monad_fiber_context_t *monad_fiber_main_context()
 {
-   return &monad_fiber_main_context_;
+    return &monad_fiber_main_context_;
 }
 
 typedef struct monad_fiber
@@ -128,7 +126,6 @@ static struct transfer_t self_destroy_impl(struct transfer_t t)
 #if defined(MONAD_USE_TSAN)
     __tsan_destroy_fiber(this->context.tsan_fiber);
 #endif
-
 
 #if defined(MONAD_USE_ASAN)
     // asan finish goes here.
@@ -181,7 +178,6 @@ static void __attribute__((noinline)) monad_fiber_impl(struct transfer_t t)
 #endif
     from->fiber = t.fctx;
     to = call.func(call.arg, &call.fiber->context, from);
-
 
 #if defined(MONAD_USE_TSAN)
     __tsan_switch_to_fiber(to->tsan_fiber, 0);
@@ -243,10 +239,13 @@ monad_fiber_context_t *monad_fiber_context_callcc(
         if (memory != NULL) {
             if (mprotect(memory, page_size, PROT_NONE) != 0) {
                 int err = errno;
-                int r = munmap(memory, allocated_size);
-                (void)r;
-                assert(r == 0); // PANIC - we just mapped this, what could've
-                                // gone wrong?
+                (void)munmap(memory, allocated_size);
+                fprintf(
+                    stderr,
+                    "NOTE: if mprotect() fails to set the guard page, and "
+                    "there is plenty of memory free, the cause is the Linux "
+                    "kernel VMA region limit being hit whereby no process may "
+                    "allocate more than 64k mmaps.\n");
                 errno = err; // reset the error
                 return NULL;
             }
@@ -257,6 +256,16 @@ monad_fiber_context_t *monad_fiber_context_callcc(
     }
 
     if (memory == NULL) { // errno can still be checked
+        if (errno == ENOMEM) {
+            int err = errno;
+            fprintf(
+                stderr,
+                "NOTE: if mmap() fails to allocate a stack, and there is "
+                "plenty of memory free, the cause is the Linux kernel VMA "
+                "region limit being hit whereby no process may allocate more "
+                "than 64k mmaps.\n");
+            errno = err;
+        }
         return NULL;
     }
 
@@ -300,7 +309,7 @@ monad_fiber_context_t *monad_fiber_context_callcc(
 void monad_fiber_set_name(monad_fiber_context_t *this, char const *name)
 {
 
-    this->name = realloc((void*)this->name, strlen(name) + 1);
+    this->name = realloc((void *)this->name, strlen(name) + 1);
     strcpy((char *)this->name, name);
 #if defined(MONAD_USE_TSAN)
     __tsan_set_fiber_name(this->tsan_fiber, this->name);

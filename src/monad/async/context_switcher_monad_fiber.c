@@ -223,12 +223,12 @@ monad_async_context_fiber_destroy(monad_async_context context)
         monad_async_context_fiber_resume(
             &switcher->resume_many_context.head, context);
         assert(p->fiber == nullptr);
+        atomic_fetch_sub_explicit(
+            &atomic_load_explicit(&context->switcher, memory_order_acquire)
+                 ->contexts,
+            1,
+            memory_order_relaxed);
     }
-    atomic_fetch_sub_explicit(
-        &atomic_load_explicit(&context->switcher, memory_order_acquire)
-             ->contexts,
-        1,
-        memory_order_relaxed);
     free(context);
     return monad_async_make_success(0);
 }
