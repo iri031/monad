@@ -30,6 +30,7 @@ set(monad_async_INCLUDES
   "include/monad/async/context_switcher.h"
   "include/monad/async/executor.h"
   "include/monad/async/file_io.h"
+  "include/monad/async/socket_io.h"
   "include/monad/async/task.h"
   "include/monad/async/util.h"
   "include/monad/async/work_dispatcher.h"

@@ -4,6 +4,7 @@ pub type __uint32_t = ::std::os::raw::c_uint;
 pub type __uint64_t = ::std::os::raw::c_ulong;
 pub type __time_t = ::std::os::raw::c_long;
 pub type __syscall_slong_t = ::std::os::raw::c_long;
+pub type __socklen_t = ::std::os::raw::c_uint;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cxx_status_code_system {
@@ -234,6 +235,34 @@ pub struct iovec {
     pub iov_len: size_t,
 }
 impl Default for iovec {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+pub type socklen_t = __socklen_t;
+pub type sa_family_t = ::std::os::raw::c_ushort;
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct sockaddr {
+    pub sa_family: sa_family_t,
+    pub sa_data: [::std::os::raw::c_char; 14usize],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct msghdr {
+    pub msg_name: *mut ::std::os::raw::c_void,
+    pub msg_namelen: socklen_t,
+    pub msg_iov: *mut iovec,
+    pub msg_iovlen: size_t,
+    pub msg_control: *mut ::std::os::raw::c_void,
+    pub msg_controllen: size_t,
+    pub msg_flags: ::std::os::raw::c_int,
+}
+impl Default for msghdr {
     fn default() -> Self {
         let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
         unsafe {
@@ -696,15 +725,138 @@ extern "C" {
     );
 }
 extern "C" {
-    #[doc = "! \\brief EXPENSIVE Initiate a durable sync of an open file using `iostatus` as"]
+    #[doc = "! \\brief Initiate a durable sync of an open file using `iostatus` as"]
     #[doc = "! the identifier. Returns immediately unless there are no free io_uring"]
     #[doc = "! submission entries. The i/o priority used will be that from the task's"]
     #[doc = "! current i/o priority setting. This is the right call to use to ensure"]
     #[doc = "! written data is durably placed onto non-volatile storage."]
+    #[doc = "!"]
+    #[doc = "! Note that this operation generally takes milliseconds to complete."]
     pub fn monad_async_task_file_durable_sync(
         iostatus: *mut monad_async_io_status,
         task: monad_async_task,
         file: monad_async_file,
+    );
+}
+#[doc = "! \\brief The public attributes of an open socket"]
+#[repr(C)]
+#[derive(Debug)]
+pub struct monad_async_socket_head {
+    pub executor: monad_async_executor,
+}
+impl Default for monad_async_socket_head {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[doc = "! \\brief The public attributes of an open socket"]
+pub type monad_async_socket = *mut monad_async_socket_head;
+extern "C" {
+    #[doc = " \\brief EXPENSIVE, CANCELLATION POINT Suspend execution of the task until the"]
+    #[doc = "socket has been opened. See `man socket` to explain parameters."]
+    #[doc = ""]
+    #[doc = "This is a relatively expensive operation as it may do up to two mallocs and"]
+    #[doc = "several syscalls per call."]
+    pub fn monad_async_task_socket_create(
+        sock: *mut monad_async_socket,
+        task: monad_async_task,
+        domain: ::std::os::raw::c_int,
+        type_: ::std::os::raw::c_int,
+        protocol: ::std::os::raw::c_int,
+        flags: ::std::os::raw::c_uint,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = "! \\brief Suspend execution of the task until the socket has been closed"]
+    pub fn monad_async_task_socket_destroy(
+        task: monad_async_task,
+        file: monad_async_socket,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = " \\brief CANCELLATION POINT Suspend execution of the task if there is no"]
+    #[doc = "pending connection on the socket until there is a new connection. See `man"]
+    #[doc = "accept4` to explain parameters."]
+    pub fn monad_async_task_socket_accept(
+        task: monad_async_task,
+        sock: monad_async_socket,
+        addr: *mut sockaddr,
+        addrlen: *mut socklen_t,
+        flags: ::std::os::raw::c_int,
+    ) -> monad_async_result;
+}
+extern "C" {
+    #[doc = " \\brief Initiate a connect of an open socket using `iostatus` as the"]
+    #[doc = "identifier."]
+    #[doc = ""]
+    #[doc = "Returns immediately unless there are no free io_uring submission entries."]
+    #[doc = "See `man sendmsg` to explain parameters. The i/o priority used will be that"]
+    #[doc = "from the task's current i/o priority setting."]
+    #[doc = ""]
+    #[doc = "\\warning io_uring **requires** that the contents of `addr` has lifetime until"]
+    #[doc = "the write completes."]
+    pub fn monad_async_task_socket_connect(
+        iostatus: *mut monad_async_io_status,
+        task: monad_async_task,
+        sock: monad_async_socket,
+        addr: *mut sockaddr,
+        addrlen: socklen_t,
+    );
+}
+extern "C" {
+    #[doc = " \\brief Initiate a shutdown of an open socket using `iostatus` as the"]
+    #[doc = "identifier."]
+    #[doc = ""]
+    #[doc = "Returns immediately unless there are no free io_uring submission entries."]
+    #[doc = "See `man shutdown` to explain parameters. The i/o priority used will be that"]
+    #[doc = "from the task's current i/o priority setting."]
+    pub fn monad_async_task_socket_shutdown(
+        iostatus: *mut monad_async_io_status,
+        task: monad_async_task,
+        sock: monad_async_socket,
+        how: ::std::os::raw::c_int,
+    );
+}
+extern "C" {
+    #[doc = " \\brief Initiate a read from an open socket using `iostatus` as the"]
+    #[doc = "identifier."]
+    #[doc = ""]
+    #[doc = "Returns immediately unless there are no free io_uring submission entries."]
+    #[doc = "See `man recvmsg` to explain parameters. The i/o priority used will be that"]
+    #[doc = "from the task's current i/o priority setting."]
+    #[doc = ""]
+    #[doc = "\\warning io_uring **requires** that the contents of `msg` and everything it"]
+    #[doc = "points at have lifetime until the read completes."]
+    pub fn monad_async_task_socket_recv(
+        iostatus: *mut monad_async_io_status,
+        task: monad_async_task,
+        sock: monad_async_socket,
+        buffer_index: ::std::os::raw::c_int,
+        msg: *mut msghdr,
+        flags: ::std::os::raw::c_int,
+    );
+}
+extern "C" {
+    #[doc = " \\brief Initiate a write to an open socket using `iostatus` as the"]
+    #[doc = "identifier."]
+    #[doc = ""]
+    #[doc = "Returns immediately unless there are no free io_uring submission entries."]
+    #[doc = "See `man sendmsg` to explain parameters. The i/o priority used will be that"]
+    #[doc = "from the task's current i/o priority setting."]
+    #[doc = ""]
+    #[doc = "\\warning io_uring **requires** that the contents of `msg` and everything it"]
+    #[doc = "points at have lifetime until the write completes."]
+    pub fn monad_async_task_socket_send(
+        iostatus: *mut monad_async_io_status,
+        task: monad_async_task,
+        sock: monad_async_socket,
+        buffer_index: ::std::os::raw::c_int,
+        msg: *const msghdr,
+        flags: ::std::os::raw::c_int,
     );
 }
 extern "C" {

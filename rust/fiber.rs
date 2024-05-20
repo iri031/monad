@@ -344,6 +344,14 @@ extern "C" {
         arg: *mut ::std::os::raw::c_void,
     );
 }
+extern "C" {
+    pub fn monad_fiber_create(
+        stack_size: size_t,
+        protected_stack: bool,
+        func: ::std::option::Option<unsafe extern "C" fn(arg1: *mut ::std::os::raw::c_void)>,
+        arg: *mut ::std::os::raw::c_void,
+    ) -> *mut monad_fiber_t;
+}
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct monad_fiber_channel {

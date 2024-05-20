@@ -1,7 +1,7 @@
 #pragma once
 
-#include <monad/fiber/fcontext.h>
-#include <monad/fiber/sanitizer.h>
+#include "fcontext.h"
+#include "sanitizer.h"
 
 #include <stdbool.h>
 
@@ -14,23 +14,26 @@ extern "C"
 struct monad_fiber_context_asan_fake_stack
 {
     void *fake_stack;
-    const void *stack_bottom;
+    void const *stack_bottom;
     size_t stack_size;
 };
 
 static void monad_fiber_start_switch(
-  struct monad_fiber_context_asan_fake_stack *from,
-  struct monad_fiber_context_asan_fake_stack *to)
+    struct monad_fiber_context_asan_fake_stack *from,
+    struct monad_fiber_context_asan_fake_stack *to)
 {
-    __sanitizer_start_switch_fiber(from != NULL ? &from->fake_stack : NULL, to->stack_bottom, to->stack_size);
-
+    __sanitizer_start_switch_fiber(
+        from != NULL ? &from->fake_stack : NULL,
+        to->stack_bottom,
+        to->stack_size);
 }
 
 static void monad_fiber_finish_switch(
-  struct monad_fiber_context_asan_fake_stack *from,
-  struct monad_fiber_context_asan_fake_stack *to)
+    struct monad_fiber_context_asan_fake_stack *from,
+    struct monad_fiber_context_asan_fake_stack *to)
 {
-    __sanitizer_finish_switch_fiber(to->fake_stack, &from->stack_bottom, &from->stack_size);
+    __sanitizer_finish_switch_fiber(
+        to->fake_stack, &from->stack_bottom, &from->stack_size);
 }
 
 #endif

@@ -80,11 +80,13 @@ extern void monad_async_task_file_range_sync(
     monad_async_file file, monad_async_file_offset offset, unsigned bytes,
     int flags);
 
-//! \brief EXPENSIVE Initiate a durable sync of an open file using `iostatus` as
+//! \brief Initiate a durable sync of an open file using `iostatus` as
 //! the identifier. Returns immediately unless there are no free io_uring
 //! submission entries. The i/o priority used will be that from the task's
 //! current i/o priority setting. This is the right call to use to ensure
 //! written data is durably placed onto non-volatile storage.
+//!
+//! Note that this operation generally takes milliseconds to complete.
 extern void monad_async_task_file_durable_sync(
     monad_async_io_status *iostatus, monad_async_task task,
     monad_async_file file);
