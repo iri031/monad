@@ -174,7 +174,7 @@ TEST(current, await_from_thread)
         mft.context = fb;
         monad_fiber_set_name(fb, "await_from_thread_task");
         auto m = monad_fiber_activate_fiber(&mft);
-        assert(m == monad_fiber_main());
+        MONAD_ASSERT(m == monad_fiber_main());
         monad_fiber_switch_to_main();
         assert(&mft == monad_fiber_current());
 

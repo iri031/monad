@@ -5,7 +5,9 @@
 #include <malloc.h>
 #include <monad/fiber/fcontext.h>
 
-int fiber_state = 0;
+int fiber_state_arr[3] = { 0, 0 , 0};
+
+int  &fiber_state = fiber_state_arr[1];
 
 void fiber_impl(struct transfer_t t)
 {

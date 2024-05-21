@@ -21,19 +21,22 @@ void monad_fiber_task_queue_destroy(struct monad_fiber_task_queue *this)
 
 void monad_fiber_task_queue_grow(struct monad_fiber_task_queue *this)
 {
-    const bool is_wrapped = (this->data + this->size) > (this->memory + this->capacity);
+    const size_t old_cap = this->capacity;
     struct monad_fiber_task_node *pre = this->memory;
 
     this->capacity += monad_fiber_task_queue_chunk;
+
+    ptrdiff_t data_offset = (this->data - pre);
     void *new_mem = realloc(
         this->memory, this->capacity * sizeof(struct monad_fiber_task_node));
 
-    MONAD_ASSERT(new_mem != NULL);
+    MONAD_ASSERT(new_mem);
+    const bool is_wrapped = (this->data + this->size) > (this->memory + old_cap);
     this->memory = new_mem;
 
 
     if (this->memory != pre) {
-        this->data = this->memory + (this->data - pre);
+        this->data = this->memory + data_offset;
     }
 
     // we may have two chunks of memory - if that's the case, we need to memmove the upper part.
@@ -42,11 +45,19 @@ void monad_fiber_task_queue_grow(struct monad_fiber_task_queue *this)
         const size_t prev_cap = this->capacity - monad_fiber_task_queue_chunk;
         const size_t wrapped = (size_t)((this->data + this->size) - (this->memory + prev_cap));
         const size_t pre_wrapped = (size_t)((this->memory + prev_cap) - this->data);
+
+
         if (wrapped <= monad_fiber_task_queue_chunk) // we move the smaller one
-          memmove(this->memory + prev_cap, this->memory, wrapped * sizeof(struct monad_fiber_task_node));
+        {
+            MONAD_ASSERT(this->memory);
+            memmove(this->memory + prev_cap, this->memory, wrapped * sizeof(struct monad_fiber_task_node));
+        }
         else
-          this->data = memmove(this->data + monad_fiber_task_queue_chunk, this->data,
-                               pre_wrapped * sizeof(struct monad_fiber_task_node));
+        {
+            MONAD_ASSERT(this->data);
+            this->data = memmove(this->data + monad_fiber_task_queue_chunk, this->data,
+                                 pre_wrapped * sizeof(struct monad_fiber_task_node));
+        }
     }
 }
 
@@ -144,11 +155,13 @@ void monad_fiber_task_queue_insert(
                 this->memory + this->capacity;
 
             // this shifts the lower part (DEF in the below example)
+            MONAD_ASSERT(this->memory);
             memmove(
-                this->memory + 1,
-                this->memory,
-                (size_t)(end - this->memory) *
-                    sizeof(struct monad_fiber_task_node));
+                  this->memory + 1,
+                  this->memory,
+                  ((size_t)(end - this->memory) *
+                      sizeof(struct monad_fiber_task_node)));
+
             if (itr == mem_end) // we're at the end of memory, no need to do a
                                 // second shift.
             {
