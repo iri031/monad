@@ -42,6 +42,7 @@ add_library(monad_async STATIC
   "src/monad/async/executor.c"
   "src/monad/async/file_io.c"
   "src/monad/async/result.cpp"
+  "src/monad/async/socket_io.c"
   "src/monad/async/task.c"
   "src/monad/async/util.cpp"
   "src/monad/async/work_dispatcher.c"

@@ -13,6 +13,8 @@ monad_test(monad_async_file_io_test "async/file_io.cpp")
 
 monad_test(monad_async_monad_fiber_test "async/monad_fiber.cpp")
 
+monad_test(monad_async_socket_io_test "async/socket_io.cpp")
+
 monad_test(monad_async_work_dispatcher_test "async/work_dispatcher.cpp")
 
 add_subdirectory("fiber")

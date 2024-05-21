@@ -3,10 +3,9 @@
 // Needs to come before others, on clang <stdatomic.h> breaks <atomic>
 #include <boost/outcome/experimental/status_result.hpp>
 
-#include "executor.h"
-#include "file_io.h"
-#include "task.h"
-#include "work_dispatcher.h"
+#include <liburing.h>
+
+#include "all.h"
 
 #include <memory>
 
@@ -134,6 +133,37 @@ namespace monad
                 throw_exception(r);
             }
             return context_ptr(ex, {impl});
+        }
+
+        struct socket_deleter
+        {
+            monad_async_task task;
+
+            void operator()(monad_async_socket ex) const
+            {
+                auto r = ::monad_async_task_socket_destroy(task, ex);
+                if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
+                    throw_exception(r);
+                }
+            }
+        };
+
+        using socket_ptr =
+            std::unique_ptr<monad_async_socket_head, socket_deleter>;
+
+        //! \brief Construct a socket instance, and return it in a smart
+        //! pointer
+        socket_ptr make_socket(
+            monad_async_task task, int domain, int type, int protocol,
+            unsigned flags)
+        {
+            monad_async_socket ex;
+            auto r = monad_async_task_socket_create(
+                &ex, task, domain, type, protocol, flags);
+            if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
+                throw_exception(r);
+            }
+            return socket_ptr(ex, socket_deleter{task});
         }
 
         struct task_deleter

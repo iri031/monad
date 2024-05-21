@@ -1,24 +1,105 @@
-#include "monad/async/file_io.h"
+#include "monad/async/socket_io.h"
 
 #include "monad/async/executor.h"
 
-// #define MONAD_ASYNC_FILE_IO_PRINTING 1
+#define MONAD_ASYNC_SOCKET_IO_PRINTING 1
 
 #include "executor_impl.h"
 #include "task_impl.h"
 
 #include <errno.h>
 
-#include <fcntl.h>
-
-struct monad_async_file_impl
+struct monad_async_socket_impl
 {
-    struct monad_async_file_head head;
+    struct monad_async_socket_head head;
+
+    union
+    {
+        struct
+        {
+            int domain;
+            int type;
+            int protocol;
+            unsigned flags;
+        } not_created;
+
+        int fd; // exists until moved into io_uring by listen
+    };
+
     unsigned io_uring_file_index; // NOT a traditional file descriptor!
 };
 
+monad_async_result monad_async_task_socket_create(
+    monad_async_socket *sock, monad_async_task task, int domain, int type,
+    int protocol, unsigned flags)
+{
+    struct monad_async_socket_impl *p =
+        (struct monad_async_socket_impl *)calloc(
+            1, sizeof(struct monad_async_socket_impl));
+    if (p == nullptr) {
+        return monad_async_make_failure(errno);
+    }
+    p->head.status = monad_async_socket_status_not_created;
+    p->head.executor = task->current_executor;
+    p->not_created.domain = domain;
+    p->not_created.type = type;
+    p->not_created.protocol = protocol;
+    p->not_created.flags = flags;
+    p->io_uring_file_index = (unsigned)-1;
+    *sock = (monad_async_socket)p;
+    return monad_async_make_success(0);
+}
+
+monad_async_result monad_async_task_socket_destroy(
+    monad_async_task task_, monad_async_socket sock_)
+{
+    struct monad_async_socket_impl *sock =
+        (struct monad_async_socket_impl *)sock_;
+    if (sock->io_uring_file_index != (unsigned)-1) {
+        struct monad_async_task_impl *task =
+            (struct monad_async_task_impl *)task_;
+        struct monad_async_executor_impl *ex =
+            (struct monad_async_executor_impl *)atomic_load_explicit(
+                &task_->current_executor, memory_order_acquire);
+        struct io_uring_sqe *sqe =
+            get_sqe_suspending_if_necessary(ex, task, false);
+        io_uring_prep_close(sqe, 0);
+        __io_uring_set_target_fixed_file(sqe, sock->io_uring_file_index);
+        io_uring_sqe_set_data(sqe, task, task);
+
+#if MONAD_ASYNC_SOCKET_IO_PRINTING
+        printf(
+            "*** Task %p running on executor %p initiates "
+            "socket_close\n",
+            (void *)task,
+            (void *)ex);
+#endif
+        monad_async_result ret =
+            monad_async_executor_suspend_impl(ex, task, nullptr, nullptr);
+#if MONAD_ASYNC_SOCKET_IO_PRINTING
+        printf(
+            "*** Task %p running on executor %p completes "
+            "socket_close for file_index=%u\n",
+            (void *)task,
+            (void *)ex,
+            sock->io_uring_file_index);
+#endif
+        if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)) {
+            return ret;
+        }
+        monad_async_executor_free_file_index(
+            ex, sock->io_uring_file_index, (monad_async_file)&sock->head);
+    }
+    if (sock->head.status == monad_async_socket_status_bound) {
+        close(sock->fd);
+    }
+    free(sock);
+    return monad_async_make_success(0);
+}
+
+#if 0
 static inline monad_async_result
-monad_async_task_file_create_cancel(struct monad_async_task_impl *task)
+monad_async_task_socket_create_cancel(struct monad_async_task_impl *task)
 {
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
@@ -28,198 +109,68 @@ monad_async_task_file_create_cancel(struct monad_async_task_impl *task)
     return monad_async_make_success(EAGAIN); // Canceller needs to wait
 }
 
-monad_async_result monad_async_task_file_create(
-    monad_async_file *file, monad_async_task task_, monad_async_file base,
-    char const *subpath, struct open_how *how)
-{
-    struct monad_async_file_impl *p = (struct monad_async_file_impl *)calloc(
-        1, sizeof(struct monad_async_file_impl));
-    if (p == nullptr) {
-        return monad_async_make_failure(errno);
-    }
-    p->head.executor = task_->current_executor;
-    p->io_uring_file_index = (unsigned)-1;
+
     struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
-    if (task->please_cancel_invoked) {
-        return monad_async_make_failure(ECANCELED);
-    }
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
-    unsigned file_index = monad_async_executor_alloc_file_index(ex, &p->head);
+    unsigned file_index =
+        monad_async_executor_alloc_file_index(ex, (monad_async_file)&p->head);
     if (file_index == (unsigned)-1) {
-        (void)monad_async_task_file_destroy(task_, (monad_async_file)p);
+        (void)monad_async_task_socket_destroy(task_, (monad_async_socket)p);
         return monad_async_make_failure(ENOMEM);
     }
     struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task, true);
     if (sqe == nullptr) {
         assert(task->please_cancel_invoked);
-        (void)monad_async_task_file_destroy(task_, (monad_async_file)p);
+        (void)monad_async_task_socket_destroy(task_, (monad_async_socket)p);
         return monad_async_make_failure(ECANCELED);
     }
-    io_uring_prep_openat2_direct(
-        sqe,
-        (base == nullptr)
-            ? AT_FDCWD
-            : (int)((struct monad_async_file_impl *)base)->io_uring_file_index,
-        subpath,
-        how,
-        file_index);
+    // io_uring_prep_socket_direct(sqe, domain, type, protocol, file_index,
+    // flags);
+    (void)domain;
+    (void)type;
+    (void)protocol;
+    (void)flags;
     io_uring_sqe_set_data(sqe, task, task);
 
-#if MONAD_ASYNC_FILE_IO_PRINTING
+    #if MONAD_ASYNC_SOCKET_IO_PRINTING
     printf(
         "*** Task %p running on executor %p initiates "
-        "file_open\n",
+        "socket_open\n",
         (void *)task,
         (void *)ex);
-#endif
+    #endif
     monad_async_result ret = monad_async_executor_suspend_impl(
-        ex, task, monad_async_task_file_create_cancel, nullptr);
-#if MONAD_ASYNC_FILE_IO_PRINTING
+        ex, task, monad_async_task_socket_create_cancel, nullptr);
+    #if MONAD_ASYNC_SOCKET_IO_PRINTING
     printf(
         "*** Task %p running on executor %p completes "
-        "file_open with file_index=%u and ret=%s\n",
+        "socket_open with file_index=%u and ret=%s\n",
         (void *)task,
         (void *)ex,
         file_index,
         BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret) ? strerror((int)ret.error.value)
                                               : "success");
-#endif
+    #endif
     if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)) {
-        monad_async_executor_free_file_index(ex, file_index, &p->head);
-        (void)monad_async_task_file_destroy(task_, (monad_async_file)p);
+        monad_async_executor_free_file_index(
+            ex, file_index, (monad_async_file)&p->head);
+        (void)monad_async_task_socket_destroy(task_, (monad_async_socket)p);
         return ret;
     }
     p->io_uring_file_index = file_index;
 
-    if (ex->wr_ring.ring_fd != 0) {
-        sqe = get_wrsqe_suspending_if_necessary(ex, task, true);
-        if (sqe == nullptr) {
-            assert(task->please_cancel_invoked);
-            (void)monad_async_task_file_destroy(task_, (monad_async_file)p);
-            return monad_async_make_failure(ECANCELED);
-        }
-        io_uring_prep_openat2_direct(
-            sqe,
-            (base == nullptr) ? AT_FDCWD
-                              : (int)((struct monad_async_file_impl *)base)
-                                    ->io_uring_file_index,
-            subpath,
-            how,
-            file_index);
-        io_uring_sqe_set_data(sqe, task, task);
-
-#if MONAD_ASYNC_FILE_IO_PRINTING
-        printf(
-            "*** Task %p running on executor %p initiates "
-            "file_open (write ring)\n",
-            (void *)task,
-            (void *)ex);
-#endif
-        monad_async_result ret = monad_async_executor_suspend_impl(
-            ex, task, monad_async_task_file_create_cancel, nullptr);
-#if MONAD_ASYNC_FILE_IO_PRINTING
-        printf(
-            "*** Task %p running on executor %p completes "
-            "file_open (write ring) with file_index=%u and ret=%s\n",
-            (void *)task,
-            (void *)ex,
-            file_index,
-            BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)
-                ? strerror((int)ret.error.value)
-                : "success");
-#endif
-        if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)) {
-            (void)monad_async_task_file_destroy(task_, (monad_async_file)p);
-            return ret;
-        }
-    }
-
-    *file = (monad_async_file)p;
-    return monad_async_make_success(0);
-}
-
-monad_async_result
-monad_async_task_file_destroy(monad_async_task task_, monad_async_file file_)
-{
-    struct monad_async_file_impl *file = (struct monad_async_file_impl *)file_;
-    if (file->io_uring_file_index != (unsigned)-1) {
-        struct monad_async_task_impl *task =
-            (struct monad_async_task_impl *)task_;
-        struct monad_async_executor_impl *ex =
-            (struct monad_async_executor_impl *)atomic_load_explicit(
-                &task_->current_executor, memory_order_acquire);
-        if (ex->wr_ring.ring_fd != 0) {
-            struct io_uring_sqe *sqe =
-                get_wrsqe_suspending_if_necessary(ex, task, false);
-            io_uring_prep_close(sqe, 0);
-            __io_uring_set_target_fixed_file(sqe, file->io_uring_file_index);
-            io_uring_sqe_set_data(sqe, task, task);
-
-#if MONAD_ASYNC_FILE_IO_PRINTING
-            printf(
-                "*** Task %p running on executor %p initiates "
-                "file_close (write ring)\n",
-                (void *)task,
-                (void *)ex);
-#endif
-            monad_async_result ret =
-                monad_async_executor_suspend_impl(ex, task, nullptr, nullptr);
-#if MONAD_ASYNC_FILE_IO_PRINTING
-            printf(
-                "*** Task %p running on executor %p completes "
-                "file_close (write ring) for file_index=%u\n",
-                (void *)task,
-                (void *)ex,
-                file->io_uring_file_index);
-#endif
-            if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)) {
-                return ret;
-            }
-        }
-        struct io_uring_sqe *sqe =
-            get_sqe_suspending_if_necessary(ex, task, false);
-        io_uring_prep_close(sqe, 0);
-        __io_uring_set_target_fixed_file(sqe, file->io_uring_file_index);
-        io_uring_sqe_set_data(sqe, task, task);
-
-#if MONAD_ASYNC_FILE_IO_PRINTING
-        printf(
-            "*** Task %p running on executor %p initiates "
-            "file_close\n",
-            (void *)task,
-            (void *)ex);
-#endif
-        monad_async_result ret =
-            monad_async_executor_suspend_impl(ex, task, nullptr, nullptr);
-#if MONAD_ASYNC_FILE_IO_PRINTING
-        printf(
-            "*** Task %p running on executor %p completes "
-            "file_close for file_index=%u\n",
-            (void *)task,
-            (void *)ex,
-            file->io_uring_file_index);
-#endif
-        if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)) {
-            return ret;
-        }
-        monad_async_executor_free_file_index(
-            ex, file->io_uring_file_index, &file->head);
-    }
-    free(file);
-    return monad_async_make_success(0);
-}
-
-monad_async_result monad_async_task_file_fallocate(
-    monad_async_task task_, monad_async_file file_, int mode,
-    monad_async_file_offset offset, monad_async_file_offset len)
+monad_async_result monad_async_task_socket_fallocate(
+    monad_async_task task_, monad_async_socket file_, int mode,
+    monad_async_socket_offset offset, monad_async_socket_offset len)
 {
     struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
     if (task->please_cancel_invoked) {
         return monad_async_make_failure(ECANCELED);
     }
-    struct monad_async_file_impl *file = (struct monad_async_file_impl *)file_;
+    struct monad_async_socket_impl *file =
+        (struct monad_async_socket_impl *)file_;
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
@@ -228,40 +179,35 @@ monad_async_result monad_async_task_file_fallocate(
     if (sqe == nullptr) {
         return monad_async_make_failure(ECANCELED);
     }
-#if !defined(IO_URING_VERSION_MAJOR)
     io_uring_prep_fallocate(
         sqe, (int)file->io_uring_file_index, mode, (off_t)offset, (off_t)len);
-#else
-    io_uring_prep_fallocate(
-        sqe, (int)file->io_uring_file_index, mode, offset, len);
-#endif
     sqe->flags |= IOSQE_FIXED_FILE;
     io_uring_sqe_set_data(sqe, task, task);
 
-#if MONAD_ASYNC_FILE_IO_PRINTING
+    #if MONAD_ASYNC_SOCKET_IO_PRINTING
     printf(
         "*** Task %p running on executor %p initiates "
         "file_allocate\n",
         (void *)task,
         (void *)ex);
-#endif
+    #endif
     monad_async_result ret =
         monad_async_executor_suspend_impl(ex, task, nullptr, nullptr);
-#if MONAD_ASYNC_FILE_IO_PRINTING
+    #if MONAD_ASYNC_SOCKET_IO_PRINTING
     printf(
         "*** Task %p running on executor %p completes "
         "file_allocate for file_index=%u\n",
         (void *)task,
         (void *)ex,
         file->io_uring_file_index);
-#endif
+    #endif
     if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)) {
         return ret;
     }
     return monad_async_make_success(0);
 }
 
-static inline monad_async_result monad_async_task_file_io_cancel(
+static inline monad_async_result monad_async_task_socket_io_cancel(
     monad_async_task task_, monad_async_io_status *iostatus)
 {
     struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
@@ -273,7 +219,7 @@ static inline monad_async_result monad_async_task_file_io_cancel(
     return monad_async_make_success(EAGAIN); // Canceller needs to wait
 }
 
-static inline monad_async_result monad_async_task_file_wrio_cancel(
+static inline monad_async_result monad_async_task_socket_wrio_cancel(
     monad_async_task task_, monad_async_io_status *iostatus)
 {
     struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
@@ -286,22 +232,26 @@ static inline monad_async_result monad_async_task_file_wrio_cancel(
     return monad_async_make_success(EAGAIN); // Canceller needs to wait
 }
 
-void monad_async_task_file_read(
+void monad_async_task_socket_read(
     monad_async_io_status *iostatus, monad_async_task task_,
-    monad_async_file file_, int buffer_index, const struct iovec *iovecs,
-    unsigned nr_vecs, monad_async_file_offset offset, int flags)
+    monad_async_socket file_, int buffer_index, const struct iovec *iovecs,
+    unsigned nr_vecs, monad_async_socket_offset offset, int flags)
 {
-    struct monad_async_file_impl *file = (struct monad_async_file_impl *)file_;
+    struct monad_async_socket_impl *file =
+        (struct monad_async_socket_impl *)file_;
     struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
     struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task, false);
+    #ifdef IO_URING_VERSION_MAJOR
+        #error "Implement io_uring_prep_readv2 support"
+    #endif
     if (buffer_index == 0) {
         if (nr_vecs != 1) {
+            (void)flags;
             io_uring_prep_readv(
                 sqe, (int)file->io_uring_file_index, iovecs, nr_vecs, offset);
-            sqe->rw_flags = flags;
         }
         else {
             io_uring_prep_read(
@@ -330,37 +280,41 @@ void monad_async_task_file_read(
     }
     sqe->flags |= IOSQE_FIXED_FILE;
     io_uring_sqe_set_data(sqe, iostatus, task);
-    iostatus->cancel_ = monad_async_task_file_io_cancel;
+    iostatus->cancel_ = monad_async_task_socket_io_cancel;
     iostatus->ticks_when_initiated = get_ticks_count(memory_order_relaxed);
 
-#if MONAD_ASYNC_FILE_IO_PRINTING
+    #if MONAD_ASYNC_SOCKET_IO_PRINTING
     printf(
         "*** Task %p running on executor %p initiates "
         "file_read on i/o status %p\n",
         (void *)task,
         (void *)ex,
         (void *)iostatus);
-#endif
+    #endif
     LIST_APPEND(task->io_submitted, iostatus, &task->head.io_submitted);
 }
 
-void monad_async_task_file_write(
+void monad_async_task_socket_write(
     monad_async_io_status *iostatus, monad_async_task task_,
-    monad_async_file file_, int buffer_index, const struct iovec *iovecs,
-    unsigned nr_vecs, monad_async_file_offset offset, int flags)
+    monad_async_socket file_, int buffer_index, const struct iovec *iovecs,
+    unsigned nr_vecs, monad_async_socket_offset offset, int flags)
 {
-    struct monad_async_file_impl *file = (struct monad_async_file_impl *)file_;
+    struct monad_async_socket_impl *file =
+        (struct monad_async_socket_impl *)file_;
     struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
     struct io_uring_sqe *sqe =
         get_wrsqe_suspending_if_necessary(ex, task, false);
+    #ifdef IO_URING_VERSION_MAJOR
+        #error "Implement io_uring_prep_writev2 support"
+    #endif
     if (buffer_index == 0) {
         if (nr_vecs != 1) {
+            (void)flags;
             io_uring_prep_writev(
                 sqe, (int)file->io_uring_file_index, iovecs, nr_vecs, offset);
-            sqe->rw_flags = flags;
         }
         else {
             io_uring_prep_write(
@@ -389,26 +343,27 @@ void monad_async_task_file_write(
     }
     sqe->flags |= IOSQE_FIXED_FILE;
     io_uring_sqe_set_data(sqe, iostatus, task);
-    iostatus->cancel_ = monad_async_task_file_wrio_cancel;
+    iostatus->cancel_ = monad_async_task_socket_wrio_cancel;
     iostatus->ticks_when_initiated = get_ticks_count(memory_order_relaxed);
 
-#if MONAD_ASYNC_FILE_IO_PRINTING
+    #if MONAD_ASYNC_SOCKET_IO_PRINTING
     printf(
         "*** Task %p running on executor %p initiates "
         "file_write on i/o status %p\n",
         (void *)task,
         (void *)ex,
         (void *)iostatus);
-#endif
+    #endif
     LIST_APPEND(task->io_submitted, iostatus, &task->head.io_submitted);
 }
 
-void monad_async_task_file_range_sync(
+void monad_async_task_socket_range_sync(
     monad_async_io_status *iostatus, monad_async_task task_,
-    monad_async_file file_, monad_async_file_offset offset, unsigned bytes,
+    monad_async_socket file_, monad_async_socket_offset offset, unsigned bytes,
     int flags)
 {
-    struct monad_async_file_impl *file = (struct monad_async_file_impl *)file_;
+    struct monad_async_socket_impl *file =
+        (struct monad_async_socket_impl *)file_;
     struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
@@ -419,25 +374,26 @@ void monad_async_task_file_range_sync(
         sqe, (int)file->io_uring_file_index, bytes, offset, flags);
     sqe->flags |= IOSQE_FIXED_FILE;
     io_uring_sqe_set_data(sqe, iostatus, task);
-    iostatus->cancel_ = monad_async_task_file_wrio_cancel;
+    iostatus->cancel_ = monad_async_task_socket_wrio_cancel;
     iostatus->ticks_when_initiated = get_ticks_count(memory_order_relaxed);
 
-#if MONAD_ASYNC_FILE_IO_PRINTING
+    #if MONAD_ASYNC_SOCKET_IO_PRINTING
     printf(
         "*** Task %p running on executor %p initiates "
         "range_sync on i/o status %p\n",
         (void *)task,
         (void *)ex,
         (void *)iostatus);
-#endif
+    #endif
     LIST_APPEND(task->io_submitted, iostatus, &task->head.io_submitted);
 }
 
-void monad_async_task_file_durable_sync(
+void monad_async_task_socket_durable_sync(
     monad_async_io_status *iostatus, monad_async_task task_,
-    monad_async_file file_)
+    monad_async_socket file_)
 {
-    struct monad_async_file_impl *file = (struct monad_async_file_impl *)file_;
+    struct monad_async_socket_impl *file =
+        (struct monad_async_socket_impl *)file_;
     struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
@@ -447,16 +403,17 @@ void monad_async_task_file_durable_sync(
     io_uring_prep_fsync(sqe, (int)file->io_uring_file_index, 0);
     sqe->flags |= IOSQE_FIXED_FILE;
     io_uring_sqe_set_data(sqe, iostatus, task);
-    iostatus->cancel_ = monad_async_task_file_wrio_cancel;
+    iostatus->cancel_ = monad_async_task_socket_wrio_cancel;
     iostatus->ticks_when_initiated = get_ticks_count(memory_order_relaxed);
 
-#if MONAD_ASYNC_FILE_IO_PRINTING
+    #if MONAD_ASYNC_SOCKET_IO_PRINTING
     printf(
         "*** Task %p running on executor %p initiates "
         "durable_sync on i/o status %p\n",
         (void *)task,
         (void *)ex,
         (void *)iostatus);
-#endif
+    #endif
     LIST_APPEND(task->io_submitted, iostatus, &task->head.io_submitted);
 }
+#endif
