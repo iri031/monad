@@ -25,7 +25,7 @@ TEST(task, insert_many)
     monad_fiber_task_queue_t q;
     monad_fiber_task_queue_init(&q);
 
-    auto const cap = q.capacity;
+    auto const cap = static_cast<std::int64_t>(q.capacity);
     EXPECT_EQ(cap, q.capacity);
 
     for (std::int64_t n = 0; n < cap; n++) {
@@ -55,7 +55,7 @@ TEST(task, insert_many)
     std::vector<std::int64_t> priorities;
     priorities.reserve(q.size);
 
-    for (std::size_t n = 0u; n < cap; n++) {
+    for (std::int64_t n = 0; n < cap; n++) {
         struct monad_fiber_task_node qq[4] = {
             monad_fiber_task_queue_pop_front(&q),
             monad_fiber_task_queue_pop_front(&q),

@@ -9,7 +9,7 @@
 
 monad_fiber_scheduler sched;
 std::atomic_size_t resumed;
-size_t priority = 0;
+int64_t priority = 0;
 
 void wait(monad_fiber_scheduler_t &s)
 {
@@ -407,7 +407,7 @@ TEST(scheduler, DISABLED_ordered_4)
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    for (std::uint64_t i = 0; i < (4 * ss.size_per_thread) - 4; i++) {
+    for (std::int64_t i = 0; i < (std::int64_t)(4 * ss.size_per_thread) - 4; i++) {
         monad_fiber_scheduler_post(
             &s,
             make_lt([&, i] {
@@ -448,7 +448,7 @@ TEST(scheduler, ordered_8)
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    for (std::uint64_t i = 0; i < (8 * ss.size_per_thread) - 8; i++) {
+    for (std::int64_t i = 0; i < (std::int64_t)(8 * ss.size_per_thread) - 8; i++) {
         monad_fiber_scheduler_post(
             &s,
             make_lt([&, i] {
