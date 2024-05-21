@@ -45,7 +45,7 @@ TEST(monad_fiber_bridge, works)
             io_cs = make_context_switcher(monad_async_context_switcher_fiber);
 
             // Make a compute executor of four kernel threads
-            monad_fiber_scheduler_create(&compute_ex, 4);
+            monad_fiber_scheduler_create(&compute_ex, 4, NULL);
         }
 
         ~shared_state_t()
