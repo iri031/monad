@@ -22,7 +22,7 @@ add_library(monad_fiber STATIC
   "src/monad/fiber/pool.c"
 )
 target_compile_features(monad_fiber PUBLIC c_std_23 cxx_std_20)
-target_compile_options(monad_fiber PUBLIC -Wall -Wextra -Wconversion -Wpedantic)
+target_compile_options(monad_fiber PUBLIC -Wall -Wextra -Wconversion -Wpedantic -Werror)
 target_include_directories(monad_fiber PUBLIC "include")
 target_link_libraries(monad_fiber PUBLIC Boost::context)
 
@@ -47,7 +47,7 @@ add_library(monad_async STATIC
   "src/monad/async/work_dispatcher.c"
 )
 target_compile_features(monad_async PUBLIC c_std_23 cxx_std_20)
-target_compile_options(monad_async PUBLIC -Wall -Wextra -Wconversion -Wpedantic)
+target_compile_options(monad_async PUBLIC -Wall -Wextra -Wconversion -Wpedantic -Werror)
 target_include_directories(monad_async PUBLIC "include")
 target_link_libraries(monad_async PUBLIC uring Boost::boost monad_fiber)
 
