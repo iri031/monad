@@ -24,7 +24,7 @@ extern thread_local monad_fiber_t *monad_fiber_current_;
 void monad_fiber_init_main()
 {
     if (monad_fiber_main_fiber_.context == NULL) {
-
+        monad_fiber_main_fiber_.scheduler = monad_fiber_scheduler_current();
         monad_fiber_main_fiber_.context = monad_fiber_main_context();
 #if defined(MONAD_USE_TSAN)
         monad_fiber_main_fiber_.context->tsan_fiber =

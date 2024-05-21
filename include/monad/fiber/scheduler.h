@@ -33,12 +33,15 @@ typedef struct monad_fiber_scheduler
     std::
 #endif
         atomic_int thread_id_source; // if this is zero we're stoppping
+
+    // function to call on creation of every thread (meant for monad_fiber_init_main)
+    void(*init_thread)();
 } monad_fiber_scheduler_t;
 
 monad_fiber_scheduler_t *monad_fiber_scheduler_current();
 
 void monad_fiber_scheduler_work(monad_fiber_scheduler_t *);
-void monad_fiber_scheduler_create(monad_fiber_scheduler_t *, size_t threads);
+void monad_fiber_scheduler_create(monad_fiber_scheduler_t *, size_t threads, void(*init_thread)());
 void monad_fiber_scheduler_destroy(monad_fiber_scheduler_t *);
 void monad_fiber_scheduler_stop(monad_fiber_scheduler_t *);
 

@@ -42,7 +42,7 @@ TEST(current, switch_)
     monad_fiber_t *mf = monad_fiber_main();
 
     monad_fiber_scheduler shed;
-    monad_fiber_scheduler_create(&shed, 0);
+    monad_fiber_scheduler_create(&shed, 0, NULL);
 
     monad_fiber_t mft = {
         .task = {}, .context = nullptr, .priority = -1ll, .scheduler = &shed};
@@ -83,7 +83,7 @@ TEST(current, switch_)
 TEST(current, yield_to_task)
 {
     monad_fiber_scheduler shed;
-    monad_fiber_scheduler_create(&shed, 0);
+    monad_fiber_scheduler_create(&shed, 0, &monad_fiber_init_main);
     monad_fiber_init_main();
     monad_fiber_main()->scheduler = &shed;
     monad_fiber_t *mf = monad_fiber_main();
@@ -148,7 +148,7 @@ void awaitable_sleep(monad_fiber_t *to_resume, void *us_)
 TEST(current, await_from_main)
 {
     monad_fiber_scheduler shed;
-    monad_fiber_scheduler_create(&shed, 0);
+    monad_fiber_scheduler_create(&shed, 0, NULL);
     monad_fiber_init_main();
     monad_fiber_main()->scheduler = &shed;
     useconds_t const us = 1000;
@@ -158,7 +158,7 @@ TEST(current, await_from_main)
 TEST(current, await_from_thread)
 {
     monad_fiber_scheduler shed;
-    monad_fiber_scheduler_create(&shed, 0);
+    monad_fiber_scheduler_create(&shed, 0, NULL);
     monad_fiber_init_main();
     monad_fiber_main()->scheduler = &shed;
     monad_fiber_set_name(monad_fiber_main()->context, "await_from_thread_test");

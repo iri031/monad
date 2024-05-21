@@ -2,7 +2,7 @@
 #include <monad/fiber/scheduler.h>
 #include <pthread.h>
 
-_Thread_local monad_fiber_scheduler_t *monad_fiber_scheduler_current_ = NULL;
+thread_local monad_fiber_scheduler_t *monad_fiber_scheduler_current_ = NULL;
 
 monad_fiber_scheduler_t *monad_fiber_scheduler_current()
 {
@@ -18,10 +18,11 @@ static void *work(void *this_)
     return NULL;
 }
 
-void monad_fiber_scheduler_create(monad_fiber_scheduler_t *this, size_t threads)
+void monad_fiber_scheduler_create(monad_fiber_scheduler_t *this, size_t threads, void(*init_thread)())
 {
     this->threads = malloc(sizeof(pthread_t) * threads);
     this->thread_count = threads;
+    this->init_thread = init_thread;
     MONAD_CCALL_ASSERT(pthread_mutex_init(&this->mutex, NULL));
     MONAD_CCALL_ASSERT(pthread_cond_init(&this->cond, NULL));
 
@@ -57,7 +58,7 @@ void monad_fiber_scheduler_post(
     monad_fiber_scheduler_t *this, monad_fiber_task_t *task, int64_t priority)
 {
     MONAD_ASSERT(task != 0);
-
+    MONAD_DEBUG_ASSERT(this != 0);
     MONAD_CCALL_ASSERT(pthread_mutex_lock(&this->mutex));
 
     monad_fiber_task_queue_insert(&this->task_queue, task, priority);
@@ -91,6 +92,9 @@ void monad_fiber_scheduler_work(monad_fiber_scheduler_t *this)
         snprintf(name, 24, "worker thread %u", ++(this->thread_id_source));
         MONAD_CCALL_ASSERT(pthread_setname_np(pthread_self(), name));
     }
+
+    if (this->init_thread != NULL)
+      (*this->init_thread)();
 
     while (this->thread_id_source > 0) {
         MONAD_CCALL_ASSERT(pthread_mutex_lock(&this->mutex));
