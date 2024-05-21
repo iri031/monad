@@ -18,7 +18,7 @@ struct monad_fiber_context_asan_fake_stack
     size_t stack_size;
 };
 
-static void monad_fiber_start_switch(
+inline static void monad_fiber_start_switch(
     struct monad_fiber_context_asan_fake_stack *from,
     struct monad_fiber_context_asan_fake_stack *to)
 {
@@ -28,7 +28,7 @@ static void monad_fiber_start_switch(
         to->stack_size);
 }
 
-static void monad_fiber_finish_switch(
+inline static void monad_fiber_finish_switch(
     struct monad_fiber_context_asan_fake_stack *from,
     struct monad_fiber_context_asan_fake_stack *to)
 {
