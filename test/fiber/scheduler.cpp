@@ -274,7 +274,7 @@ TEST(scheduler, DISABLED_post_dispatch_prioritized)
 
 TEST(scheduler, post_post)
 {
-    bool ran = false, ran2;
+    std::atomic<bool> ran = false, ran2;
 
     monad_fiber_scheduler_t s;
     monad_fiber_scheduler_create(&s, 4, NULL);
