@@ -20,6 +20,7 @@
 #endif
 
 typedef struct monad_async_file_head *monad_async_file;
+typedef struct monad_async_socket_head *monad_async_socket;
 
 struct monad_async_executor_free_registered_buffer
 {
@@ -50,7 +51,7 @@ struct monad_async_executor_impl
     LIST_DEFINE_N(tasks_exited, struct monad_async_task_impl);
     monad_async_result *_Atomic cause_run_to_return;
 
-    monad_async_file *file_indices;
+    int *file_indices;
     unsigned file_indices_size;
 
     struct monad_async_executor_impl_registered_buffers_t
@@ -658,17 +659,16 @@ static inline struct io_uring_sqe *get_wrsqe_suspending_if_necessary(
 }
 
 static inline unsigned monad_async_executor_alloc_file_index(
-    struct monad_async_executor_impl *ex, monad_async_file fh)
+    struct monad_async_executor_impl *ex, int fd)
 {
     if (ex->file_indices == nullptr) {
-        ex->file_indices = calloc(4, sizeof(monad_async_file));
+        ex->file_indices = calloc(4, sizeof(int));
         if (ex->file_indices == nullptr) {
             return (unsigned)-1;
         }
         ex->file_indices_size = 4;
         memset(ex->file_indices, 0xff, 4 * sizeof(int));
-        int r = io_uring_register_files(
-            &ex->ring, (int const *)ex->file_indices, 4);
+        int r = io_uring_register_files(&ex->ring, ex->file_indices, 4);
         if (r < 0) {
             fprintf(
                 stderr,
@@ -677,8 +677,7 @@ static inline unsigned monad_async_executor_alloc_file_index(
             abort();
         }
         if (ex->wr_ring.ring_fd != 0) {
-            r = io_uring_register_files(
-                &ex->wr_ring, (int const *)ex->file_indices, 4);
+            r = io_uring_register_files(&ex->wr_ring, ex->file_indices, 4);
             if (r < 0) {
                 fprintf(
                     stderr,
@@ -688,21 +687,47 @@ static inline unsigned monad_async_executor_alloc_file_index(
                 abort();
             }
         }
-        memset(ex->file_indices, 0, 4 * sizeof(int));
+        memset(ex->file_indices, 0xfe, 4 * sizeof(int));
     }
     for (unsigned n = 0; n < ex->file_indices_size; n++) {
-        if (ex->file_indices[n] == nullptr) {
-            ex->file_indices[n] = fh;
+        if ((uint32_t)ex->file_indices[n] == 0xfefefefe) {
+            ex->file_indices[n] = fd;
+            if (fd >= 0) {
+                int r = io_uring_register_files_update(&ex->ring, n, &fd, 1);
+                if (r < 0) {
+                    fprintf(
+                        stderr,
+                        "FATAL: io_uring_register_files_update fails with "
+                        "'%s'\n",
+                        strerror(-r));
+                    abort();
+                }
+                if (ex->wr_ring.ring_fd != 0) {
+                    r = io_uring_register_files_update(&ex->wr_ring, n, &fd, 1);
+                    if (r < 0) {
+                        fprintf(
+                            stderr,
+                            "FATAL: io_uring_register_files_update (write "
+                            "ring) fails "
+                            "with "
+                            "'%s'\n",
+                            strerror(-r));
+                        abort();
+                    }
+                }
+            }
             return n;
         }
     }
-    monad_async_file **new_file_indices = realloc(
-        ex->file_indices, 2 * ex->file_indices_size * sizeof(monad_async_file));
+    int **new_file_indices =
+        realloc(ex->file_indices, 2 * ex->file_indices_size * sizeof(int));
     if (new_file_indices == nullptr) {
         return (unsigned)-1;
     }
-    int *updlist = (int *)(ex->file_indices + ex->file_indices_size);
+    int *updlist = (ex->file_indices + ex->file_indices_size);
     memset(updlist, 0xff, ex->file_indices_size * sizeof(int));
+    unsigned const ret = ex->file_indices_size;
+    updlist[ret] = fd;
     int r = io_uring_register_files_update(
         &ex->ring, ex->file_indices_size, updlist, ex->file_indices_size);
     if (r < 0) {
@@ -728,20 +753,17 @@ static inline unsigned monad_async_executor_alloc_file_index(
         }
     }
     memset(
-        new_file_indices + ex->file_indices_size,
-        0,
-        ex->file_indices_size * sizeof(monad_async_file));
-    unsigned ret = ex->file_indices_size;
+        new_file_indices + ex->file_indices_size + 1,
+        0xfe,
+        (ex->file_indices_size - 1) * sizeof(int));
     ex->file_indices_size *= 2;
     return ret;
 }
 
 static inline void monad_async_executor_free_file_index(
-    struct monad_async_executor_impl *ex, unsigned file_index,
-    monad_async_file fh)
+    struct monad_async_executor_impl *ex, unsigned file_index)
 {
-    (void)fh;
     assert(file_index < ex->file_indices_size);
-    assert(ex->file_indices[file_index] == fh);
-    ex->file_indices[file_index] = nullptr;
+    assert(ex->file_indices[file_index] != (int)0xfefefefe);
+    ex->file_indices[file_index] = (int)0xfefefefe;
 }

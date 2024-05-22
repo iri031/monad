@@ -46,7 +46,7 @@ monad_async_result monad_async_task_file_create(
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
-    unsigned file_index = monad_async_executor_alloc_file_index(ex, &p->head);
+    unsigned file_index = monad_async_executor_alloc_file_index(ex, -1);
     if (file_index == (unsigned)-1) {
         (void)monad_async_task_file_destroy(task_, (monad_async_file)p);
         return monad_async_make_failure(ENOMEM);
@@ -87,7 +87,7 @@ monad_async_result monad_async_task_file_create(
                                               : "success");
 #endif
     if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)) {
-        monad_async_executor_free_file_index(ex, file_index, &p->head);
+        monad_async_executor_free_file_index(ex, file_index);
         (void)monad_async_task_file_destroy(task_, (monad_async_file)p);
         return ret;
     }
@@ -204,8 +204,7 @@ monad_async_task_file_destroy(monad_async_task task_, monad_async_file file_)
         if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)) {
             return ret;
         }
-        monad_async_executor_free_file_index(
-            ex, file->io_uring_file_index, &file->head);
+        monad_async_executor_free_file_index(ex, file->io_uring_file_index);
     }
     free(file);
     return monad_async_make_success(0);

@@ -4,6 +4,8 @@
 
 #include "monad/async/socket_io.h"
 
+#include <netinet/in.h>
+
 TEST(socket_io, unregistered_buffers)
 {
     struct shared_state_t
@@ -12,22 +14,88 @@ TEST(socket_io, unregistered_buffers)
 
         monad_async_result server(monad_async_task task)
         {
-            // Open a listening socket
-            auto sock =
-                make_socket(task, AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0, 0);
+            try {
+                // Open a listening socket
+                auto sock = make_socket(
+                    task, AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0, 0);
 
-            return monad_async_make_success(0);
+                struct sockaddr_in localhost
+                {
+                    .sin_family = AF_INET, .sin_port = 0 /* any */,
+                    .sin_addr = {.s_addr = htonl(INADDR_LOOPBACK)}, .sin_zero
+                    {
+                    }
+                };
+
+                to_result(
+                    monad_async_task_socket_bind(
+                        sock.get(), (sockaddr *)&localhost, sizeof(localhost)))
+                    .value();
+                to_result(monad_async_task_socket_listen(sock.get(), 0))
+                    .value();
+                localhost_port = ((struct sockaddr_in *)&sock->addr)->sin_port;
+                std::cout << "   Server socket listens on port "
+                          << localhost_port << std::endl;
+                to_result(
+                    monad_async_task_socket_transfer_to_uring(task, sock.get()))
+                    .value();
+
+                socket_ptr conn([&] {
+                    monad_async_socket conn;
+                    to_result(monad_async_task_socket_accept(
+                                  &conn, task, sock.get(), 0))
+                        .value();
+                    return socket_ptr(conn, socket_deleter{task});
+                }());
+                sock.reset();
+                auto *peer = (struct sockaddr_in *)&conn->addr;
+                std::cout << "   Server accepts new connection from "
+                          << std::hex << peer->sin_addr.s_addr << std::dec
+                          << ":" << peer->sin_port << std::endl;
+#if 0
+            monad_async_io_status status;
+            struct iovec iov[] = {{(void *)"hello world", 11}};
+            struct msghdr msg = {};
+            msg.msg_iov = iov;
+            msg.msg_iovlen = 1;
+            monad_async_task_socket_send(&status, task, conn.get(), 0, &msg, 0);
+            monad_async_io_status *completed;
+            to_result(monad_async_task_suspend_until_completed_io(
+                          &completed, task, uint64_t(-1)))
+                .value();
+
+            monad_async_task_socket_shutdown(
+                &status, task, conn.get(), SHUT_RDWR);
+            to_result(monad_async_task_suspend_until_completed_io(
+                          &completed, task, uint64_t(-1)))
+                .value();
+#endif
+                return monad_async_make_success(0);
+            }
+            catch (std::exception const &e) {
+                std::cerr << "FATAL: " << e.what() << std::endl;
+                std::terminate();
+            }
         }
 
         monad_async_result client(monad_async_task task)
-        {
-            // Connect to the socket
-            auto sock =
-                make_socket(task, AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0, 0);
 
-            return monad_async_make_success(0);
+        {
+            try {
+                // Connect to the socket
+                auto sock = make_socket(
+                    task, AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0, 0);
+
+                return monad_async_make_success(0);
+            }
+            catch (std::exception const &e) {
+                std::cerr << "FATAL: " << e.what() << std::endl;
+                std::terminate();
+            }
         }
-    } shared_state;
+    }
+
+    shared_state;
 
     // Make an executor
     monad_async_executor_attr ex_attr{};
