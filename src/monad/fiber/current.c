@@ -119,6 +119,24 @@ monad_fiber_await_impl(monad_fiber_context_t *from, void *ptr)
     return from;
 }
 
+struct monad_pseudo_fiber
+{
+  monad_fiber_t base;
+  atomic_bool done;
+};
+
+static void pseudo_fiber_resume(monad_fiber_task_t * t)
+{
+    struct monad_pseudo_fiber * f = (struct monad_pseudo_fiber *)t;
+    f->done = true;
+}
+
+static void pseudo_fiber_destroy(monad_fiber_task_t * t)
+{
+    (void)t;
+    pthread_exit(NULL);
+}
+
 void monad_fiber_await(
     void (*suspend_to)(monad_fiber_t * /*task */, void * /*arg*/), void *arg)
 {
@@ -126,10 +144,21 @@ void monad_fiber_await(
 
     if (monad_fiber_is_main(from)) {
         MONAD_ASSERT(from->scheduler != NULL);
+        // suspend_to
 
-        if (!monad_fiber_run_one(from->scheduler)) {
-          sched_yield();
+        struct monad_pseudo_fiber pseudo_fiber = {*from, false};
+
+        pseudo_fiber.base.task.resume  = &pseudo_fiber_resume;
+        pseudo_fiber.base.task.destroy = &pseudo_fiber_destroy;
+        (*suspend_to)(&pseudo_fiber.base, arg);
+
+        while (!pseudo_fiber.done)
+        {
+            if (!monad_fiber_run_one(from->scheduler)) {
+                sched_yield();
+            }
         }
+
 
         return;
     }
