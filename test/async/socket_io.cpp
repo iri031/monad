@@ -33,13 +33,17 @@ TEST(socket_io, unregistered_buffers)
                     .value();
                 to_result(monad_async_task_socket_listen(sock.get(), 0))
                     .value();
-                localhost_port = ((struct sockaddr_in *)&sock->addr)->sin_port;
+                localhost_port =
+                    ntohs(((struct sockaddr_in *)&sock->addr)->sin_port);
                 std::cout << "   Server socket listens on port "
                           << localhost_port << std::endl;
                 to_result(
                     monad_async_task_socket_transfer_to_uring(task, sock.get()))
                     .value();
 
+                std::cout << "   Server initiates accepting new connections."
+                          << std::endl;
+                // Accept new connections, suspending until a new one appears
                 socket_ptr conn([&] {
                     monad_async_socket conn;
                     to_result(monad_async_task_socket_accept(
@@ -47,29 +51,41 @@ TEST(socket_io, unregistered_buffers)
                         .value();
                     return socket_ptr(conn, socket_deleter{task});
                 }());
+                // Close the listening socket
                 sock.reset();
                 auto *peer = (struct sockaddr_in *)&conn->addr;
-                std::cout << "   Server accepts new connection from "
+                std::cout << "   Server accepts new connection from 0x"
                           << std::hex << peer->sin_addr.s_addr << std::dec
                           << ":" << peer->sin_port << std::endl;
-#if 0
-            monad_async_io_status status;
-            struct iovec iov[] = {{(void *)"hello world", 11}};
-            struct msghdr msg = {};
-            msg.msg_iov = iov;
-            msg.msg_iovlen = 1;
-            monad_async_task_socket_send(&status, task, conn.get(), 0, &msg, 0);
-            monad_async_io_status *completed;
-            to_result(monad_async_task_suspend_until_completed_io(
-                          &completed, task, uint64_t(-1)))
-                .value();
 
-            monad_async_task_socket_shutdown(
-                &status, task, conn.get(), SHUT_RDWR);
-            to_result(monad_async_task_suspend_until_completed_io(
-                          &completed, task, uint64_t(-1)))
-                .value();
-#endif
+                std::cout << "   Server initiates write to socket."
+                          << std::endl;
+                // Write "hello world" to the connecting socket
+                monad_async_io_status status;
+                struct iovec iov[] = {{(void *)"hello world", 11}};
+                struct msghdr msg = {};
+                msg.msg_iov = iov;
+                msg.msg_iovlen = 1;
+                monad_async_task_socket_send(
+                    &status, task, conn.get(), 0, &msg, 0);
+                monad_async_io_status *completed;
+                to_result(monad_async_task_suspend_until_completed_io(
+                              &completed, task, uint64_t(-1)))
+                    .value();
+                auto byteswritten = to_result(status.result).value();
+                std::cout << "   Server writes " << byteswritten
+                          << " bytes to socket." << std::endl;
+
+                std::cout << "   Server initiates shutdown of socket."
+                          << std::endl;
+                // Ensure written data gets flushed out.
+                monad_async_task_socket_shutdown(
+                    &status, task, conn.get(), SHUT_RDWR);
+                to_result(monad_async_task_suspend_until_completed_io(
+                              &completed, task, uint64_t(-1)))
+                    .value();
+                to_result(status.result).value();
+                std::cout << "   Server has shutdown socket." << std::endl;
                 return monad_async_make_success(0);
             }
             catch (std::exception const &e) {
@@ -79,13 +95,65 @@ TEST(socket_io, unregistered_buffers)
         }
 
         monad_async_result client(monad_async_task task)
-
         {
             try {
-                // Connect to the socket
+                // Connect to the listening socket
                 auto sock = make_socket(
                     task, AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0, 0);
+                to_result(
+                    monad_async_task_socket_transfer_to_uring(task, sock.get()))
+                    .value();
 
+                monad_async_io_status status;
+
+                struct sockaddr_in addr
+                {
+                    .sin_family = AF_INET, .sin_port = htons(localhost_port),
+                    .sin_addr = {.s_addr = htonl(INADDR_LOOPBACK)}, .sin_zero
+                    {
+                    }
+                };
+
+                std::cout << "   Client connects to port " << localhost_port
+                          << "." << std::endl;
+                monad_async_task_socket_connect(
+                    &status, task, sock.get(), (sockaddr *)&addr, sizeof(addr));
+                monad_async_io_status *completed;
+                to_result(monad_async_task_suspend_until_completed_io(
+                              &completed, task, uint64_t(-1)))
+                    .value();
+                std::cout << "   Client has connected." << std::endl;
+
+                // Read from the socket
+                std::cout << "   Client initiates read of socket." << std::endl;
+                char buffer[256]{};
+                struct iovec iov[] = {{(void *)buffer, 256}};
+                struct msghdr msg = {};
+                msg.msg_iov = iov;
+                msg.msg_iovlen = 1;
+                monad_async_task_socket_recv(
+                    &status, task, sock.get(), 0, &msg, 0);
+                to_result(monad_async_task_suspend_until_completed_io(
+                              &completed, task, uint64_t(-1)))
+                    .value();
+                auto bytesread = to_result(status.result).value();
+
+                std::cout << "   Client reads " << bytesread
+                          << " bytes which are '" << (char *)iov[0].iov_base
+                          << "'." << std::endl;
+                EXPECT_EQ(bytesread, 11);
+                EXPECT_STREQ((char *)iov[0].iov_base, "hello world");
+
+                std::cout << "   Client initiates shutdown of socket."
+                          << std::endl;
+                // Gracefully close the socket
+                monad_async_task_socket_shutdown(
+                    &status, task, sock.get(), SHUT_RDWR);
+                to_result(monad_async_task_suspend_until_completed_io(
+                              &completed, task, uint64_t(-1)))
+                    .value();
+                to_result(status.result).value();
+                std::cout << "   Client has shutdown socket." << std::endl;
                 return monad_async_make_success(0);
             }
             catch (std::exception const &e) {

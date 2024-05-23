@@ -822,8 +822,8 @@ extern "C" {
     #[doc = "pending connection on the socket until there is a new connection. See `man"]
     #[doc = "accept4` to explain parameters."]
     #[doc = ""]
-    #[doc = "Note that `SOCK_CLOEXEC` is XORed in the flags, so set that if you want to"]
-    #[doc = "disable it."]
+    #[doc = "Note that if `SOCK_CLOEXEC` is set in the flags, io_uring will fail the request"]
+    #[doc = "(this is non-obvious, cost me half a day of debugging, so I document it here)"]
     pub fn monad_async_task_socket_accept(
         connected_sock: *mut monad_async_socket,
         task: monad_async_task,
@@ -842,7 +842,7 @@ extern "C" {
         iostatus: *mut monad_async_io_status,
         task: monad_async_task,
         sock: monad_async_socket,
-        addr: *mut sockaddr,
+        addr: *const sockaddr,
         addrlen: socklen_t,
     );
 }
@@ -876,7 +876,7 @@ extern "C" {
         sock: monad_async_socket,
         buffer_index: ::std::os::raw::c_int,
         msg: *mut msghdr,
-        flags: ::std::os::raw::c_int,
+        flags: ::std::os::raw::c_uint,
     );
 }
 extern "C" {
@@ -895,7 +895,7 @@ extern "C" {
         sock: monad_async_socket,
         buffer_index: ::std::os::raw::c_int,
         msg: *const msghdr,
-        flags: ::std::os::raw::c_int,
+        flags: ::std::os::raw::c_uint,
     );
 }
 extern "C" {

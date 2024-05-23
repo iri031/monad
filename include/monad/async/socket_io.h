@@ -71,8 +71,8 @@ monad_async_task_socket_transfer_to_uring(
 pending connection on the socket until there is a new connection. See `man
 accept4` to explain parameters.
 
-Note that `SOCK_CLOEXEC` is XORed in the flags, so set that if you want to
-disable it.
+Note that if `SOCK_CLOEXEC` is set in the flags, io_uring will fail the request
+(this is non-obvious, cost me half a day of debugging, so I document it here)
 */
 MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_task_socket_accept(
     monad_async_socket *connected_sock, monad_async_task task,
@@ -87,7 +87,7 @@ from the task's current i/o priority setting.
 */
 extern void monad_async_task_socket_connect(
     monad_async_io_status *iostatus, monad_async_task task,
-    monad_async_socket sock, struct sockaddr *addr, socklen_t addrlen);
+    monad_async_socket sock, const struct sockaddr *addr, socklen_t addrlen);
 
 /*! \brief Initiate a shutdown of an open socket using `iostatus` as the
 identifier.
@@ -112,7 +112,8 @@ points at have lifetime until the read completes.
 */
 extern void monad_async_task_socket_recv(
     monad_async_io_status *iostatus, monad_async_task task,
-    monad_async_socket sock, int buffer_index, struct msghdr *msg, int flags);
+    monad_async_socket sock, int buffer_index, struct msghdr *msg,
+    unsigned flags);
 
 /*! \brief Initiate a write to an open socket using `iostatus` as the
 identifier.
@@ -127,7 +128,7 @@ points at have lifetime until the write completes.
 extern void monad_async_task_socket_send(
     monad_async_io_status *iostatus, monad_async_task task,
     monad_async_socket sock, int buffer_index, const struct msghdr *msg,
-    int flags);
+    unsigned flags);
 
 #ifdef __cplusplus
 }
