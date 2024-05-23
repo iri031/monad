@@ -84,6 +84,8 @@ Data Structures</h2></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structmonad_1_1async_1_1context__deleter.html">context_deleter</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structmonad_1_1async_1_1socket__deleter.html">socket_deleter</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structmonad_1_1async_1_1task__deleter.html">task_deleter</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structmonad_1_1async_1_1work__dispatcher__deleter.html">work_dispatcher_deleter</a></td></tr>
@@ -101,6 +103,8 @@ Typedefs</h2></td></tr>
 <tr class="separator:ad5f80a59de84c8ca310d6301f793b281"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a7feb1f63d670411ff59d637ffa476d29"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacemonad_1_1async.html#a7feb1f63d670411ff59d637ffa476d29">context_ptr</a> = std::unique_ptr&lt; <a class="el" href="structmonad__async__context__head.html">monad_async_context_head</a>, <a class="el" href="structmonad_1_1async_1_1context__deleter.html">context_deleter</a> &gt;</td></tr>
 <tr class="separator:a7feb1f63d670411ff59d637ffa476d29"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a5dd9d5f9c66d74e32052d1131f684252"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacemonad_1_1async.html#a5dd9d5f9c66d74e32052d1131f684252">socket_ptr</a> = std::unique_ptr&lt; <a class="el" href="structmonad__async__socket__head.html">monad_async_socket_head</a>, <a class="el" href="structmonad_1_1async_1_1socket__deleter.html">socket_deleter</a> &gt;</td></tr>
+<tr class="separator:a5dd9d5f9c66d74e32052d1131f684252"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:af2882efa787c986e9b49624893b7897b"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacemonad_1_1async.html#af2882efa787c986e9b49624893b7897b">task_ptr</a> = std::unique_ptr&lt; <a class="el" href="structmonad__async__task__head.html">monad_async_task_head</a>, <a class="el" href="structmonad_1_1async_1_1task__deleter.html">task_deleter</a> &gt;</td></tr>
 <tr class="separator:af2882efa787c986e9b49624893b7897b"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a51dcc9474c3127671d0035ecc823abae"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacemonad_1_1async.html#a51dcc9474c3127671d0035ecc823abae">work_dispatcher_ptr</a> = std::unique_ptr&lt; <a class="el" href="structmonad__async__work__dispatcher__head.html">monad_async_work_dispatcher_head</a>, <a class="el" href="structmonad_1_1async_1_1work__dispatcher__deleter.html">work_dispatcher_deleter</a> &gt;</td></tr>
@@ -128,6 +132,9 @@ Functions</h2></td></tr>
 <tr class="memitem:aa55a349dfb4c24086f4edd77bc5816ad"><td class="memItemLeft" align="right" valign="top"><a class="el" href="namespacemonad_1_1async.html#a7feb1f63d670411ff59d637ffa476d29">context_ptr</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacemonad_1_1async.html#aa55a349dfb4c24086f4edd77bc5816ad">make_context</a> (<a class="el" href="context__switcher_8h.html#a6ec288a88c52c331bf747aee1dc58493">monad_async_context_switcher</a> impl, <a class="el" href="context__switcher_8h.html#a9d073079b268e65401e6d5ce11928d94">monad_async_task</a> task, struct <a class="el" href="structmonad__async__task__attr.html">monad_async_task_attr</a> &amp;attr)</td></tr>
 <tr class="memdesc:aa55a349dfb4c24086f4edd77bc5816ad"><td class="mdescLeft">&#160;</td><td class="mdescRight">Construct a context instance, and return it in a smart pointer.  <a href="namespacemonad_1_1async.html#aa55a349dfb4c24086f4edd77bc5816ad">More...</a><br /></td></tr>
 <tr class="separator:aa55a349dfb4c24086f4edd77bc5816ad"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a2f194354b40291072c7e72bf825a8135"><td class="memItemLeft" align="right" valign="top"><a class="el" href="namespacemonad_1_1async.html#a5dd9d5f9c66d74e32052d1131f684252">socket_ptr</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacemonad_1_1async.html#a2f194354b40291072c7e72bf825a8135">make_socket</a> (<a class="el" href="context__switcher_8h.html#a9d073079b268e65401e6d5ce11928d94">monad_async_task</a> task, int domain, int type, int protocol, unsigned flags)</td></tr>
+<tr class="memdesc:a2f194354b40291072c7e72bf825a8135"><td class="mdescLeft">&#160;</td><td class="mdescRight">Construct a socket instance, and return it in a smart pointer.  <a href="namespacemonad_1_1async.html#a2f194354b40291072c7e72bf825a8135">More...</a><br /></td></tr>
+<tr class="separator:a2f194354b40291072c7e72bf825a8135"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ab8af966600fc587d93ac34cfba54041e"><td class="memItemLeft" align="right" valign="top"><a class="el" href="namespacemonad_1_1async.html#af2882efa787c986e9b49624893b7897b">task_ptr</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacemonad_1_1async.html#ab8af966600fc587d93ac34cfba54041e">make_task</a> (<a class="el" href="context__switcher_8h.html#a6ec288a88c52c331bf747aee1dc58493">monad_async_context_switcher</a> switcher, struct <a class="el" href="structmonad__async__task__attr.html">monad_async_task_attr</a> &amp;attr)</td></tr>
 <tr class="memdesc:ab8af966600fc587d93ac34cfba54041e"><td class="mdescLeft">&#160;</td><td class="mdescRight">Construct a task instance, and return it in a smart pointer.  <a href="namespacemonad_1_1async.html#ab8af966600fc587d93ac34cfba54041e">More...</a><br /></td></tr>
 <tr class="separator:ab8af966600fc587d93ac34cfba54041e"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -189,6 +196,20 @@ Functions</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">using <a class="el" href="namespacemonad_1_1async.html#affbe35af93e65b35ccb96708df16cb38">monad::async::file_ptr</a> = typedef std::unique_ptr&lt;<a class="el" href="structmonad__async__file__head.html">monad_async_file_head</a>, <a class="el" href="structmonad_1_1async_1_1file__deleter.html">file_deleter</a>&gt;</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a5dd9d5f9c66d74e32052d1131f684252"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5dd9d5f9c66d74e32052d1131f684252">&#9670;&nbsp;</a></span>socket_ptr</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">using <a class="el" href="namespacemonad_1_1async.html#a5dd9d5f9c66d74e32052d1131f684252">monad::async::socket_ptr</a> = typedef std::unique_ptr&lt;<a class="el" href="structmonad__async__socket__head.html">monad_async_socket_head</a>, <a class="el" href="structmonad_1_1async_1_1socket__deleter.html">socket_deleter</a>&gt;</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -353,6 +374,54 @@ Functions</h2></td></tr>
 </div><div class="memdoc">
 
 <p>Construct a file instance, and return it in a smart pointer. </p>
+
+</div>
+</div>
+<a id="a2f194354b40291072c7e72bf825a8135"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2f194354b40291072c7e72bf825a8135">&#9670;&nbsp;</a></span>make_socket()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="namespacemonad_1_1async.html#a5dd9d5f9c66d74e32052d1131f684252">socket_ptr</a> monad::async::make_socket </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="context__switcher_8h.html#a9d073079b268e65401e6d5ce11928d94">monad_async_task</a>&#160;</td>
+          <td class="paramname"><em>task</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int&#160;</td>
+          <td class="paramname"><em>domain</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int&#160;</td>
+          <td class="paramname"><em>type</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int&#160;</td>
+          <td class="paramname"><em>protocol</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">unsigned&#160;</td>
+          <td class="paramname"><em>flags</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Construct a socket instance, and return it in a smart pointer. </p>
 
 </div>
 </div>

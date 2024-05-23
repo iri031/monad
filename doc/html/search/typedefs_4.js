@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['task_5fptr_595',['task_ptr',['../namespacemonad_1_1async.html#af2882efa787c986e9b49624893b7897b',1,'monad::async']]]
+  ['socket_5fptr_632',['socket_ptr',['../namespacemonad_1_1async.html#a5dd9d5f9c66d74e32052d1131f684252',1,'monad::async']]]
 ];

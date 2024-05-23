@@ -1,8 +1,8 @@
 var searchData=
 [
-  ['element_5fsize_478',['element_size',['../structmonad__fiber__channel.html#af2ea311d471be4c9970911073fc7e8ff',1,'monad_fiber_channel']]],
-  ['entries_479',['entries',['../structmonad__async__executor__attr.html#afc8febb67fa25e96da8e4a812056bd29',1,'monad_async_executor_attr']]],
-  ['executor_480',['executor',['../structmonad__async__file__head.html#a3b53f70ba32b86559dd8b40219673137',1,'monad_async_file_head']]],
-  ['executors_481',['executors',['../structmonad__async__work__dispatcher__head.html#a9fba6cc896fd5065558af4266dab7cb6',1,'monad_async_work_dispatcher_head']]],
-  ['exit_5fjmp_482',['exit_jmp',['../structmonad__fiber__pooled.html#aa2d5649e72c4fa90a65260e1c363a0fa',1,'monad_fiber_pooled']]]
+  ['data_508',['data',['../structmonad__fiber__channel.html#a913be4b75abd222e2d28517de13d6829',1,'monad_fiber_channel::data()'],['../structtransfer__t.html#a85d3107e76e3a61760888fda6445ce90',1,'transfer_t::data()'],['../structmonad__fiber__task__queue.html#ad272a51c2dca9059c6f1e3f751f5fba1',1,'monad_fiber_task_queue::data()']]],
+  ['derived_509',['derived',['../structmonad__async__work__dispatcher__executor__head.html#a9fbacb5aa38ff5808318473c508b58ea',1,'monad_async_work_dispatcher_executor_head::derived()'],['../structmonad__async__work__dispatcher__executor__attr.html#a1b37a2d36588ea33a2993a21d38e8700',1,'monad_async_work_dispatcher_executor_attr::derived()']]],
+  ['destroy_510',['destroy',['../structmonad__async__context__switcher__head.html#a652cea605eaf6ea2a410f735c6622c70',1,'monad_async_context_switcher_head::destroy()'],['../structmonad__fiber__task.html#aa8e71df6c596c69c0a2e46fc6096822f',1,'monad_fiber_task::destroy()']]],
+  ['dispatcher_511',['dispatcher',['../structmonad__async__work__dispatcher__executor__head.html#a186d9075c21fd4bdf449b256e9aa2211',1,'monad_async_work_dispatcher_executor_head']]],
+  ['domain_512',['domain',['../structcxx__status__code__posix.html#a81b49fb615135d71e39b90303cdc2a0c',1,'cxx_status_code_posix::domain()'],['../structcxx__status__code__system.html#af7cb525768377284946d2b3f777f3bf4',1,'cxx_status_code_system::domain()']]]
 ];

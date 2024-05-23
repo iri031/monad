@@ -97,9 +97,9 @@ This graph shows which files directly or indirectly include this file:</div>
 <div class="dyncontent">
 <div class="center"><img src="file__io_8h__dep__incl.png" border="0" usemap="#ainclude_2monad_2async_2file__io_8hdep" alt=""/></div>
 <map name="ainclude_2monad_2async_2file__io_8hdep" id="ainclude_2monad_2async_2file__io_8hdep">
-<area shape="rect" title=" " alt="" coords="89,5,235,47"/>
+<area shape="rect" title=" " alt="" coords="5,5,151,47"/>
 <area shape="rect" href="async_2all_8h.html" title=" " alt="" coords="5,95,151,136"/>
-<area shape="rect" href="cpp__helpers_8hpp.html" title=" " alt="" coords="175,95,320,136"/>
+<area shape="rect" href="cpp__helpers_8hpp.html" title=" " alt="" coords="5,184,151,225"/>
 </map>
 </div>
 </div>
@@ -141,7 +141,7 @@ Functions</h2></td></tr>
 <tr class="memdesc:adc8a40bb3e178dffba0b58e71f327167"><td class="mdescLeft">&#160;</td><td class="mdescRight">Initiate a flush of dirty file extents using <code>iostatus</code> as the identifier. Returns immediately unless there are no free io_uring submission entries. See <code>man sync_file_range</code> to explain parameters. The i/o priority used will be that from the task's current i/o priority setting. This is the right call to use to encourage the kernel to flush a region of data now, it is the wrong call to ensure write durability as it neither flushes metadata nor tells the storage device to flush.  <a href="file__io_8h.html#adc8a40bb3e178dffba0b58e71f327167">More...</a><br /></td></tr>
 <tr class="separator:adc8a40bb3e178dffba0b58e71f327167"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:abc6e56458bd39d04fbfaef0ba082887e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="file__io_8h.html#abc6e56458bd39d04fbfaef0ba082887e">monad_async_task_file_durable_sync</a> (<a class="el" href="structmonad__async__io__status.html">monad_async_io_status</a> *iostatus, <a class="el" href="context__switcher_8h.html#a9d073079b268e65401e6d5ce11928d94">monad_async_task</a> task, <a class="el" href="file__io_8h.html#a6cc40eabcbdb50f496ba9a1d38cd97c5">monad_async_file</a> file)</td></tr>
-<tr class="memdesc:abc6e56458bd39d04fbfaef0ba082887e"><td class="mdescLeft">&#160;</td><td class="mdescRight">EXPENSIVE Initiate a durable sync of an open file using <code>iostatus</code> as the identifier. Returns immediately unless there are no free io_uring submission entries. The i/o priority used will be that from the task's current i/o priority setting. This is the right call to use to ensure written data is durably placed onto non-volatile storage.  <a href="file__io_8h.html#abc6e56458bd39d04fbfaef0ba082887e">More...</a><br /></td></tr>
+<tr class="memdesc:abc6e56458bd39d04fbfaef0ba082887e"><td class="mdescLeft">&#160;</td><td class="mdescRight">Initiate a durable sync of an open file using <code>iostatus</code> as the identifier. Returns immediately unless there are no free io_uring submission entries. The i/o priority used will be that from the task's current i/o priority setting. This is the right call to use to ensure written data is durably placed onto non-volatile storage.  <a href="file__io_8h.html#abc6e56458bd39d04fbfaef0ba082887e">More...</a><br /></td></tr>
 <tr class="separator:abc6e56458bd39d04fbfaef0ba082887e"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Typedef Documentation</h2>
@@ -289,7 +289,8 @@ Functions</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p>EXPENSIVE Initiate a durable sync of an open file using <code>iostatus</code> as the identifier. Returns immediately unless there are no free io_uring submission entries. The i/o priority used will be that from the task's current i/o priority setting. This is the right call to use to ensure written data is durably placed onto non-volatile storage. </p>
+<p>Initiate a durable sync of an open file using <code>iostatus</code> as the identifier. Returns immediately unless there are no free io_uring submission entries. The i/o priority used will be that from the task's current i/o priority setting. This is the right call to use to ensure written data is durably placed onto non-volatile storage. </p>
+<p>Note that this operation generally takes milliseconds to complete. </p>
 
 </div>
 </div>

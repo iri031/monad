@@ -364,7 +364,6 @@ Todo</h1>
 <li>Rename <code>monad_async_*</code> to <code>monad_executor_io_*</code>.</li>
 <li>Rename <code>monad_fiber_*</code> to <code>monad_executor_compute_*</code>?</li>
 <li>Need to test cancellation works at every possible lifecycle and suspend state a task can have.</li>
-<li>A test should make 1 billion tasks to prove it works without issue and scales without issue.</li>
 <li>A context switcher implementing C++ coroutines would be nice. Some notes on that:<ul>
 <li>MSVC coroutine frame: Promise | Frame prefix | Local variables. Coroutine frame is: <code>struct msvc_frame_prefix { void(*factivate)(void*); uint16_t index, flag; };</code>. Implementation is a state machine based on switching <code>index</code>.</li>
 <li>GCC/clang coroutine frame: Frame prefix | Promise | Unknown | Local variables. Coroutine frame is: <code>struct clang_frame_prefix { void(*factivate)(void*); void(*fdestroy)(void*);};</code>. </li>

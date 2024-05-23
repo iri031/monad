@@ -1,7 +1,6 @@
 var searchData=
 [
-  ['registered_5fbuffers_527',['registered_buffers',['../structmonad__async__executor__attr.html#a448492518f761b4bc3f84ef4d99048c4',1,'monad_async_executor_attr']]],
-  ['result_528',['result',['../structmonad__async__io__status.html#ae2415758c4195b427535088eac555840',1,'monad_async_io_status::result()'],['../structmonad__async__task__head.html#a9f3d0cdd8c38579225872f39796e46d0',1,'monad_async_task_head::result()']]],
-  ['resume_529',['resume',['../structmonad__async__context__switcher__head.html#adf6fa68a4cab1ca505d8ab141855953f',1,'monad_async_context_switcher_head::resume()'],['../structmonad__fiber__task.html#ae79cf9ea88b8225cd77894f3ba017da0',1,'monad_fiber_task::resume()']]],
-  ['resume_5fmany_530',['resume_many',['../structmonad__async__context__switcher__head.html#afe7d89fc7fd435d15af8041eaca01697',1,'monad_async_context_switcher_head']]]
+  ['queue_560',['queue',['../structmonad__fiber__pool.html#a8da75ba98cc72d82c1522c5006fc8806',1,'monad_fiber_pool']]],
+  ['queue_5fmutex_561',['queue_mutex',['../structmonad__fiber__pool.html#a9640217f4874e33f9d4db0bf233966ed',1,'monad_fiber_pool']]],
+  ['queue_5fsemaphore_562',['queue_semaphore',['../structmonad__fiber__pool.html#aef5082888f8a9d77cca39235bb7a1c42',1,'monad_fiber_pool']]]
 ];

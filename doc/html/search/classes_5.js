@@ -1,5 +1,5 @@
 var searchData=
 [
-  ['work_5fdispatcher_5fdeleter_343',['work_dispatcher_deleter',['../structmonad_1_1async_1_1work__dispatcher__deleter.html',1,'monad::async']]],
-  ['work_5fdispatcher_5fexecutor_5fdeleter_344',['work_dispatcher_executor_deleter',['../structmonad_1_1async_1_1work__dispatcher__executor__deleter.html',1,'monad::async']]]
+  ['task_5fdeleter_362',['task_deleter',['../structmonad_1_1async_1_1task__deleter.html',1,'monad::async']]],
+  ['transfer_5ft_363',['transfer_t',['../structtransfer__t.html',1,'']]]
 ];

@@ -99,6 +99,7 @@ Include dependency graph for scheduler.h:</div>
 <area shape="rect" title=" " alt="" coords="839,95,905,121"/>
 <area shape="rect" title=" " alt="" coords="5,169,75,196"/>
 <area shape="rect" title=" " alt="" coords="99,169,165,196"/>
+<area shape="rect" title=" " alt="" coords="357,169,421,196"/>
 </map>
 </div>
 </div><div class="textblock"><div class="dynheader">
@@ -132,8 +133,8 @@ Functions</h2></td></tr>
 <tr class="separator:a9163168d6299babb314be7deff65729c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ada602bf6e5078f5776cb8f069e2fc6ab"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="scheduler_8h.html#ada602bf6e5078f5776cb8f069e2fc6ab">monad_fiber_scheduler_work</a> (<a class="el" href="scheduler_8h.html#a9011586775413490868c05d2c01b164f">monad_fiber_scheduler_t</a> *)</td></tr>
 <tr class="separator:ada602bf6e5078f5776cb8f069e2fc6ab"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a1cecd57e018292a8c51d2e5bc49654a3"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="scheduler_8h.html#a1cecd57e018292a8c51d2e5bc49654a3">monad_fiber_scheduler_create</a> (<a class="el" href="scheduler_8h.html#a9011586775413490868c05d2c01b164f">monad_fiber_scheduler_t</a> *, size_t threads)</td></tr>
-<tr class="separator:a1cecd57e018292a8c51d2e5bc49654a3"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4735719490622c79a3ec790656834d20"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="scheduler_8h.html#a4735719490622c79a3ec790656834d20">monad_fiber_scheduler_create</a> (<a class="el" href="scheduler_8h.html#a9011586775413490868c05d2c01b164f">monad_fiber_scheduler_t</a> *, size_t threads, void(*init_thread)())</td></tr>
+<tr class="separator:a4735719490622c79a3ec790656834d20"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ab0f82bcd5f2a65444f74e02285e057f3"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="scheduler_8h.html#ab0f82bcd5f2a65444f74e02285e057f3">monad_fiber_scheduler_destroy</a> (<a class="el" href="scheduler_8h.html#a9011586775413490868c05d2c01b164f">monad_fiber_scheduler_t</a> *)</td></tr>
 <tr class="separator:ab0f82bcd5f2a65444f74e02285e057f3"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a4f73eab4ca9cb887135c99eb427261c2"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="scheduler_8h.html#a4f73eab4ca9cb887135c99eb427261c2">monad_fiber_scheduler_stop</a> (<a class="el" href="scheduler_8h.html#a9011586775413490868c05d2c01b164f">monad_fiber_scheduler_t</a> *)</td></tr>
@@ -181,8 +182,8 @@ Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="a1cecd57e018292a8c51d2e5bc49654a3"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a1cecd57e018292a8c51d2e5bc49654a3">&#9670;&nbsp;</a></span>monad_fiber_scheduler_create()</h2>
+<a id="a4735719490622c79a3ec790656834d20"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4735719490622c79a3ec790656834d20">&#9670;&nbsp;</a></span>monad_fiber_scheduler_create()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -197,7 +198,13 @@ Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">size_t&#160;</td>
-          <td class="paramname"><em>threads</em>&#160;</td>
+          <td class="paramname"><em>threads</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">void(*)()&#160;</td>
+          <td class="paramname"><em>init_thread</em>&#160;</td>
         </tr>
         <tr>
           <td></td>

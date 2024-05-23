@@ -75,31 +75,34 @@ $(function() {
 </div><!--header-->
 <div class="contents">
 <div class="textblock"><code>#include &lt;boost/outcome/experimental/status_result.hpp&gt;</code><br />
-<code>#include &quot;<a class="el" href="executor_8h_source.html">executor.h</a>&quot;</code><br />
-<code>#include &quot;<a class="el" href="file__io_8h_source.html">file_io.h</a>&quot;</code><br />
-<code>#include &quot;<a class="el" href="async_2task_8h_source.html">task.h</a>&quot;</code><br />
-<code>#include &quot;<a class="el" href="work__dispatcher_8h_source.html">work_dispatcher.h</a>&quot;</code><br />
+<code>#include &lt;liburing.h&gt;</code><br />
+<code>#include &quot;<a class="el" href="async_2all_8h_source.html">all.h</a>&quot;</code><br />
 <code>#include &lt;memory&gt;</code><br />
 </div><div class="textblock"><div class="dynheader">
 Include dependency graph for cpp_helpers.hpp:</div>
 <div class="dyncontent">
 <div class="center"><img src="cpp__helpers_8hpp__incl.png" border="0" usemap="#ainclude_2monad_2async_2cpp__helpers_8hpp" alt=""/></div>
 <map name="ainclude_2monad_2async_2cpp__helpers_8hpp" id="ainclude_2monad_2async_2cpp__helpers_8hpp">
-<area shape="rect" title=" " alt="" coords="334,5,479,47"/>
-<area shape="rect" title=" " alt="" coords="5,95,192,136"/>
-<area shape="rect" href="executor_8h.html" title=" " alt="" coords="281,184,364,211"/>
-<area shape="rect" href="async_2task_8h.html" title=" " alt="" coords="461,259,520,285"/>
-<area shape="rect" href="file__io_8h.html" title=" " alt="" coords="388,184,455,211"/>
-<area shape="rect" href="work__dispatcher_8h.html" title=" " alt="" coords="217,102,343,129"/>
-<area shape="rect" title=" " alt="" coords="529,102,599,129"/>
-<area shape="rect" href="config_8h.html" title=" " alt="" coords="366,408,434,435"/>
-<area shape="rect" title=" " alt="" coords="363,259,437,285"/>
-<area shape="rect" title=" " alt="" coords="247,408,337,435"/>
-<area shape="rect" href="boost__result_8h.html" title=" " alt="" coords="348,483,452,509"/>
-<area shape="rect" title=" " alt="" coords="367,557,433,584"/>
-<area shape="rect" href="context__switcher_8h.html" title=" " alt="" coords="413,333,544,360"/>
-<area shape="rect" title=" " alt="" coords="579,408,653,435"/>
-<area shape="rect" title=" " alt="" coords="461,408,525,435"/>
+<area shape="rect" title=" " alt="" coords="571,5,717,47"/>
+<area shape="rect" title=" " alt="" coords="245,95,432,136"/>
+<area shape="rect" title=" " alt="" coords="340,333,415,360"/>
+<area shape="rect" href="async_2all_8h.html" title=" " alt="" coords="457,102,503,129"/>
+<area shape="rect" title=" " alt="" coords="845,102,915,129"/>
+<area shape="rect" href="boost__result_8h.html" title=" " alt="" coords="184,557,288,584"/>
+<area shape="rect" href="config_8h.html" title=" " alt="" coords="449,483,517,509"/>
+<area shape="rect" href="context__switcher_8h.html" title=" " alt="" coords="264,408,395,435"/>
+<area shape="rect" href="executor_8h.html" title=" " alt="" coords="237,259,320,285"/>
+<area shape="rect" href="async_2task_8h.html" title=" " alt="" coords="207,333,265,360"/>
+<area shape="rect" href="file__io_8h.html" title=" " alt="" coords="344,259,411,285"/>
+<area shape="rect" href="socket__io_8h.html" title=" " alt="" coords="435,259,525,285"/>
+<area shape="rect" href="util_8h.html" title=" " alt="" coords="609,184,660,211"/>
+<area shape="rect" href="work__dispatcher_8h.html" title=" " alt="" coords="45,184,171,211"/>
+<area shape="rect" title=" " alt="" coords="203,632,269,659"/>
+<area shape="rect" title=" " alt="" coords="80,483,171,509"/>
+<area shape="rect" title=" " alt="" coords="320,483,395,509"/>
+<area shape="rect" title=" " alt="" coords="213,483,277,509"/>
+<area shape="rect" title=" " alt="" coords="439,333,537,360"/>
+<area shape="rect" title=" " alt="" coords="600,259,669,285"/>
 </map>
 </div>
 </div>
@@ -114,6 +117,8 @@ Data Structures</h2></td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structmonad_1_1async_1_1context__switcher__deleter.html">monad::async::context_switcher_deleter</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structmonad_1_1async_1_1context__deleter.html">monad::async::context_deleter</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structmonad_1_1async_1_1socket__deleter.html">monad::async::socket_deleter</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structmonad_1_1async_1_1task__deleter.html">monad::async::task_deleter</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -139,6 +144,8 @@ Typedefs</h2></td></tr>
 <tr class="separator:ad5f80a59de84c8ca310d6301f793b281"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a7feb1f63d670411ff59d637ffa476d29"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacemonad_1_1async.html#a7feb1f63d670411ff59d637ffa476d29">monad::async::context_ptr</a> = std::unique_ptr&lt; <a class="el" href="structmonad__async__context__head.html">monad_async_context_head</a>, context_deleter &gt;</td></tr>
 <tr class="separator:a7feb1f63d670411ff59d637ffa476d29"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a5dd9d5f9c66d74e32052d1131f684252"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacemonad_1_1async.html#a5dd9d5f9c66d74e32052d1131f684252">monad::async::socket_ptr</a> = std::unique_ptr&lt; <a class="el" href="structmonad__async__socket__head.html">monad_async_socket_head</a>, socket_deleter &gt;</td></tr>
+<tr class="separator:a5dd9d5f9c66d74e32052d1131f684252"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:af2882efa787c986e9b49624893b7897b"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacemonad_1_1async.html#af2882efa787c986e9b49624893b7897b">monad::async::task_ptr</a> = std::unique_ptr&lt; <a class="el" href="structmonad__async__task__head.html">monad_async_task_head</a>, task_deleter &gt;</td></tr>
 <tr class="separator:af2882efa787c986e9b49624893b7897b"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a51dcc9474c3127671d0035ecc823abae"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacemonad_1_1async.html#a51dcc9474c3127671d0035ecc823abae">monad::async::work_dispatcher_ptr</a> = std::unique_ptr&lt; <a class="el" href="structmonad__async__work__dispatcher__head.html">monad_async_work_dispatcher_head</a>, work_dispatcher_deleter &gt;</td></tr>
@@ -166,6 +173,9 @@ Functions</h2></td></tr>
 <tr class="memitem:aa55a349dfb4c24086f4edd77bc5816ad"><td class="memItemLeft" align="right" valign="top">context_ptr&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacemonad_1_1async.html#aa55a349dfb4c24086f4edd77bc5816ad">monad::async::make_context</a> (<a class="el" href="context__switcher_8h.html#a6ec288a88c52c331bf747aee1dc58493">monad_async_context_switcher</a> impl, <a class="el" href="context__switcher_8h.html#a9d073079b268e65401e6d5ce11928d94">monad_async_task</a> task, struct <a class="el" href="structmonad__async__task__attr.html">monad_async_task_attr</a> &amp;attr)</td></tr>
 <tr class="memdesc:aa55a349dfb4c24086f4edd77bc5816ad"><td class="mdescLeft">&#160;</td><td class="mdescRight">Construct a context instance, and return it in a smart pointer.  <a href="namespacemonad_1_1async.html#aa55a349dfb4c24086f4edd77bc5816ad">More...</a><br /></td></tr>
 <tr class="separator:aa55a349dfb4c24086f4edd77bc5816ad"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a2f194354b40291072c7e72bf825a8135"><td class="memItemLeft" align="right" valign="top">socket_ptr&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacemonad_1_1async.html#a2f194354b40291072c7e72bf825a8135">monad::async::make_socket</a> (<a class="el" href="context__switcher_8h.html#a9d073079b268e65401e6d5ce11928d94">monad_async_task</a> task, int domain, int type, int protocol, unsigned flags)</td></tr>
+<tr class="memdesc:a2f194354b40291072c7e72bf825a8135"><td class="mdescLeft">&#160;</td><td class="mdescRight">Construct a socket instance, and return it in a smart pointer.  <a href="namespacemonad_1_1async.html#a2f194354b40291072c7e72bf825a8135">More...</a><br /></td></tr>
+<tr class="separator:a2f194354b40291072c7e72bf825a8135"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ab8af966600fc587d93ac34cfba54041e"><td class="memItemLeft" align="right" valign="top">task_ptr&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacemonad_1_1async.html#ab8af966600fc587d93ac34cfba54041e">monad::async::make_task</a> (<a class="el" href="context__switcher_8h.html#a6ec288a88c52c331bf747aee1dc58493">monad_async_context_switcher</a> switcher, struct <a class="el" href="structmonad__async__task__attr.html">monad_async_task_attr</a> &amp;attr)</td></tr>
 <tr class="memdesc:ab8af966600fc587d93ac34cfba54041e"><td class="mdescLeft">&#160;</td><td class="mdescRight">Construct a task instance, and return it in a smart pointer.  <a href="namespacemonad_1_1async.html#ab8af966600fc587d93ac34cfba54041e">More...</a><br /></td></tr>
 <tr class="separator:ab8af966600fc587d93ac34cfba54041e"><td class="memSeparator" colspan="2">&#160;</td></tr>

@@ -1,8 +1,12 @@
 var searchData=
 [
-  ['data_473',['data',['../structmonad__fiber__channel.html#a913be4b75abd222e2d28517de13d6829',1,'monad_fiber_channel::data()'],['../structtransfer__t.html#a85d3107e76e3a61760888fda6445ce90',1,'transfer_t::data()'],['../structmonad__fiber__task__queue.html#ad272a51c2dca9059c6f1e3f751f5fba1',1,'monad_fiber_task_queue::data()']]],
-  ['derived_474',['derived',['../structmonad__async__work__dispatcher__executor__head.html#a9fbacb5aa38ff5808318473c508b58ea',1,'monad_async_work_dispatcher_executor_head::derived()'],['../structmonad__async__work__dispatcher__executor__attr.html#a1b37a2d36588ea33a2993a21d38e8700',1,'monad_async_work_dispatcher_executor_attr::derived()']]],
-  ['destroy_475',['destroy',['../structmonad__async__context__switcher__head.html#a652cea605eaf6ea2a410f735c6622c70',1,'monad_async_context_switcher_head::destroy()'],['../structmonad__fiber__task.html#aa8e71df6c596c69c0a2e46fc6096822f',1,'monad_fiber_task::destroy()']]],
-  ['dispatcher_476',['dispatcher',['../structmonad__async__work__dispatcher__executor__head.html#a186d9075c21fd4bdf449b256e9aa2211',1,'monad_async_work_dispatcher_executor_head']]],
-  ['domain_477',['domain',['../structcxx__status__code__posix.html#a81b49fb615135d71e39b90303cdc2a0c',1,'cxx_status_code_posix::domain()'],['../structcxx__status__code__system.html#af7cb525768377284946d2b3f777f3bf4',1,'cxx_status_code_system::domain()']]]
+  ['cancel_5f_499',['cancel_',['../structmonad__async__io__status.html#a600304f31c3ae335913c2f7af02297c5',1,'monad_async_io_status']]],
+  ['capacity_500',['capacity',['../structmonad__fiber__channel.html#aa6e759fbe64d8e2a4b7125ebfee5c3ed',1,'monad_fiber_channel::capacity()'],['../structmonad__fiber__task__queue.html#af24db99dbd416f39a65285574f1c7a8b',1,'monad_fiber_task_queue::capacity()']]],
+  ['cond_501',['cond',['../structmonad__fiber__scheduler.html#a54cc9909cd81e2b10641c761b1817c06',1,'monad_fiber_scheduler']]],
+  ['context_502',['context',['../structmonad__fiber.html#a15086bbd50fd494e080332918e93ef2b',1,'monad_fiber']]],
+  ['contexts_503',['contexts',['../structmonad__async__context__switcher__head.html#a384cf282fd479a12ed5775f585444658',1,'monad_async_context_switcher_head']]],
+  ['cpu_504',['cpu',['../structmonad__async__task__head.html#a561e42ebaad4e8d603a091dd39f964e2',1,'monad_async_task_head']]],
+  ['create_505',['create',['../structmonad__async__context__switcher__head.html#abe2044fdc1469b3339b8584f5eba46ac',1,'monad_async_context_switcher_head::create()'],['../structmonad__async__context__switcher__impl.html#a32cee4faf745c5618ec94f977108833f',1,'monad_async_context_switcher_impl::create()']]],
+  ['current_5fexecutor_506',['current_executor',['../structmonad__async__task__head.html#a161bfc0d06d9c82bc80d5c73737f9c3c',1,'monad_async_task_head']]],
+  ['current_5ftask_507',['current_task',['../structmonad__async__executor__head.html#a3a09df5133ad1d0fe665864d3c34d35e',1,'monad_async_executor_head::current_task()'],['../structmonad__fiber__pooled.html#a8bfe0e3ca3a562abb7f58ee5d1608209',1,'monad_fiber_pooled::current_task()']]]
 ];

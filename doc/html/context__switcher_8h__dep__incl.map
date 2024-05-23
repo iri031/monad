@@ -1,9 +1,10 @@
 <map id="include/monad/async/context_switcher.h" name="include/monad/async/context_switcher.h">
-<area shape="rect" id="node1" title=" " alt="" coords="9,5,155,47"/>
-<area shape="rect" id="node2" href="$async_2all_8h.html" title=" " alt="" coords="5,363,151,404"/>
-<area shape="rect" id="node3" href="$async_2task_8h.html" title=" " alt="" coords="116,95,261,136"/>
-<area shape="rect" id="node4" href="$cpp__helpers_8hpp.html" title=" " alt="" coords="281,363,427,404"/>
-<area shape="rect" id="node5" href="$executor_8h.html" title=" " alt="" coords="116,184,261,225"/>
-<area shape="rect" id="node7" href="$file__io_8h.html" title=" " alt="" coords="337,273,483,315"/>
-<area shape="rect" id="node6" href="$work__dispatcher_8h.html" title=" " alt="" coords="116,273,261,315"/>
+<area shape="rect" id="node1" title=" " alt="" coords="5,5,151,47"/>
+<area shape="rect" id="node2" href="$async_2all_8h.html" title=" " alt="" coords="81,363,227,404"/>
+<area shape="rect" id="node4" href="$async_2task_8h.html" title=" " alt="" coords="112,95,257,136"/>
+<area shape="rect" id="node3" href="$cpp__helpers_8hpp.html" title=" " alt="" coords="81,452,227,493"/>
+<area shape="rect" id="node5" href="$executor_8h.html" title=" " alt="" coords="112,184,257,225"/>
+<area shape="rect" id="node7" href="$file__io_8h.html" title=" " alt="" coords="307,273,452,315"/>
+<area shape="rect" id="node8" href="$socket__io_8h.html" title=" " alt="" coords="396,184,541,225"/>
+<area shape="rect" id="node6" href="$work__dispatcher_8h.html" title=" " alt="" coords="137,273,283,315"/>
 </map>

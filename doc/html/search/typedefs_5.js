@@ -1,5 +1,4 @@
 var searchData=
 [
-  ['work_5fdispatcher_5fexecutor_5fptr_596',['work_dispatcher_executor_ptr',['../namespacemonad_1_1async.html#a52b39f75aed4ddba3d6b9b4ad0736214',1,'monad::async']]],
-  ['work_5fdispatcher_5fptr_597',['work_dispatcher_ptr',['../namespacemonad_1_1async.html#a51dcc9474c3127671d0035ecc823abae',1,'monad::async']]]
+  ['task_5fptr_633',['task_ptr',['../namespacemonad_1_1async.html#af2882efa787c986e9b49624893b7897b',1,'monad::async']]]
 ];

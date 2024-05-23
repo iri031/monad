@@ -85,55 +85,74 @@ $(function() {
 <div class="line"><a name="l00014"></a><span class="lineno">   14</span>&#160;<span class="keyword">struct </span>monad_fiber_context_asan_fake_stack</div>
 <div class="line"><a name="l00015"></a><span class="lineno">   15</span>&#160;{</div>
 <div class="line"><a name="l00016"></a><span class="lineno">   16</span>&#160;    <span class="keywordtype">void</span> *fake_stack;</div>
-<div class="line"><a name="l00017"></a><span class="lineno">   17</span>&#160;    <span class="keywordtype">void</span> *stack_bottom;</div>
+<div class="line"><a name="l00017"></a><span class="lineno">   17</span>&#160;    <span class="keywordtype">void</span> <span class="keyword">const</span> *stack_bottom;</div>
 <div class="line"><a name="l00018"></a><span class="lineno">   18</span>&#160;    <span class="keywordtype">size_t</span> stack_size;</div>
 <div class="line"><a name="l00019"></a><span class="lineno">   19</span>&#160;};</div>
-<div class="line"><a name="l00020"></a><span class="lineno">   20</span>&#160;<span class="preprocessor">#endif</span></div>
-<div class="line"><a name="l00021"></a><span class="lineno">   21</span>&#160; </div>
-<div class="line"><a name="l00022"></a><span class="lineno"><a class="line" href="structmonad__fiber__context.html">   22</a></span>&#160;<span class="keyword">typedef</span> <span class="keyword">struct </span><a class="code" href="structmonad__fiber__context.html">monad_fiber_context</a></div>
-<div class="line"><a name="l00023"></a><span class="lineno">   23</span>&#160;{</div>
-<div class="line"><a name="l00024"></a><span class="lineno"><a class="line" href="structmonad__fiber__context.html#abd2f3894269e8e3a3764cd9d85c7b2df">   24</a></span>&#160;    <a class="code" href="fcontext_8h.html#a2ecc3d113e112e9ff04d0b1ff1213e5c">fcontext_t</a> <a class="code" href="structmonad__fiber__context.html#abd2f3894269e8e3a3764cd9d85c7b2df">fiber</a>;</div>
-<div class="line"><a name="l00025"></a><span class="lineno">   25</span>&#160;<span class="preprocessor">#if defined(MONAD_USE_TSAN)</span></div>
-<div class="line"><a name="l00026"></a><span class="lineno">   26</span>&#160;    <span class="keywordtype">void</span> *tsan_fiber;</div>
-<div class="line"><a name="l00027"></a><span class="lineno">   27</span>&#160;<span class="preprocessor">#endif</span></div>
-<div class="line"><a name="l00028"></a><span class="lineno">   28</span>&#160; </div>
-<div class="line"><a name="l00029"></a><span class="lineno">   29</span>&#160;<span class="preprocessor">#if defined(MONAD_USE_ASAN)</span></div>
-<div class="line"><a name="l00030"></a><span class="lineno">   30</span>&#160;    <span class="keyword">struct </span>monad_fiber_context_asan_fake_stack asan, *asan_to_finish;</div>
-<div class="line"><a name="l00031"></a><span class="lineno">   31</span>&#160;<span class="preprocessor">#endif</span></div>
-<div class="line"><a name="l00032"></a><span class="lineno"><a class="line" href="structmonad__fiber__context.html#adf443192b18094355ff53976800759df">   32</a></span>&#160;    <span class="keywordtype">char</span> <span class="keyword">const</span> *<a class="code" href="structmonad__fiber__context.html#adf443192b18094355ff53976800759df">name</a>;</div>
-<div class="line"><a name="l00033"></a><span class="lineno">   33</span>&#160;    <span class="comment">// potential additions: context_local data, unwind code, tracing (for</span></div>
-<div class="line"><a name="l00034"></a><span class="lineno">   34</span>&#160;    <span class="comment">// debugging) and names (which could be used with tsan) and we can add a</span></div>
-<div class="line"><a name="l00035"></a><span class="lineno">   35</span>&#160;    <span class="comment">// vtable here</span></div>
-<div class="line"><a name="l00036"></a><span class="lineno">   36</span>&#160; </div>
-<div class="line"><a name="l00037"></a><span class="lineno">   37</span>&#160;    <span class="comment">// there is NO exit function at this moment, but we could add this.</span></div>
-<div class="line"><a name="l00038"></a><span class="lineno">   38</span>&#160;    <span class="comment">// it&#39;s unspecified what happens if you destroy the main context, as it</span></div>
-<div class="line"><a name="l00039"></a><span class="lineno">   39</span>&#160;    <span class="comment">// would always be a leak one would assume.</span></div>
-<div class="line"><a name="l00040"></a><span class="lineno"><a class="line" href="context_8h.html#aeb3fa6b5bc8137b1f7c76aef50138c96">   40</a></span>&#160;} <a class="code" href="context_8h.html#aeb3fa6b5bc8137b1f7c76aef50138c96">monad_fiber_context_t</a>;</div>
-<div class="line"><a name="l00041"></a><span class="lineno">   41</span>&#160; </div>
-<div class="line"><a name="l00042"></a><span class="lineno">   42</span>&#160;<span class="comment">// are in this fiber at the moment</span></div>
-<div class="line"><a name="l00043"></a><span class="lineno"><a class="line" href="context_8h.html#ab81decd5cc2f9976d4dc67a3e20d2e9e">   43</a></span>&#160;<span class="preprocessor">#define monad_fiber_is_current(This) (This-&gt;fiber != NULL)</span></div>
-<div class="line"><a name="l00044"></a><span class="lineno">   44</span>&#160; </div>
-<div class="line"><a name="l00045"></a><span class="lineno"><a class="line" href="context_8h.html#aab2fd79a5283a8ad6455d7b79b897428">   45</a></span>&#160;<a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *<a class="code" href="context_8h.html#aab2fd79a5283a8ad6455d7b79b897428">monad_fiber_main_context</a>();</div>
-<div class="line"><a name="l00046"></a><span class="lineno"><a class="line" href="context_8h.html#a32e72623fe7d61c9f923f785a478fb2f">   46</a></span>&#160;<span class="keywordtype">void</span> <a class="code" href="context_8h.html#a32e72623fe7d61c9f923f785a478fb2f">monad_fiber_set_name</a>(<a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *, <span class="keywordtype">char</span> <span class="keyword">const</span> *name);</div>
+<div class="line"><a name="l00020"></a><span class="lineno">   20</span>&#160; </div>
+<div class="line"><a name="l00021"></a><span class="lineno">   21</span>&#160;<span class="keyword">inline</span> <span class="keyword">static</span> <span class="keywordtype">void</span> monad_fiber_start_switch(</div>
+<div class="line"><a name="l00022"></a><span class="lineno">   22</span>&#160;    <span class="keyword">struct</span> monad_fiber_context_asan_fake_stack *from,</div>
+<div class="line"><a name="l00023"></a><span class="lineno">   23</span>&#160;    <span class="keyword">struct</span> monad_fiber_context_asan_fake_stack *to)</div>
+<div class="line"><a name="l00024"></a><span class="lineno">   24</span>&#160;{</div>
+<div class="line"><a name="l00025"></a><span class="lineno">   25</span>&#160;    __sanitizer_start_switch_fiber(</div>
+<div class="line"><a name="l00026"></a><span class="lineno">   26</span>&#160;        from != NULL ? &amp;from-&gt;fake_stack : NULL,</div>
+<div class="line"><a name="l00027"></a><span class="lineno">   27</span>&#160;        to-&gt;stack_bottom,</div>
+<div class="line"><a name="l00028"></a><span class="lineno">   28</span>&#160;        to-&gt;stack_size);</div>
+<div class="line"><a name="l00029"></a><span class="lineno">   29</span>&#160;}</div>
+<div class="line"><a name="l00030"></a><span class="lineno">   30</span>&#160; </div>
+<div class="line"><a name="l00031"></a><span class="lineno">   31</span>&#160;<span class="keyword">inline</span> <span class="keyword">static</span> <span class="keywordtype">void</span> monad_fiber_finish_switch(</div>
+<div class="line"><a name="l00032"></a><span class="lineno">   32</span>&#160;    <span class="keyword">struct</span> monad_fiber_context_asan_fake_stack *from,</div>
+<div class="line"><a name="l00033"></a><span class="lineno">   33</span>&#160;    <span class="keyword">struct</span> monad_fiber_context_asan_fake_stack *to)</div>
+<div class="line"><a name="l00034"></a><span class="lineno">   34</span>&#160;{</div>
+<div class="line"><a name="l00035"></a><span class="lineno">   35</span>&#160;    __sanitizer_finish_switch_fiber(</div>
+<div class="line"><a name="l00036"></a><span class="lineno">   36</span>&#160;        to-&gt;fake_stack, &amp;from-&gt;stack_bottom, &amp;from-&gt;stack_size);</div>
+<div class="line"><a name="l00037"></a><span class="lineno">   37</span>&#160;}</div>
+<div class="line"><a name="l00038"></a><span class="lineno">   38</span>&#160; </div>
+<div class="line"><a name="l00039"></a><span class="lineno">   39</span>&#160;<span class="preprocessor">#endif</span></div>
+<div class="line"><a name="l00040"></a><span class="lineno">   40</span>&#160; </div>
+<div class="line"><a name="l00041"></a><span class="lineno"><a class="line" href="structmonad__fiber__context.html">   41</a></span>&#160;<span class="keyword">typedef</span> <span class="keyword">struct </span><a class="code" href="structmonad__fiber__context.html">monad_fiber_context</a></div>
+<div class="line"><a name="l00042"></a><span class="lineno">   42</span>&#160;{</div>
+<div class="line"><a name="l00043"></a><span class="lineno"><a class="line" href="structmonad__fiber__context.html#abd2f3894269e8e3a3764cd9d85c7b2df">   43</a></span>&#160;    <a class="code" href="fcontext_8h.html#a2ecc3d113e112e9ff04d0b1ff1213e5c">fcontext_t</a> <a class="code" href="structmonad__fiber__context.html#abd2f3894269e8e3a3764cd9d85c7b2df">fiber</a>;</div>
+<div class="line"><a name="l00044"></a><span class="lineno">   44</span>&#160;<span class="preprocessor">#if defined(MONAD_USE_TSAN)</span></div>
+<div class="line"><a name="l00045"></a><span class="lineno">   45</span>&#160;    <span class="keywordtype">void</span> *tsan_fiber;</div>
+<div class="line"><a name="l00046"></a><span class="lineno">   46</span>&#160;<span class="preprocessor">#endif</span></div>
 <div class="line"><a name="l00047"></a><span class="lineno">   47</span>&#160; </div>
-<div class="line"><a name="l00048"></a><span class="lineno">   48</span>&#160;<span class="comment">// the return is the context we&#39;re resumed from</span></div>
-<div class="line"><a name="l00049"></a><span class="lineno"><a class="line" href="context_8h.html#ad3ff08d3ed88d19ec9f819c2014ef747">   49</a></span>&#160;<a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *<a class="code" href="context_8h.html#ad3ff08d3ed88d19ec9f819c2014ef747">monad_fiber_context_switch</a>(</div>
-<div class="line"><a name="l00050"></a><span class="lineno">   50</span>&#160;    <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *from, <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *to);</div>
-<div class="line"><a name="l00051"></a><span class="lineno"><a class="line" href="context_8h.html#abcfb2866c7f70c487e741ac07fa23b1b">   51</a></span>&#160;<a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *<a class="code" href="context_8h.html#abcfb2866c7f70c487e741ac07fa23b1b">monad_fiber_context_switch_with</a>(</div>
-<div class="line"><a name="l00052"></a><span class="lineno">   52</span>&#160;    <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *from, <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *to,</div>
-<div class="line"><a name="l00053"></a><span class="lineno">   53</span>&#160;    <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *(*func)(<a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *, <span class="keywordtype">void</span> *), <span class="keywordtype">void</span> *arg);</div>
-<div class="line"><a name="l00054"></a><span class="lineno">   54</span>&#160; </div>
-<div class="line"><a name="l00055"></a><span class="lineno">   55</span>&#160;<span class="keyword">static</span> <span class="keywordtype">size_t</span> <span class="keyword">const</span> monad_fiber_default_stack_size = 128 * 1024;</div>
-<div class="line"><a name="l00056"></a><span class="lineno"><a class="line" href="context_8h.html#ae6d54f405bf9ddaeed28d49108c7ccf0">   56</a></span>&#160;<a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *<a class="code" href="context_8h.html#ae6d54f405bf9ddaeed28d49108c7ccf0">monad_fiber_context_callcc</a>(</div>
-<div class="line"><a name="l00057"></a><span class="lineno">   57</span>&#160;    <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *from, <span class="keywordtype">size_t</span> stack_size, <span class="keywordtype">bool</span> protected_stack,</div>
-<div class="line"><a name="l00058"></a><span class="lineno">   58</span>&#160;    <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *(*func)(</div>
-<div class="line"><a name="l00059"></a><span class="lineno">   59</span>&#160;        <span class="keywordtype">void</span> * <span class="comment">/* func_arg */</span>, <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> * <span class="comment">/* fiber */</span>,</div>
-<div class="line"><a name="l00060"></a><span class="lineno">   60</span>&#160;        <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> * <span class="comment">/* from */</span>),</div>
-<div class="line"><a name="l00061"></a><span class="lineno">   61</span>&#160;    <span class="keywordtype">void</span> *func_arg);</div>
-<div class="line"><a name="l00062"></a><span class="lineno">   62</span>&#160; </div>
-<div class="line"><a name="l00063"></a><span class="lineno">   63</span>&#160;<span class="preprocessor">#if defined(__cplusplus)</span></div>
-<div class="line"><a name="l00064"></a><span class="lineno">   64</span>&#160;}</div>
-<div class="line"><a name="l00065"></a><span class="lineno">   65</span>&#160;<span class="preprocessor">#endif</span></div>
+<div class="line"><a name="l00048"></a><span class="lineno">   48</span>&#160;<span class="preprocessor">#if defined(MONAD_USE_ASAN)</span></div>
+<div class="line"><a name="l00049"></a><span class="lineno">   49</span>&#160;    <span class="keyword">struct </span>monad_fiber_context_asan_fake_stack asan;</div>
+<div class="line"><a name="l00050"></a><span class="lineno">   50</span>&#160;<span class="preprocessor">#endif</span></div>
+<div class="line"><a name="l00051"></a><span class="lineno"><a class="line" href="structmonad__fiber__context.html#adf443192b18094355ff53976800759df">   51</a></span>&#160;    <span class="keywordtype">char</span> <span class="keyword">const</span> *<a class="code" href="structmonad__fiber__context.html#adf443192b18094355ff53976800759df">name</a>;</div>
+<div class="line"><a name="l00052"></a><span class="lineno">   52</span>&#160;    <span class="comment">// potential additions: context_local data, unwind code, tracing (for</span></div>
+<div class="line"><a name="l00053"></a><span class="lineno">   53</span>&#160;    <span class="comment">// debugging) and names (which could be used with tsan) and we can add a</span></div>
+<div class="line"><a name="l00054"></a><span class="lineno">   54</span>&#160;    <span class="comment">// vtable here</span></div>
+<div class="line"><a name="l00055"></a><span class="lineno">   55</span>&#160; </div>
+<div class="line"><a name="l00056"></a><span class="lineno">   56</span>&#160;    <span class="comment">// there is NO exit function at this moment, but we could add this.</span></div>
+<div class="line"><a name="l00057"></a><span class="lineno">   57</span>&#160;    <span class="comment">// it&#39;s unspecified what happens if you destroy the main context, as it</span></div>
+<div class="line"><a name="l00058"></a><span class="lineno">   58</span>&#160;    <span class="comment">// would always be a leak one would assume.</span></div>
+<div class="line"><a name="l00059"></a><span class="lineno"><a class="line" href="context_8h.html#aeb3fa6b5bc8137b1f7c76aef50138c96">   59</a></span>&#160;} <a class="code" href="context_8h.html#aeb3fa6b5bc8137b1f7c76aef50138c96">monad_fiber_context_t</a>;</div>
+<div class="line"><a name="l00060"></a><span class="lineno">   60</span>&#160; </div>
+<div class="line"><a name="l00061"></a><span class="lineno">   61</span>&#160;<span class="comment">// are in this fiber at the moment</span></div>
+<div class="line"><a name="l00062"></a><span class="lineno"><a class="line" href="context_8h.html#ab81decd5cc2f9976d4dc67a3e20d2e9e">   62</a></span>&#160;<span class="preprocessor">#define monad_fiber_is_current(This) (This-&gt;fiber != NULL)</span></div>
+<div class="line"><a name="l00063"></a><span class="lineno">   63</span>&#160; </div>
+<div class="line"><a name="l00064"></a><span class="lineno"><a class="line" href="context_8h.html#aab2fd79a5283a8ad6455d7b79b897428">   64</a></span>&#160;<a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *<a class="code" href="context_8h.html#aab2fd79a5283a8ad6455d7b79b897428">monad_fiber_main_context</a>();</div>
+<div class="line"><a name="l00065"></a><span class="lineno"><a class="line" href="context_8h.html#a32e72623fe7d61c9f923f785a478fb2f">   65</a></span>&#160;<span class="keywordtype">void</span> <a class="code" href="context_8h.html#a32e72623fe7d61c9f923f785a478fb2f">monad_fiber_set_name</a>(<a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *, <span class="keywordtype">char</span> <span class="keyword">const</span> *name);</div>
+<div class="line"><a name="l00066"></a><span class="lineno">   66</span>&#160; </div>
+<div class="line"><a name="l00067"></a><span class="lineno">   67</span>&#160;<span class="comment">// the return is the context we&#39;re resumed from</span></div>
+<div class="line"><a name="l00068"></a><span class="lineno"><a class="line" href="context_8h.html#ad3ff08d3ed88d19ec9f819c2014ef747">   68</a></span>&#160;<a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *<a class="code" href="context_8h.html#ad3ff08d3ed88d19ec9f819c2014ef747">monad_fiber_context_switch</a>(</div>
+<div class="line"><a name="l00069"></a><span class="lineno">   69</span>&#160;    <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *from, <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *to);</div>
+<div class="line"><a name="l00070"></a><span class="lineno"><a class="line" href="context_8h.html#abcfb2866c7f70c487e741ac07fa23b1b">   70</a></span>&#160;<a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *<a class="code" href="context_8h.html#abcfb2866c7f70c487e741ac07fa23b1b">monad_fiber_context_switch_with</a>(</div>
+<div class="line"><a name="l00071"></a><span class="lineno">   71</span>&#160;    <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *from, <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *to,</div>
+<div class="line"><a name="l00072"></a><span class="lineno">   72</span>&#160;    <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *(*func)(<a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *, <span class="keywordtype">void</span> *), <span class="keywordtype">void</span> *arg);</div>
+<div class="line"><a name="l00073"></a><span class="lineno">   73</span>&#160; </div>
+<div class="line"><a name="l00074"></a><span class="lineno">   74</span>&#160;<span class="keyword">static</span> <span class="keywordtype">size_t</span> <span class="keyword">const</span> monad_fiber_default_stack_size = 128 * 1024;</div>
+<div class="line"><a name="l00075"></a><span class="lineno"><a class="line" href="context_8h.html#ae6d54f405bf9ddaeed28d49108c7ccf0">   75</a></span>&#160;<a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *<a class="code" href="context_8h.html#ae6d54f405bf9ddaeed28d49108c7ccf0">monad_fiber_context_callcc</a>(</div>
+<div class="line"><a name="l00076"></a><span class="lineno">   76</span>&#160;    <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *from, <span class="keywordtype">size_t</span> stack_size, <span class="keywordtype">bool</span> protected_stack,</div>
+<div class="line"><a name="l00077"></a><span class="lineno">   77</span>&#160;    <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> *(*func)(</div>
+<div class="line"><a name="l00078"></a><span class="lineno">   78</span>&#160;        <span class="keywordtype">void</span> * <span class="comment">/* func_arg */</span>, <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> * <span class="comment">/* fiber */</span>,</div>
+<div class="line"><a name="l00079"></a><span class="lineno">   79</span>&#160;        <a class="code" href="structmonad__fiber__context.html">monad_fiber_context_t</a> * <span class="comment">/* from */</span>),</div>
+<div class="line"><a name="l00080"></a><span class="lineno">   80</span>&#160;    <span class="keywordtype">void</span> *func_arg);</div>
+<div class="line"><a name="l00081"></a><span class="lineno">   81</span>&#160; </div>
+<div class="line"><a name="l00082"></a><span class="lineno">   82</span>&#160;<span class="preprocessor">#if defined(__cplusplus)</span></div>
+<div class="line"><a name="l00083"></a><span class="lineno">   83</span>&#160;}</div>
+<div class="line"><a name="l00084"></a><span class="lineno">   84</span>&#160;<span class="preprocessor">#endif</span></div>
 <div class="ttc" id="acontext_8h_html_a32e72623fe7d61c9f923f785a478fb2f"><div class="ttname"><a href="context_8h.html#a32e72623fe7d61c9f923f785a478fb2f">monad_fiber_set_name</a></div><div class="ttdeci">void monad_fiber_set_name(monad_fiber_context_t *, char const *name)</div></div>
 <div class="ttc" id="acontext_8h_html_aab2fd79a5283a8ad6455d7b79b897428"><div class="ttname"><a href="context_8h.html#aab2fd79a5283a8ad6455d7b79b897428">monad_fiber_main_context</a></div><div class="ttdeci">monad_fiber_context_t * monad_fiber_main_context()</div></div>
 <div class="ttc" id="acontext_8h_html_abcfb2866c7f70c487e741ac07fa23b1b"><div class="ttname"><a href="context_8h.html#abcfb2866c7f70c487e741ac07fa23b1b">monad_fiber_context_switch_with</a></div><div class="ttdeci">monad_fiber_context_t * monad_fiber_context_switch_with(monad_fiber_context_t *from, monad_fiber_context_t *to, monad_fiber_context_t *(*func)(monad_fiber_context_t *, void *), void *arg)</div></div>
@@ -143,9 +162,9 @@ $(function() {
 <div class="ttc" id="afcontext_8h_html"><div class="ttname"><a href="fcontext_8h.html">fcontext.h</a></div></div>
 <div class="ttc" id="afcontext_8h_html_a2ecc3d113e112e9ff04d0b1ff1213e5c"><div class="ttname"><a href="fcontext_8h.html#a2ecc3d113e112e9ff04d0b1ff1213e5c">fcontext_t</a></div><div class="ttdeci">void * fcontext_t</div><div class="ttdef"><b>Definition:</b> fcontext.h:20</div></div>
 <div class="ttc" id="asanitizer_8h_html"><div class="ttname"><a href="sanitizer_8h.html">sanitizer.h</a></div></div>
-<div class="ttc" id="astructmonad__fiber__context_html"><div class="ttname"><a href="structmonad__fiber__context.html">monad_fiber_context</a></div><div class="ttdef"><b>Definition:</b> context.h:23</div></div>
-<div class="ttc" id="astructmonad__fiber__context_html_abd2f3894269e8e3a3764cd9d85c7b2df"><div class="ttname"><a href="structmonad__fiber__context.html#abd2f3894269e8e3a3764cd9d85c7b2df">monad_fiber_context::fiber</a></div><div class="ttdeci">fcontext_t fiber</div><div class="ttdef"><b>Definition:</b> context.h:24</div></div>
-<div class="ttc" id="astructmonad__fiber__context_html_adf443192b18094355ff53976800759df"><div class="ttname"><a href="structmonad__fiber__context.html#adf443192b18094355ff53976800759df">monad_fiber_context::name</a></div><div class="ttdeci">char const  * name</div><div class="ttdef"><b>Definition:</b> context.h:32</div></div>
+<div class="ttc" id="astructmonad__fiber__context_html"><div class="ttname"><a href="structmonad__fiber__context.html">monad_fiber_context</a></div><div class="ttdef"><b>Definition:</b> context.h:42</div></div>
+<div class="ttc" id="astructmonad__fiber__context_html_abd2f3894269e8e3a3764cd9d85c7b2df"><div class="ttname"><a href="structmonad__fiber__context.html#abd2f3894269e8e3a3764cd9d85c7b2df">monad_fiber_context::fiber</a></div><div class="ttdeci">fcontext_t fiber</div><div class="ttdef"><b>Definition:</b> context.h:43</div></div>
+<div class="ttc" id="astructmonad__fiber__context_html_adf443192b18094355ff53976800759df"><div class="ttname"><a href="structmonad__fiber__context.html#adf443192b18094355ff53976800759df">monad_fiber_context::name</a></div><div class="ttdeci">char const  * name</div><div class="ttdef"><b>Definition:</b> context.h:51</div></div>
 </div><!-- fragment --></div><!-- contents -->
 <!-- start footer part -->
 <hr class="footer"/><address class="footer"><small>
