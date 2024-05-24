@@ -1,0 +1,5 @@
+<map id="monad::async::socket_deleter" name="monad::async::socket_deleter">
+<area shape="rect" id="node1" title=" " alt="" coords="5,95,156,136"/>
+<area shape="rect" id="node2" href="$structmonad__async__task__head.html" title="The public attributes of a task." alt="" coords="85,5,255,32"/>
+<area shape="rect" id="node3" href="$structmonad__async__executor__head.html" title="The public attributes of an executor." alt="" coords="181,102,375,129"/>
+</map>

@@ -1,0 +1,28 @@
+var searchData=
+[
+  ['task_576',['task',['../structmonad_1_1async_1_1socket__deleter.html#aec6fd04dbfbaf4aecbd688f5d16b7f42',1,'monad::async::socket_deleter::task()'],['../structmonad__fiber.html#ab2dfe0fb15fc01f691513adf5d40f9a3',1,'monad_fiber::task()'],['../structmonad__fiber__task__node.html#ac3e06061317ae314f69bc37e7de8d0eb',1,'monad_fiber_task_node::task()'],['../structmonad_1_1async_1_1file__deleter.html#a9778e1db229a0ca8b24c26b0aa9adb03',1,'monad::async::file_deleter::task()']]],
+  ['task_5fqueue_577',['task_queue',['../structmonad__fiber__scheduler.html#a0b0bcf34bf1bcdac7e97b29dd09f3222',1,'monad_fiber_scheduler']]],
+  ['tasks_5fawaiting_5fdispatch_578',['tasks_awaiting_dispatch',['../structmonad__async__work__dispatcher__head.html#a2988004b20fa067565ac7cb4c946614e',1,'monad_async_work_dispatcher_head']]],
+  ['tasks_5fpending_5flaunch_579',['tasks_pending_launch',['../structmonad__async__executor__head.html#a3df444cf09340613c3fddfd92ffe4db5',1,'monad_async_executor_head']]],
+  ['tasks_5frunning_580',['tasks_running',['../structmonad__async__executor__head.html#a5f3bc03ccebb9186598089a59dc21e26',1,'monad_async_executor_head']]],
+  ['tasks_5fsuspended_581',['tasks_suspended',['../structmonad__async__executor__head.html#a3d79abec5a40992478c3b13c36be9aa3',1,'monad_async_executor_head']]],
+  ['tasks_5fsuspended_5fsqe_5fexhaustion_582',['tasks_suspended_sqe_exhaustion',['../structmonad__async__executor__head.html#af1f47b0b8ef9fbbbae78d7bdc6a1e761',1,'monad_async_executor_head']]],
+  ['thread_5fcount_583',['thread_count',['../structmonad__fiber__scheduler.html#a1685621dc28c6012b9609ac188e0bdad',1,'monad_fiber_scheduler']]],
+  ['thread_5fid_5fsource_584',['thread_id_source',['../structmonad__fiber__scheduler.html#a6008b87e2036182b74da9aca6a3179ca',1,'monad_fiber_scheduler']]],
+  ['threads_585',['threads',['../structmonad__fiber__scheduler.html#a2e5aeb66501ee8493768ef12181ff37d',1,'monad_fiber_scheduler']]],
+  ['ticks_5fwhen_5fattached_586',['ticks_when_attached',['../structmonad__async__task__head.html#a72d1b3f080746037812c2e4edb8086d7',1,'monad_async_task_head']]],
+  ['ticks_5fwhen_5fcompleted_587',['ticks_when_completed',['../structmonad__async__io__status.html#a80ea7745cb32a3061f2fd6308396432b',1,'monad_async_io_status']]],
+  ['ticks_5fwhen_5fdetached_588',['ticks_when_detached',['../structmonad__async__task__head.html#af5423018dc32eac7de35af4db0e6fc13',1,'monad_async_task_head']]],
+  ['ticks_5fwhen_5finitiated_589',['ticks_when_initiated',['../structmonad__async__io__status.html#ac18c25769d611d95254d1f0873c2d243',1,'monad_async_io_status']]],
+  ['ticks_5fwhen_5freaped_590',['ticks_when_reaped',['../structmonad__async__io__status.html#a1c77d0f5f41e152f9e86854ef5f899b6',1,'monad_async_io_status']]],
+  ['ticks_5fwhen_5fresumed_591',['ticks_when_resumed',['../structmonad__async__task__head.html#a4a32dc57e0da88b72f0c7fc1c3eb3bc5',1,'monad_async_task_head']]],
+  ['ticks_5fwhen_5fsubmitted_592',['ticks_when_submitted',['../structmonad__async__task__head.html#a353e06b4894d939c1665c3797761b2ef',1,'monad_async_task_head']]],
+  ['ticks_5fwhen_5fsuspended_5fawaiting_593',['ticks_when_suspended_awaiting',['../structmonad__async__task__head.html#a2726e3d88e5da389425fffa7896e47bf',1,'monad_async_task_head']]],
+  ['ticks_5fwhen_5fsuspended_5fcompleted_594',['ticks_when_suspended_completed',['../structmonad__async__task__head.html#a42636d2af59655b160ffbe33b1a01814',1,'monad_async_task_head']]],
+  ['total_5fticks_5fexecuted_595',['total_ticks_executed',['../structmonad__async__task__head.html#a6ea966f2cb278978fc962cc7f9762dd3',1,'monad_async_task_head']]],
+  ['total_5fticks_5fin_5fio_5furing_596',['total_ticks_in_io_uring',['../structmonad__async__executor__head.html#ac0038086edb46310dbcb103559d887c9',1,'monad_async_executor_head']]],
+  ['total_5fticks_5fin_5frun_597',['total_ticks_in_run',['../structmonad__async__executor__head.html#a15367cc2b512e43eec72a509810312a7',1,'monad_async_executor_head']]],
+  ['total_5fticks_5fin_5ftask_5fcompletion_598',['total_ticks_in_task_completion',['../structmonad__async__executor__head.html#ac667f2a066f5e36cab8e0f908cc879cc',1,'monad_async_executor_head']]],
+  ['total_5fticks_5fin_5ftask_5flaunch_599',['total_ticks_in_task_launch',['../structmonad__async__executor__head.html#a0a91a72d3be63cf5dac3e2cd58c79eb5',1,'monad_async_executor_head']]],
+  ['total_5fticks_5fsleeping_600',['total_ticks_sleeping',['../structmonad__async__executor__head.html#a2775bb27e72d4d6e31254d2b25320971',1,'monad_async_executor_head']]]
+];
