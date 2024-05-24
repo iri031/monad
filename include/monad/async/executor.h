@@ -92,6 +92,30 @@ typedef struct monad_async_executor_registered_io_buffer
 Generally, one also needs to create context switcher instances for each
 executor instance. This is because the context switcher needs to store how
 to resume the executor when a task's execution suspends.
+
+You can optionally create an io_uring instance for the executor by setting
+`attr->io_uring_ring.entries` to non-zero. This will then be used to dispatch
+work instead of an internal dispatcher.
+
+You may additionally optionally create a second io_uring instance called
+"write ring" by setting `attr->io_uring_wr_ring.entries` to non-zero. This
+is mandatory if you wish to write to files, otherwise it is not used.
+
+The reason a special io_uring instance is used for operations which modify
+files is because a total sequentially consistent order is applied to all file
+write operations. This implements a "multi-copy atomic" memory model similar
+to that used by ARM microprocessors. This is a weak memory model, but one
+sufficient to prevent:
+
+1. Write amplification on the device caused by multiple concurrent writes.
+
+2. Writes appearing to readers not in the order of write submission.
+
+The most efficient way of implementing this weak memory model is a specially
+configured io_uring instance, so this is why we have that.
+
+Do NOT use the "write ring" for writes to sockets, it will severely impact
+performance!
 */
 MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_executor_create(
     monad_async_executor *ex, struct monad_async_executor_attr *attr);
@@ -127,11 +151,14 @@ There are two sizes of registered i/o buffer, small and large which are the page
 size of the host platform (e.g. 4Kb and 2Mb if on Intel x64). Through being a
 single page size, DMA using registered i/o buffers has the lowest possible
 overhead.
+
+As memory buffers have to be registered with the io_uring ring they are to be
+used with, `for_write_ring` selects buffers from the write ring.
 */
 MONAD_ASYNC_NODISCARD extern monad_async_result
 monad_async_executor_claim_registered_io_buffer(
     monad_async_executor_registered_io_buffer *buffer, monad_async_executor ex,
-    size_t bytes_requested, bool is_for_write);
+    size_t bytes_requested, bool for_write_ring);
 
 //! \brief Release a previously claimed registered buffer.
 MONAD_ASYNC_NODISCARD extern monad_async_result

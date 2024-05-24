@@ -302,3 +302,89 @@ frame is: `struct msvc_frame_prefix { void(*factivate)(void*); uint16_t index, f
 Implementation is a state machine based on switching `index`.
     - GCC/clang coroutine frame: Frame prefix | Promise | Unknown | Local
 variables. Coroutine frame is: `struct clang_frame_prefix { void(*factivate)(void*); void(*fdestroy)(void*);};`.
+- GDB awareness of contexts would be nice.
+
+Here is qemu's GDB helper for their coroutines: https://gitlab.com/qemu-project/qemu/-/blob/master/scripts/qemugdb/coroutine.py
+
+An example GDB python helper to teach GDB about fiber stack frames:
+
+```
+# For the https://github.com/geofft/vireo green thread library
+import gdb
+
+thread_map = {}
+
+main_thread = None
+
+# From glibc/sysdeps/unix/sysv/linux/x86/sys/ucontext.h
+x8664_regs = [ 'r8', 'r9', 'r10', 'r11', 'r12', 'r13', 'r14',
+               'r15', 'rdi', 'rsi', 'rbp', 'rbx', 'rdx', 'rax',
+               'rcx', 'rsp', 'rip', 'efl', 'csgsfs', 'err',
+               'trapno', 'oldmask', 'cr2' ]
+
+def vireo_current():
+    return int(gdb.parse_and_eval('curenv')) + 1
+
+class VireoGreenThread:
+    def __init__(self, tid):
+        self.tid = tid
+
+    def _get_state(self):
+        return gdb.parse_and_eval('envs')[self.tid]['state']
+
+    def fetch(self, reg):
+        """Fetch REG from memory."""
+        global x8664_regs
+        global thread_map
+        thread = thread[self.tid]
+        state = self._get_state()
+        gregs = state['uc_mcontext']['gregs']
+        for i in range(0, len(x8664_regs)):
+            if reg is None or reg == x8664_regs[i]:
+                thread.write_register(x8664_regs[i], gregs[i])
+
+    def store(self, reg):
+        global x8664_regs
+        global thread_map
+        thread = thread[self.tid]
+        state = self._get_state()
+        gregs = state['uc_mcontext']['gregs']
+        for i in range(0, len(x8664_regs)):
+            if reg is None or reg == x8664_regs[i]:
+                gregs[i] = thread.read_register(x8664_regs[i])
+
+    def name(self):
+        return "Vireo Thread " + str(self.tid)
+
+    def underlying_thread(self):
+        if vireo_current() == self.tid:
+            global main_thread
+            return main_thread
+        return None
+
+class VFinish(gdb.FinishBreakpoint):
+    def stop(self):
+        tid = int(self.return_value) + 1
+        global thread_map
+        thread_map[tid] = gdb.create_green_thread(tid, VireoGreenThread(tid))
+        return False
+
+class VCreate(gdb.Breakpoint):
+    def stop(self):
+        VFinish(gdb.newest_frame(), True)
+        return False
+
+class VExit(gdb.Breakpoint):
+    def stop(self):
+        global main_thread
+        if main_thread is None:
+            main_thread = gdb.selected_thread()
+        global thread_map
+        tid = vireo_current()
+        if tid in thread_map:
+            thread_map[tid].set_exited()
+            del thread_map[tid]
+
+VCreate('vireo_create', internal=True)
+VExit('vireo_exit', internal=True)
+```

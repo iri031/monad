@@ -558,6 +558,30 @@ extern "C" {
     #[doc = "Generally, one also needs to create context switcher instances for each"]
     #[doc = "executor instance. This is because the context switcher needs to store how"]
     #[doc = "to resume the executor when a task's execution suspends."]
+    #[doc = ""]
+    #[doc = "You can optionally create an io_uring instance for the executor by setting"]
+    #[doc = "`attr->io_uring_ring.entries` to non-zero. This will then be used to dispatch"]
+    #[doc = "work instead of an internal dispatcher."]
+    #[doc = ""]
+    #[doc = "You may additionally optionally create a second io_uring instance called"]
+    #[doc = "\"write ring\" by setting `attr->io_uring_wr_ring.entries` to non-zero. This"]
+    #[doc = "is mandatory if you wish to write to files, otherwise it is not used."]
+    #[doc = ""]
+    #[doc = "The reason a special io_uring instance is used for operations which modify"]
+    #[doc = "files is because a total sequentially consistent order is applied to all file"]
+    #[doc = "write operations. This implements a \"multi-copy atomic\" memory model similar"]
+    #[doc = "to that used by ARM microprocessors. This is a weak memory model, but one"]
+    #[doc = "sufficient to prevent:"]
+    #[doc = ""]
+    #[doc = "1. Write amplification on the device caused by multiple concurrent writes."]
+    #[doc = ""]
+    #[doc = "2. Writes appearing to readers not in the order of write submission."]
+    #[doc = ""]
+    #[doc = "The most efficient way of implementing this weak memory model is a specially"]
+    #[doc = "configured io_uring instance, so this is why we have that."]
+    #[doc = ""]
+    #[doc = "Do NOT use the \"write ring\" for writes to sockets, it will severely impact"]
+    #[doc = "performance!"]
     pub fn monad_async_executor_create(
         ex: *mut monad_async_executor,
         attr: *mut monad_async_executor_attr,
@@ -601,11 +625,14 @@ extern "C" {
     #[doc = "size of the host platform (e.g. 4Kb and 2Mb if on Intel x64). Through being a"]
     #[doc = "single page size, DMA using registered i/o buffers has the lowest possible"]
     #[doc = "overhead."]
+    #[doc = ""]
+    #[doc = "As memory buffers have to be registered with the io_uring ring they are to be"]
+    #[doc = "used with, `for_write_ring` selects buffers from the write ring."]
     pub fn monad_async_executor_claim_registered_io_buffer(
         buffer: *mut monad_async_executor_registered_io_buffer,
         ex: monad_async_executor,
         bytes_requested: size_t,
-        is_for_write: bool,
+        for_write_ring: bool,
     ) -> monad_async_result;
 }
 extern "C" {
