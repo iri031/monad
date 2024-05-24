@@ -245,6 +245,7 @@ pub struct monad_fiber_scheduler {
     pub cond: pthread_cond_t,
     pub task_queue: monad_fiber_task_queue_t,
     pub thread_id_source: atomic_int,
+    pub init_thread: ::std::option::Option<unsafe extern "C" fn()>,
 }
 impl Default for monad_fiber_scheduler {
     fn default() -> Self {
@@ -263,7 +264,11 @@ extern "C" {
     pub fn monad_fiber_scheduler_work(arg1: *mut monad_fiber_scheduler_t);
 }
 extern "C" {
-    pub fn monad_fiber_scheduler_create(arg1: *mut monad_fiber_scheduler_t, threads: size_t);
+    pub fn monad_fiber_scheduler_create(
+        arg1: *mut monad_fiber_scheduler_t,
+        threads: size_t,
+        init_thread: ::std::option::Option<unsafe extern "C" fn()>,
+    );
 }
 extern "C" {
     pub fn monad_fiber_scheduler_destroy(arg1: *mut monad_fiber_scheduler_t);

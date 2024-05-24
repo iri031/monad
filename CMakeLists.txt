@@ -124,6 +124,7 @@ add_subdirectory("libs/core")
 add_subdirectory("libs/async")
 add_subdirectory("libs/db")
 add_subdirectory("libs/execution")
+add_subdirectory("libs/runloop")
 
 # ##############################################################################
 # cmds
