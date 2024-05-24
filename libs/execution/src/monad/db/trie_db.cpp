@@ -800,6 +800,239 @@ std::string TrieDb::print_stats()
     return ret;
 }
 
+// Binary formats:
+//
+// Account file:
+//
+// Account (112 bytes)
+// bytes32 (32) - account id (key)
+// uint256 (32) - balance
+// uint64 (8) - nonce
+// bytes32 (32) - code_hash
+// uint64 (8) - num storage
+//
+// Storage (64 bytes) (1 per num storage)
+// bytes32 (32) - storage id (key)
+// bytes32 (32) - storage value
+//
+// ---------------------
+//
+// Code file:
+//
+// Code (>= 40)
+// bytes32 (32) - code id (key)
+// uint64 (8) - num code bytes
+// n bytes
+
+void TrieDb::to_binary(
+    std::filesystem::path dump_snapshot, uint64_t const block_number)
+{
+    struct Traverse : public TraverseMachine
+    {
+        TrieDb &db;
+        Nibbles path{};
+        uint64_t num_entries = 0;
+        std::streampos num_entries_pos;
+        std::ofstream out;
+
+        bool is_code = false;
+
+        explicit Traverse(TrieDb &db)
+            : db(db)
+        {
+        }
+
+        virtual void down(unsigned char const branch, Node const &node) override
+        {
+            if (branch == INVALID_BRANCH) {
+                MONAD_ASSERT(node.path_nibble_view().nibble_size() == 0);
+                return;
+            }
+            path = concat(NibblesView{path}, branch, node.path_nibble_view());
+
+            if (path.nibble_size() == (KECCAK256_SIZE * 2)) {
+                handle_leaf(node);
+            }
+            else if (
+                path.nibble_size() == ((KECCAK256_SIZE + KECCAK256_SIZE) * 2)) {
+                handle_storage(node);
+            }
+        }
+
+        virtual void up(unsigned char const branch, Node const &node) override
+        {
+            auto const path_view = NibblesView{path};
+            auto const rem_size = [&] {
+                if (branch == INVALID_BRANCH) {
+                    MONAD_ASSERT(path_view.nibble_size() == 0);
+                    return 0;
+                }
+                int const rem_size = path_view.nibble_size() - 1 -
+                                     node.path_nibble_view().nibble_size();
+                MONAD_ASSERT(rem_size >= 0);
+                MONAD_ASSERT(
+                    path_view.substr(static_cast<unsigned>(rem_size)) ==
+                    concat(branch, node.path_nibble_view()));
+                return rem_size;
+            }();
+            path = path_view.substr(0, static_cast<unsigned>(rem_size));
+        }
+
+        void finish_prev_storage()
+        {
+            if (num_entries > 0) {
+                auto const restore_pos = out.tellp();
+
+                out.seekp(num_entries_pos);
+                MONAD_ASSERT(sizeof(num_entries) == 8);
+                out.write(
+                    reinterpret_cast<char const *>(&num_entries),
+                    sizeof(num_entries));
+
+                num_entries = 0;
+                out.seekp(restore_pos);
+            }
+        }
+
+        bytes32_t storage_key()
+        {
+            auto const nsz = sizeof(bytes32_t) * 2;
+
+            MONAD_ASSERT(path.nibble_size() == 128);
+            bytes32_t out;
+
+            for (unsigned int i = 0; i < nsz; ++i) {
+                ::set_nibble(out.bytes, i, path.get(i + nsz));
+            }
+
+            return out;
+        }
+
+        bytes32_t path_key()
+        {
+            auto const nsz = sizeof(bytes32_t) * 2;
+
+            MONAD_ASSERT(path.nibble_size() == nsz);
+
+            bytes32_t out;
+
+            for (unsigned int i = 0; i < nsz; ++i) {
+                ::set_nibble(out.bytes, i, path.get(i));
+            }
+
+            return out;
+        }
+
+        void handle_key(Node const &node)
+        {
+            MONAD_ASSERT(node.has_value());
+
+            auto const key = path_key();
+            MONAD_ASSERT(sizeof(key) == 32);
+            out.write(reinterpret_cast<char const *>(&key), sizeof(key));
+        }
+
+        void handle_account_value(Node const &node)
+        {
+            finish_prev_storage();
+
+            auto encoded_account = node.value();
+            auto acct_opt = decode_account_db(encoded_account);
+
+            MONAD_DEBUG_ASSERT(!acct_opt.has_error());
+            MONAD_DEBUG_ASSERT(encoded_account.empty());
+
+            auto const &acct = acct_opt.value();
+
+            MONAD_ASSERT(sizeof(acct.balance) == 32);
+            out.write(
+                reinterpret_cast<char const *>(&acct.balance),
+                sizeof(acct.balance));
+
+            MONAD_ASSERT(sizeof(acct.nonce) == 8);
+            out.write(
+                reinterpret_cast<char const *>(&acct.nonce),
+                sizeof(acct.nonce));
+
+            MONAD_ASSERT(sizeof(acct.code_hash) == 32);
+            out.write(
+                reinterpret_cast<char const *>(&acct.code_hash),
+                sizeof(acct.code_hash));
+
+            num_entries_pos = out.tellp(); // save place to write num_entries
+
+            uint64_t num_entries = 0; // write a 0 for a placeholder
+
+            out.write(
+                reinterpret_cast<char const *>(&num_entries),
+                sizeof(num_entries));
+        }
+
+        void handle_code_value(Node const &node)
+        {
+            int64_t const sz = node.value_len;
+            out.write(reinterpret_cast<char const *>(&sz), sizeof(sz));
+            out.write(reinterpret_cast<char const *>(node.value_data()), sz);
+        }
+
+        void handle_leaf(Node const &node)
+        {
+            handle_key(node);
+
+            if (is_code) {
+                handle_code_value(node);
+                return;
+            }
+            handle_account_value(node);
+        }
+
+        void handle_storage(Node const &node)
+        {
+            MONAD_ASSERT(!is_code);
+            num_entries++;
+
+            MONAD_ASSERT(node.has_value());
+            auto const entry = node.value();
+
+            MONAD_ASSERT(entry.size() <= sizeof(bytes32_t));
+            auto const sz = (int64_t)entry.size();
+            auto const pad_len = 32 - sz;
+
+            auto const key = storage_key();
+            out.write(reinterpret_cast<char const *>(&key), 32);
+
+            bytes32_t zero{0};
+
+            out.write(reinterpret_cast<char const *>(&zero), pad_len);
+            out.write(reinterpret_cast<char const *>(entry.data()), sz);
+        }
+
+    } traverse(*this);
+
+    std::filesystem::create_directory(dump_snapshot);
+
+    auto const dir = dump_snapshot / std::to_string(block_number);
+
+    std::filesystem::create_directory(dir);
+
+    traverse.out.open(dir / "accounts", std::ios_base::binary);
+
+    db_.traverse(state_nibbles, traverse, block_number_);
+
+    traverse.finish_prev_storage();
+
+    traverse.out.close();
+
+    traverse.is_code = true;
+    traverse.out.open(dir / "code", std::ios_base::binary);
+
+    db_.traverse(code_nibbles, traverse, block_number_);
+
+    traverse.out.close();
+
+    return;
+}
+
 nlohmann::json TrieDb::to_json()
 {
     struct Traverse : public TraverseMachine
