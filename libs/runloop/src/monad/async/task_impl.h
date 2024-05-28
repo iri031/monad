@@ -7,7 +7,6 @@
 #include <assert.h>
 #include <stdatomic.h>
 #include <stdint.h>
-#include <string.h>
 
 #ifdef __cplusplus
 extern "C"

@@ -20,7 +20,7 @@ TEST(monad_fiber_bridge, works)
         char tempfilepath[256];
         pid_t io_executor_tid;
         executor_ptr io_ex;
-        context_switcher_ptr io_cs;
+        context_switcher_ptr compute_context_switcher, io_context_switcher;
         monad_fiber_scheduler_t compute_ex;
         std::atomic<bool> done{false};
 
@@ -42,7 +42,10 @@ TEST(monad_fiber_bridge, works)
             io_ex_attr.io_uring_ring.params.sq_thread_idle = 100;
 #endif
             io_ex = make_executor(io_ex_attr);
-            io_cs = make_context_switcher(monad_async_context_switcher_fiber);
+            compute_context_switcher =
+                make_context_switcher(monad_async_context_switcher_fiber);
+            io_context_switcher =
+                make_context_switcher(monad_async_context_switcher_fiber);
 
             // Make a compute executor of four kernel threads
             monad_fiber_scheduler_create(&compute_ex, 4, NULL);
@@ -79,7 +82,7 @@ TEST(monad_fiber_bridge, works)
                 MONAD_ASYNC_TRY_RESULT(
                     ,
                     monad_fiber_resume_on_io_executor(
-                        io_ex.get(), task, io_cs.get()));
+                        io_ex.get(), task, io_context_switcher.get()));
                 auto const after_resume_on_io_executor =
                     std::chrono::steady_clock::now();
                 if (iteration == 9) {
@@ -169,7 +172,7 @@ TEST(monad_fiber_bridge, works)
                 MONAD_ASYNC_TRY_RESULT(
                     ,
                     monad_fiber_resume_on_compute_executor(
-                        &compute_ex, task, 0, nullptr));
+                        &compute_ex, task, 0, compute_context_switcher.get()));
                 auto const after_resume_on_compute_executor =
                     std::chrono::steady_clock::now();
                 if (iteration == 9) {
@@ -204,7 +207,8 @@ TEST(monad_fiber_bridge, works)
 
     // Make a task
     monad_async_task_attr t_attr{};
-    auto io_task = make_task(shared_state.io_cs.get(), t_attr);
+    auto io_task =
+        make_task(shared_state.compute_context_switcher.get(), t_attr);
     io_task->user_ptr = (void *)&shared_state;
     io_task->user_code = +[](monad_async_task task) -> monad_async_result {
         return ((shared_state_t *)task->user_ptr)->task(task);

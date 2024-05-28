@@ -1026,26 +1026,9 @@ monad_async_result monad_async_task_attach(
     monad_async_context_switcher task_switcher =
         atomic_load_explicit(&task->context->switcher, memory_order_acquire);
     if (opt_reparent_switcher && opt_reparent_switcher != task_switcher) {
-        if (opt_reparent_switcher->create != task_switcher->create) {
-            fprintf(
-                stderr,
-                "FATAL: If reparenting context switcher, the new parent "
-                "must "
-                "be the same type of context switcher.\n");
-            abort();
-        }
-        if (opt_reparent_switcher !=
-            monad_async_context_switcher_none_instance()) {
-            atomic_fetch_sub_explicit(
-                &task_switcher->contexts, 1, memory_order_relaxed);
-            atomic_store_explicit(
-                &task->context->switcher,
-                opt_reparent_switcher,
-                memory_order_release);
-            task_switcher = opt_reparent_switcher;
-            atomic_fetch_add_explicit(
-                &task_switcher->contexts, 1, memory_order_relaxed);
-        }
+        monad_async_context_reparent_switcher(
+            task->context, opt_reparent_switcher);
+        task_switcher = opt_reparent_switcher;
     }
     atomic_store_explicit(
         &task->head.current_executor,

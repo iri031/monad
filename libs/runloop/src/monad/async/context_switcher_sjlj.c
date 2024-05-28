@@ -282,11 +282,11 @@ static monad_async_result monad_async_context_sjlj_create(
         return monad_async_make_failure(errno);
     }
     atomic_store_explicit(&p->head.switcher, switcher_, memory_order_release);
-    size_t stack_size = attr->stack_size;
+    size_t const page_size = (size_t)getpagesize();
+    size_t stack_size = (attr->stack_size + page_size - 1) & ~(page_size - 1);
     if (stack_size == 0) {
         stack_size = get_rlimit_stack();
     }
-    size_t const page_size = (size_t)getpagesize();
     p->stack_storage = mmap(
         nullptr,
         stack_size + page_size,
@@ -303,7 +303,8 @@ static monad_async_result monad_async_context_sjlj_create(
                 "NOTE: if mmap() fails to allocate a stack, and there is "
                 "plenty of memory free, the cause is the Linux kernel VMA "
                 "region limit being hit whereby no process may allocate more "
-                "than 64k mmaps.\n");
+                "than 64k mmaps. You can safely raise vm.max_map_count = "
+                "1048576 if needed.\n");
         }
         return ret;
     }

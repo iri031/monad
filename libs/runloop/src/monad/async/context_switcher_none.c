@@ -146,3 +146,27 @@ static monad_async_result monad_async_context_none_resume_many(
     context_switcher_none_instance_within_resume_many--;
     return r;
 }
+
+/*****************************************************************************/
+
+extern void monad_async_context_reparent_switcher(
+    monad_async_context context, monad_async_context_switcher new_switcher)
+{
+    monad_async_context_switcher current_switcher =
+        atomic_load_explicit(&context->switcher, memory_order_acquire);
+    if (current_switcher->create != new_switcher->create) {
+        fprintf(
+            stderr,
+            "FATAL: If reparenting context switcher, the new parent "
+            "must be the same type of context switcher.\n");
+        abort();
+    }
+    if (new_switcher != monad_async_context_switcher_none_instance()) {
+        atomic_fetch_sub_explicit(
+            &current_switcher->contexts, 1, memory_order_relaxed);
+        atomic_store_explicit(
+            &context->switcher, new_switcher, memory_order_release);
+        atomic_fetch_add_explicit(
+            &new_switcher->contexts, 1, memory_order_relaxed);
+    }
+}

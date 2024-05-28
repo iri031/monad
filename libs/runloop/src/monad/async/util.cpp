@@ -5,6 +5,7 @@
 #include <filesystem>
 
 #include <fcntl.h> // for open
+#include <sys/vfs.h> // for statfs
 #include <unistd.h> // for unlink
 
 static std::filesystem::path const &working_temporary_directory()
@@ -22,8 +23,16 @@ static std::filesystem::path const &working_temporary_directory()
                 }
             }
             if (-1 != fd) {
-                ret = path;
+                struct statfs s = {};
+                if (-1 == fstatfs(fd, &s)) {
+                    ::close(fd);
+                    return false;
+                }
                 ::close(fd);
+                if (s.f_type == 0x01021994 /* tmpfs */) {
+                    return false;
+                }
+                ret = path;
                 return true;
             }
             return false;

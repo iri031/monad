@@ -91,6 +91,10 @@ TEST(context_switcher, works)
 
 TEST(context_switcher, scaling)
 {
+#if MONAD_ASYNC_HAVE_ASAN || MONAD_ASYNC_HAVE_TSAN
+    // The sanitisers try to map memory which fails causing the test to fail
+    return;
+#endif
     auto test_scaling = [](monad_async_context_switcher switcher,
                            char const *desc) {
         {

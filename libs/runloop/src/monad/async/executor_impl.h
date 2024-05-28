@@ -6,6 +6,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 #include <threads.h>
 
 #include <execinfo.h>
@@ -436,6 +437,10 @@ monad_async_executor_destroy_impl(struct monad_async_executor_impl *ex)
     if (ex->eventfd != -1) {
         close(ex->eventfd);
         ex->eventfd = -1;
+    }
+    if (ex->file_indices != nullptr) {
+        free(ex->file_indices);
+        ex->file_indices = nullptr;
     }
     for (unsigned n = 0; n < ex->registered_buffers[0].size; n++) {
         (void)munmap(

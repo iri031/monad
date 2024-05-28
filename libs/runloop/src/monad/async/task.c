@@ -296,6 +296,10 @@ monad_fiber_resume_on_compute_executor_call_after_suspend_to_executor(
             (struct
              monad_fiber_resume_on_compute_executor_call_after_suspend_to_executor_data
                  *)task->call_after_suspend_to_executor_data;
+    if (data->opt_reparent_switcher != nullptr) {
+        monad_async_context_reparent_switcher(
+            task->context, data->opt_reparent_switcher);
+    }
 #if MONAD_ASYNC_FIBER_PRINTING
     printf(
         "*** %d: monad fiber task post task %p to foreign executor %p.\n",

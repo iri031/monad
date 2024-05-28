@@ -64,6 +64,7 @@ struct monad_async_context_switcher_fiber
 {
     struct monad_async_context_switcher_head head;
     size_t within_resume_many;
+    pid_t within_resume_many_tid;
     struct monad_async_context_fiber *last_suspended;
     struct monad_async_context_fiber resume_many_context;
 };
@@ -289,6 +290,19 @@ static monad_async_result monad_async_context_fiber_resume_many(
     struct monad_async_context_switcher_fiber *switcher =
         (struct monad_async_context_switcher_fiber *)switcher_;
     switcher->last_suspended = nullptr;
+    pid_t const mytid = gettid(),
+                within_resume_many_tid = switcher->within_resume_many_tid;
+    if (within_resume_many_tid != 0 && within_resume_many_tid != mytid) {
+        fprintf(
+            stderr,
+            "FATAL: tid %d is currently within "
+            "monad_async_context_fiber_resume_many and I tid %d is trying to "
+            "do the same.\n",
+            within_resume_many_tid,
+            mytid);
+        abort();
+    }
+    switcher->within_resume_many_tid = mytid;
     if (switcher->within_resume_many++ > 0) {
         fprintf(
             stderr,
@@ -299,5 +313,6 @@ static monad_async_result monad_async_context_fiber_resume_many(
     monad_async_result r =
         resumed(user_ptr, &switcher->resume_many_context.head);
     switcher->within_resume_many--;
+    switcher->within_resume_many_tid = 0;
     return r;
 }

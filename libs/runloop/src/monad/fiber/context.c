@@ -245,7 +245,8 @@ monad_fiber_context_t *monad_fiber_context_callcc(
                     "NOTE: if mprotect() fails to set the guard page, and "
                     "there is plenty of memory free, the cause is the Linux "
                     "kernel VMA region limit being hit whereby no process may "
-                    "allocate more than 64k mmaps.\n");
+                    "allocate more than 64k mmaps. You can safely raise "
+                    "vm.max_map_count = 1048576 if needed.\n");
                 errno = err; // reset the error
                 return NULL;
             }
@@ -263,7 +264,8 @@ monad_fiber_context_t *monad_fiber_context_callcc(
                 "NOTE: if mmap() fails to allocate a stack, and there is "
                 "plenty of memory free, the cause is the Linux kernel VMA "
                 "region limit being hit whereby no process may allocate more "
-                "than 64k mmaps.\n");
+                "than 64k mmaps. You can safely raise vm.max_map_count = "
+                "1048576 if needed.\n");
             errno = err;
         }
         return NULL;

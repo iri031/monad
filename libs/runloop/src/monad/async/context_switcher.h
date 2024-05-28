@@ -89,6 +89,9 @@ typedef struct monad_async_context_head
     } sanitizer;
 } *monad_async_context;
 
+extern void monad_async_context_reparent_switcher(
+    monad_async_context context, monad_async_context_switcher new_switcher);
+
 //! \brief Destroys any context switcher
 MONAD_ASYNC_NODISCARD inline monad_async_result
 monad_async_context_switcher_destroy(monad_async_context_switcher switcher)
