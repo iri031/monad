@@ -4,7 +4,18 @@
 
 #include <stdatomic.h>
 #include <stdbool.h>
-#include <stdlib.h>
+
+#ifndef MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
+    #ifdef NDEBUG
+        #define MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP 0
+    #else
+        #define MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP 1
+    #endif
+#endif
+
+#if MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
+    #include <threads.h>
+#endif
 
 #ifdef __cplusplus
 extern "C"
@@ -62,6 +73,16 @@ typedef struct monad_async_context_switcher_head
             void *user_ptr,
             monad_async_context current_context_to_use_when_resuming),
         void *user_ptr);
+
+    // Must come AFTER what the Rust bindings will use
+#if MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
+    struct
+    {
+        mtx_t lock;
+        monad_async_context front, back;
+        size_t count;
+    } contexts_list;
+#endif
 } *monad_async_context_switcher;
 
 typedef struct monad_async_context_switcher_impl
@@ -79,6 +100,11 @@ typedef struct monad_async_context_head
     std::atomic<monad_async_context_switcher> switcher;
 #else
     _Atomic monad_async_context_switcher switcher;
+#endif
+    // Must come AFTER what the Rust bindings will use
+#if MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
+    void *stack_bottom, *stack_current, *stack_top;
+    monad_async_context prev, next;
 #endif
 
     struct

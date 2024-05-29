@@ -85,6 +85,9 @@ static inline monad_async_result monad_async_context_switcher_fiber_destroy(
             contexts);
         abort();
     }
+#if MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
+    mtx_destroy(&p->head.contexts_list.lock);
+#endif
     free(p);
     return monad_async_make_success(0);
 }
@@ -108,6 +111,11 @@ monad_async_result monad_async_context_switcher_fiber_create(
         .resume = monad_async_context_fiber_resume,
         .resume_many = monad_async_context_fiber_resume_many};
     memcpy(&p->head, &to_copy, sizeof(to_copy));
+#if MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
+    if (thrd_success != mtx_init(&p->head.contexts_list.lock, mtx_plain)) {
+        abort();
+    }
+#endif
     p->resume_many_context.fiber = monad_fiber_main_context();
     atomic_store_explicit(
         &p->resume_many_context.head.switcher, &p->head, memory_order_release);
@@ -205,9 +213,17 @@ static monad_async_result monad_async_context_fiber_create(
         (void)monad_async_context_fiber_destroy((monad_async_context)p);
         return monad_async_make_failure(ec);
     }
+#if MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
+    // There is a size_t after p->fiber which is the allocated stack size
+    p->head.stack_top = p->fiber;
+    p->head.stack_bottom =
+        (char *)p->fiber -
+        *(size_t *)((char *)p->fiber + sizeof(monad_fiber_context_t));
+#endif
     switcher->within_resume_many = false;
-    atomic_fetch_add_explicit(&switcher_->contexts, 1, memory_order_relaxed);
     *context = (monad_async_context)p;
+    atomic_store_explicit(&p->head.switcher, nullptr, memory_order_release);
+    monad_async_context_reparent_switcher(*context, &switcher->head);
     return monad_async_make_success(0);
 }
 
@@ -224,11 +240,7 @@ monad_async_context_fiber_destroy(monad_async_context context)
         monad_async_context_fiber_resume(
             &switcher->resume_many_context.head, context);
         assert(p->fiber == nullptr);
-        atomic_fetch_sub_explicit(
-            &atomic_load_explicit(&context->switcher, memory_order_acquire)
-                 ->contexts,
-            1,
-            memory_order_relaxed);
+        monad_async_context_reparent_switcher(context, nullptr);
     }
     free(context);
     return monad_async_make_success(0);
@@ -239,6 +251,9 @@ static void monad_async_context_fiber_suspend_and_call_resume(
 {
     struct monad_async_context_fiber *p =
         (struct monad_async_context_fiber *)current_context;
+#if MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
+    p->head.stack_current = __builtin_frame_address(0);
+#endif
     // Set last suspended
     struct monad_async_context_switcher_fiber *switcher =
         (struct monad_async_context_switcher_fiber *)atomic_load_explicit(

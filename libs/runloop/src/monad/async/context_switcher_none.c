@@ -41,6 +41,9 @@ monad_async_context_switcher_none_destroy(monad_async_context_switcher p)
             contexts);
         abort();
     }
+#if MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
+    mtx_destroy(&p->contexts_list.lock);
+#endif
     return monad_async_make_success(0);
 }
 
@@ -53,6 +56,9 @@ struct monad_async_context_none
 static struct monad_async_context_switcher_none
 {
     struct monad_async_context_switcher_head head;
+#if MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
+    bool mutex_initialised;
+#endif
 } context_switcher_none_instance = {
     {.contexts = 0,
      .self_destroy = monad_async_context_switcher_none_destroy,
@@ -61,7 +67,12 @@ static struct monad_async_context_switcher_none
      .suspend_and_call_resume =
          monad_async_context_none_suspend_and_call_resume,
      .resume = monad_async_context_none_resume,
-     .resume_many = monad_async_context_none_resume_many}};
+     .resume_many = monad_async_context_none_resume_many}
+#if MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
+    ,
+    .mutex_initialised = false
+#endif
+};
 
 static thread_local size_t context_switcher_none_instance_within_resume_many;
 
@@ -69,6 +80,16 @@ monad_async_result
 monad_async_context_switcher_none_create(monad_async_context_switcher *switcher)
 {
     *switcher = &context_switcher_none_instance.head;
+#if MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
+    if (!context_switcher_none_instance.mutex_initialised) {
+        if (thrd_success !=
+            mtx_init(
+                &context_switcher_none_instance.head.contexts_list.lock,
+                mtx_plain)) {
+            abort();
+        }
+    }
+#endif
     return monad_async_make_success(0);
 }
 
@@ -90,20 +111,15 @@ static monad_async_result monad_async_context_none_create(
         return monad_async_make_failure(errno);
     }
     p->task = task;
-    atomic_store_explicit(&p->head.switcher, switcher_, memory_order_release);
-    atomic_fetch_add_explicit(&switcher_->contexts, 1, memory_order_relaxed);
     *context = (monad_async_context)p;
+    monad_async_context_reparent_switcher(*context, switcher_);
     return monad_async_make_success(0);
 }
 
 static monad_async_result
 monad_async_context_none_destroy(monad_async_context context)
 {
-    atomic_fetch_sub_explicit(
-        &atomic_load_explicit(&context->switcher, memory_order_acquire)
-             ->contexts,
-        1,
-        memory_order_relaxed);
+    monad_async_context_reparent_switcher(context, nullptr);
     free(context);
     return monad_async_make_success(0);
 }
@@ -152,21 +168,47 @@ static monad_async_result monad_async_context_none_resume_many(
 extern void monad_async_context_reparent_switcher(
     monad_async_context context, monad_async_context_switcher new_switcher)
 {
+    assert(context != nullptr);
     monad_async_context_switcher current_switcher =
         atomic_load_explicit(&context->switcher, memory_order_acquire);
-    if (current_switcher->create != new_switcher->create) {
+    if (current_switcher != nullptr && new_switcher != nullptr &&
+        current_switcher->create != new_switcher->create) {
         fprintf(
             stderr,
             "FATAL: If reparenting context switcher, the new parent "
             "must be the same type of context switcher.\n");
         abort();
     }
-    if (new_switcher != monad_async_context_switcher_none_instance()) {
-        atomic_fetch_sub_explicit(
-            &current_switcher->contexts, 1, memory_order_relaxed);
+    if (!(current_switcher == monad_async_context_switcher_none_instance() &&
+          new_switcher == monad_async_context_switcher_none_instance())) {
+#if MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
+        if (current_switcher != nullptr) {
+            mtx_lock(&current_switcher->contexts_list.lock);
+            LIST_REMOVE_ATOMIC_COUNTER(
+                current_switcher->contexts_list,
+                context,
+                &current_switcher->contexts);
+            mtx_unlock(&current_switcher->contexts_list.lock);
+        }
         atomic_store_explicit(
             &context->switcher, new_switcher, memory_order_release);
-        atomic_fetch_add_explicit(
-            &new_switcher->contexts, 1, memory_order_relaxed);
+        if (new_switcher != nullptr) {
+            mtx_lock(&new_switcher->contexts_list.lock);
+            LIST_APPEND_ATOMIC_COUNTER(
+                new_switcher->contexts_list, context, &new_switcher->contexts);
+            mtx_unlock(&new_switcher->contexts_list.lock);
+        }
+#else
+        if (current_switcher != nullptr) {
+            atomic_fetch_sub_explicit(
+                &current_switcher->contexts, 1, memory_order_relaxed);
+        }
+        atomic_store_explicit(
+            &context->switcher, new_switcher, memory_order_release);
+        if (new_switcher != nullptr) {
+            atomic_fetch_add_explicit(
+                &new_switcher->contexts, 1, memory_order_relaxed);
+        }
+#endif
     }
 }

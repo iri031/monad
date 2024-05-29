@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.5)
 
-project(monad-runloop LANGUAGES C CXX)
+project(monad-runloop LANGUAGES C CXX ASM)
 
 find_package(GTest REQUIRED)
 find_package(Boost REQUIRED)
@@ -49,6 +49,7 @@ target_compile_features(monad_async_c PUBLIC c_std_23 cxx_std_20)
 target_compile_options(monad_async_c PUBLIC -Wall -Wextra -Wconversion -Wpedantic -Werror)
 target_include_directories(monad_async_c PUBLIC "src")
 target_link_libraries(monad_async_c PUBLIC uring Boost::boost monad_fiber_c)
+monad_target_gdb_pretty_printer(monad_async_c monad_async_c_pretty_printer "src/monad/async/gdb_pretty_printers.py")
 
 if(BINDGEN_PROGRAM)
   add_custom_command(OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/rust/async.rs"

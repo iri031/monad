@@ -64,10 +64,24 @@ pub struct timespec {
     pub tv_sec: __time_t,
     pub tv_nsec: __syscall_slong_t,
 }
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union mtx_t {
+    pub __size: [::std::os::raw::c_char; 40usize],
+    pub __align: ::std::os::raw::c_long,
+}
+impl Default for mtx_t {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
 pub type monad_async_task = *mut monad_async_task_head;
 pub type monad_async_context = *mut monad_async_context_head;
 #[repr(C)]
-#[derive(Debug)]
 pub struct monad_async_context_switcher_head {
     pub user_ptr: *mut ::std::os::raw::c_void,
     pub contexts: atomic_uint,
@@ -117,6 +131,23 @@ pub struct monad_async_context_switcher_head {
             user_ptr: *mut ::std::os::raw::c_void,
         ) -> monad_async_result,
     >,
+    pub contexts_list: monad_async_context_switcher_head__bindgen_ty_1,
+}
+#[repr(C)]
+pub struct monad_async_context_switcher_head__bindgen_ty_1 {
+    pub lock: mtx_t,
+    pub front: monad_async_context,
+    pub back: monad_async_context,
+    pub count: usize,
+}
+impl Default for monad_async_context_switcher_head__bindgen_ty_1 {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
 }
 impl Default for monad_async_context_switcher_head {
     fn default() -> Self {
@@ -142,6 +173,11 @@ pub struct monad_async_context_head {
     pub is_running: bool,
     pub is_suspended: bool,
     pub switcher: u64,
+    pub stack_bottom: *mut ::std::os::raw::c_void,
+    pub stack_current: *mut ::std::os::raw::c_void,
+    pub stack_top: *mut ::std::os::raw::c_void,
+    pub prev: monad_async_context,
+    pub next: monad_async_context,
     pub sanitizer: monad_async_context_head__bindgen_ty_1,
 }
 #[repr(C)]

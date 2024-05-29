@@ -1,8 +1,6 @@
-# Proposed replacement executor
+# Proposed replacement executors and core runloops
 
-[![CI](https://github.com/monad-crypto/fiber-sandbox/actions/workflows/ci.yml/badge.svg)](https://github.com/monad-crypto/fiber-sandbox/actions/workflows/ci.yml)
-
-## Features:
+## Features (i/o executor `monad_async`):
 
 1. 100% C throughout, easing FFI into Rust and other languages.
 2. 100% priority based, with three levels of individual priority for
@@ -19,38 +17,15 @@ allows zero overhead support for C++ or Rust coroutines.
 6. Integrated ultra-lightweight CPU timestamp counter based time tracking
 throughout.
 7. Async file i/o: open, close, read, write, sync range, durable sync.
-
-## Benchmarks:
-
-### Single execution:
-
-#### Launch new work on executor:
-- Time between launching a new task and it beginning execution: **100 ns**.
-- Time between a task beginning execution and it being wound up: **90 ns**.
-   
-#### Launch new work on executor which suspends on an i/o, resumes and then exits:
-- Time between launching a new task and it beginning execution: **130 ns**.
-- Time between a task beginning execution and it initiating the
-i/o with io_uring, and then suspending awaiting the i/o completion: **120 ns**.
-- Time between i/o completing and task resumption: **50 ns**.
-- Time between task resumption and it being wound up: **120 ns**.
-
-#### Launch new work on next idle executor in a thread pool:
-- Loop initiating, executing and tearing down tasks from one kernel thread onto
-a pool of sixty-four executors each running on their own kernel thread:
-**861.84 ns/op**.
-
-### Superscalar execution:
-- Loop initiating, executing and tearing down tasks on the same kernel thread:
-**39.6 ns**/op (4.8x, CPU is capable of 5x).
-
-- Loop suspend-resuming a task using an io_uring noop (i.e. minimum
-possible io_uring op overhead): **85.766 ns**/op (3.38x, io_uring cycle is
-not superscalar friendly).
+8. Async socket i/o: open, close, read, write, bind, listen, transfer
+to i/o uring, connect, shutdown.
+9. Auto loaded GDB pretty printers for context switchers (showing all
+child contexts), and contexts themselves (showing runstate and current
+stack frame).
 
 ## Examples of use:
 
-### Execute a task on an executor
+### Execute a task on an i/o executor
 ```c
 monad_async_result r;
 
@@ -302,7 +277,7 @@ frame is: `struct msvc_frame_prefix { void(*factivate)(void*); uint16_t index, f
 Implementation is a state machine based on switching `index`.
     - GCC/clang coroutine frame: Frame prefix | Promise | Unknown | Local
 variables. Coroutine frame is: `struct clang_frame_prefix { void(*factivate)(void*); void(*fdestroy)(void*);};`.
-- GDB awareness of contexts would be nice.
+- GDB showing current suspended backtraces of contexts would be nice.
 
 Here is qemu's GDB helper for their coroutines: https://gitlab.com/qemu-project/qemu/-/blob/master/scripts/qemugdb/coroutine.py
 

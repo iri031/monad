@@ -103,6 +103,9 @@ monad_async_context_switcher_sjlj_destroy(monad_async_context_switcher switcher)
             contexts);
         abort();
     }
+#if MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
+    mtx_destroy(&p->head.contexts_list.lock);
+#endif
     free(p);
     return monad_async_make_success(0);
 }
@@ -126,6 +129,11 @@ monad_async_context_switcher_sjlj_create(monad_async_context_switcher *switcher)
         .resume = monad_async_context_sjlj_resume,
         .resume_many = monad_async_context_sjlj_resume_many};
     memcpy(&p->head, &to_copy, sizeof(to_copy));
+#if MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
+    if (thrd_success != mtx_init(&p->head.contexts_list.lock, mtx_plain)) {
+        abort();
+    }
+#endif
     p->owning_thread = thrd_current();
     atomic_store_explicit(
         &p->resume_many_context.head.switcher, &p->head, memory_order_release);
@@ -367,8 +375,13 @@ static monad_async_result monad_async_context_sjlj_create(
         nullptr,
         nullptr);
     switcher->within_resume_many = false;
-    atomic_fetch_add_explicit(&switcher_->contexts, 1, memory_order_relaxed);
+#if MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
+    p->head.stack_top = stack_base;
+    p->head.stack_bottom = stack_front;
+#endif
     *context = (monad_async_context)p;
+    atomic_store_explicit(&p->head.switcher, nullptr, memory_order_release);
+    monad_async_context_reparent_switcher(*context, switcher_);
     return monad_async_make_success(0);
 }
 
@@ -403,6 +416,7 @@ monad_async_context_sjlj_destroy(monad_async_context context)
              ->contexts,
         1,
         memory_order_relaxed);
+    monad_async_context_reparent_switcher(context, nullptr);
     free(context);
     return monad_async_make_success(0);
 }
@@ -412,6 +426,9 @@ static void monad_async_context_sjlj_suspend_and_call_resume(
 {
     struct monad_async_context_sjlj *p =
         (struct monad_async_context_sjlj *)current_context;
+#if MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
+    p->head.stack_current = __builtin_frame_address(0);
+#endif
     int ret = setjmp(p->buf);
     if (ret != 0) {
         // He has resumed
