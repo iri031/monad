@@ -1,5 +1,0 @@
-<map id="monad_async_file_head" name="monad_async_file_head">
-<area shape="rect" id="node1" title="The public attributes of an open file." alt="" coords="5,95,168,121"/>
-<area shape="rect" id="node2" href="$structmonad__async__executor__head.html" title="The public attributes of an executor." alt="" coords="75,5,269,32"/>
-<area shape="rect" id="node3" href="$structmonad__async__task__head.html" title="The public attributes of a task." alt="" coords="205,95,376,121"/>
-</map>

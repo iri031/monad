@@ -1,8 +1,0 @@
-<map id="monad_fiber" name="monad_fiber">
-<area shape="rect" id="node1" title=" " alt="" coords="127,377,220,404"/>
-<area shape="rect" id="node2" href="$structmonad__fiber__scheduler.html" title=" " alt="" coords="95,288,251,315"/>
-<area shape="rect" id="node3" href="$structmonad__fiber__task__queue.html" title=" " alt="" coords="101,199,267,225"/>
-<area shape="rect" id="node4" href="$structmonad__fiber__task__node.html" title=" " alt="" coords="93,95,253,121"/>
-<area shape="rect" id="node5" href="$structmonad__fiber__task.html" title=" " alt="" coords="5,5,131,32"/>
-<area shape="rect" id="node6" href="$structmonad__fiber__context.html" title=" " alt="" coords="275,288,418,315"/>
-</map>

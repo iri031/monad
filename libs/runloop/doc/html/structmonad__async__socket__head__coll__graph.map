@@ -1,5 +1,0 @@
-<map id="monad_async_socket_head" name="monad_async_socket_head">
-<area shape="rect" id="node1" title="The public attributes of an open socket." alt="" coords="5,95,189,121"/>
-<area shape="rect" id="node2" href="$structmonad__async__executor__head.html" title="The public attributes of an executor." alt="" coords="85,5,280,32"/>
-<area shape="rect" id="node3" href="$structmonad__async__task__head.html" title="The public attributes of a task." alt="" coords="221,95,392,121"/>
-</map>
