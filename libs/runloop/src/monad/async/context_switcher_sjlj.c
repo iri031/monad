@@ -411,11 +411,6 @@ monad_async_context_sjlj_destroy(monad_async_context context)
         }
         p->stack_storage = nullptr;
     }
-    atomic_fetch_sub_explicit(
-        &atomic_load_explicit(&context->switcher, memory_order_acquire)
-             ->contexts,
-        1,
-        memory_order_relaxed);
     monad_async_context_reparent_switcher(context, nullptr);
     free(context);
     return monad_async_make_success(0);
