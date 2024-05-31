@@ -313,11 +313,12 @@ namespace
         size_t parse_accounts(byte_string_view in, UpdateList &account_updates)
         {
             constexpr auto account_fixed_size =
-                sizeof(bytes32_t) + sizeof(uint256_t) + sizeof(uint64_t) +
-                sizeof(bytes32_t) + sizeof(uint64_t);
-            static_assert(account_fixed_size == 112);
+                sizeof(bytes32_t) + sizeof(int64_t) + sizeof(uint256_t) +
+                sizeof(uint64_t) + sizeof(bytes32_t) + sizeof(uint64_t);
+            static_assert(account_fixed_size == 120);
             size_t total_processed = 0;
             while (in.size() >= account_fixed_size) {
+
                 constexpr auto num_storage_offset =
                     account_fixed_size - sizeof(uint64_t);
                 auto const num_storage = unaligned_load<uint64_t>(
@@ -342,23 +343,30 @@ namespace
 
         size_t parse_code(byte_string_view in, UpdateList &code_updates)
         {
-            constexpr auto hash_and_len_size =
-                sizeof(bytes32_t) + sizeof(uint64_t);
-            static_assert(hash_and_len_size == 40);
+            constexpr auto version_offset = sizeof(bytes32_t);
+
+            constexpr auto code_len_offset = version_offset + sizeof(int64_t);
+            constexpr auto fixed_size = code_len_offset + sizeof(uint64_t);
+
+            static_assert(fixed_size == 48);
             size_t total_processed = 0;
-            while (in.size() >= hash_and_len_size) {
+
+            while (in.size() >= fixed_size) {
+
                 auto const code_len = unaligned_load<uint64_t>(
-                    in.substr(sizeof(bytes32_t), sizeof(uint64_t)).data());
-                auto const entry_size = code_len + hash_and_len_size;
+                    in.substr(code_len_offset, sizeof(uint64_t)).data());
+                auto const entry_size = code_len + fixed_size;
                 MONAD_ASSERT(entry_size <= buf_size_);
                 if (in.size() < entry_size) {
                     return total_processed;
                 }
                 code_updates.push_front(update_alloc_.emplace_back(Update{
                     .key = in.substr(0, sizeof(bytes32_t)),
-                    .value = in.substr(hash_and_len_size, code_len),
+                    .value = in.substr(fixed_size, code_len),
                     .incarnation = false,
-                    .next = UpdateList{}}));
+                    .next = UpdateList{},
+                    .version = unaligned_load<int64_t>(
+                        in.substr(version_offset, sizeof(int64_t)).data())}));
 
                 total_processed += entry_size;
                 in = in.substr(entry_size);
@@ -368,7 +376,8 @@ namespace
 
         Update handle_account(byte_string_view curr)
         {
-            constexpr auto balance_offset = sizeof(bytes32_t);
+            constexpr auto version_offset = sizeof(bytes32_t);
+            constexpr auto balance_offset = version_offset + sizeof(int64_t);
             constexpr auto nonce_offset = balance_offset + sizeof(uint256_t);
             constexpr auto code_hash_offset = nonce_offset + sizeof(uint64_t);
 
@@ -383,7 +392,9 @@ namespace
                     .nonce = unaligned_load<uint64_t>(
                         curr.substr(nonce_offset, sizeof(uint64_t)).data())})),
                 .incarnation = false,
-                .next = UpdateList{}};
+                .next = UpdateList{},
+                .version = unaligned_load<int64_t>(
+                    curr.substr(version_offset, sizeof(int64_t)).data())};
         }
 
         UpdateList handle_storage(byte_string_view in)
@@ -804,8 +815,9 @@ std::string TrieDb::print_stats()
 //
 // Account file:
 //
-// Account (112 bytes)
-// bytes32 (32) - account id (key)
+// Account (120 bytes)
+// bytes32 (32) - account hash (key)
+// int64 (8) - version
 // uint256 (32) - balance
 // uint64 (8) - nonce
 // bytes32 (32) - code_hash
@@ -819,8 +831,9 @@ std::string TrieDb::print_stats()
 //
 // Code file:
 //
-// Code (>= 40)
-// bytes32 (32) - code id (key)
+// Code (>= 48)
+// bytes32 (32) - code hash (key)
+// int64 (8) - version
 // uint64 (8) - num code bytes
 // n bytes
 
@@ -831,11 +844,11 @@ void TrieDb::to_binary(
     {
         TrieDb &db;
         Nibbles path{};
-        uint64_t num_entries = 0;
+        uint64_t num_entries{0};
         std::streampos num_entries_pos;
         std::ofstream out;
 
-        bool is_code = false;
+        bool is_code{false};
 
         explicit Traverse(TrieDb &db)
             : db(db)
@@ -930,6 +943,12 @@ void TrieDb::to_binary(
             auto const key = path_key();
             MONAD_ASSERT(sizeof(key) == 32);
             out.write(reinterpret_cast<char const *>(&key), sizeof(key));
+
+            MONAD_ASSERT(sizeof(node.version) == 8);
+            MONAD_ASSERT(node.version == 0); // BAL: for now
+            out.write(
+                reinterpret_cast<char const *>(&node.version),
+                sizeof(node.version));
         }
 
         void handle_account_value(Node const &node)
