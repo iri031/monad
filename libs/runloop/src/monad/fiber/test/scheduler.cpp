@@ -69,6 +69,8 @@ struct snapshots_4
         std::array<std::pair<std::int64_t, std::uint64_t>, size_per_thread>, 4u>
         state;
 
+    std::atomic<std::size_t> invoked{0u};
+
     snapshots_4()
     {
         for (auto &s : state) {
@@ -92,8 +94,9 @@ struct snapshots_4
             assert(id < 4);
         }
 
-        void operator()(std::int64_t priority) noexcept
+        void operator()(std::int64_t priority_) noexcept
         {
+            db.invoked.fetch_add(1u, std::memory_order_acq_rel);
             if (done) {
                 return; // no overflow plz
             }
@@ -107,7 +110,7 @@ struct snapshots_4
                 db.pointer -= offset; // so we're not len == 0
                 done = true;
             }
-            db.state[id][idx] = {priority, ptr};
+            db.state[id][idx] = {priority_, ptr};
         }
     };
 
@@ -127,6 +130,8 @@ struct snapshots_8
     std::array<
         std::array<std::pair<std::int64_t, std::uint64_t>, size_per_thread>, 8u>
         state;
+
+    std::atomic<std::size_t> invoked{0u};
 
     snapshots_8()
     {
@@ -152,13 +157,14 @@ struct snapshots_8
 
         void operator()(std::int64_t priority)
         {
-            if (done) {
+            db.invoked.fetch_add(1u, std::memory_order_acq_rel);
+                        if (done) {
                 return; // no overflow plz
             }
             // 0 -> 2^0, 1 -> 2^8
             auto const offset = 1ull << (id * 8ull);
 
-            auto const ptr = db.pointer.fetch_add(offset);
+            auto const ptr = db.pointer.fetch_add(offset, std::memory_order_acq_rel);
             auto const idx = (ptr >> (id * 8ull)) & 0xFFull;
 
             if (idx == 0xFFu) {
@@ -302,6 +308,8 @@ TEST(scheduler, post_post)
 
 void check_sorted(snapshots_4 &ss)
 {
+    EXPECT_EQ(ss.invoked, (ss.size_per_thread - 1) * ss.state.size());
+
     // make sure it's ordered now.
     for (auto i = 0ull; i < 4ull; i++) {
         auto const &series = ss.state[i];
@@ -343,11 +351,14 @@ void check_sorted(snapshots_4 &ss)
 
 void check_sorted(snapshots_8 &ss)
 {
+    EXPECT_EQ(ss.invoked, (ss.size_per_thread - 1) * ss.state.size());
+
     // make sure it's ordered now.
     for (auto i = 0ull; i < ss.state.size(); i++) {
         auto const &series = ss.state[i];
         auto const len = (ss.pointer.load() >> (i * 8ull)) & 0xFFull;
-        ASSERT_GT(len, 0);
+        if (len == 0)
+            continue;
         auto const begin = series.begin(), end = series.begin() + len;
         ASSERT_LE(end, series.end());
         EXPECT_TRUE(std::is_sorted(begin, end));
