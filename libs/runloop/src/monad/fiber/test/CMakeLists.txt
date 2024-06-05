@@ -1,5 +1,5 @@
 
-add_executable(monad_fiber_c_tests fcontext.cpp scheduler.cpp fiber.cpp task.cpp current.cpp)
+add_executable(monad_fiber_c_tests channel.cpp fcontext.cpp scheduler.cpp fiber.cpp task.cpp current.cpp)
 target_link_libraries(monad_fiber_c_tests PUBLIC monad_fiber_c GTest::GTest GTest::gtest_main)
 gtest_discover_tests(
   monad_fiber_c_tests

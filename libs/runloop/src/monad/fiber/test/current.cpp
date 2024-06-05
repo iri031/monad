@@ -149,16 +149,6 @@ void awaitable_sleep(monad_fiber_t *to_resume, void *us_)
     }}.detach();
 };
 
-TEST(current, await_from_main)
-{
-    monad_fiber_scheduler shed;
-    monad_fiber_scheduler_create(&shed, 0, NULL);
-    monad_fiber_init_main();
-    monad_fiber_main()->scheduler = &shed;
-    useconds_t const us = 1000;
-    monad_fiber_await(&awaitable_sleep, reinterpret_cast<void *>(us));
-}
-
 TEST(current, await_from_thread)
 {
     monad_fiber_scheduler shed;

@@ -78,28 +78,16 @@ void monad_fiber_switch_to_main()
     // LOG here
     monad_fiber_switch_to_fiber(monad_fiber_main());
 }
-/*
-static monad_fiber_context_t *
-monad_fiber_yield_impl(monad_fiber_context_t *, void *arg_)
-{
-    monad_fiber_task_t *task = (monad_fiber_task_t *)arg_;
-    monad_fiber_t *ctx = monad_fiber_main();
-    monad_fiber_activate_fiber(ctx);
-    task->resume(task);
-    return ctx->context;
-}*/
 
 void monad_fiber_yield()
 {
-    // check
     monad_fiber_t *cc = monad_fiber_current();
     MONAD_ASSERT(cc->scheduler != NULL);
     monad_fiber_task_t *t = monad_fiber_scheduler_pop_higher_priority_task(
         cc->scheduler, cc->task.priority + 1 /* so we also yield if it's he same priority */);
     if (t == NULL) {
-        return; // not work, no problem
+        return; // no work, no problem
     }
-
     t->resume(t); // if this is a fiber, the context switch will be done in here.
 }
 
@@ -115,53 +103,17 @@ monad_fiber_await_impl(monad_fiber_context_t *from, void *ptr)
 {
     struct monad_fiber_await_impl_t impl =
         *(struct monad_fiber_await_impl_t *)ptr;
+    monad_fiber_activate_fiber(impl.fiber);
     (*impl.suspend_to)(impl.fiber, impl.arg);
     return from;
 }
 
-struct monad_pseudo_fiber
-{
-  monad_fiber_t base;
-  atomic_bool done;
-};
-
-static void pseudo_fiber_resume(monad_fiber_task_t * t)
-{
-    struct monad_pseudo_fiber * f = (struct monad_pseudo_fiber *)t;
-    f->done = true;
-}
-
-static void pseudo_fiber_destroy(monad_fiber_task_t * t)
-{
-    (void)t;
-    pthread_exit(NULL);
-}
 
 void monad_fiber_await(
     void (*suspend_to)(monad_fiber_t * /*task */, void * /*arg*/), void *arg)
 {
     monad_fiber_t *from = monad_fiber_current();
-
-    if (monad_fiber_is_main(from)) {
-        MONAD_ASSERT(from->scheduler != NULL);
-        // suspend_to
-
-        struct monad_pseudo_fiber pseudo_fiber = {*from, false};
-
-        pseudo_fiber.base.task.resume  = &pseudo_fiber_resume;
-        pseudo_fiber.base.task.destroy = &pseudo_fiber_destroy;
-        (*suspend_to)(&pseudo_fiber.base, arg);
-
-        while (!pseudo_fiber.done)
-        {
-            if (!monad_fiber_run_one(from->scheduler)) {
-                sched_yield();
-            }
-        }
-
-
-        return;
-    }
+    MONAD_ASSERT(!monad_fiber_is_main(from));
 
     struct monad_fiber_await_impl_t impl = {
         .fiber = from, .suspend_to = suspend_to, .arg = arg};
@@ -171,6 +123,7 @@ void monad_fiber_await(
         monad_fiber_main()->context,
         &monad_fiber_await_impl,
         &impl);
+    monad_fiber_activate_fiber(from);
 }
 
 struct monad_fiber_create_arg_t
@@ -272,4 +225,9 @@ monad_fiber_t * monad_fiber_create(
     return NULL;
 
   return res;
+}
+
+bool monad_fiber_in_fiber()
+{
+  return !monad_fiber_is_main(monad_fiber_current());
 }

@@ -1,5 +1,11 @@
 #pragma once
 
+
+#if defined(__cplusplus)
+extern "C"
+{
+#endif
+
 #include "current.h"
 
 #include <stdbool.h>
@@ -23,8 +29,16 @@ void monad_fiber_channel_create(
     monad_fiber_channel_t *, size_t capacity, size_t element_size);
 void monad_fiber_channel_destroy(monad_fiber_channel_t *);
 
+void monad_fiber_channel_close(monad_fiber_channel_t *);
+
 bool monad_fiber_channel_try_read(monad_fiber_channel_t *, void *target);
 bool monad_fiber_channel_try_write(monad_fiber_channel_t *, void const *source);
 
 int monad_fiber_channel_read(monad_fiber_channel_t *, void *target);
 int monad_fiber_channel_write(monad_fiber_channel_t *, void const *source);
+
+
+
+#if defined(__cplusplus)
+}
+#endif

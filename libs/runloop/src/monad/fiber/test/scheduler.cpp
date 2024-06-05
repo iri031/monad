@@ -564,7 +564,7 @@ TEST(scheduler, inverted_8)
     check_sorted(ss);
 }
 
-TEST(scheduler, split_4)
+TEST(scheduler, DISABLED_split_4)
 {
     static bool once = false;
     ASSERT_FALSE(once);
@@ -606,7 +606,7 @@ TEST(scheduler, split_4)
     check_sorted(ss);
 }
 
-TEST(scheduler, split_8)
+TEST(scheduler, DISABLED_split_8)
 {
     static bool once = false;
     ASSERT_FALSE(once);

@@ -41,6 +41,11 @@ void monad_fiber_channel_create(monad_fiber_channel_t * this, size_t capacity, s
 
 void monad_fiber_channel_destroy(monad_fiber_channel_t * this)
 {
+  MONAD_CCALL_ASSERT(pthread_mutex_destroy(&this->mutex));
+}
+
+void monad_fiber_channel_close(monad_fiber_channel_t * this)
+{
   MONAD_CCALL_ASSERT(pthread_mutex_lock(&this->mutex));
 
   while (this->pending_writes != NULL)
@@ -59,10 +64,13 @@ void monad_fiber_channel_destroy(monad_fiber_channel_t * this)
     this->pending_reads = op->next;
   }
 
-  MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
-  MONAD_CCALL_ASSERT(pthread_mutex_destroy(&this->mutex));
   if (this->data != NULL)
+  {
     free(this->data);
+    this->data = (void*)UINTPTR_MAX;
+  }
+
+  MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
 }
 
 
@@ -77,7 +85,24 @@ bool monad_fiber_channel_try_read(monad_fiber_channel_t * this, void * target)
     this->pending_writes = op->next;
 
     if (this->element_size > 0)
-      memcpy(target, op->source, this->element_size);
+    {
+        // pop a value from the buffer and push it into the buffer
+        MONAD_DEBUG_ASSERT(this->size == this->capacity);
+        if (this->capacity == 0u)
+        {
+          memcpy(target, op->source, this->element_size);
+        }
+        else
+        {
+          memcpy(target,  ((char*)this->data + (this->element_size * this->offset)), this->element_size);
+          memcpy(((char*)this->data + (this->element_size * this->offset)), op->source, this->element_size);
+        }
+
+
+        this->offset ++ ; // move the ring buffer around
+        if (this->offset == this->capacity)
+          this->offset = 0;
+    }
 
     // unlock here, we already grabbed all from `this`
     MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
@@ -91,27 +116,24 @@ bool monad_fiber_channel_try_read(monad_fiber_channel_t * this, void * target)
       MONAD_ASSERT(current->scheduler != NULL);
       monad_fiber_scheduler_post(current->scheduler, &current->task);
       monad_fiber_switch_to_fiber(op->fiber); // returning
-      return true; // early return, to avoid multiple unlocks
     }
     else // post will go fine with locking
       monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task);
 
-    has_result = true;
     return true; // already unlocked!
   }
   else if (this->size > 0u)
   {
-    if (this->element_size == 0u) // zero
-      this->size --;
-    else
+    if (this->element_size != 0u) // zero
     {
       // pos = offset
       memcpy(target,  ((char*)this->data + (this->element_size * this->offset)), this->element_size);
       this->offset ++;
-      this->size --;
       if (this->offset == this->capacity)
         this->offset = 0;
     }
+
+    this->size --;
     has_result = true;
   }
 
@@ -153,13 +175,12 @@ bool monad_fiber_channel_try_write(monad_fiber_channel_t * this, const void * so
   }
   else if (this->size < this->capacity)
   {
-    if (this->element_size == 0u)
-      this->size++;
-    else
+    if (this->element_size != 0u)
     {
-      memcpy(((char*)this->data + (this->element_size * this->offset)), source, this->element_size);
-      this->size++;
+      const size_t pos = (this->offset + this->size) % this->capacity;
+      memcpy(((char*)this->data + (this->element_size * pos)), source, this->element_size);
     }
+    this->size++;
     has_result = true;
   }
 
@@ -167,12 +188,36 @@ bool monad_fiber_channel_try_write(monad_fiber_channel_t * this, const void * so
   return has_result;
 }
 
-static void monad_fiber_await_unlock_impl(monad_fiber_t * task, void * arg)
+struct monad_fiber_await_suspend_read_args
 {
-  (void)task;
-  MONAD_CCALL_ASSERT(pthread_mutex_unlock(((pthread_mutex_t*)arg)));
+  monad_fiber_channel_t * this;
+  struct monad_fiber_channel_read_op * op_target;
+};
+
+static void monad_fiber_await_read_impl(monad_fiber_t * task, void * arg)
+{
+  struct monad_fiber_await_suspend_read_args * args =
+      (struct monad_fiber_await_suspend_read_args *)arg;
+
+  args->op_target->fiber = task;
+  MONAD_CCALL_ASSERT(pthread_mutex_unlock(&args->this->mutex));
 }
 
+
+struct monad_fiber_await_suspend_write_args
+{
+  monad_fiber_channel_t * this;
+  struct monad_fiber_channel_write_op * op_target;
+};
+
+static void monad_fiber_await_write_impl(monad_fiber_t * task, void * arg)
+{
+  struct monad_fiber_await_suspend_write_args * args =
+      (struct monad_fiber_await_suspend_write_args *)arg;
+
+  args->op_target->fiber = task;
+  MONAD_CCALL_ASSERT(pthread_mutex_unlock(&args->this->mutex));
+}
 
 
 int monad_fiber_channel_read(monad_fiber_channel_t * this, void * target)
@@ -181,6 +226,11 @@ int monad_fiber_channel_read(monad_fiber_channel_t * this, void * target)
     target = NULL;
 
   MONAD_CCALL_ASSERT(pthread_mutex_lock(&this->mutex));
+  if (this->data == (void*)UINTPTR_MAX)
+  {
+    MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
+    return EPIPE;
+  }
 
   if (this->pending_writes != NULL)
   {
@@ -188,7 +238,16 @@ int monad_fiber_channel_read(monad_fiber_channel_t * this, void * target)
     this->pending_writes = op->next;
 
     if (this->element_size > 0)
-      memcpy(target, op->source, this->element_size);
+    {
+        // pop a value from the buffer and push it into the buffer
+        MONAD_DEBUG_ASSERT(this->size == this->capacity);
+        memcpy(target,  ((char*)this->data + (this->element_size * this->offset)), this->element_size);
+        memcpy(((char*)this->data + (this->element_size * this->offset)), op->source, this->element_size);
+
+        this->offset ++ ; // move the ring buffer around
+        if (this->offset == this->capacity)
+          this->offset = 0;
+    }
 
     // unlock here, we already grabbed all from `this`
     MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
@@ -201,52 +260,51 @@ int monad_fiber_channel_read(monad_fiber_channel_t * this, void * target)
     {
       MONAD_ASSERT(current->scheduler != NULL);
       monad_fiber_scheduler_post(current->scheduler, &current->task);
-      monad_fiber_switch_to_fiber(op->fiber); // returning
-      return true; // early return, to avoid multiple unlocks
+      op->fiber->task.resume(&op->fiber->task); // returning
     }
-    else // post will go fine with locking
+    else // post the op for completion. value's in already.
       monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task);
 
     return 0; // already unlocked!
   }
   else if (this->size > 0u)
   {
-    if (this->element_size == 0u) // zero
-      this->size --;
-    else
+    if (this->element_size != 0u) // not void
     {
       // pos = offset
       memcpy(target,  ((char*)this->data + (this->element_size * this->offset)), this->element_size);
       this->offset ++;
-      this->size --;
       if (this->offset == this->capacity)
         this->offset = 0;
     }
+    this->size --;
+
     MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
     return 0;
   }
   else // nothing available, let's suspend
   {
-    // ask james if this should be prioritized.
+    // ask james if this should be prioritized
     struct monad_fiber_channel_read_op my_op = {.fiber=monad_fiber_current(), .target = target, .next = NULL};
     struct monad_fiber_channel_read_op * op = this->pending_reads;
     if (op == NULL) // insert directly
-      this->pending_reads = &my_op;
+      this->pending_reads = op = &my_op;
     else
     {
       while (op->next != NULL)
         op = op->next;
-      op->next = &my_op;
+      op = op->next = &my_op;
     }
-    // ok, set up, not suspend and unlock after suspending -> before is a race condition
-    monad_fiber_await(&monad_fiber_await_unlock_impl, (void*)&this->mutex);
+
+    // ok, set up, now suspend and unlock after suspending and get the fiber from the suspended
+    struct monad_fiber_await_suspend_read_args arg= {.this=this, .op_target = op };
+    monad_fiber_await(&monad_fiber_await_read_impl, (void*)&arg);
 
     if (op->target == (void*)UINTPTR_MAX)
       return EPIPE;
   }
 
   return 0;
-
 }
 
 int monad_fiber_channel_write(monad_fiber_channel_t * this, const void * source)
@@ -255,6 +313,11 @@ int monad_fiber_channel_write(monad_fiber_channel_t * this, const void * source)
     source = NULL;
 
   MONAD_CCALL_ASSERT(pthread_mutex_lock(&this->mutex));
+  if (this->data == (void*)UINTPTR_MAX)
+  {
+    MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
+    return EPIPE;
+  }
 
   if (this->pending_reads != NULL)
   {
@@ -274,23 +337,23 @@ int monad_fiber_channel_write(monad_fiber_channel_t * this, const void * source)
     {
       MONAD_ASSERT(current->scheduler != NULL);
       monad_fiber_scheduler_post(current->scheduler, &current->task);
-      monad_fiber_switch_to_fiber(op->fiber); // returning
-      return true; // early return, to avoid multiple returns!
+      op->fiber->task.resume(&op->fiber->task); // returning
     }
-    else // post will go fine with locking
-      monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task );
+    else
+    {
+      monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task);
+    }
 
     return 0;
   }
   else if (this->size < this->capacity)
   {
-    if (this->element_size == 0u)
-      this->size++;
-    else
+    if (this->element_size != 0u)
     {
-      memcpy(((char*)this->data + (this->element_size * this->offset)), source, this->element_size);
-      this->size++;
+      const size_t pos = (this->offset + this->size) % this->capacity;
+      memcpy(((char*)this->data + pos), source, this->element_size);
     }
+    this->size++;
 
     MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
     return 0;
@@ -301,15 +364,17 @@ int monad_fiber_channel_write(monad_fiber_channel_t * this, const void * source)
     struct monad_fiber_channel_write_op my_op = {.fiber=monad_fiber_current(), .source = source, .next = NULL};
     struct monad_fiber_channel_write_op * op = this->pending_writes;
     if (op == NULL) // insert directly
-      this->pending_writes = &my_op;
+      this->pending_writes = op = &my_op;
     else
     {
       while (op->next != NULL)
         op = op->next;
-      op->next = &my_op;
+      op = op->next = &my_op;
     }
-    // ok, set up, not suspend and unlock after suspending -> before is a race condition
-    monad_fiber_await(&monad_fiber_await_unlock_impl, (void*)&this->mutex);
+
+    // ok, set up, now suspend and unlock after suspending and get the fiber from the suspended
+    struct monad_fiber_await_suspend_write_args arg= {.this=this, .op_target = op };
+    monad_fiber_await(&monad_fiber_await_write_impl, (void*)&arg);
 
     if (op->source == (void*)UINTPTR_MAX)
       return EPIPE;
