@@ -32,7 +32,9 @@ struct task : monad_fiber_task_t
                   +[](monad_fiber_task_t *this_) {
                       static_cast<task *>(this_)->resume_();
                   },
-              .destroy = +[](monad_fiber_task_t *) {}}
+              .destroy = +[](monad_fiber_task_t *) {},
+              .priority=0
+          }
     {
     }
 
@@ -51,7 +53,8 @@ struct task : monad_fiber_task_t
 
         if (!repeat) {
             repeat = true;
-            monad_fiber_scheduler_dispatch(&sched, this, priority--);
+            this->priority = ::priority--;
+            monad_fiber_scheduler_dispatch(&sched, this);
         }
         else {
             done = true;
@@ -155,7 +158,7 @@ struct snapshots_8
             assert(id < 8);
         }
 
-        void operator()(std::int64_t priority)
+        void operator()(std::int64_t priority_)
         {
             db.invoked.fetch_add(1u, std::memory_order_acq_rel);
                         if (done) {
@@ -172,7 +175,7 @@ struct snapshots_8
                 done = true;
             }
 
-            db.state[id][idx] = {priority, ptr};
+            db.state[id][idx] = {priority_, ptr};
         }
     };
 
@@ -187,7 +190,7 @@ struct lambda_task : monad_fiber_task_t
 {
 
     template <typename Func_>
-    lambda_task(Func_ &&func)
+    lambda_task(Func_ &&func, std::int64_t prio)
         : func(std::forward<Func_>(func))
     {
         this->resume = +[](monad_fiber_task_t *task) {
@@ -198,15 +201,16 @@ struct lambda_task : monad_fiber_task_t
         this->destroy = +[](monad_fiber_task_t *task) {
             delete static_cast<lambda_task *>(task);
         };
+        this->priority = prio;
     }
 
     Func func;
 };
 
 template <typename Func>
-lambda_task<std::decay_t<Func>> *make_lt(Func &&f)
+lambda_task<std::decay_t<Func>> *make_lt(Func &&f, std::int64_t prio)
 {
-    return new lambda_task<std::decay_t<Func>>(std::forward<Func>(f));
+    return new lambda_task<std::decay_t<Func>>(std::forward<Func>(f), prio);
 }
 
 TEST(scheduler, post)
@@ -215,7 +219,7 @@ TEST(scheduler, post)
 
     monad_fiber_scheduler_t s;
     monad_fiber_scheduler_create(&s, 4, NULL);
-    monad_fiber_scheduler_post(&s, make_lt([&] { ran = true; }), 0);
+    monad_fiber_scheduler_post(&s, make_lt([&] { ran = true; }, 0));
     wait(s);
     monad_fiber_scheduler_destroy(&s);
 
@@ -228,7 +232,7 @@ TEST(scheduler, dispatch)
 
     monad_fiber_scheduler_t s;
     monad_fiber_scheduler_create(&s, 4, NULL);
-    monad_fiber_scheduler_dispatch(&s, make_lt([&] { ran = true; }), 0);
+    monad_fiber_scheduler_dispatch(&s, make_lt([&] { ran = true; }, 0));
     std::this_thread::yield();
     wait(s);
     monad_fiber_scheduler_destroy(&s);
@@ -247,10 +251,9 @@ TEST(scheduler, post_dispatch_ordered)
         make_lt([&] {
             ran = true;
             monad_fiber_scheduler_dispatch(
-                &s, make_lt([&] { ran2 = true; }), 0);
+                &s, make_lt([&] { ran2 = true; }, 0));
             EXPECT_TRUE(ran2);
-        }),
-        1);
+        } ,1));
     wait(s);
     monad_fiber_scheduler_destroy(&s);
 
@@ -268,10 +271,10 @@ TEST(scheduler, DISABLED_post_dispatch_prioritized)
         make_lt([&] {
             ran = true;
             monad_fiber_scheduler_dispatch(
-                &s, make_lt([&] { ran2 = true; }), 1);
+                &s, make_lt([&] { ran2 = true; }, 1));
             EXPECT_FALSE(ran2);
-        }),
-        0);
+        },
+        0));
     monad_fiber_scheduler_destroy(&s);
 
     EXPECT_TRUE(ran);
@@ -293,11 +296,11 @@ TEST(scheduler, post_post)
                 make_lt([&] {
                     usleep(1000);
                     ran2 = true;
-                }),
-                0);
+                },
+                0));
             EXPECT_FALSE(ran2);
-        }),
-        1);
+        },
+        1));
 
     wait(s);
     monad_fiber_scheduler_destroy(&s);
@@ -323,7 +326,7 @@ void check_sorted(snapshots_4 &ss)
                 << " of thread " << i << " at pos "
                 << std::distance(begin, itr); // first = priority
 
-            auto priority = itr->first;
+            auto priority_ = itr->first;
             // check the others
 
             for (auto j = 0ull; j < 4ull; j++) {
@@ -340,7 +343,7 @@ void check_sorted(snapshots_4 &ss)
                 if (idx < 2 || idx == 65535) {
                     continue;
                 }
-                EXPECT_LE(ss.state[j][idx - 1].first, priority) // 32 is
+                EXPECT_LE(ss.state[j][idx - 1].first, priority_) // 32 is
                     << " of thread " << i << " at pos "
                     << std::distance(begin, itr) << " compared to thread " << j
                     << " at pos " << idx; // first = priority
@@ -367,7 +370,7 @@ void check_sorted(snapshots_8 &ss)
                 << " of thread " << i << " at pos "
                 << std::distance(begin, itr); // first = priority
 
-            auto priority = itr->first;
+            auto priority_ = itr->first;
             // check the others
 
             for (auto j = 0ull; j < 8ull; j++) {
@@ -385,7 +388,7 @@ void check_sorted(snapshots_8 &ss)
                 if (idx < 2) {
                     continue;
                 }
-                EXPECT_LE(ss.state[j][idx - 1].first, priority) // 32 is
+                EXPECT_LE(ss.state[j][idx - 1].first, priority_) // 32 is
                     << " of thread " << i << " at pos "
                     << std::distance(begin, itr) << " compared to thread " << j
                     << " at pos " << idx; // first = priority
@@ -394,7 +397,7 @@ void check_sorted(snapshots_8 &ss)
     }
 }
 
-TEST(scheduler, DISABLED_ordered_4)
+TEST(scheduler, ordered_4)
 {
     static bool once = false;
     ASSERT_FALSE(once);
@@ -412,8 +415,8 @@ TEST(scheduler, DISABLED_ordered_4)
             make_lt([&] {
                 mtx.lock_shared();
                 mtx.unlock_shared();
-            }),
-            INT64_MIN);
+            },
+            INT64_MIN));
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -425,8 +428,8 @@ TEST(scheduler, DISABLED_ordered_4)
             make_lt([&, i] {
                 thread_local static auto s = ss.snap();
                 s(i);
-            }),
-            i);
+            },
+            i));
     }
 
     mtx.unlock();
@@ -454,8 +457,8 @@ TEST(scheduler, ordered_8)
             make_lt([&] {
                 mtx.lock_shared();
                 mtx.unlock_shared();
-            }),
-            INT64_MIN);
+            },
+            INT64_MIN));
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -467,8 +470,8 @@ TEST(scheduler, ordered_8)
             make_lt([&, i] {
                 thread_local static auto s = ss.snap();
                 s(i);
-            }),
-            i);
+            },
+            i));
     }
 
     mtx.unlock();
@@ -478,7 +481,7 @@ TEST(scheduler, ordered_8)
     check_sorted(ss);
 }
 
-TEST(scheduler, DISABLED_inverted_4)
+TEST(scheduler, inverted_4)
 {
     static bool once = false;
     ASSERT_FALSE(once);
@@ -496,8 +499,8 @@ TEST(scheduler, DISABLED_inverted_4)
             make_lt([&] {
                 mtx.lock_shared();
                 mtx.unlock_shared();
-            }),
-            INT64_MIN);
+            },
+            INT64_MIN));
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -508,8 +511,8 @@ TEST(scheduler, DISABLED_inverted_4)
             make_lt([&, i] {
                 thread_local static auto s = ss.snap();
                 s(i);
-            }),
-            i);
+            },
+            i));
     }
 
     mtx.unlock();
@@ -537,8 +540,8 @@ TEST(scheduler, inverted_8)
             make_lt([&] {
                 mtx.lock_shared();
                 mtx.unlock_shared();
-            }),
-            INT64_MIN);
+            },
+            INT64_MIN));
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -550,8 +553,8 @@ TEST(scheduler, inverted_8)
             make_lt([&, i = -i] {
                 thread_local static auto s = ss.snap();
                 s(i);
-            }),
-            -i);
+            },
+            -i));
     }
 
     mtx.unlock();
@@ -561,7 +564,7 @@ TEST(scheduler, inverted_8)
     check_sorted(ss);
 }
 
-TEST(scheduler, DISABLED_split_4)
+TEST(scheduler, split_4)
 {
     static bool once = false;
     ASSERT_FALSE(once);
@@ -579,8 +582,8 @@ TEST(scheduler, DISABLED_split_4)
             make_lt([&] {
                 mtx.lock_shared();
                 mtx.unlock_shared();
-            }),
-            INT64_MIN);
+            },
+            INT64_MIN));
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -592,8 +595,8 @@ TEST(scheduler, DISABLED_split_4)
             make_lt([&, j] {
                 thread_local static auto s = ss.snap();
                 s(j);
-            }),
-            j);
+            },
+            j));
     }
 
     mtx.unlock();
@@ -621,8 +624,8 @@ TEST(scheduler, split_8)
             make_lt([&] {
                 mtx.lock_shared();
                 mtx.unlock_shared();
-            }),
-            INT64_MIN);
+            },
+            INT64_MIN));
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -635,8 +638,8 @@ TEST(scheduler, split_8)
             make_lt([&, j] {
                 thread_local static auto s = ss.snap();
                 s(j);
-            }),
-            j);
+            },
+            j));
     }
     mtx.unlock();
     wait(s);

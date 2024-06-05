@@ -12,7 +12,6 @@ typedef struct monad_fiber
 {
     monad_fiber_task_t task;
     monad_fiber_context_t *context;
-    int64_t priority;
     monad_fiber_scheduler_t *scheduler;
 } monad_fiber_t;
 

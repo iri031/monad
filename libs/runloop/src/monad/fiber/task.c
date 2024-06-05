@@ -8,7 +8,7 @@ static size_t const monad_fiber_task_queue_chunk = 256;
 void monad_fiber_task_queue_init(struct monad_fiber_task_queue *this)
 {
     this->memory = malloc(
-        sizeof(struct monad_fiber_task_node) * monad_fiber_task_queue_chunk);
+        sizeof(monad_fiber_task_t * ) * monad_fiber_task_queue_chunk);
     this->capacity = monad_fiber_task_queue_chunk;
     this->data = this->memory;
     this->size = 0u;
@@ -22,13 +22,13 @@ void monad_fiber_task_queue_destroy(struct monad_fiber_task_queue *this)
 void monad_fiber_task_queue_grow(struct monad_fiber_task_queue *this)
 {
     const size_t old_cap = this->capacity;
-    struct monad_fiber_task_node *pre = this->memory;
+    monad_fiber_task_t *  *pre = this->memory;
 
     this->capacity += monad_fiber_task_queue_chunk;
 
     ptrdiff_t data_offset = (this->data - pre);
     void *new_mem = realloc(
-        this->memory, this->capacity * sizeof(struct monad_fiber_task_node));
+        this->memory, this->capacity * sizeof(monad_fiber_task_t * ));
 
     MONAD_ASSERT(new_mem);
     const bool is_wrapped = (this->data + this->size) > (this->memory + old_cap);
@@ -50,22 +50,22 @@ void monad_fiber_task_queue_grow(struct monad_fiber_task_queue *this)
         if (wrapped <= monad_fiber_task_queue_chunk) // we move the smaller one
         {
             MONAD_ASSERT(this->memory);
-            memmove(this->memory + prev_cap, this->memory, wrapped * sizeof(struct monad_fiber_task_node));
+            memmove(this->memory + prev_cap, this->memory, wrapped * sizeof(monad_fiber_task_t * ));
         }
         else
         {
             MONAD_ASSERT(this->data);
             this->data = memmove(this->data + monad_fiber_task_queue_chunk, this->data,
-                                 pre_wrapped * sizeof(struct monad_fiber_task_node));
+                                 pre_wrapped * sizeof(monad_fiber_task_t * ));
         }
     }
 }
 
-struct monad_fiber_task_node
+monad_fiber_task_t *
 monad_fiber_task_queue_pop_front(struct monad_fiber_task_queue *this)
 {
     MONAD_ASSERT(this->size > 0ull);
-    struct monad_fiber_task_node *t = this->data;
+    monad_fiber_task_t *  *t = this->data;
     MONAD_ASSERT(t != NULL);
 
     this->data++;
@@ -78,34 +78,31 @@ monad_fiber_task_queue_pop_front(struct monad_fiber_task_queue *this)
 }
 
 void monad_fiber_task_queue_insert(
-    struct monad_fiber_task_queue *this, monad_fiber_task_t *task,
-    int64_t priority)
+    struct monad_fiber_task_queue *this, monad_fiber_task_t *task)
 {
     if (this->size == this->capacity) { // resize
         monad_fiber_task_queue_grow(this);
     }
 
-    struct monad_fiber_task_node *itr = this->data,
-                                 *end = this->data + this->size;
+    monad_fiber_task_t    **itr = this->data,
+                          **end = this->data + this->size;
 
     if (this->size == 0u)
     {
         this->size++;
         itr = this->data = this->memory;
-        itr->task = task;
-        itr->priority = priority;
+        *itr = task;
         return;
     }
 
     // push back & push front
-    if (this->data->priority > priority) // we can push front
+    if ((*this->data)->priority > task->priority) // we can push front
     {
       if (this->data == this->memory)
         this->data = this->memory + this->capacity;
 
       itr = --this->data;
-      itr->priority = priority;
-      itr->task = task;
+      *itr = task;
       this->size++;
       return ;
     }
@@ -118,13 +115,12 @@ void monad_fiber_task_queue_insert(
     // push back
     if (this->size > 0u)
     {
-      struct monad_fiber_task_node * last = this->data + (this->size - 1);
+      monad_fiber_task_t *  * last = this->data + (this->size - 1);
       if (last >= (this->memory + this->capacity)) {
         last -= this->capacity;
       }
-      if (last->priority <= priority) {
-        end->priority = priority;
-        end->task = task;
+      if ((*last)->priority <= task->priority) {
+        (*end) = task;
         this->size++;
         return ;
       }
@@ -135,7 +131,7 @@ void monad_fiber_task_queue_insert(
 
     // this can potentially be optimized through a binary search algorithm.
     while (itr != end) {
-        if (itr->priority > priority) {
+        if ((*itr)->priority > task->priority) {
             break;
         }
 
@@ -151,7 +147,7 @@ void monad_fiber_task_queue_insert(
     {
         if (end < itr) // are we wrapping around the end of the buffer
         {
-            struct monad_fiber_task_node *mem_end =
+            monad_fiber_task_t *  *mem_end =
                 this->memory + this->capacity;
 
             // this shifts the lower part (DEF in the below example)
@@ -160,7 +156,7 @@ void monad_fiber_task_queue_insert(
                   this->memory + 1,
                   this->memory,
                   ((size_t)(end - this->memory) *
-                      sizeof(struct monad_fiber_task_node)));
+                      sizeof(monad_fiber_task_t * )));
 
             if (itr == mem_end) // we're at the end of memory, no need to do a
                                 // second shift.
@@ -184,17 +180,16 @@ void monad_fiber_task_queue_insert(
                     itr + 1,
                     itr,
                     (size_t)((mem_end - itr) - 1) *
-                        sizeof(struct monad_fiber_task_node));
+                        sizeof(monad_fiber_task_t * ));
             }
         }
         else {
             memmove(
                 itr + 1,
                 itr,
-                (size_t)(end - itr) * sizeof(struct monad_fiber_task_node));
+                (size_t)(end - itr) * sizeof(monad_fiber_task_t * ));
         }
     }
-    itr->task = task;
-    itr->priority = priority;
+    *itr = task;
     this->size++;
 }

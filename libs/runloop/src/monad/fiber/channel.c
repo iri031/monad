@@ -47,7 +47,7 @@ void monad_fiber_channel_destroy(monad_fiber_channel_t * this)
   {
     struct monad_fiber_channel_write_op *op = this->pending_writes;
     op->source = (void*)UINTPTR_MAX; // indicate cancellation!
-    monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task, op->fiber->priority);
+    monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task);
     this->pending_writes = op->next;
   }
 
@@ -55,7 +55,7 @@ void monad_fiber_channel_destroy(monad_fiber_channel_t * this)
   {
     struct monad_fiber_channel_read_op *op = this->pending_reads;
     op->target = (void*)UINTPTR_MAX; // indicate cancellation!
-    monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task, op->fiber->priority);
+    monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task);
     this->pending_reads = op->next;
   }
 
@@ -84,17 +84,17 @@ bool monad_fiber_channel_try_read(monad_fiber_channel_t * this, void * target)
 
     monad_fiber_t * current = monad_fiber_current();
 
-    const int64_t my_priority = current->priority;
-    if (op->fiber->priority > my_priority &&
+    const int64_t my_priority = current->task.priority;
+    if (op->fiber->task.priority > my_priority &&
         op->fiber->scheduler == current->scheduler)
     {
       MONAD_ASSERT(current->scheduler != NULL);
-      monad_fiber_scheduler_post(current->scheduler, &current->task, current->priority);
+      monad_fiber_scheduler_post(current->scheduler, &current->task);
       monad_fiber_switch_to_fiber(op->fiber); // returning
       return true; // early return, to avoid multiple unlocks
     }
     else // post will go fine with locking
-      monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task, op->fiber->priority);
+      monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task);
 
     has_result = true;
     return true; // already unlocked!
@@ -135,17 +135,17 @@ bool monad_fiber_channel_try_write(monad_fiber_channel_t * this, const void * so
     MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
 
     monad_fiber_t * current = monad_fiber_current();
-    const int64_t my_priority = current->priority;
-    if (op->fiber->priority > my_priority &&
+    const int64_t my_priority = current->task.priority;
+    if (op->fiber->task.priority > my_priority &&
         op->fiber->scheduler == current->scheduler)
     {
       MONAD_ASSERT(current->scheduler != NULL);
-      monad_fiber_scheduler_post(current->scheduler, &current->task, current->priority);
+      monad_fiber_scheduler_post(current->scheduler, &current->task);
       monad_fiber_switch_to_fiber(op->fiber); // returning
       return true; // early return, to avoid multiple returns!
     }
     else // post will go fine with locking
-      monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task, op->fiber->priority);
+      monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task);
 
     has_result = true;
 
@@ -195,17 +195,17 @@ int monad_fiber_channel_read(monad_fiber_channel_t * this, void * target)
 
     monad_fiber_t * current = monad_fiber_current();
 
-    const int64_t my_priority = current->priority;
-    if (op->fiber->priority > my_priority &&
+    const int64_t my_priority = current->task.priority;
+    if (op->fiber->task.priority > my_priority &&
         op->fiber->scheduler == current->scheduler)
     {
       MONAD_ASSERT(current->scheduler != NULL);
-      monad_fiber_scheduler_post(current->scheduler, &current->task, current->priority);
+      monad_fiber_scheduler_post(current->scheduler, &current->task);
       monad_fiber_switch_to_fiber(op->fiber); // returning
       return true; // early return, to avoid multiple unlocks
     }
     else // post will go fine with locking
-      monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task, op->fiber->priority);
+      monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task);
 
     return 0; // already unlocked!
   }
@@ -268,17 +268,17 @@ int monad_fiber_channel_write(monad_fiber_channel_t * this, const void * source)
     MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
 
     monad_fiber_t * current = monad_fiber_current();
-    const int64_t my_priority = current->priority;
-    if (op->fiber->priority > my_priority &&
+    const int64_t my_priority = current->task.priority;
+    if (op->fiber->task.priority > my_priority &&
         op->fiber->scheduler == current->scheduler)
     {
       MONAD_ASSERT(current->scheduler != NULL);
-      monad_fiber_scheduler_post(current->scheduler, &current->task, current->priority);
+      monad_fiber_scheduler_post(current->scheduler, &current->task);
       monad_fiber_switch_to_fiber(op->fiber); // returning
       return true; // early return, to avoid multiple returns!
     }
     else // post will go fine with locking
-      monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task, op->fiber->priority);
+      monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task );
 
     return 0;
   }

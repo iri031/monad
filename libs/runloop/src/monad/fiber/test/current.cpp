@@ -25,8 +25,8 @@ TEST(current, fiber_main)
         EXPECT_TRUE(monad_fiber_is_main(f));
     }}.join();
 
-    EXPECT_EQ(mm->priority, th1.priority);
-    EXPECT_EQ(mm->priority, th2.priority);
+    EXPECT_EQ(mm->task.priority, th1.task.priority);
+    EXPECT_EQ(mm->task.priority, th2.task.priority);
     EXPECT_EQ(mm->task.resume, th1.task.resume);
     EXPECT_EQ(mm->task.resume, th2.task.resume);
 
@@ -45,7 +45,9 @@ TEST(current, switch_)
     monad_fiber_scheduler_create(&shed, 0, NULL);
 
     monad_fiber_t mft = {
-        .task = {}, .context = nullptr, .priority = -1ll, .scheduler = &shed};
+        .task = {.resume=NULL, .destroy=NULL, .priority = -1ll},
+        .context = nullptr,
+        .scheduler = &shed};
 
     auto l = [&](monad_fiber_context_t *fb,
                  monad_fiber_context_t *from) -> monad_fiber_context_t * {
@@ -98,7 +100,7 @@ TEST(current, yield_to_task)
             ran = true;
         }
 
-        my_task()
+        explicit my_task(std::int64_t priority)
             : monad_fiber_task{
                   .resume =
                       +[](monad_fiber_task *this_) {
@@ -107,24 +109,26 @@ TEST(current, yield_to_task)
                   .destroy =
                       +[](monad_fiber_task *) {
                           ASSERT_EQ("Musten't be reached", nullptr);
-                      }}
+                      },
+                 .priority=priority}
         {
         }
     };
 
-    my_task t1, t2, t3;
+    my_task t1{1}, t2{-1}, t3{0};
 
     monad_fiber_yield(); // this will do nothing
-
-    monad_fiber_scheduler_post(&shed, &t1, 1);
+    t1.priority = 1;
+    monad_fiber_scheduler_post(&shed, &t1);
 
     monad_fiber_yield(); // this will do nothing, because it's the same priority
     EXPECT_FALSE(t1.ran);
-    monad_fiber_scheduler_post(&shed, &t2, -1);
+
+    monad_fiber_scheduler_post(&shed, &t2);
     monad_fiber_yield(); // this should run , higher priority
     EXPECT_TRUE(t2.ran);
 
-    monad_fiber_scheduler_post(&shed, &t3, 0);
+    monad_fiber_scheduler_post(&shed, &t3);
     monad_fiber_yield(); // this should run one, since it's the same priority
                          // and we're yielding
     EXPECT_TRUE(t3.ran);
@@ -141,7 +145,7 @@ void awaitable_sleep(monad_fiber_t *to_resume, void *us_)
     std::thread{[us = reinterpret_cast<std::uintptr_t>(us_), to_resume] {
         usleep(static_cast<useconds_t>(us));
         monad_fiber_scheduler_dispatch(
-            to_resume->scheduler, &to_resume->task, to_resume->priority);
+            to_resume->scheduler, &to_resume->task);
     }}.detach();
 };
 
@@ -167,7 +171,7 @@ TEST(current, await_from_thread)
     bool ran = false;
 
     monad_fiber_t mft = {
-        .task = {}, .context = nullptr, .priority = -1ll, .scheduler = &shed};
+        .task = {.resume=nullptr, .destroy=nullptr, .priority = -1ll}, .context = nullptr, .scheduler = &shed};
 
     auto l = [&](monad_fiber_context_t *fb,
                  monad_fiber_context_t *from) -> monad_fiber_context_t * {
@@ -197,7 +201,7 @@ TEST(current, await_from_thread)
 
     monad_fiber_activate_fiber(monad_fiber_main());
 
-    monad_fiber_scheduler_post(&shed, &mft.task, 0);
+    monad_fiber_scheduler_post(&shed, &mft.task);
     mft.task.resume = [](monad_fiber_task_t *task) {
         monad_fiber_switch_to_fiber(reinterpret_cast<monad_fiber_t *>(task));
     };

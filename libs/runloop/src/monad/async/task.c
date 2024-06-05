@@ -310,8 +310,7 @@ monad_fiber_resume_on_compute_executor_call_after_suspend_to_executor(
 #endif
     monad_fiber_scheduler_post(
         data->scheduler,
-        monad_fiber_task_from_async_task(&task->head),
-        data->priority);
+        monad_fiber_task_from_async_task(&task->head));
     return monad_async_make_success(0);
 }
 

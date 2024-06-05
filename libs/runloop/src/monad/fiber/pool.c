@@ -20,7 +20,7 @@ monad_fiber_context_t * monad_fiber_pool_impl(void* arg,
 {
     monad_fiber_pooled_t * const this = (monad_fiber_pooled_t  *)arg;
 
-    struct monad_fiber_task_node task_node = {NULL, 0u};
+    monad_fiber_task_t *  task_node = NULL;
 
     if (setjmp(this->exit_jmp))
         return from; // this should be main, but a kind of scheduler either way.
@@ -37,26 +37,26 @@ monad_fiber_context_t * monad_fiber_pool_impl(void* arg,
     // beyond here, we need some handling of the *current*
     while (true)
     {
-        this->fiber.priority = INT64_MIN;
+        this->fiber.task.priority = INT64_MIN;
         monad_fiber_channel_read(&pool->queue_semaphore, NULL);
         // suspend here and wait for a task
 
-        while (task_node.task != NULL)
+        while (task_node != NULL)
         {
           MONAD_CCALL_ASSERT(pthread_mutex_lock(&pool->queue_mutex));
 
           if (pool->queue.size > 0u)
             task_node = monad_fiber_task_queue_pop_front(&pool->queue);
           else
-            task_node.task = NULL;
+            task_node = NULL;
 
           MONAD_CCALL_ASSERT(pthread_mutex_unlock(&pool->queue_mutex));
-          if (task_node.task == NULL)
+          if (task_node == NULL)
             monad_fiber_yield(); // this SHOULD be unnecessary
         }
 
-        this->fiber.priority = task_node.priority;
-        task_node.task->resume(task_node.task);
+        this->fiber.task.priority = task_node->priority;
+        task_node->resume(task_node);
 
     }
 }
@@ -124,11 +124,12 @@ void monad_fiber_pool_destroy (monad_fiber_pool_t * this)
   free(this->fibers_data);
   monad_fiber_task_queue_destroy(&this->queue);
 }
-
-void monad_fiber_pool_run     (monad_fiber_pool_t * this, monad_fiber_task_t * task, int64_t priority)
+/*
+void monad_fiber_pool_run     (monad_fiber_pool_t * this, monad_fiber_task_t * task )
 {
   MONAD_CCALL_ASSERT(pthread_mutex_lock(&this->queue_mutex)); // insert the task
-  monad_fiber_task_queue_insert(&this->queue, task, priority);
+  monad_fiber_task_queue_insert(&this->queue, task);
   MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->queue_mutex));
   monad_fiber_channel_write(&this->queue_semaphore, NULL);
 }
+*/

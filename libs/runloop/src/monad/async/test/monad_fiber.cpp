@@ -217,8 +217,7 @@ TEST(monad_fiber_bridge, works)
     // Post the task onto the compute executor
     monad_fiber_scheduler_post(
         &shared_state.compute_ex,
-        monad_fiber_task_from_async_task(io_task.get()),
-        0);
+        monad_fiber_task_from_async_task(io_task.get()));
 
     // The task will initiate some i/o. This will cause it to take itself off
     // the compute executor and attach itself to the i/o executor, which runs in

@@ -48,11 +48,11 @@ void monad_fiber_scheduler_destroy(monad_fiber_scheduler_t *);
 void monad_fiber_scheduler_stop(monad_fiber_scheduler_t *);
 
 void monad_fiber_scheduler_post(
-    monad_fiber_scheduler_t *, monad_fiber_task_t *task, int64_t priority);
+    monad_fiber_scheduler_t *, monad_fiber_task_t *task);
 // does not yet respect priorities. we should figure out if we need this
 // function first.
 void monad_fiber_scheduler_dispatch(
-    monad_fiber_scheduler_t *, monad_fiber_task_t *task, int64_t priority);
+    monad_fiber_scheduler_t *, monad_fiber_task_t *task);
 
 monad_fiber_task_t *monad_fiber_scheduler_pop_higher_priority_task(
     monad_fiber_scheduler_t *, int64_t priority);

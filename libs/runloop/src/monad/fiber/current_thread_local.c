@@ -14,7 +14,6 @@ static void _main_fiber_destroy(struct monad_fiber_task *const this)
 thread_local monad_fiber_t monad_fiber_main_fiber_ = {
     .task = {.resume = &_main_fiber_resume, .destroy = &_main_fiber_destroy},
     .context = NULL,
-    .priority = 0u,
     .scheduler = NULL};
 
 thread_local monad_fiber_t *monad_fiber_current_ = NULL;

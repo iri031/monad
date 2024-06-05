@@ -95,7 +95,7 @@ void monad_fiber_yield()
     monad_fiber_t *cc = monad_fiber_current();
     MONAD_ASSERT(cc->scheduler != NULL);
     monad_fiber_task_t *t = monad_fiber_scheduler_pop_higher_priority_task(
-        cc->scheduler, cc->priority + 1 /* so we also yield if it's he same priority */);
+        cc->scheduler, cc->task.priority + 1 /* so we also yield if it's he same priority */);
     if (t == NULL) {
         return; // not work, no problem
     }
@@ -231,8 +231,12 @@ monad_fiber_context_t * monad_fiber_create_impl(
   void * func_arg = arg->arg;
   struct monad_fiber_impl f = {
       .base={.context = fiber, .scheduler = NULL,
-      .task = {.resume=&monad_fiber_create_impl_resume, .destroy=&monad_fiber_create_impl_destroy},
-      .priority=0}};
+      .task = {.resume=&monad_fiber_create_impl_resume,
+               .destroy=&monad_fiber_create_impl_destroy,
+               .priority=0
+              }
+      }
+    };
   *ff = &f.base;
 
   monad_fiber_activate_fiber(*ff);
