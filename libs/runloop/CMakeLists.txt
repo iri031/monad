@@ -22,7 +22,7 @@ add_library(monad_fiber_c STATIC
 target_compile_features(monad_fiber_c PUBLIC c_std_23 cxx_std_20)
 target_compile_options(monad_fiber_c PUBLIC -Wall -Wextra -Wconversion -Wpedantic -Werror)
 target_include_directories(monad_fiber_c PUBLIC "src")
-target_link_libraries(monad_fiber_c PUBLIC boost_context)
+target_link_libraries(monad_fiber_c PUBLIC boost_context monad_core)
 
 set(monad_async_INCLUDES
   "src/monad/async/context_switcher.h"
@@ -48,7 +48,7 @@ add_library(monad_async_c STATIC
 target_compile_features(monad_async_c PUBLIC c_std_23 cxx_std_20)
 target_compile_options(monad_async_c PUBLIC -Wall -Wextra -Wconversion -Wpedantic -Werror)
 target_include_directories(monad_async_c PUBLIC "src")
-target_link_libraries(monad_async_c PUBLIC uring Boost::boost monad_fiber_c)
+target_link_libraries(monad_async_c PUBLIC uring Boost::boost monad_fiber_c )
 monad_target_gdb_pretty_printer(monad_async_c monad_async_c_pretty_printer "src/monad/async/gdb_pretty_printers.py")
 
 if(BINDGEN_PROGRAM)
