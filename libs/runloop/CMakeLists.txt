@@ -3,7 +3,6 @@ cmake_minimum_required(VERSION 3.5)
 project(monad-runloop LANGUAGES C CXX ASM)
 
 find_package(GTest REQUIRED)
-find_package(Boost REQUIRED)
 find_program(BINDGEN_PROGRAM bindgen)
 find_program(RUSTC_PROGRAM rustc)
 
@@ -91,14 +90,24 @@ add_subdirectory("src/monad/async/test")
 add_subdirectory("src/monad/fiber/test")
 
 if(RUSTC_PROGRAM AND NOT CMAKE_C_FLAGS_INIT MATCHES "fsanitize=")
-  add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/test/rust_tests"
+    cmake_host_system_information(RESULT linux_flavour QUERY DISTRIB_ID)
+    if(linux_flavour MATCHES "debian|ubuntu")
+        set(BOOST_STACKTRACE Boost::stacktrace_backtrace)
+    else()
+        set(BOOST_STACKTRACE Boost::stacktrace_addr2line)
+    endif()
+
+    add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/test/rust_tests"
     COMMAND "${RUSTC_PROGRAM}" --test -o "${CMAKE_BINARY_DIR}/test/rust_tests"
     "${CMAKE_CURRENT_SOURCE_DIR}/rust/test.rs"
     -L "$<TARGET_FILE_DIR:monad_async_c>"
+    -L "$<TARGET_FILE_DIR:monad_core>"
     -l $<TARGET_NAME:monad_async_c>
     -l $<TARGET_NAME:monad_fiber_c>
+    -l $<TARGET_NAME:monad_core>
     -L "$<TARGET_FILE_DIR:boost_context>"
     -l $<TARGET_NAME:boost_context>
+    -l $<TARGET_NAME:${BOOST_STACKTRACE}>
     -l stdc++
     -l uring
     DEPENDS
