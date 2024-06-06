@@ -4,6 +4,7 @@
 
 #include <stdatomic.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifndef MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
     #ifdef NDEBUG
