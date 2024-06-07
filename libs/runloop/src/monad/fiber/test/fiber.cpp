@@ -54,3 +54,31 @@ TEST(fiber, spawn_protected)
     EXPECT_EQ(test, 2);
     EXPECT_EQ(f, nullptr);
 }
+
+
+TEST(fiber, spawn_oom)
+{
+    monad_fiber_init_main();
+    auto f = monad_fiber_context_callcc(
+        monad_fiber_main_context(),
+        1024ull * 1024ull * 1024ull * 1024ull,
+        false,
+        &spawn_test,
+        &test);
+    EXPECT_EQ(f, nullptr);
+    EXPECT_EQ(errno, ENOMEM);
+}
+
+TEST(fiber, spawn_oom_protected)
+{
+    monad_fiber_init_main();
+    auto f = monad_fiber_context_callcc(
+        monad_fiber_main_context(),
+        1024ull * 1024ull * 1024ull * 1024ull,
+        true,
+        &spawn_test,
+        &test);
+    EXPECT_EQ(f, nullptr);
+    EXPECT_NE(errno, 0);
+}
+
