@@ -73,6 +73,35 @@ void monad_fiber_switch_to_fiber(monad_fiber_t *target)
     monad_fiber_activate_fiber(pre);
 }
 
+struct monad_fiber_switch_to_fiber_with_impl_arg
+{
+    void (*func)(void *);
+    void  *arg;
+};
+
+static monad_fiber_context_t *monad_fiber_switch_to_fiber_with_impl(monad_fiber_context_t * ctx, void * arg_)
+{
+    struct monad_fiber_switch_to_fiber_with_impl_arg arg = *(struct monad_fiber_switch_to_fiber_with_impl_arg *)arg_;
+    arg.func(arg.arg);
+    return ctx;
+}
+
+void monad_fiber_switch_to_fiber_with(monad_fiber_t * target, void(*func)(void*), void *arg)
+{
+    MONAD_DEBUG_ASSERT(target != NULL);
+    MONAD_DEBUG_ASSERT(target->context != NULL);
+    MONAD_DEBUG_ASSERT(target->context->fiber != NULL);
+    monad_fiber_t *pre = monad_fiber_current();
+
+    struct monad_fiber_switch_to_fiber_with_impl_arg arg_ = {func, arg};
+
+    (void)monad_fiber_context_switch_with(
+        pre->context, target->context,
+        &monad_fiber_switch_to_fiber_with_impl, &arg_);
+
+    monad_fiber_activate_fiber(pre);
+}
+
 void monad_fiber_switch_to_main()
 {
     // LOG here
@@ -132,6 +161,7 @@ struct monad_fiber_create_arg_t
   void (*func)(void*);
 
   monad_fiber_t  ** res;
+  monad_fiber_scheduler_t  * sched;
 };
 
 struct monad_fiber_impl
@@ -183,7 +213,7 @@ monad_fiber_context_t * monad_fiber_create_impl(
   void (*func)(void*) = arg->func;
   void * func_arg = arg->arg;
   struct monad_fiber_impl f = {
-      .base={.context = fiber, .scheduler = NULL,
+      .base={.context = fiber, .scheduler = arg->sched,
       .task = {.resume=&monad_fiber_create_impl_resume,
                .destroy=&monad_fiber_create_impl_destroy,
                .priority=0
@@ -204,11 +234,12 @@ monad_fiber_context_t * monad_fiber_create_impl(
 
 monad_fiber_t * monad_fiber_create(
     size_t stack_size, bool protected_stack,
+    monad_fiber_scheduler_t * scheduler,
     void func(void*),
     void * arg)
 {
   monad_fiber_t * res = NULL;
-  struct monad_fiber_create_arg_t monad_fiber_create_arg = {.arg=arg, .func=func, .res=&res};
+  struct monad_fiber_create_arg_t monad_fiber_create_arg = {.arg=arg, .func=func, .res=&res, .sched=scheduler};
   monad_fiber_context_t * ctx =
       monad_fiber_context_callcc(
           monad_fiber_main()->context,

@@ -219,6 +219,11 @@ static void monad_fiber_await_write_impl(monad_fiber_t * task, void * arg)
   MONAD_CCALL_ASSERT(pthread_mutex_unlock(&args->this->mutex));
 }
 
+void monad_fiber_channel_post_current(void * fb_)
+{
+  monad_fiber_t * fiber = (monad_fiber_t*)fb_;
+  monad_fiber_scheduler_post(fiber->scheduler, &fiber->task);
+}
 
 int monad_fiber_channel_read(monad_fiber_channel_t * this, void * target)
 {
@@ -259,8 +264,8 @@ int monad_fiber_channel_read(monad_fiber_channel_t * this, void * target)
         op->fiber->scheduler == current->scheduler)
     {
       MONAD_ASSERT(current->scheduler != NULL);
-      monad_fiber_scheduler_post(current->scheduler, &current->task);
-      op->fiber->task.resume(&op->fiber->task); // returning
+      monad_fiber_switch_to_fiber_with(
+          op->fiber, &monad_fiber_channel_post_current, current);
     }
     else // post the op for completion. value's in already.
       monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task);
@@ -307,6 +312,7 @@ int monad_fiber_channel_read(monad_fiber_channel_t * this, void * target)
   return 0;
 }
 
+
 int monad_fiber_channel_write(monad_fiber_channel_t * this, const void * source)
 {
   if (source == (const void*)UINTPTR_MAX)
@@ -336,8 +342,8 @@ int monad_fiber_channel_write(monad_fiber_channel_t * this, const void * source)
         op->fiber->scheduler == current->scheduler)
     {
       MONAD_ASSERT(current->scheduler != NULL);
-      monad_fiber_scheduler_post(current->scheduler, &current->task);
-      op->fiber->task.resume(&op->fiber->task); // returning
+      monad_fiber_switch_to_fiber_with(
+          op->fiber, &monad_fiber_channel_post_current, current);
     }
     else
     {

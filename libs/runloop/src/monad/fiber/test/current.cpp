@@ -204,7 +204,7 @@ TEST(current, await_from_thread)
 TEST(current, monad_fiber_create_noop)
 {
     monad_fiber_init_main();
-    auto f = monad_fiber_create(4096, true, +[](void *) {}, NULL);
+    auto f = monad_fiber_create(4096, true,  NULL, +[](void *) {}, NULL);
 
     EXPECT_EQ(f, nullptr);
 }
@@ -216,6 +216,7 @@ TEST(current, monad_fiber_create_switch_once)
     auto f = monad_fiber_create(
         4096,
         true,
+        NULL,
         +[](void *pos_) {
             int &pos = *static_cast<int *>(pos_);
             pos = 1;
@@ -239,6 +240,7 @@ TEST(current, monad_fiber_create_destroy)
     auto f = monad_fiber_create(
         4096,
         true,
+        NULL,
         +[](void *pos_) {
             int &pos = *static_cast<int *>(pos_);
             pos = 1;
@@ -262,6 +264,7 @@ TEST(current, monad_fiber_create_self_destroy)
     auto f = monad_fiber_create(
         4096,
         true,
+        NULL,
         +[](void *pos_) {
             int &pos = *static_cast<int *>(pos_);
             pos = 1;
