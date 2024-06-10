@@ -93,6 +93,7 @@ void monad_fiber_switch_to_fiber_with(monad_fiber_t * target, void(*func)(void*)
     MONAD_DEBUG_ASSERT(target->context->fiber != NULL);
     monad_fiber_t *pre = monad_fiber_current();
 
+    monad_fiber_activate_fiber(target);
     struct monad_fiber_switch_to_fiber_with_impl_arg arg_ = {func, arg};
 
     (void)monad_fiber_context_switch_with(
@@ -250,8 +251,12 @@ monad_fiber_t * monad_fiber_create(
 
   monad_fiber_activate_fiber(monad_fiber_main());
 
+  //
   if (res != NULL && ctx != NULL)
-    res->context = ctx;
+  {
+    if (res->context == NULL) // it might have been set internally already
+        res->context = ctx;
+  }
   else
     return NULL;
 

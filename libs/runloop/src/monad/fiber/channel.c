@@ -222,6 +222,7 @@ static void monad_fiber_await_write_impl(monad_fiber_t * task, void * arg)
 void monad_fiber_channel_post_current(void * fb_)
 {
   monad_fiber_t * fiber = (monad_fiber_t*)fb_;
+  MONAD_DEBUG_ASSERT(monad_fiber_current() != fiber);
   monad_fiber_scheduler_post(fiber->scheduler, &fiber->task);
 }
 
@@ -246,7 +247,9 @@ int monad_fiber_channel_read(monad_fiber_channel_t * this, void * target)
     {
         // pop a value from the buffer and push it into the buffer
         MONAD_DEBUG_ASSERT(this->size == this->capacity);
+        // copy from the buffer into the read target
         memcpy(target,  ((char*)this->data + (this->element_size * this->offset)), this->element_size);
+        // copy from the pending write into the channel buffer
         memcpy(((char*)this->data + (this->element_size * this->offset)), op->source, this->element_size);
 
         this->offset ++ ; // move the ring buffer around

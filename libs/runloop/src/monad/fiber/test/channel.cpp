@@ -69,6 +69,9 @@ TEST(channel, buffered_equal)
       1024 * 256, true, &s,
       +[](void * ch_ ) noexcept
       {
+        monad_fiber_set_name(monad_fiber_current()->context, "writer");
+        monad_fiber_current()->task.priority = -1;
+
         notifier _{writer_done};
         auto ch = static_cast<monad_fiber_channel_t *>(ch_);
         int i = 0;
@@ -81,8 +84,6 @@ TEST(channel, buffered_equal)
       },
       &ch);
 
-  monad_fiber_set_name(w->context, "writer");
-  w->task.priority = -1;
   EXPECT_EQ(w->scheduler, &s);
 
   ASSERT_TRUE(ch.pending_writes != NULL);
@@ -91,6 +92,8 @@ TEST(channel, buffered_equal)
       1024 * 256, true,  &s,
       +[](void * ch_) noexcept
       {
+        monad_fiber_set_name(monad_fiber_current()->context, "reader");
+        monad_fiber_current()->task.priority = -1;
         notifier _{reader_done};
         int res = 0;
         auto ch = static_cast<monad_fiber_channel_t *>(ch_);
@@ -104,22 +107,20 @@ TEST(channel, buffered_equal)
         EXPECT_EQ(res, 4);
       }, &ch);
 
-  monad_fiber_set_name(r->context, "reader");
-  r->task.priority = -1;
   EXPECT_EQ(r->scheduler, &s);
 
   while (!reader_done)
-    monad_fiber_yield();
+    monad_fiber_run_one(&s);
   monad_fiber_channel_close(&ch);
   while (!writer_done)
-    monad_fiber_yield();
+    monad_fiber_run_one(&s);
 
   monad_fiber_channel_destroy(&ch);
   monad_fiber_scheduler_stop(&s);
   monad_fiber_scheduler_destroy(&s);
 }
 
-TEST(channel, DISABLED_buffered_writer_first)
+TEST(channel, buffered_writer_first)
 {
   monad_fiber_scheduler_t s;
   monad_fiber_scheduler_create(&s, 8, &monad_fiber_init_main);
@@ -145,7 +146,8 @@ TEST(channel, DISABLED_buffered_writer_first)
       1024 * 256, true, &s,
       +[](void * ch_ ) noexcept
       {
-          monad_fiber_current()->task.priority = -1;
+          monad_fiber_set_name(monad_fiber_current()->context, "writer");
+          monad_fiber_current()->task.priority = -2;
           notifier _{writer_done};
           auto ch = static_cast<monad_fiber_channel_t *>(ch_);
           int i = 0;
@@ -158,7 +160,6 @@ TEST(channel, DISABLED_buffered_writer_first)
       },
       &ch);
 
-  monad_fiber_set_name(w->context, "writer");
   EXPECT_EQ(w->scheduler, &s);
   ASSERT_TRUE(ch.pending_writes != NULL);
 
@@ -166,7 +167,9 @@ TEST(channel, DISABLED_buffered_writer_first)
       1024 * 256, true, &s,
       +[](void * ch_) noexcept
       {
-          monad_fiber_current()->task.priority = 1;
+          monad_fiber_current()->task.priority = -1;
+          monad_fiber_set_name(monad_fiber_current()->context, "reader");
+
           notifier _{reader_done};
           int res = 0;
           auto ch = static_cast<monad_fiber_channel_t *>(ch_);
@@ -180,7 +183,6 @@ TEST(channel, DISABLED_buffered_writer_first)
           EXPECT_EQ(res, 4);
       }, &ch);
 
-  monad_fiber_set_name(r->context, "reader");
   EXPECT_EQ(r->scheduler, &s);
 
   while (!reader_done)
@@ -194,7 +196,9 @@ TEST(channel, DISABLED_buffered_writer_first)
   monad_fiber_scheduler_destroy(&s);
 }
 
-TEST(channel, DISABLED_buffered_reader_first)
+
+
+TEST(channel, buffered_reader_first)
 {
   monad_fiber_scheduler_t s;
   monad_fiber_scheduler_create(&s, 8, &monad_fiber_init_main);
@@ -220,7 +224,7 @@ TEST(channel, DISABLED_buffered_reader_first)
       1024 * 256, true, &s,
       +[](void * ch_ ) noexcept
       {
-          monad_fiber_current()->task.priority = 1;
+          monad_fiber_current()->task.priority = -1;
           notifier _{writer_done};
           auto ch = static_cast<monad_fiber_channel_t *>(ch_);
           int i = 0;
@@ -242,9 +246,10 @@ TEST(channel, DISABLED_buffered_reader_first)
       1024 * 256, true, &s,
       +[](void * ch_) noexcept
       {
-          monad_fiber_current()->task.priority = -1;
+          monad_fiber_current()->task.priority = -2;
           notifier _{reader_done};
           int res = 0;
+
           auto ch = static_cast<monad_fiber_channel_t *>(ch_);
           EXPECT_EQ(monad_fiber_channel_read(ch, &res), 0);
           EXPECT_EQ(res, 1);
