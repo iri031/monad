@@ -63,8 +63,8 @@ struct Db::Impl
         UpdateList &&, uint64_t, bool enable_compaction,
         bool can_write_to_fast) = 0;
 
-    virtual find_result_type
-    find_fiber_blocking(NodeCursor const &root, NibblesView const &key) = 0;
+    virtual find_result_type find_fiber_blocking(
+        NodeCursor const &root, NibblesView const &key, uint64_t version) = 0;
     virtual bool is_latest() const = 0;
     virtual void load_latest_fiber_blocking() = 0;
     virtual size_t prefetch_fiber_blocking(uint64_t latest_block_id) = 0;
@@ -77,6 +77,7 @@ struct Db::ROOnDisk final : public Db::Impl
     io::Buffers rwbuf_;
     async::AsyncIO io_;
     UpdateAux<> aux_;
+    uint64_t last_loaded_max_version_;
     chunk_offset_t last_loaded_offset_;
     Node::UniquePtr root_;
 
@@ -99,7 +100,17 @@ struct Db::ROOnDisk final : public Db::Impl
               async::AsyncIO::MONAD_IO_BUFFERS_READ_SIZE)}
         , io_{pool_, rwbuf_}
         , aux_{&io_}
-        , last_loaded_offset_{aux_.get_root_offset()}
+        , last_loaded_max_version_{aux_.db_metadata()
+                                       ->max_db_history_version.load(
+                                           std::memory_order_acquire)}
+        , last_loaded_offset_{[&] {
+            auto root_offset = aux_.get_root_offset();
+            if (root_offset == INVALID_OFFSET) {
+                throw std::runtime_error("Failed to open a read-only db from "
+                                         "an empty database.");
+            }
+            return root_offset;
+        }()}
         , root_{Node::UniquePtr{read_node_blocking(pool_, last_loaded_offset_)}}
     {
         io_.set_capture_io_latencies(options.capture_io_latencies);
@@ -130,10 +141,28 @@ struct Db::ROOnDisk final : public Db::Impl
         MONAD_ASSERT(false);
     }
 
-    virtual find_result_type
-    find_fiber_blocking(NodeCursor const &root, NibblesView const &key) override
+    virtual find_result_type find_fiber_blocking(
+        NodeCursor const &root, NibblesView const &key,
+        uint64_t const version) override
     {
-        return find_blocking(aux(), root, key);
+        // db we last loaded does not contain the version we want to find
+        if (version > last_loaded_max_version_ ||
+            version < aux().db_metadata()->min_db_history_version.load(
+                          std::memory_order_acquire)) {
+            return {NodeCursor{}, find_result::unknown};
+        }
+        try {
+
+            auto const res = find_blocking(aux(), root, key);
+            // verify version still valid in history after success
+            return version >= aux().db_metadata()->min_db_history_version.load(
+                                  std::memory_order_acquire)
+                       ? res
+                       : find_result_type{NodeCursor{}, find_result::unknown};
+        }
+        catch (std::exception const &e) { // exception implies UB
+            return {NodeCursor{}, find_result::unknown};
+        }
     }
 
     virtual bool is_latest() const override
@@ -146,6 +175,12 @@ struct Db::ROOnDisk final : public Db::Impl
         if (last_loaded_offset_ == aux_.get_root_offset()) {
             return;
         }
+        // Do not change the order of loading max version and root offset
+        // max version can be smaller than the current root actually has but
+        // can't be greater.
+        last_loaded_max_version_ =
+            aux_.db_metadata()->max_db_history_version.load(
+                std::memory_order_acquire);
         last_loaded_offset_ = aux_.get_root_offset();
         root_.reset(read_node_blocking(pool_, last_loaded_offset_));
     }
@@ -185,8 +220,8 @@ struct Db::InMemory final : public Db::Impl
             std::move(root_), machine_, std::move(list), block_id, false);
     }
 
-    virtual find_result_type
-    find_fiber_blocking(NodeCursor const &root, NibblesView const &key) override
+    virtual find_result_type find_fiber_blocking(
+        NodeCursor const &root, NibblesView const &key, uint64_t = 0) override
     {
         return find_blocking(aux(), root, key);
     }
@@ -458,7 +493,7 @@ struct Db::RWOnDisk final : public Db::Impl
 
     // threadsafe
     virtual find_result_type find_fiber_blocking(
-        NodeCursor const &start, NibblesView const &key) override
+        NodeCursor const &start, NibblesView const &key, uint64_t = 0) override
     {
         threadsafe_boost_fibers_promise<find_result_type> promise;
         fiber_find_request_t req{
@@ -546,10 +581,11 @@ Db::Db(ReadOnlyOnDiskDbConfig const &config)
 
 Db::~Db() = default;
 
-Result<NodeCursor> Db::get(NodeCursor root, NibblesView const key) const
+Result<NodeCursor>
+Db::get(NodeCursor root, NibblesView const key, uint64_t const block_id) const
 {
     MONAD_ASSERT(impl_);
-    auto const [it, result] = impl_->find_fiber_blocking(root, key);
+    auto const [it, result] = impl_->find_fiber_blocking(root, key, block_id);
     if (result != find_result::success) {
         return DbError::key_not_found;
     }
@@ -561,21 +597,22 @@ Result<NodeCursor> Db::get(NodeCursor root, NibblesView const key) const
 Result<byte_string_view>
 Db::get(NibblesView const key, uint64_t const block_id) const
 {
-    auto res = get(root(), serialize_as_big_endian<BLOCK_NUM_BYTES>(block_id));
+    auto res = get(
+        root(), serialize_as_big_endian<BLOCK_NUM_BYTES>(block_id), block_id);
     if (!res.has_value()) {
         return DbError::key_not_found;
     }
-    res = get(res.value(), key);
+    res = get(res.value(), key, block_id);
     if (!res.has_value()) {
         return DbError::key_not_found;
     }
     return res.value().node->value();
 }
 
-Result<byte_string_view>
-Db::get_data(NodeCursor root, NibblesView const key) const
+Result<byte_string_view> Db::get_data(
+    NodeCursor root, NibblesView const key, uint64_t const block_id) const
 {
-    auto res = get(root, key);
+    auto res = get(root, key, block_id);
     if (!res.has_value()) {
         return DbError::key_not_found;
     }
@@ -587,11 +624,12 @@ Db::get_data(NodeCursor root, NibblesView const key) const
 Result<byte_string_view>
 Db::get_data(NibblesView const key, uint64_t const block_id) const
 {
-    auto res = get(root(), serialize_as_big_endian<BLOCK_NUM_BYTES>(block_id));
+    auto res = get(
+        root(), serialize_as_big_endian<BLOCK_NUM_BYTES>(block_id), block_id);
     if (!res.has_value()) {
         return DbError::key_not_found;
     }
-    return get_data(res.value(), key);
+    return get_data(res.value(), key, block_id);
 }
 
 void Db::upsert(
@@ -611,9 +649,9 @@ void Db::traverse(
 {
     auto const block_id_prefix =
         serialize_as_big_endian<BLOCK_NUM_BYTES>(block_id);
-    auto res = get(root(), NibblesView{block_id_prefix});
+    auto res = get(root(), NibblesView{block_id_prefix}, block_id);
     MONAD_ASSERT(res.has_value());
-    res = get(res.value(), prefix);
+    res = get(res.value(), prefix, block_id);
     if (!res.has_value()) {
         return;
     }

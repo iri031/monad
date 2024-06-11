@@ -18,8 +18,7 @@ function(monad_compile_options target)
   set_property(TARGET ${target} PROPERTY CXX_STANDARD 23)
   set_property(TARGET ${target} PROPERTY CXX_STANDARD_REQUIRED ON)
 
-  target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic
-                                           -Wconversion -Werror)
+  target_compile_options(${target} PRIVATE -Wall -Wextra -Wconversion -Werror)
 
   target_compile_options(
     ${target} PRIVATE $<$<CXX_COMPILER_ID:GNU>:-Wno-missing-field-initializers>)
@@ -50,7 +49,6 @@ endfunction()
 
 find_package(Boost REQUIRED COMPONENTS fiber graph json)
 find_package(PkgConfig REQUIRED)
-find_package(absl REQUIRED)
 pkg_check_modules(brotli REQUIRED IMPORTED_TARGET libbrotlienc libbrotlidec)
 
 # cli11
@@ -105,7 +103,10 @@ function(monad_add_test2 target)
     PRIVATE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/test/unit/common/include")
   target_include_directories(${target} PRIVATE "${TOP_CURRENT_BINARY_DIR}/test")
   target_link_libraries(${target} monad_execution GTest::GTest GTest::Main)
-  gtest_discover_tests(${target} DISCOVERY_MODE PRE_TEST)
+  gtest_discover_tests(${target} DISCOVERY_MODE PRE_TEST
+    PROPERTIES ENVIRONMENT ASAN_OPTIONS=abort_on_error=1 ENVIRONMENT
+    UBSAN_OPTIONS=halt_on_error=1,print_stacktrace=1 ENVIRONMENT
+    TSAN_OPTIONS=external_symbolizer_path=/usr/bin/llvm-symbolizer)
 endfunction()
 
 function(monad_add_test_folder target)

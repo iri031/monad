@@ -1,11 +1,10 @@
 #!/bin/bash
 
 packages=(
-  libabsl-dev
   libbenchmark-dev
+  libcgroup-dev
   libgmock-dev
   libgtest-dev
-  libmimalloc-dev
   libtbb-dev
   liburing-dev
 )
