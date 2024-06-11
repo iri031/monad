@@ -1,5 +1,3 @@
-#define _GNU_SOURCE // to get ppoll
-
 #include "monad/async/executor.h"
 
 #include "monad/async/task.h"

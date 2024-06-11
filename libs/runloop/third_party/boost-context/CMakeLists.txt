@@ -219,7 +219,7 @@ target_link_libraries(boost_context
 # Be sure all defines have the '=' character. Overkill solution: always put '=' throughout this module.
 
 target_compile_definitions(boost_context
-  PUBLIC BOOST_CONTEXT_NO_LIB=
+  PUBLIC BOOST_CONTEXT_NO_LIB
   PRIVATE BOOST_CONTEXT_SOURCE=
 )
 

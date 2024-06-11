@@ -9,8 +9,6 @@ monad_fiber_scheduler_t *monad_fiber_scheduler_current()
     return monad_fiber_scheduler_current_;
 }
 
-extern int pthread_setname_np(pthread_t self, char *name);
-
 static void *work(void *this_)
 {
     monad_fiber_scheduler_t *this = (monad_fiber_scheduler_t *)this_;
@@ -18,7 +16,8 @@ static void *work(void *this_)
     return NULL;
 }
 
-void monad_fiber_scheduler_create(monad_fiber_scheduler_t *this, size_t threads, void(*init_thread)())
+void monad_fiber_scheduler_create(
+    monad_fiber_scheduler_t *this, size_t threads, void (*init_thread)())
 {
     this->threads = malloc(sizeof(pthread_t) * threads);
     this->thread_count = threads;
@@ -41,7 +40,6 @@ void monad_fiber_scheduler_create(monad_fiber_scheduler_t *this, size_t threads,
 void monad_fiber_scheduler_destroy(monad_fiber_scheduler_t *this)
 {
     monad_fiber_scheduler_stop(this);
-
 
     for (size_t i = 0u; i < this->thread_count; i++) {
         MONAD_CCALL_ASSERT(pthread_join(this->threads[i], NULL));
@@ -93,14 +91,16 @@ void monad_fiber_scheduler_work(monad_fiber_scheduler_t *this)
         MONAD_CCALL_ASSERT(pthread_setname_np(pthread_self(), name));
     }
 
-    if (this->init_thread != NULL)
-      (*this->init_thread)();
+    if (this->init_thread != NULL) {
+        (*this->init_thread)();
+    }
 
     while (this->thread_id_source > 0) {
         MONAD_CCALL_ASSERT(pthread_mutex_lock(&this->mutex));
         while (this->task_queue.size == 0u) {
             if (this->thread_id_source != 0) {
-              MONAD_CCALL_ASSERT(pthread_cond_wait(&this->cond, &this->mutex));
+                MONAD_CCALL_ASSERT(
+                    pthread_cond_wait(&this->cond, &this->mutex));
             }
             if (this->thread_id_source == 0) {
                 while (this->task_queue.size > 0u) {
@@ -138,16 +138,17 @@ monad_fiber_task_t *monad_fiber_scheduler_pop_higher_priority_task(
         result = monad_fiber_task_queue_pop_front(&this->task_queue);
     }
 
-  MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
-  return result ;
+    MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
+    return result;
 }
 
 bool monad_fiber_run_one(monad_fiber_scheduler_t *this)
 {
     MONAD_CCALL_ASSERT(pthread_mutex_lock(&this->mutex));
-    monad_fiber_task_t *  node = NULL;
-    if (this->task_queue.size != 0u)
-      node = monad_fiber_task_queue_pop_front(&this->task_queue);
+    monad_fiber_task_t *node = NULL;
+    if (this->task_queue.size != 0u) {
+        node = monad_fiber_task_queue_pop_front(&this->task_queue);
+    }
     MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
     if (node != NULL) {
         node->resume(node);

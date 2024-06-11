@@ -1,7 +1,5 @@
 // #define MONAD_ASYNC_CONTEXT_PRINTING 1
 
-#define _GNU_SOURCE
-
 #include "monad/async/context_switcher.h"
 
 #include "monad/async/task.h"

@@ -1,7 +1,6 @@
 // Prevent glibc stack check for longjmp
 #undef _FORTIFY_SOURCE
 #define _FORTIFY_SOURCE 0
-#define _GNU_SOURCE
 
 // #define MONAD_ASYNC_CONTEXT_PRINTING 1
 

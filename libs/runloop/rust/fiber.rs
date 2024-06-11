@@ -66,29 +66,15 @@ extern "C" {
 pub struct monad_fiber_task {
     pub resume: ::std::option::Option<unsafe extern "C" fn(arg1: *mut monad_fiber_task)>,
     pub destroy: ::std::option::Option<unsafe extern "C" fn(arg1: *mut monad_fiber_task)>,
+    pub priority: i64,
 }
 pub type monad_fiber_task_t = monad_fiber_task;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct monad_fiber_task_node {
-    pub task: *mut monad_fiber_task_t,
-    pub priority: i64,
-}
-impl Default for monad_fiber_task_node {
-    fn default() -> Self {
-        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
-        unsafe {
-            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
-            s.assume_init()
-        }
-    }
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
 pub struct monad_fiber_task_queue {
-    pub memory: *mut monad_fiber_task_node,
+    pub memory: *mut *mut monad_fiber_task_t,
     pub capacity: usize,
-    pub data: *mut monad_fiber_task_node,
+    pub data: *mut *mut monad_fiber_task_t,
     pub size: usize,
 }
 impl Default for monad_fiber_task_queue {
@@ -113,13 +99,12 @@ extern "C" {
 extern "C" {
     pub fn monad_fiber_task_queue_pop_front(
         arg1: *mut monad_fiber_task_queue,
-    ) -> monad_fiber_task_node;
+    ) -> *mut monad_fiber_task_t;
 }
 extern "C" {
     pub fn monad_fiber_task_queue_insert(
         arg1: *mut monad_fiber_task_queue,
         task: *mut monad_fiber_task_t,
-        priority: i64,
     );
 }
 pub type atomic_int = u32;
@@ -278,14 +263,12 @@ extern "C" {
     pub fn monad_fiber_scheduler_post(
         arg1: *mut monad_fiber_scheduler_t,
         task: *mut monad_fiber_task_t,
-        priority: i64,
     );
 }
 extern "C" {
     pub fn monad_fiber_scheduler_dispatch(
         arg1: *mut monad_fiber_scheduler_t,
         task: *mut monad_fiber_task_t,
-        priority: i64,
     );
 }
 extern "C" {
@@ -302,7 +285,6 @@ extern "C" {
 pub struct monad_fiber {
     pub task: monad_fiber_task_t,
     pub context: *mut monad_fiber_context_t,
-    pub priority: i64,
     pub scheduler: *mut monad_fiber_scheduler_t,
 }
 impl Default for monad_fiber {
@@ -322,7 +304,17 @@ extern "C" {
     pub fn monad_fiber_is_main(arg1: *mut monad_fiber_t) -> bool;
 }
 extern "C" {
+    pub fn monad_fiber_in_fiber() -> bool;
+}
+extern "C" {
     pub fn monad_fiber_switch_to_fiber(arg1: *mut monad_fiber_t);
+}
+extern "C" {
+    pub fn monad_fiber_switch_to_fiber_with(
+        arg1: *mut monad_fiber_t,
+        func: ::std::option::Option<unsafe extern "C" fn(arg1: *mut ::std::os::raw::c_void)>,
+        arg: *mut ::std::os::raw::c_void,
+    );
 }
 extern "C" {
     pub fn monad_fiber_switch_to_main();
@@ -351,6 +343,7 @@ extern "C" {
     pub fn monad_fiber_create(
         stack_size: usize,
         protected_stack: bool,
+        scheduler: *mut monad_fiber_scheduler_t,
         func: ::std::option::Option<unsafe extern "C" fn(arg1: *mut ::std::os::raw::c_void)>,
         arg: *mut ::std::os::raw::c_void,
     ) -> *mut monad_fiber_t;
@@ -386,6 +379,9 @@ extern "C" {
 }
 extern "C" {
     pub fn monad_fiber_channel_destroy(arg1: *mut monad_fiber_channel_t);
+}
+extern "C" {
+    pub fn monad_fiber_channel_close(arg1: *mut monad_fiber_channel_t);
 }
 extern "C" {
     pub fn monad_fiber_channel_try_read(
