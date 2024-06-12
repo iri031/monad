@@ -226,8 +226,14 @@ int main(int const argc, char const *argv[])
             replay_eth.n_transactions,
             replay_eth.n_transactions /
                 std::max(1UL, static_cast<uint64_t>(elapsed.count())));
-    }
 
+        if (!dump_snapshot.empty() && !on_disk) { // dump in memory db
+            LOG_INFO("Dump db of block: {}", last_block_number);
+            write_to_file(db.to_json(), dump_snapshot, last_block_number);
+            return 0;
+        }
+    }
+    // For on disk db, dump from a RO db, which traverses in parallel
     if (!dump_snapshot.empty()) {
         LOG_INFO("Dump db of block: {}", last_block_number);
         TrieDb ro_db{mpt::ReadOnlyOnDiskDbConfig{
