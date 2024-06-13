@@ -78,7 +78,7 @@ public:
             if (!batch_num_blocks || !batch_num_txs) {
                 return;
             }
-
+if(0) {
             auto const now = std::chrono::steady_clock::now();
             auto const elapsed =
                 std::chrono::duration_cast<std::chrono::microseconds>(
@@ -99,6 +99,7 @@ public:
             batch_num_blocks = 0;
             batch_num_txs = 0;
             batch_begin = now;
+            }
         };
 
         uint64_t i = 0;

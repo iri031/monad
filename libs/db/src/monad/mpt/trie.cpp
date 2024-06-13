@@ -616,7 +616,6 @@ void update_value_and_subtrie_(
     else {
         auto const opt_leaf =
             update.value.has_value() ? update.value : old->opt_value();
-        MONAD_ASSERT(update.version >= old->version);
         dispatch_updates_impl_(
             aux,
             sm,

@@ -114,13 +114,13 @@ int main(int const argc, char const *argv[])
         "trace", quill::file_handler(trace_log, handler_cfg));
 #endif
 
+    bool const on_disk = !dbname_paths.empty();
+
     uint64_t last_block_number;
     {
         auto block_db = BlockDb(block_db_path);
 
         auto const load_start_time = std::chrono::steady_clock::now();
-
-        bool const on_disk = !dbname_paths.empty();
 
         auto const config = on_disk
                                 ? std::make_optional(mpt::OnDiskDbConfig{
@@ -230,27 +230,40 @@ int main(int const argc, char const *argv[])
             replay_eth.n_transactions /
                 std::max(1UL, static_cast<uint64_t>(elapsed.count())));
 
-        if (!dump_snapshot.empty() && !on_disk) { // dump in memory db
-            LOG_INFO("Dump db of block: {}", last_block_number);
-            write_to_file(db.to_json(), dump_snapshot, last_block_number);
-            return 0;
-        }
-    }
-    // For on disk db, dump from a RO db, which traverses in parallel
+        LOG_INFO("state_root = {}", db.state_root());
+
     if (!dump_snapshot.empty()) {
         LOG_INFO("Dump db of block: {}", last_block_number);
-        TrieDb ro_db{mpt::ReadOnlyOnDiskDbConfig{
-            .sq_thread_cpu = sq_thread_cpu,
-            .dbname_paths = dbname_paths,
-            .concurrent_read_io_limit = 128}};
-        // WARNING: to_binary() does parallel traverse which consumes excessive
-        // memory
-        if (use_json) {
-            write_to_file(ro_db.to_json(), dump_snapshot, last_block_number);
+
+        auto do_dump = [=] (TrieDb *dump_db)
+            {
+                // WARNING: to_binary() does parallel traverse which consumes excessive
+                // memory
+                if (use_json) {
+                    std::filesystem::create_directory(dump_snapshot);
+
+                    write_to_file(dump_db->to_json(), dump_snapshot, last_block_number);
+                }
+                else {
+                    dump_db->to_binary(dump_snapshot, last_block_number);
+                }
+            };
+
+        if (on_disk)
+        {
+            TrieDb ro_db{mpt::ReadOnlyOnDiskDbConfig{
+                .sq_thread_cpu = sq_thread_cpu,
+                .dbname_paths = dbname_paths,
+                .concurrent_read_io_limit = 128}};
+            do_dump(&ro_db);
+        } else
+        {
+            do_dump(&db);
         }
-        else {
-            ro_db.to_binary(dump_snapshot, last_block_number);
-        }
+
+      }
+
     }
+
     return 0;
 }

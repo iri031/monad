@@ -264,13 +264,13 @@ namespace
                 },
                 [&](UpdateList storage_updates) {
                     UpdateList updates;
-                    auto storage_update = Update{
+                    auto state_update = Update{
                         .key = state_nibbles,
                         .value = byte_string_view{},
                         .incarnation = false,
-                        .next = std::move(code_updates),
+                        .next = std::move(storage_updates),
                         .version = static_cast<int64_t>(block_id_)};
-                    updates.push_front(code_update);
+                    updates.push_front(state_update);
 
                     db_.upsert(std::move(updates), block_id_, false, false);
 
@@ -346,8 +346,8 @@ namespace
         size_t parse_storage(byte_string_view in, UpdateList &storage_updates)
         {
             constexpr auto storage_fixed_size =
-                sizeof(bytes32_t) + sizeof(bytes32_t) + sizeof(bytes32_t);
-            static_assert(storage_fixed_size == 96);
+                sizeof(bytes32_t) + sizeof(bytes32_t) + sizeof(bytes32_t) + sizeof(int64_t);
+            static_assert(storage_fixed_size == 104);
             size_t total_processed = 0;
             while (in.size() >= storage_fixed_size) {
 
@@ -386,12 +386,27 @@ namespace
                     .value = in.substr(fixed_size, code_len),
                     .incarnation = false,
                     .next = UpdateList{},
-                    .version = static_cast<int64_t>(block_id_)}));
+                    .version = unaligned_load<int64_t>(in.substr(version_offset, sizeof(int64_t)).data())
+                    }));
 
                 total_processed += entry_size;
                 in = in.substr(entry_size);
             }
             return total_processed;
+        }
+
+        Update handle_storage(byte_string_view curr)
+        {
+            constexpr auto value_offset = 2 * sizeof(bytes32_t);
+            constexpr auto version_offset = value_offset + sizeof(bytes32_t);
+
+            return Update{
+                .key = curr.substr(0, value_offset),
+                .value = rlp::zeroless_view(
+                    curr.substr(value_offset, sizeof(bytes32_t))),
+                .incarnation = false,
+                .next = UpdateList{},
+                .version = unaligned_load<int64_t>(curr.substr(version_offset, sizeof(int64_t)).data())};
         }
 
         Update handle_account(byte_string_view curr)
@@ -413,23 +428,8 @@ namespace
                         curr.substr(nonce_offset, sizeof(uint64_t)).data())})),
                 .incarnation = false,
                 .next = UpdateList{},
-                .version = static_cast<int64_t>(block_id_)};
-        }
-
-        Update handle_storage(byte_string_view in)
-        {
-            UpdateList storage_updates;
-            while (!in.empty()) {
-                storage_updates.push_front(update_alloc_.emplace_back(Update{
-                    .key = in.substr(0, sizeof(bytes32_t)),
-                    .value = rlp::zeroless_view(
-                        in.substr(sizeof(bytes32_t), sizeof(bytes32_t))),
-                    .incarnation = false,
-                    .next = UpdateList{},
-                    .version = static_cast<int64_t>(block_id_)}));
-                in = in.substr(storage_entry_size);
-            }
-            return storage_updates;
+                .version = unaligned_load<int64_t>(curr.substr(version_offset, sizeof(int64_t)).data())};
+        // BAL: file order should match struct order(?)
         }
     };
 }
@@ -627,7 +627,9 @@ TrieDb::TrieDb(
             "Unable to load snapshot to an existing db, truncate the "
             "existing db to empty and try again");
     }
-    block_number_ = init_block_number;
+    if (mode_ == Mode::OnDisk) {
+        block_number_ = init_block_number;
+    } // was init to 0 and will remain 0 for in memory db
     BinaryDbLoader loader{db_, buf_size, block_number_};
     loader.load(accounts, code, storage);
 }
@@ -863,10 +865,11 @@ std::string TrieDb::print_stats()
 //
 // Storage file:
 //
-// Storage (96 bytes)
+// Storage (104 bytes)
 // bytes32 (32) - account id (key)
 // bytes32 (32) - storage id (key)
 // bytes32 (32) - storage value
+// int64 (8) - version
 //
 // ---------------------
 //
@@ -897,11 +900,11 @@ void TrieDb::do_to_binary(
         {
         }
 
-        virtual void down(unsigned char const branch, Node const &node) override
+        virtual bool down(unsigned char const branch, Node const &node) override
         {
             if (branch == INVALID_BRANCH) {
                 MONAD_ASSERT(node.path_nibble_view().nibble_size() == 0);
-                return;
+                return true;
             }
 
             path = concat(NibblesView{path}, branch, node.path_nibble_view());
@@ -912,14 +915,16 @@ void TrieDb::do_to_binary(
 
                 if (is_code) {
                     handle_code_value(node);
-                    return;
+                    return true;
                 }
                 handle_account_value(node);
+                return true;
             }
-            else if (
-                path.nibble_size() == ((KECCAK256_SIZE + KECCAK256_SIZE) * 2)) {
+            if (path.nibble_size() == ((KECCAK256_SIZE + KECCAK256_SIZE) * 2)) {
                 handle_storage(node);
+                return true;
             }
+            return true;
         }
 
         virtual void up(unsigned char const branch, Node const &node) override
@@ -1043,6 +1048,11 @@ void TrieDb::do_to_binary(
 
             storagef.write(reinterpret_cast<char const *>(&zero), pad_len);
             storagef.write(reinterpret_cast<char const *>(entry.data()), sz);
+
+            MONAD_ASSERT(sizeof(node.version) == 8);
+            storagef.write(
+                reinterpret_cast<char const *>(&node.version),
+                sizeof(node.version));
         }
 
         virtual std::unique_ptr<TraverseMachine> clone() const override
@@ -1071,12 +1081,19 @@ void TrieDb::do_to_binary(
     // only use blocking traversal for RWOnDisk Db, but can still do parallel
     // traverse in other cases.
     auto const nibs{iscode ? code_nibbles : state_nibbles};
+
+    auto res_cursor = db_.find(nibs, read_block_number());
+    MONAD_ASSERT(res_cursor.has_value());
+    MONAD_ASSERT(res_cursor.value().is_valid());
+
     if (mode_ == Mode::OnDisk) {
-        MONAD_ASSERT(db_.traverse_blocking(nibs, traverse, block_number_));
+        MONAD_ASSERT(db_.traverse_blocking(
+            res_cursor.value(), traverse, read_block_number()));
     }
     else {
         // WARNING: excessive memory usage in parallel traverse
-        MONAD_ASSERT(db_.traverse(nibs, traverse, block_number_));
+        MONAD_ASSERT(
+            db_.traverse(res_cursor.value(), traverse, read_block_number()));
     }
 
     if (!iscode) {
@@ -1117,10 +1134,11 @@ nlohmann::json TrieDb::to_json()
 
             if (path.nibble_size() == (KECCAK256_SIZE * 2)) {
                 handle_account(node);
+                return true;
             }
-            else if (
-                path.nibble_size() == ((KECCAK256_SIZE + KECCAK256_SIZE) * 2)) {
+            if (path.nibble_size() == ((KECCAK256_SIZE + KECCAK256_SIZE) * 2)) {
                 handle_storage(node);
+                return true;
             }
             return true;
         }
@@ -1156,6 +1174,7 @@ nlohmann::json TrieDb::to_json()
 
             auto const key = fmt::format("{}", NibblesView{path});
 
+            json[key]["version"] = fmt::format("{}", node.version);
             json[key]["balance"] = fmt::format("{}", acct.value().balance);
             json[key]["nonce"] = fmt::format("0x{:x}", acct.value().nonce);
 
