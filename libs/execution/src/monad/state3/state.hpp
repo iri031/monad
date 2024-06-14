@@ -29,6 +29,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <set>
 #include <utility>
 
 MONAD_NAMESPACE_BEGIN
@@ -94,6 +95,9 @@ class State
     friend class BlockState; // TODO
 
 public:
+    std::set<std::pair<Address, bytes32_t>> write_storage;
+    std::set<std::pair<Address, bytes32_t>> read_storage;
+
     State(BlockState &block_state, Incarnation const incarnation)
         : block_state_{block_state}
         , incarnation_{incarnation}
@@ -193,6 +197,9 @@ public:
 
     bytes32_t get_storage(Address const &address, bytes32_t const &key)
     {
+        // temp
+        read_storage.emplace(address, key);
+
         auto const it = state_.find(address);
         if (it == state_.end()) {
             auto const it2 = original_.find(address);
@@ -294,6 +301,9 @@ public:
     evmc_storage_status set_storage(
         Address const &address, bytes32_t const &key, bytes32_t const &value)
     {
+        // temp
+        write_storage.emplace(address, key);
+
         bytes32_t original_value;
         auto &account_state = current_account_state(address);
         MONAD_ASSERT(account_state.account_);

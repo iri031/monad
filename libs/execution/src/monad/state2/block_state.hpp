@@ -7,7 +7,9 @@
 #include <monad/state2/state_deltas.hpp>
 #include <monad/types/incarnation.hpp>
 
+#include <map>
 #include <memory>
+#include <vector>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -20,6 +22,8 @@ class BlockState final
     Code code_{};
 
 public:
+    std::map<std::pair<Address, bytes32_t>, uint64_t> write_only_storage;
+
     BlockState(Db &);
 
     std::optional<Account> read_account(Address const &);

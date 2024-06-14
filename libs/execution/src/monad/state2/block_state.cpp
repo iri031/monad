@@ -22,6 +22,9 @@
 #include <utility>
 #include <vector>
 
+#include <algorithm>
+#include <set>
+
 MONAD_NAMESPACE_BEGIN
 
 BlockState::BlockState(Db &db)
@@ -77,8 +80,8 @@ bytes32_t BlockState::read_storage(
     // database
     {
         auto const result = read_storage
-                               ? db_.read_storage(address, incarnation, key)
-                               : bytes32_t{};
+                                ? db_.read_storage(address, incarnation, key)
+                                : bytes32_t{};
         StateDeltas::accessor it{};
         MONAD_ASSERT(state_.find(it, address));
         auto const &account = it->second.account.second;
@@ -186,6 +189,25 @@ void BlockState::merge(State const &state)
         }
         else {
             it->second.storage.clear();
+        }
+    }
+
+    // temp
+    std::set<std::pair<Address, bytes32_t>> state_write_only_storage;
+    std::set_difference(
+        state.write_storage.begin(),
+        state.write_storage.end(),
+        state.read_storage.begin(),
+        state.read_storage.end(),
+        std::inserter(
+            state_write_only_storage, state_write_only_storage.end()));
+
+    for (auto const &it : state_write_only_storage) {
+        if (write_only_storage.find(it) != write_only_storage.end()) {
+            write_only_storage[it]++;
+        }
+        else {
+            write_only_storage.emplace(it, 1);
         }
     }
 }

@@ -33,7 +33,11 @@
 #include <utility>
 #include <vector>
 
+#include <fstream>
+
 MONAD_NAMESPACE_BEGIN
+
+static std::ofstream ofile("write_only_storage.csv");
 
 // EIP-4895
 constexpr void process_withdrawal(
@@ -108,6 +112,27 @@ Result<std::vector<Receipt>> execute_block(
 
     auto const last = static_cast<std::ptrdiff_t>(block.transactions.size());
     promises[last].get_future().wait();
+
+    // temp
+
+    for (auto const &[storage_key, cnt] : block_state.write_only_storage) {
+        if (cnt > 1) {
+            ofile << fmt::format(
+                         "0x{:02x}",
+                         fmt::join(
+                             std::as_bytes(std::span(storage_key.first.bytes)),
+                             ""))
+                  << ", "
+                  << fmt::format(
+                         "0x{:02x}",
+                         fmt::join(
+                             std::as_bytes(std::span(storage_key.second.bytes)),
+                             ""))
+                  << ", " << cnt << "\n";
+        }
+    }
+    ofile << std::endl;
+    ofile.flush();
 
     std::vector<Receipt> receipts;
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
