@@ -278,3 +278,67 @@ TEST(channel, buffered_reader_first)
   monad_fiber_scheduler_destroy(&s);
 }
 
+
+TEST(channel, send)
+{
+  monad_fiber_scheduler_t s;
+  monad_fiber_scheduler_create(&s, 8, &monad_fiber_init_main);
+
+  monad_fiber_current_ = NULL;
+
+  monad_fiber_init_main();
+  monad_fiber_main()->scheduler = &s;
+  monad_fiber_channel_t ch;
+  monad_fiber_channel_create(&ch, 1, sizeof(int));
+
+  static std::atomic_bool reader_done{false};
+  reader_done = false;
+
+  struct notifier
+  {
+    std::atomic_bool & done;
+    notifier(std::atomic_bool & done) : done(done) {}
+    ~notifier() { done.store(true, std::memory_order_release);}
+  };
+
+
+
+  auto r = monad_fiber_create(
+      1024 * 256, true, &s,
+      +[](void * ch_) noexcept
+      {
+          monad_fiber_current()->task.priority = -2;
+          notifier _{reader_done};
+          int res = 0;
+
+          auto ch = static_cast<monad_fiber_channel_t *>(ch_);
+          EXPECT_EQ(monad_fiber_channel_read(ch, &res), 0);
+          EXPECT_EQ(res, 1);
+          EXPECT_EQ(monad_fiber_channel_read(ch, &res), 0);
+          EXPECT_EQ(res, 2);
+          EXPECT_EQ(monad_fiber_channel_read(ch, &res), 0);
+          EXPECT_EQ(res, 3);
+          EXPECT_EQ(monad_fiber_channel_read(ch, &res), 0);
+          EXPECT_EQ(res, 4);
+      }, &ch);
+
+  EXPECT_NE(r, nullptr);
+
+  int i = 0;
+  ASSERT_EQ(monad_fiber_channel_send(&ch, &(i = 1)), 0);
+  ASSERT_EQ(monad_fiber_channel_send(&ch, &(i = 2)), 0);
+  ASSERT_EQ(monad_fiber_channel_send(&ch, &(i = 3)), 0);
+  ASSERT_EQ(monad_fiber_channel_send(&ch, &(i = 4)), 0);
+  ASSERT_EQ(monad_fiber_channel_send(&ch, &(i = 5)), 0);
+
+  ASSERT_TRUE(ch.pending_writes != NULL);
+
+  while (!reader_done)
+    monad_fiber_yield();
+
+//  monad_fiber_channel_close(&ch);
+  monad_fiber_channel_destroy(&ch);
+  monad_fiber_scheduler_stop(&s);
+  monad_fiber_scheduler_destroy(&s);
+}
+

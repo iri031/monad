@@ -226,6 +226,8 @@ void monad_fiber_channel_post_current(void * fb_)
   monad_fiber_scheduler_post(fiber->scheduler, &fiber->task);
 }
 
+static  monad_fiber_t monad_fiber_channel_noop = {.task={.priority=INT64_MAX}};
+
 int monad_fiber_channel_read(monad_fiber_channel_t * this, void * target)
 {
   if (target == (void*)UINTPTR_MAX)
@@ -270,8 +272,10 @@ int monad_fiber_channel_read(monad_fiber_channel_t * this, void * target)
       monad_fiber_switch_to_fiber_with(
           op->fiber, &monad_fiber_channel_post_current, current);
     }
-    else // post the op for completion. value's in already.
+    else if (op->fiber != &monad_fiber_channel_noop)// post the op for completion. value's in already.
       monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task);
+    else // noop enqueued from monad_fiber_channel_send
+      free(op);
 
     return 0; // already unlocked!
   }
@@ -390,4 +394,74 @@ int monad_fiber_channel_write(monad_fiber_channel_t * this, const void * source)
   }
   return 0;
 }
+
+
+int monad_fiber_channel_send(monad_fiber_channel_t * this, const void * source)
+{
+  if (source == (const void*)UINTPTR_MAX)
+    source = NULL;
+
+  MONAD_CCALL_ASSERT(pthread_mutex_lock(&this->mutex));
+  if (this->data == (void*)UINTPTR_MAX)
+  {
+    MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
+    return EPIPE;
+  }
+
+  if (this->pending_reads != NULL)
+  {
+    struct monad_fiber_channel_read_op * op = this->pending_reads;
+    this->pending_reads = op->next;
+
+    if (this->element_size > 0)
+      memcpy(op->target, source, this->element_size);
+
+    // unlock here, we already grabbed all from `this`
+    MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
+
+    monad_fiber_scheduler_post(op->fiber->scheduler, &op->fiber->task);
+    return 0;
+  }
+  else if (this->size < this->capacity)
+  {
+    if (this->element_size != 0u)
+    {
+      const size_t pos = (this->offset + this->size) % this->capacity;
+      memcpy(((char*)this->data + pos), source, this->element_size);
+    }
+    this->size++;
+
+    MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
+    return 0;
+  }
+  else // nothing available, let's suspend
+  {
+    // ask james if this should be prioritized.
+
+
+    struct monad_fiber_channel_write_op *my_op =
+        (struct monad_fiber_channel_write_op *)calloc(1u, sizeof(struct monad_fiber_channel_write_op) + this->element_size);
+
+    if (this->element_size > 0)
+    {
+      void * tmp = ((char*)my_op) + sizeof(struct monad_fiber_channel_write_op);
+      my_op->source = memcpy(tmp, source, this->element_size);
+    }
+
+    my_op->fiber = &monad_fiber_channel_noop;
+    struct monad_fiber_channel_write_op * op = this->pending_writes;
+    if (op == NULL) // insert directly
+      this->pending_writes = op = my_op;
+    else
+    {
+      while (op->next != NULL)
+        op = op->next;
+      op->next = my_op;
+    }
+
+    MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
+  }
+  return 0;
+}
+
 

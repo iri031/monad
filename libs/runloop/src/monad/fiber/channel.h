@@ -37,6 +37,8 @@ bool monad_fiber_channel_try_write(monad_fiber_channel_t *, void const *source);
 int monad_fiber_channel_read(monad_fiber_channel_t *, void *target);
 int monad_fiber_channel_write(monad_fiber_channel_t *, void const *source);
 
+int monad_fiber_channel_send(monad_fiber_channel_t *, void const * source);
+
 
 
 #if defined(__cplusplus)
