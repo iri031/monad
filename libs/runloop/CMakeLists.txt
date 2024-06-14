@@ -16,7 +16,6 @@ add_library(monad_fiber_c STATIC
   "src/monad/fiber/current_thread_local.c"
   "src/monad/fiber/task.c"
   "src/monad/fiber/channel.c"
-  "src/monad/fiber/pool.c"
 )
 target_compile_features(monad_fiber_c PUBLIC c_std_23 cxx_std_20)
 target_compile_options(monad_fiber_c PUBLIC -Wall -Wextra -Wconversion -Wpedantic -Werror)
