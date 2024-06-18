@@ -22,7 +22,13 @@
 #include <utility>
 #include <vector>
 
+#include <algorithm>
+#include <fstream>
+#include <set>
+
 MONAD_NAMESPACE_BEGIN
+
+static std::ofstream ofile("write_first_storage.csv");
 
 BlockState::BlockState(Db &db)
     : db_{db}
@@ -77,8 +83,8 @@ bytes32_t BlockState::read_storage(
     // database
     {
         auto const result = read_storage
-                               ? db_.read_storage(address, incarnation, key)
-                               : bytes32_t{};
+                                ? db_.read_storage(address, incarnation, key)
+                                : bytes32_t{};
         StateDeltas::accessor it{};
         MONAD_ASSERT(state_.find(it, address));
         auto const &account = it->second.account.second;
@@ -188,6 +194,21 @@ void BlockState::merge(State const &state)
             it->second.storage.clear();
         }
     }
+
+    // temp
+    for (auto const &acc_stor : state.write_storage) {
+        ofile << fmt::format(
+                     "0x{:02x}",
+                     fmt::join(
+                         std::as_bytes(std::span(acc_stor.first.bytes)), ""))
+              << ", "
+              << fmt::format(
+                     "0x{:02x}",
+                     fmt::join(
+                         std::as_bytes(std::span(acc_stor.second.bytes)), ""))
+              << "\n";
+    }
+    ofile.flush();
 }
 
 void BlockState::commit(std::vector<Receipt> const &receipts)
