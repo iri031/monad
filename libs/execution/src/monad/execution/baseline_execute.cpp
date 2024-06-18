@@ -29,6 +29,7 @@
 
 #include <evmc/evmc.h>
 #include <evmc/evmc.hpp>
+#include <evmc/loader.h>
 
 #include <memory>
 
@@ -41,6 +42,12 @@ evmc::Result baseline_execute(
     if (code_analysis.executable_code.empty()) {
         return evmc::Result{EVMC_SUCCESS, msg.gas};
     }
+
+#if 0
+#ifdef EVMONE_TRACING
+    std::ostringstream trace_ostream;
+    vm.add_tracer(evmone::create_instruction_tracer(trace_ostream));
+#endif
 
     auto const execution_state = std::make_unique<evmone::ExecutionState>(
         msg,
@@ -94,6 +101,16 @@ evmc::Result baseline_execute(
     #endif
 
     return evmc::Result{result};
+#else
+    evmc_loader_error_code ec = EVMC_LOADER_UNSPECIFIED_ERROR;
+    evmc::VM vm{evmc_load_and_configure(
+        "/home/andreaslyn/monad/monad-jit/target/debug/libmonad_nevm_vm.so", &ec)};
+    MONAD_ASSERT(ec == EVMC_LOADER_SUCCESS);
+    evmc::Result result = vm.execute(*host, rev, msg,
+        code_analysis.executable_code.data(), code_analysis.executable_code.size());
+
+    return result;
+#endif
 }
 
 MONAD_NAMESPACE_END

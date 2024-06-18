@@ -149,6 +149,7 @@ target_link_libraries(
   PRIVATE PkgConfig::brotli
   PUBLIC ethash::keccak
   PUBLIC evmc
+  PUBLIC evmc::loader
   PUBLIC evmone
   PUBLIC intx::intx
   PUBLIC nlohmann_json::nlohmann_json
