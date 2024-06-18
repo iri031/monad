@@ -20,6 +20,9 @@ class BlockState final
     Code code_{};
 
 public:
+    uint64_t total_destroyed_accounts{0};
+    uint64_t total_deleted_storage{0};
+
     BlockState(Db &);
 
     std::optional<Account> read_account(Address const &);

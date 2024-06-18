@@ -33,7 +33,11 @@
 #include <utility>
 #include <vector>
 
+#include <fstream>
+
 MONAD_NAMESPACE_BEGIN
+
+static std::ofstream ofile("deleted_acct_storage.csv");
 
 // EIP-4895
 constexpr void process_withdrawal(
@@ -108,6 +112,9 @@ Result<std::vector<Receipt>> execute_block(
 
     auto const last = static_cast<std::ptrdiff_t>(block.transactions.size());
     promises[last].get_future().wait();
+
+    ofile << block_state.total_destroyed_accounts << ", "
+          << block_state.total_deleted_storage << std::endl;
 
     std::vector<Receipt> receipts;
     for (unsigned i = 0; i < block.transactions.size(); ++i) {

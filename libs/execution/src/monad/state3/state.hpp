@@ -94,6 +94,9 @@ class State
     friend class BlockState; // TODO
 
 public:
+    uint64_t total_destroyed_accounts{0};
+    uint64_t total_deleted_storage{0};
+
     State(BlockState &block_state, Incarnation const incarnation)
         : block_state_{block_state}
         , incarnation_{incarnation}
@@ -311,6 +314,10 @@ public:
             }
             original_value = it->second;
         }
+
+        if ((original_value != bytes32_t{}) && (value == bytes32_t{})) {
+            ++total_deleted_storage;
+        }
         // state
         {
             auto const result =
@@ -363,6 +370,7 @@ public:
             MONAD_ASSERT(stack.version() == 0);
             auto &account_state = stack.current(0);
             if (account_state.is_destructed()) {
+                ++total_destroyed_accounts;
                 auto &account = account_state.account_;
                 account.reset();
             }
@@ -384,6 +392,7 @@ public:
             }
             auto &account = account_state.account_;
             if (is_dead(account)) {
+                ++total_destroyed_accounts;
                 account.reset();
             }
         }

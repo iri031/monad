@@ -77,8 +77,8 @@ bytes32_t BlockState::read_storage(
     // database
     {
         auto const result = read_storage
-                               ? db_.read_storage(address, incarnation, key)
-                               : bytes32_t{};
+                                ? db_.read_storage(address, incarnation, key)
+                                : bytes32_t{};
         StateDeltas::accessor it{};
         MONAD_ASSERT(state_.find(it, address));
         auto const &account = it->second.account.second;
@@ -188,6 +188,9 @@ void BlockState::merge(State const &state)
             it->second.storage.clear();
         }
     }
+
+    total_deleted_storage += state.total_deleted_storage;
+    total_destroyed_accounts += state.total_destroyed_accounts;
 }
 
 void BlockState::commit(std::vector<Receipt> const &receipts)
