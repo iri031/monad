@@ -28,7 +28,8 @@
 
 MONAD_NAMESPACE_BEGIN
 
-static std::ofstream ofile("write_first_storage.csv");
+static std::ofstream ofile_nonzero("write_first_storage_non_zero.csv");
+static std::ofstream ofile_zero("write_first_storage_zero.csv");
 
 BlockState::BlockState(Db &db)
     : db_{db}
@@ -196,19 +197,34 @@ void BlockState::merge(State const &state)
     }
 
     // temp
-    for (auto const &acc_stor : state.write_storage) {
-        ofile << fmt::format(
-                     "0x{:02x}",
-                     fmt::join(
-                         std::as_bytes(std::span(acc_stor.first.bytes)), ""))
-              << ", "
-              << fmt::format(
-                     "0x{:02x}",
-                     fmt::join(
-                         std::as_bytes(std::span(acc_stor.second.bytes)), ""))
-              << "\n";
+    for (auto const &acc_stor : state.write_storage_non_zero) {
+        ofile_nonzero
+            << fmt::format(
+                   "0x{:02x}",
+                   fmt::join(
+                       std::as_bytes(std::span(acc_stor.first.bytes)), ""))
+            << ", "
+            << fmt::format(
+                   "0x{:02x}",
+                   fmt::join(
+                       std::as_bytes(std::span(acc_stor.second.bytes)), ""))
+            << "\n";
     }
-    ofile.flush();
+    for (auto const &acc_stor : state.write_storage_zero) {
+        ofile_zero
+            << fmt::format(
+                   "0x{:02x}",
+                   fmt::join(
+                       std::as_bytes(std::span(acc_stor.first.bytes)), ""))
+            << ", "
+            << fmt::format(
+                   "0x{:02x}",
+                   fmt::join(
+                       std::as_bytes(std::span(acc_stor.second.bytes)), ""))
+            << "\n";
+    }
+    ofile_nonzero.flush();
+    ofile_zero.flush();
 }
 
 void BlockState::commit(std::vector<Receipt> const &receipts)
