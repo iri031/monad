@@ -95,7 +95,8 @@ class State
     friend class BlockState; // TODO
 
 public:
-    std::set<std::pair<Address, bytes32_t>> write_storage;
+    std::set<std::pair<Address, bytes32_t>> write_storage_zero;
+    std::set<std::pair<Address, bytes32_t>> write_storage_non_zero;
     std::set<std::pair<Address, bytes32_t>> read_storage;
 
     State(BlockState &block_state, Incarnation const incarnation)
@@ -301,13 +302,6 @@ public:
     evmc_storage_status set_storage(
         Address const &address, bytes32_t const &key, bytes32_t const &value)
     {
-        // temp
-        if (write_storage.find({address, key}) == write_storage.end()) {
-            if (read_storage.find({address, key}) == read_storage.end()) {
-                write_storage.emplace(address, key);
-            }
-        }
-
         bytes32_t original_value;
         auto &account_state = current_account_state(address);
         MONAD_ASSERT(account_state.account_);
@@ -325,6 +319,22 @@ public:
             }
             original_value = it->second;
         }
+
+        // temp
+        if ((write_storage_non_zero.find({address, key}) ==
+             write_storage_non_zero.end()) &&
+            (write_storage_zero.find({address, key}) ==
+             write_storage_zero.end())) {
+            if (read_storage.find({address, key}) == read_storage.end()) {
+                if (original_value == bytes32_t{}) {
+                    write_storage_zero.emplace(address, key);
+                }
+                else {
+                    write_storage_non_zero.emplace(address, key);
+                }
+            }
+        }
+
         // state
         {
             auto const result =
