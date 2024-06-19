@@ -35,6 +35,8 @@ class TrieDb final : public ::monad::Db
     uint64_t block_number_;
     Mode mode_;
 
+    uint64_t read_block_number() const;
+
 public:
     TrieDb(mpt::ReadOnlyOnDiskDbConfig const &);
     TrieDb(std::optional<mpt::OnDiskDbConfig> const &);

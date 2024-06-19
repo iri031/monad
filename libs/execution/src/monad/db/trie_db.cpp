@@ -591,9 +591,7 @@ TrieDb::TrieDb(
             "Unable to load snapshot to an existing db, truncate the "
             "existing db to empty and try again");
     }
-    if (mode_ == Mode::OnDisk) {
-        block_number_ = init_block_number;
-    } // was init to 0 and will remain 0 for in memory db
+    block_number_ = init_block_number;
     BinaryDbLoader loader{db_, buf_size, block_number_};
     loader.load(accounts, code);
 }
@@ -606,7 +604,7 @@ std::optional<Account> TrieDb::read_account(Address const &addr)
         concat(
             state_nibble,
             NibblesView{keccak256({addr.bytes, sizeof(addr.bytes)})}),
-        block_number_);
+        read_block_number());
     if (!value.has_value()) {
         return std::nullopt;
     }
@@ -635,7 +633,7 @@ TrieDb::read_storage(Address const &addr, Incarnation, bytes32_t const &key)
             state_nibble,
             NibblesView{keccak256({addr.bytes, sizeof(addr.bytes)})},
             NibblesView{keccak256({key.bytes, sizeof(key.bytes)})}),
-        block_number_);
+        read_block_number());
     if (!value.has_value()) {
         STATS_STORAGE_NO_VALUE();
         return {};
@@ -660,7 +658,7 @@ std::shared_ptr<CodeAnalysis> TrieDb::read_code(bytes32_t const &code_hash)
     // TODO read code analysis object
     auto const value = db_.get(
         concat(code_nibble, NibblesView{to_byte_string_view(code_hash.bytes)}),
-        block_number_);
+        read_block_number());
     if (!value.has_value()) {
         return std::make_shared<CodeAnalysis>(analyze({}));
     }
@@ -770,14 +768,17 @@ void TrieDb::commit(
 
 void TrieDb::increment_block_number()
 {
-    if (mode_ == Mode::OnDisk) {
-        ++block_number_;
-    }
+    ++block_number_;
+}
+
+uint64_t TrieDb::read_block_number() const
+{
+    return mode_ == Mode::InMemory ? 0 : block_number_;
 }
 
 bytes32_t TrieDb::state_root()
 {
-    auto const value = db_.get_data(state_nibbles, block_number_);
+    auto const value = db_.get_data(state_nibbles, read_block_number());
     if (!value.has_value() || value.value().empty()) {
         return NULL_ROOT;
     }
@@ -789,7 +790,7 @@ bytes32_t TrieDb::state_root()
 
 bytes32_t TrieDb::receipts_root()
 {
-    auto const value = db_.get_data(receipt_nibbles, block_number_);
+    auto const value = db_.get_data(receipt_nibbles, read_block_number());
     if (!value.has_value() || value.value().empty()) {
         return NULL_ROOT;
     }
@@ -920,7 +921,7 @@ nlohmann::json TrieDb::to_json()
     auto json = nlohmann::json::object();
     Traverse traverse(*this, json);
 
-    auto res_cursor = db_.find(state_nibbles, block_number_);
+    auto res_cursor = db_.find(state_nibbles, read_block_number());
     MONAD_ASSERT(res_cursor.has_value());
     MONAD_ASSERT(res_cursor.value().is_valid());
     // RWOndisk Db prevents any parallel traversal that does blocking i/o
@@ -928,12 +929,13 @@ nlohmann::json TrieDb::to_json()
     // only use blocking traversal for RWOnDisk Db, but can still do parallel
     // traverse in other cases.
     if (mode_ == Mode::OnDisk) {
-        MONAD_ASSERT(
-            db_.traverse_blocking(res_cursor.value(), traverse, block_number_));
+        MONAD_ASSERT(db_.traverse_blocking(
+            res_cursor.value(), traverse, read_block_number()));
     }
     else {
         // WARNING: excessive memory usage in parallel traverse
-        MONAD_ASSERT(db_.traverse(res_cursor.value(), traverse, block_number_));
+        MONAD_ASSERT(
+            db_.traverse(res_cursor.value(), traverse, read_block_number()));
     }
 
     return json;

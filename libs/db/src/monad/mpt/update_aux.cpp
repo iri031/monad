@@ -496,7 +496,7 @@ Node::UniquePtr UpdateAuxImpl::do_update(
     if (!is_on_disk()) {
         UpdateList db_updates;
         auto const curr_version_key =
-            serialize_as_big_endian<BLOCK_NUM_BYTES>(version);
+            serialize_as_big_endian<BLOCK_NUM_BYTES>(0ul);
         Update u = make_update(
             curr_version_key,
             byte_string_view{},
