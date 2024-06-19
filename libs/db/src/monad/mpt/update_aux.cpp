@@ -491,13 +491,26 @@ allowed to skip a version, for example for a call sequence to insert version
 */
 Node::UniquePtr UpdateAuxImpl::do_update(
     Node::UniquePtr prev_root, StateMachine &sm, UpdateList &&updates,
-    uint64_t const version, bool compaction, bool const can_write_to_fast)
+    uint64_t const version, bool const compaction, bool const can_write_to_fast)
 {
+    if (!is_on_disk()) {
+        UpdateList db_updates;
+        auto const curr_version_key =
+            serialize_as_big_endian<BLOCK_NUM_BYTES>(version);
+        Update u = make_update(
+            curr_version_key,
+            byte_string_view{},
+            false,
+            std::move(updates),
+            version);
+        db_updates.push_front(u);
+        return upsert(*this, sm, std::move(prev_root), std::move(db_updates));
+    }
+
     set_can_write_to_fast(can_write_to_fast);
     auto g(unique_lock());
     auto g2(set_current_upsert_tid());
 
-    compaction &= is_on_disk(); // compaction only takes effect for on disk trie
     auto const curr_version_key =
         serialize_as_big_endian<BLOCK_NUM_BYTES>(version);
     uint64_t min_version =
@@ -507,7 +520,6 @@ Node::UniquePtr UpdateAuxImpl::do_update(
     std::vector<byte_string> version_to_erase;
     std::vector<Update> erase;
     if (compaction) {
-        MONAD_ASSERT(is_on_disk());
         // 1. erase any outdated versions from history
         if (prev_root && max_version_in_db_history(*prev_root) - min_version >=
                              version_history_len) {
@@ -561,10 +573,8 @@ Node::UniquePtr UpdateAuxImpl::do_update(
     auto root = upsert(*this, sm, std::move(prev_root), std::move(db_updates));
     MONAD_ASSERT(root->version == static_cast<int64_t>(version));
     // 5. free compacted chunks and update version metadata if on disk
-    if (is_on_disk()) {
-        free_compacted_chunks();
-        update_ondisk_db_history_metadata(min_version, version);
-    }
+    free_compacted_chunks();
+    update_ondisk_db_history_metadata(min_version, version);
     return root;
 }
 
