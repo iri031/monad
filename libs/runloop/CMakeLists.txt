@@ -91,9 +91,13 @@ add_subdirectory("src/monad/fiber/test")
 if(RUSTC_PROGRAM AND NOT CMAKE_C_FLAGS_INIT MATCHES "fsanitize=")
     cmake_host_system_information(RESULT linux_flavour QUERY DISTRIB_ID)
     if(linux_flavour MATCHES "debian|ubuntu")
-        set(BOOST_STACKTRACE Boost::stacktrace_backtrace)
+        find_package(Boost REQUIRED stacktrace_backtrace)
+        add_library(boost_stacktrace_backtrace ALIAS Boost::stacktrace_backtrace)
+        set(BOOST_STACKTRACE_LIB boost_stacktrace_backtrace)
     else()
-        set(BOOST_STACKTRACE Boost::stacktrace_addr2line)
+        find_package(Boost REQUIRED stacktrace_addr2line)
+        add_library(boost_stacktrace_addr2line ALIAS Boost::stacktrace_addr2line)
+        set(BOOST_STACKTRACE_LIB boost_stacktrace_addr2line)
     endif()
 
     add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/test/rust_tests"
@@ -105,8 +109,9 @@ if(RUSTC_PROGRAM AND NOT CMAKE_C_FLAGS_INIT MATCHES "fsanitize=")
     -l $<TARGET_NAME:monad_fiber_c>
     -l $<TARGET_NAME:monad_core>
     -L "$<TARGET_FILE_DIR:boost_context>"
+    -L "$<TARGET_FILE_DIR:${BOOST_STACKTRACE_LIB}>"
     -l $<TARGET_NAME:boost_context>
-    -l $<TARGET_NAME:${BOOST_STACKTRACE}>
+    -l $<TARGET_NAME:${BOOST_STACKTRACE_LIB}>
     -l stdc++
     -l uring
     DEPENDS

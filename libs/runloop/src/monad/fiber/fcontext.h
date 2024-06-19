@@ -4,6 +4,7 @@
 
 #if defined(BOOST_CONTEXT_DETAIL_FCONTEXT_H)
 
+using boost::context::detail::fcontext_t;
 using boost::context::detail::jump_fcontext;
 using boost::context::detail::make_fcontext;
 using boost::context::detail::ontop_fcontext;
