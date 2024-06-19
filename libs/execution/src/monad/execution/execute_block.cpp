@@ -35,6 +35,15 @@
 
 MONAD_NAMESPACE_BEGIN
 
+static std::ofstream ofile_agg("total_stats.csv");
+
+extern std::set<std::pair<Address, bytes32_t>> accessed;
+
+extern uint64_t nonzero_unaccessed;
+extern uint64_t nonzero_accessed;
+extern uint64_t zero_unaccessed;
+extern uint64_t zero_accessed;
+
 // EIP-4895
 constexpr void process_withdrawal(
     State &state, std::optional<std::vector<Withdrawal>> const &withdrawals)
@@ -108,6 +117,14 @@ Result<std::vector<Receipt>> execute_block(
 
     auto const last = static_cast<std::ptrdiff_t>(block.transactions.size());
     promises[last].get_future().wait();
+
+    // output
+    ofile_agg << block.header.number << ", " << nonzero_unaccessed << ", "
+              << nonzero_accessed << ", " << zero_unaccessed << ", "
+              << zero_accessed << std::endl;
+
+    nonzero_unaccessed = nonzero_accessed = zero_unaccessed = zero_accessed = 0;
+    accessed.clear();
 
     std::vector<Receipt> receipts;
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
