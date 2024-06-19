@@ -26,10 +26,20 @@
 #include <fstream>
 #include <set>
 
+#include <monad/core/global.hpp>
+
 MONAD_NAMESPACE_BEGIN
 
 static std::ofstream ofile_nonzero("write_first_storage_non_zero.csv");
 static std::ofstream ofile_zero("write_first_storage_zero.csv");
+
+extern uint64_t blk_num;
+extern std::set<std::pair<Address, bytes32_t>> seen;
+
+extern uint64_t nonzero_unseen;
+extern uint64_t nonzero_seen;
+extern uint64_t zero_unseen;
+extern uint64_t zero_seen;
 
 BlockState::BlockState(Db &db)
     : db_{db}
@@ -38,6 +48,7 @@ BlockState::BlockState(Db &db)
 
 std::optional<Account> BlockState::read_account(Address const &address)
 {
+    blk_num++;
     // block state
     {
         StateDeltas::const_accessor it{};
@@ -196,35 +207,55 @@ void BlockState::merge(State const &state)
         }
     }
 
-    // temp
     for (auto const &acc_stor : state.write_storage_non_zero) {
-        ofile_nonzero
-            << fmt::format(
-                   "0x{:02x}",
-                   fmt::join(
-                       std::as_bytes(std::span(acc_stor.first.bytes)), ""))
-            << ", "
-            << fmt::format(
-                   "0x{:02x}",
-                   fmt::join(
-                       std::as_bytes(std::span(acc_stor.second.bytes)), ""))
-            << "\n";
+        if (seen.find(acc_stor) == seen.end()) {
+            ++nonzero_unseen;
+        }
+        else {
+            ++nonzero_seen;
+        }
+        seen.emplace(acc_stor);
     }
+
     for (auto const &acc_stor : state.write_storage_zero) {
-        ofile_zero
-            << fmt::format(
-                   "0x{:02x}",
-                   fmt::join(
-                       std::as_bytes(std::span(acc_stor.first.bytes)), ""))
-            << ", "
-            << fmt::format(
-                   "0x{:02x}",
-                   fmt::join(
-                       std::as_bytes(std::span(acc_stor.second.bytes)), ""))
-            << "\n";
+        if (seen.find(acc_stor) == seen.end()) {
+            ++zero_unseen;
+        }
+        else {
+            ++zero_seen;
+        }
+        seen.emplace(acc_stor);
     }
-    ofile_nonzero.flush();
-    ofile_zero.flush();
+
+    // // temp
+    // for (auto const &acc_stor : state.write_storage_non_zero) {
+    //     ofile_nonzero
+    //         << fmt::format(
+    //                "0x{:02x}",
+    //                fmt::join(
+    //                    std::as_bytes(std::span(acc_stor.first.bytes)), ""))
+    //         << ", "
+    //         << fmt::format(
+    //                "0x{:02x}",
+    //                fmt::join(
+    //                    std::as_bytes(std::span(acc_stor.second.bytes)), ""))
+    //         << "\n";
+    // }
+    // for (auto const &acc_stor : state.write_storage_zero) {
+    //     ofile_zero
+    //         << fmt::format(
+    //                "0x{:02x}",
+    //                fmt::join(
+    //                    std::as_bytes(std::span(acc_stor.first.bytes)), ""))
+    //         << ", "
+    //         << fmt::format(
+    //                "0x{:02x}",
+    //                fmt::join(
+    //                    std::as_bytes(std::span(acc_stor.second.bytes)), ""))
+    //         << "\n";
+    // }
+    // ofile_nonzero.flush();
+    // ofile_zero.flush();
 }
 
 void BlockState::commit(std::vector<Receipt> const &receipts)

@@ -26,6 +26,8 @@
 #include <fstream>
 #include <optional>
 
+#include <monad/core/global.hpp>
+
 MONAD_NAMESPACE_BEGIN
 
 class ReplayFromBlockDb
@@ -104,6 +106,7 @@ public:
         uint64_t i = 0;
         for (; i < nblocks; ++i) {
             uint64_t const block_number = start_block_number + i;
+            blk_num = block_number;
             if (MONAD_UNLIKELY(!block_number)) {
                 break; // wrapped
             }
