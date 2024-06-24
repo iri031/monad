@@ -75,6 +75,39 @@ monad_async_result monad_async_task_socket_create(
     return monad_async_make_success(0);
 }
 
+monad_async_result monad_async_task_socket_create_from_existing_fd(
+    monad_async_socket *sock, monad_async_task task_, int fd)
+{
+    struct monad_async_executor_impl *ex =
+        (struct monad_async_executor_impl *)atomic_load_explicit(
+            &task_->current_executor, memory_order_acquire);
+    if (ex == nullptr) {
+        return monad_async_make_failure(EINVAL);
+    }
+    struct monad_async_socket_impl *p =
+        (struct monad_async_socket_impl *)calloc(
+            1, sizeof(struct monad_async_socket_impl));
+    if (p == nullptr) {
+        return monad_async_make_failure(errno);
+    }
+    p->head.executor = &ex->head;
+    p->io_uring_file_index = (unsigned)-1;
+    struct monad_async_task_impl *task = (struct monad_async_task_impl *)task_;
+    if (task->please_cancel_invoked) {
+        (void)monad_async_task_socket_destroy(task_, (monad_async_socket)p);
+        return monad_async_make_failure(ECANCELED);
+    }
+    unsigned file_index = monad_async_executor_alloc_file_index(ex, fd);
+    if (file_index == (unsigned)-1) {
+        (void)monad_async_task_socket_destroy(task_, (monad_async_socket)p);
+        return monad_async_make_failure(ENOMEM);
+    }
+    p->status = monad_async_socket_status_io_uring_file_index;
+    p->io_uring_file_index = file_index;
+    *sock = (monad_async_socket)p;
+    return monad_async_make_success(0);
+}
+
 monad_async_result monad_async_task_socket_destroy(
     monad_async_task task_, monad_async_socket sock_)
 {
@@ -86,6 +119,9 @@ monad_async_result monad_async_task_socket_destroy(
         struct monad_async_executor_impl *ex =
             (struct monad_async_executor_impl *)atomic_load_explicit(
                 &task_->current_executor, memory_order_acquire);
+        if (ex == nullptr) {
+            return monad_async_make_failure(EINVAL);
+        }
         struct io_uring_sqe *sqe =
             get_sqe_suspending_if_necessary(ex, task, false);
         io_uring_prep_close(sqe, 0);
@@ -164,15 +200,16 @@ monad_async_task_socket_listen(monad_async_socket sock_, int backlog)
     return monad_async_make_success(0);
 }
 
-static inline monad_async_result
-monad_async_task_socket_task_op_cancel(struct monad_async_task_impl *task)
+static inline monad_async_result monad_async_task_socket_task_op_cancel(
+    struct monad_async_executor_impl *ex, struct monad_async_task_impl *task)
 {
-    struct monad_async_executor_impl *ex =
-        (struct monad_async_executor_impl *)atomic_load_explicit(
-            &task->head.current_executor, memory_order_acquire);
-    struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task, false);
+    struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(
+        ex,
+        (struct monad_async_task_impl *)atomic_load_explicit(
+            &ex->head.current_task, memory_order_acquire),
+        false);
     io_uring_prep_cancel(sqe, io_uring_mangle_into_data(task), 0);
-    return monad_async_make_success(EAGAIN); // Canceller needs to wait
+    return monad_async_make_failure(EAGAIN); // Canceller needs to wait
 }
 
 static inline monad_async_result monad_async_task_socket_iostatus_op_cancel(
@@ -184,7 +221,7 @@ static inline monad_async_result monad_async_task_socket_iostatus_op_cancel(
             &task->head.current_executor, memory_order_acquire);
     struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task, false);
     io_uring_prep_cancel(sqe, io_uring_mangle_into_data(iostatus), 0);
-    return monad_async_make_success(EAGAIN); // Canceller needs to wait
+    return monad_async_make_failure(EAGAIN); // Canceller needs to wait
 }
 
 monad_async_result monad_async_task_socket_transfer_to_uring(
@@ -200,6 +237,9 @@ monad_async_result monad_async_task_socket_transfer_to_uring(
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
+    if (ex == nullptr) {
+        return monad_async_make_failure(EINVAL);
+    }
     unsigned file_index = monad_async_executor_alloc_file_index(
         ex,
         (sock->status == monad_async_socket_status_userspace_file_descriptor)
@@ -298,6 +338,9 @@ monad_async_result monad_async_task_socket_accept(
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
+    if (ex == nullptr) {
+        return monad_async_make_failure(EINVAL);
+    }
     unsigned connected_file_index =
         monad_async_executor_alloc_file_index(ex, -1);
     if (connected_file_index == (unsigned)-1) {
@@ -373,7 +416,10 @@ void monad_async_task_socket_connect(
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
+    assert(ex != nullptr);
     struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task, false);
+    task = (struct monad_async_task_impl *)
+               task_->io_recipient_task; // WARNING: task may not be task!
     io_uring_prep_connect(sqe, (int)sock->io_uring_file_index, addr, addrlen);
     sqe->flags |= IOSQE_FIXED_FILE;
     io_uring_sqe_set_data(sqe, iostatus, task);
@@ -407,7 +453,10 @@ void monad_async_task_socket_shutdown(
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
+    assert(ex != nullptr);
     struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task, false);
+    task = (struct monad_async_task_impl *)
+               task_->io_recipient_task; // WARNING: task may not be task!
     io_uring_prep_shutdown(sqe, (int)sock->io_uring_file_index, how);
     sqe->flags |= IOSQE_FIXED_FILE;
     io_uring_sqe_set_data(sqe, iostatus, task);
@@ -442,7 +491,10 @@ void monad_async_task_socket_recv(
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
+    assert(ex != nullptr);
     struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task, false);
+    task = (struct monad_async_task_impl *)
+               task_->io_recipient_task; // WARNING: task may not be task!
     if (msg->msg_iovlen != 1) {
         io_uring_prep_recvmsg(sqe, (int)sock->io_uring_file_index, msg, flags);
     }
@@ -491,7 +543,10 @@ void monad_async_task_socket_send(
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task_->current_executor, memory_order_acquire);
+    assert(ex != nullptr);
     struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task, false);
+    task = (struct monad_async_task_impl *)
+               task_->io_recipient_task; // WARNING: task may not be task!
     if (msg->msg_iovlen != 1) {
         io_uring_prep_sendmsg(sqe, (int)sock->io_uring_file_index, msg, flags);
     }

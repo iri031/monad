@@ -2,12 +2,18 @@
 
 #include "test_common.hpp"
 
+#include "monad/async/config.h"
+#include "monad/async/cpp_helpers.hpp"
+#include "monad/async/executor.h"
 #include "monad/async/file_io.h"
+#include "monad/async/task.h"
 #include "monad/async/util.h"
 
+#include <array>
+#include <atomic>
 #include <chrono>
-#include <filesystem>
-#include <fstream>
+#include <memory>
+#include <vector>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -190,9 +196,13 @@ TEST(file_io, registered_buffers)
 
             // Write to the file
             {
-                monad_async_executor_registered_io_buffer buffer;
-                to_result(monad_async_executor_claim_registered_io_buffer(
-                              &buffer, task->current_executor, 4097, true))
+                monad_async_task_registered_io_buffer buffer;
+                to_result(
+                    monad_async_task_claim_registered_io_buffer(
+                        &buffer,
+                        task,
+                        4097,
+                        {.for_write_ring = true, .fail_dont_suspend = false}))
                     .value();
                 monad_async_io_status iostatus{};
                 memcpy(buffer.iov->iov_base, "hello world", 11);
@@ -219,15 +229,15 @@ TEST(file_io, registered_buffers)
                           << (iostatus.ticks_when_completed -
                               iostatus.ticks_when_initiated)
                           << " ticks." << std::endl;
-                to_result(monad_async_executor_release_registered_io_buffer(
-                              task->current_executor, buffer.index))
+                to_result(monad_async_task_release_registered_io_buffer(
+                              task, buffer.index))
                     .value();
             }
 
             // Get my registered buffer
-            monad_async_executor_registered_io_buffer buffer;
-            to_result(monad_async_executor_claim_registered_io_buffer(
-                          &buffer, task->current_executor, 4097, false))
+            monad_async_task_registered_io_buffer buffer;
+            to_result(monad_async_task_claim_registered_io_buffer(
+                          &buffer, task, 4097, {}))
                 .value();
             // Initiate two concurrent reads
             monad_async_io_status iostatus[2]{};
@@ -284,8 +294,8 @@ TEST(file_io, registered_buffers)
                           task->ticks_when_suspended_awaiting)
                       << " ticks." << std::endl;
 
-            to_result(monad_async_executor_release_registered_io_buffer(
-                          task->current_executor, buffer.index))
+            to_result(monad_async_task_release_registered_io_buffer(
+                          task, buffer.index))
                 .value();
             return monad_async_make_success(0);
         }
@@ -294,9 +304,9 @@ TEST(file_io, registered_buffers)
     // Make an executor
     monad_async_executor_attr ex_attr{};
     ex_attr.io_uring_ring.entries = 64;
-    ex_attr.io_uring_ring.registered_buffers.large = 1;
+    ex_attr.io_uring_ring.registered_buffers.large_count = 1;
     ex_attr.io_uring_wr_ring.entries = 8;
-    ex_attr.io_uring_wr_ring.registered_buffers.large = 1;
+    ex_attr.io_uring_wr_ring.registered_buffers.large_count = 1;
     auto ex = make_executor(ex_attr);
 
     // Make a context switcher and a task, and attach the task to the executor
@@ -510,9 +520,9 @@ TEST(file_io, benchmark)
             };
 
             auto fh = make_file(task, nullptr, tempfilepath, how);
-            monad_async_executor_registered_io_buffer buffer;
-            to_result(monad_async_executor_claim_registered_io_buffer(
-                          &buffer, task->current_executor, 1, false))
+            monad_async_task_registered_io_buffer buffer;
+            to_result(monad_async_task_claim_registered_io_buffer(
+                          &buffer, task, 1, {}))
                 .value();
             std::vector<monad_async_io_status> iostatus(128);
             uint32_t ops = 0;
@@ -564,8 +574,8 @@ TEST(file_io, benchmark)
                 ops++;
             }
             auto const end = std::chrono::steady_clock::now();
-            to_result(monad_async_executor_release_registered_io_buffer(
-                          task->current_executor, buffer.index))
+            to_result(monad_async_task_release_registered_io_buffer(
+                          task, buffer.index))
                 .value();
             auto const diff =
                 double(std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -583,7 +593,7 @@ TEST(file_io, benchmark)
     // Make an executor
     monad_async_executor_attr ex_attr{};
     ex_attr.io_uring_ring.entries = 128;
-    ex_attr.io_uring_ring.registered_buffers.small = 2;
+    ex_attr.io_uring_ring.registered_buffers.small_count = 2;
     auto ex = make_executor(ex_attr);
 
     // Make a context switcher and two tasks which do the same thing, but with
@@ -621,4 +631,165 @@ TEST(file_io, benchmark)
         to_result(monad_async_executor_run(ex.get(), size_t(-1), nullptr))
             .value();
     }
+}
+
+TEST(file_io, sqe_exhaustion_does_not_reorder_writes)
+{
+    static constexpr size_t COUNT = 64;
+
+    struct shared_state_t
+    {
+        executor_ptr ex;
+        context_switcher_ptr switcher;
+        uint32_t offset{0};
+        std::vector<monad_async_file_offset> seq;
+        std::vector<task_ptr> tasks;
+        std::optional<file_ptr> fh;
+
+        shared_state_t()
+        {
+            monad_async_executor_attr ex_attr{};
+            ex_attr.io_uring_ring.entries = 4;
+            ex_attr.io_uring_wr_ring.entries = 4;
+            ex_attr.io_uring_wr_ring.registered_buffers.small_count = COUNT / 2;
+            ex = make_executor(ex_attr);
+
+            switcher = make_context_switcher(monad_async_context_switcher_sjlj);
+
+            seq.reserve(COUNT * 4);
+            tasks.reserve(COUNT * 4);
+        }
+
+        ~shared_state_t()
+        {
+            monad_async_task_attr t_attr{};
+            auto t = make_task(switcher.get(), t_attr);
+            t->user_ptr = (void *)this;
+            t->user_code = +[](monad_async_task task) -> monad_async_result {
+                auto *shared_state = (shared_state_t *)task->user_ptr;
+                shared_state->fh.reset();
+                return monad_async_make_success(0);
+            };
+            to_result(monad_async_task_attach(ex.get(), t.get(), nullptr))
+                .value();
+            do {
+                to_result(
+                    monad_async_executor_run(ex.get(), size_t(-1), nullptr))
+                    .value();
+            }
+            while (monad_async_executor_has_work(ex.get()));
+            assert(!fh.has_value());
+        }
+
+        monad_async_result task(monad_async_task task)
+        {
+            if (!fh) {
+                monad_async_file file;
+                int fd = monad_async_make_temporary_inode();
+                to_result(monad_async_task_file_create_from_existing_fd(
+                              &file, task, fd))
+                    .value();
+                close(fd);
+                fh = std::unique_ptr<monad_async_file_head, file_deleter>(
+                    file,
+                    file_deleter(task->current_executor.load(
+                        std::memory_order_acquire)));
+            }
+            else {
+                monad_async_task_registered_io_buffer buffer;
+                to_result(
+                    monad_async_task_claim_registered_io_buffer(
+                        &buffer,
+                        task,
+                        512,
+                        {.for_write_ring = true, .fail_dont_suspend = false}))
+                    .value();
+                auto myoffset = offset;
+                offset += 512;
+                monad_async_io_status status;
+                monad_async_task_file_write(
+                    &status,
+                    task,
+                    fh->get(),
+                    buffer.index,
+                    buffer.iov,
+                    1,
+                    myoffset,
+                    0);
+                monad_async_io_status *completed;
+                to_result(monad_async_task_suspend_until_completed_io(
+                              &completed,
+                              task,
+                              monad_async_duration_infinite_non_cancelling))
+                    .value();
+                if (completed != &status) {
+                    abort();
+                }
+                if (seq.size() == seq.capacity()) {
+                    abort();
+                }
+                seq.push_back(myoffset);
+                std::cout << seq.size() << std::endl;
+                to_result(monad_async_task_release_registered_io_buffer(
+                              task, buffer.index))
+                    .value();
+            }
+
+            if (seq.size() < COUNT) {
+                monad_async_task_attr t_attr{};
+                tasks.emplace_back(make_task(switcher.get(), t_attr));
+                tasks.back()->user_ptr = (void *)this;
+                tasks.back()->user_code =
+                    +[](monad_async_task task) -> monad_async_result {
+                    return ((shared_state_t *)task->user_ptr)->task(task);
+                };
+                to_result(monad_async_task_attach(
+                              ex.get(), tasks.back().get(), nullptr))
+                    .value();
+                tasks.emplace_back(make_task(switcher.get(), t_attr));
+                tasks.back()->user_ptr = (void *)this;
+                tasks.back()->user_code =
+                    +[](monad_async_task task) -> monad_async_result {
+                    return ((shared_state_t *)task->user_ptr)->task(task);
+                };
+                to_result(monad_async_task_attach(
+                              ex.get(), tasks.back().get(), nullptr))
+                    .value();
+                tasks.emplace_back(make_task(switcher.get(), t_attr));
+                tasks.back()->user_ptr = (void *)this;
+                tasks.back()->user_code =
+                    +[](monad_async_task task) -> monad_async_result {
+                    return ((shared_state_t *)task->user_ptr)->task(task);
+                };
+                to_result(monad_async_task_attach(
+                              ex.get(), tasks.back().get(), nullptr))
+                    .value();
+            }
+            return monad_async_make_success(0);
+        }
+    } shared_state;
+
+    monad_async_task_attr t_attr{};
+    auto t = make_task(shared_state.switcher.get(), t_attr);
+    t->user_ptr = (void *)&shared_state;
+    t->user_code = +[](monad_async_task task) -> monad_async_result {
+        return ((shared_state_t *)task->user_ptr)->task(task);
+    };
+    to_result(monad_async_task_attach(shared_state.ex.get(), t.get(), nullptr))
+        .value();
+    do {
+        to_result(monad_async_executor_run(
+                      shared_state.ex.get(), size_t(-1), nullptr))
+            .value();
+    }
+    while (monad_async_executor_has_work(shared_state.ex.get()));
+    std::cout << "   " << shared_state.seq.size() << " offsets written."
+              << std::endl;
+
+    uint32_t offset2 = 0;
+    for (auto &i : shared_state.seq) {
+        EXPECT_EQ(i, offset2);
+        offset2 += 512;
+    }
+    EXPECT_EQ(shared_state.seq.back(), shared_state.offset - 512);
 }

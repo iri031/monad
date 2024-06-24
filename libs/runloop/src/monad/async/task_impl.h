@@ -81,19 +81,31 @@ static inline monad_async_cpu_ticks_count_t get_ticks_count(memory_order rel)
     return ret;
 }
 
+struct io_buffer_awaiting_list_item_t
+{
+    struct io_buffer_awaiting_list_item_t *prev, *next;
+};
+struct monad_async_executor_impl;
+
 struct monad_async_task_impl
 {
     struct monad_async_task_head head;
+    char magic[8];
     struct monad_async_task_impl *prev, *next;
     monad_async_context context;
     bool please_cancel_invoked;
-    monad_async_result (*please_cancel)(struct monad_async_task_impl *task);
+    monad_async_result (*please_cancel)(
+        struct monad_async_executor_impl *ex,
+        struct monad_async_task_impl *task);
 
     struct
     {
         monad_async_io_status *front, *back;
         size_t count;
     } io_submitted, io_completed;
+
+    struct io_buffer_awaiting_list_item_t io_buffer_awaiting;
+    bool io_buffer_awaiting_is_for_write;
 
     monad_async_io_status **completed;
 
@@ -194,6 +206,17 @@ struct monad_async_task_impl
             inc(*counter);                                                     \
     }                                                                          \
     LIST_CHECK(list)
+// Note inserts BEFORE pos. pos cannot be first item (use prepend!)
+#define LIST_INSERT2(list, pos, item, counter, inc, dec)                       \
+    assert((pos)->prev != nullptr);                                            \
+    (item)->next = (pos);                                                      \
+    (item)->prev = (pos)->prev;                                                \
+    (pos)->prev = (item);                                                      \
+    (item)->prev->next = (item);                                               \
+    (list).count++;                                                            \
+    if ((counter) != nullptr)                                                  \
+        inc(*counter);                                                         \
+    LIST_CHECK(list)
 #define LIST_REMOVE2(list, item, counter, inc, dec)                            \
     if ((list).front == (item) && (list).back == (item)) {                     \
         assert((list).count == 1);                                             \
@@ -237,6 +260,8 @@ struct monad_async_task_impl
     LIST_PREPEND2(list, item, counter, LIST_COUNTER_INCR, LIST_COUNTER_DECR)
 #define LIST_APPEND(list, item, counter)                                       \
     LIST_APPEND2(list, item, counter, LIST_COUNTER_INCR, LIST_COUNTER_DECR)
+#define LIST_INSERT(list, pos, item, counter)                                  \
+    LIST_INSERT2(list, pos, item, counter, LIST_COUNTER_INCR, LIST_COUNTER_DECR)
 #define LIST_REMOVE(list, item, counter)                                       \
     LIST_REMOVE2(list, item, counter, LIST_COUNTER_INCR, LIST_COUNTER_DECR)
 
@@ -254,6 +279,14 @@ struct monad_async_task_impl
 #define LIST_APPEND_ATOMIC_COUNTER(list, item, counter)                        \
     LIST_APPEND2(                                                              \
         list,                                                                  \
+        item,                                                                  \
+        counter,                                                               \
+        LIST_ATOMIC_COUNTER_INCR,                                              \
+        LIST_ATOMIC_COUNTER_DECR)
+#define LIST_INSERT_ATOMIC_COUNTER(list, pos, item, counter)                   \
+    LIST_INSERT2(                                                              \
+        list,                                                                  \
+        pos,                                                                   \
         item,                                                                  \
         counter,                                                               \
         LIST_ATOMIC_COUNTER_INCR,                                              \

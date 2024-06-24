@@ -1,13 +1,18 @@
 #pragma once
 
 // Needs to come before others, on clang <stdatomic.h> breaks <atomic>
+#include <atomic>
 #include <boost/outcome/experimental/status_result.hpp>
 
 #include <liburing.h>
 
 #include "all.h"
+#include "config.h"
+#include "executor.h"
+#include "task.h"
 
 #include <memory>
+#include <type_traits>
 
 namespace monad
 {
@@ -38,7 +43,8 @@ namespace monad
 
         //! \brief Construct an executor instance, and return it in a smart
         //! pointer
-        executor_ptr make_executor(struct monad_async_executor_attr &attr)
+        inline executor_ptr
+        make_executor(struct monad_async_executor_attr &attr)
         {
             monad_async_executor ex;
             auto r = monad_async_executor_create(&ex, &attr);
@@ -50,11 +56,17 @@ namespace monad
 
         struct file_deleter
         {
-            monad_async_task task;
+            monad_async_executor ex;
 
-            void operator()(monad_async_file ex) const
+            constexpr file_deleter(monad_async_executor ex_)
+                : ex(ex_)
             {
-                auto r = ::monad_async_task_file_destroy(task, ex);
+            }
+
+            void operator()(monad_async_file f) const
+            {
+                auto r = ::monad_async_task_file_destroy(
+                    ex->current_task.load(std::memory_order_acquire), f);
                 if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
                     throw_exception(r);
                 }
@@ -65,7 +77,7 @@ namespace monad
 
         //! \brief Construct a file instance, and return it in a smart
         //! pointer
-        file_ptr make_file(
+        inline file_ptr make_file(
             monad_async_task task, monad_async_file base, char const *subpath,
             struct open_how &how)
         {
@@ -75,7 +87,10 @@ namespace monad
             if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
                 throw_exception(r);
             }
-            return file_ptr(ex, file_deleter{task});
+            return file_ptr(
+                ex,
+                file_deleter{
+                    task->current_executor.load(std::memory_order_acquire)});
         }
 
         struct context_switcher_deleter
@@ -94,7 +109,7 @@ namespace monad
 
         //! \brief Construct a context switcher instance, and return it in a
         //! smart pointer
-        context_switcher_ptr
+        inline context_switcher_ptr
         make_context_switcher(monad_async_context_switcher_impl impl)
         {
             monad_async_context_switcher ex;
@@ -123,7 +138,7 @@ namespace monad
 
         //! \brief Construct a context instance, and return it in a
         //! smart pointer
-        context_ptr make_context(
+        inline context_ptr make_context(
             monad_async_context_switcher impl, monad_async_task task,
             struct monad_async_task_attr &attr)
         {
@@ -137,11 +152,17 @@ namespace monad
 
         struct socket_deleter
         {
-            monad_async_task task;
+            monad_async_executor ex;
 
-            void operator()(monad_async_socket ex) const
+            constexpr socket_deleter(monad_async_executor ex_)
+                : ex(ex_)
             {
-                auto r = ::monad_async_task_socket_destroy(task, ex);
+            }
+
+            void operator()(monad_async_socket s) const
+            {
+                auto r = ::monad_async_task_socket_destroy(
+                    ex->current_task.load(std::memory_order_acquire), s);
                 if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
                     throw_exception(r);
                 }
@@ -153,7 +174,7 @@ namespace monad
 
         //! \brief Construct a socket instance, and return it in a smart
         //! pointer
-        socket_ptr make_socket(
+        inline socket_ptr make_socket(
             monad_async_task task, int domain, int type, int protocol,
             unsigned flags)
         {
@@ -163,7 +184,10 @@ namespace monad
             if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
                 throw_exception(r);
             }
-            return socket_ptr(ex, socket_deleter{task});
+            return socket_ptr(
+                ex,
+                socket_deleter{
+                    task->current_executor.load(std::memory_order_acquire)});
         }
 
         struct task_deleter
@@ -180,7 +204,7 @@ namespace monad
         using task_ptr = std::unique_ptr<monad_async_task_head, task_deleter>;
 
         //! \brief Construct a task instance, and return it in a smart pointer
-        task_ptr make_task(
+        inline task_ptr make_task(
             monad_async_context_switcher switcher,
             struct monad_async_task_attr &attr)
         {
@@ -208,7 +232,7 @@ namespace monad
 
         //! \brief Construct a work dispatcher instance, and return it in a
         //! smart pointer
-        work_dispatcher_ptr
+        inline work_dispatcher_ptr
         make_work_dispatcher(struct monad_async_work_dispatcher_attr &attr)
         {
             monad_async_work_dispatcher t;
@@ -236,7 +260,7 @@ namespace monad
 
         //! \brief Construct a work dispatcher executor instance, and return it
         //! in a smart pointer
-        work_dispatcher_executor_ptr make_work_dispatcher_executor(
+        inline work_dispatcher_executor_ptr make_work_dispatcher_executor(
             monad_async_work_dispatcher dp,
             struct monad_async_work_dispatcher_executor_attr &attr)
         {
@@ -246,6 +270,129 @@ namespace monad
                 throw_exception(r);
             }
             return work_dispatcher_executor_ptr(t);
+        }
+
+        namespace detail
+        {
+            struct task_attach_impl_base
+            {
+                monad_async_executor ex;
+                monad_async_task task;
+
+            protected:
+                constexpr task_attach_impl_base(
+                    monad_async_executor ex_, monad_async_task task_)
+                    : ex(ex_)
+                    , task(task_)
+                {
+                }
+
+                task_attach_impl_base(task_attach_impl_base &&o) noexcept
+                    : ex(o.ex)
+                    , task(o.task)
+                {
+                    o.ex = nullptr;
+                    o.task = nullptr;
+                }
+
+            public:
+                task_attach_impl_base(task_attach_impl_base const &) = delete;
+                task_attach_impl_base &
+                operator=(task_attach_impl_base const &) = delete;
+                task_attach_impl_base &
+                operator=(task_attach_impl_base &&) = delete;
+
+                virtual ~task_attach_impl_base()
+                {
+                    if (task != nullptr) {
+                        if (!monad_async_task_has_exited(task)) {
+                            auto r =
+                                to_result(monad_async_task_cancel(ex, task));
+                            if (!r) {
+                                if (r.assume_error() !=
+                                    errc::resource_unavailable_try_again) {
+                                    r.value();
+                                }
+                            }
+                            while (!monad_async_task_has_exited(task)) {
+                                to_result(
+                                    monad_async_executor_run(ex, 1, nullptr))
+                                    .value();
+                            }
+                        }
+                        task->user_code = nullptr;
+                        task->user_ptr = nullptr;
+                    }
+                }
+
+                constexpr bool done() const noexcept
+                {
+                    return task != nullptr;
+                }
+            };
+
+            template <class F>
+            struct task_attach_impl final : public task_attach_impl_base
+            {
+                F f;
+
+                constexpr task_attach_impl(
+                    F &&f_, monad_async_executor ex, monad_async_task task)
+                    : task_attach_impl_base(ex, task)
+                    , f(std::forward<F>(f_))
+                {
+                }
+
+                task_attach_impl(task_attach_impl &&) = default;
+
+                static monad_async_result trampoline(monad_async_task task)
+                {
+                    auto *self = (task_attach_impl *)task->user_ptr;
+                    assert(task == self->task);
+                    auto ret = self->f(task);
+                    // self may be deleted at this point
+                    task->user_code = nullptr;
+                    task->user_ptr = nullptr;
+                    return ret;
+                }
+            };
+        }
+
+        //! \brief Convenience attach of a C++ callable to a task.
+        //! Destroying the returned type cancels the task and blocks until task
+        //! exits.
+        template <class F, class... Args>
+            requires(
+                std::is_invocable_v<F, monad_async_task_head *, Args...> &&
+                std::is_constructible_v<
+                    BOOST_OUTCOME_V2_NAMESPACE::experimental::status_result<
+                        intptr_t>,
+                    std::invoke_result_t<F, monad_async_task_head *, Args...>>)
+        inline constexpr auto attach_to_executor(
+            monad_async_executor ex, monad_async_task task, F &&f,
+            Args &&...args)
+        {
+            assert(monad_async_task_has_exited(task));
+            detail::task_attach_impl impl{
+                [f = std::move(f), ... args = std::move(args)](
+                    monad_async_task task) mutable -> monad_async_result {
+                    BOOST_OUTCOME_V2_NAMESPACE::experimental::status_result<
+                        intptr_t>
+                        ret{f(task, std::move(args)...)};
+                    // this may be deleted by now
+                    return ret ? monad_async_make_success(ret.assume_value())
+                               : monad_async_make_failure(
+                                     (int)ret.assume_error().value());
+                },
+                ex,
+                task};
+            using impl_type = std::decay_t<decltype(impl)>;
+            task->user_code = impl_type::trampoline;
+            auto ret =
+                std::unique_ptr<impl_type>(new impl_type(std::move(impl)));
+            task->user_ptr = ret.get();
+            to_result(monad_async_task_attach(ex, task, nullptr)).value();
+            return ret;
         }
     }
 }
