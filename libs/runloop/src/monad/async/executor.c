@@ -293,6 +293,7 @@ static inline monad_async_result monad_async_executor_run_impl(
                            &ex->head.tasks_suspended_sqe_exhaustion,
                            memory_order_acquire) > 0 &&
                        io_uring_sq_space_left(&ex->wr_ring) > 0) {
+                    bool done = true;
                     struct resume_tasks_state resume_tasks_state = {
                         .ex = ex,
                         .global_max_items = &max_items,
@@ -304,6 +305,7 @@ static inline monad_async_result monad_async_executor_run_impl(
                         if (ex->tasks_suspended_submission_wr_ring
                                 [resume_tasks_state.current_priority]
                                     .count > 0) {
+                            done = false;
                             struct io_uring_sqe *sqe =
                                 io_uring_get_sqe(&ex->wr_ring);
                             if (sqe == nullptr) {
@@ -341,6 +343,9 @@ static inline monad_async_result monad_async_executor_run_impl(
                             break;
                         }
                     }
+                    if (done) {
+                        break;
+                    }
                 }
                 r = io_uring_peek_cqe(ring, &cqe);
                 if (timeout == nullptr || timeout != &no_waiting ||
@@ -360,6 +365,7 @@ static inline monad_async_result monad_async_executor_run_impl(
                                &ex->head.tasks_suspended_sqe_exhaustion,
                                memory_order_acquire) > 0 &&
                            io_uring_sq_space_left(&ex->ring) > 0) {
+                        bool done = true;
                         struct resume_tasks_state resume_tasks_state = {
                             .ex = ex,
                             .global_max_items = &max_items,
@@ -371,6 +377,7 @@ static inline monad_async_result monad_async_executor_run_impl(
                             if (ex->tasks_suspended_submission_ring
                                     [resume_tasks_state.current_priority]
                                         .count > 0) {
+                                done = false;
                                 struct io_uring_sqe *sqe =
                                     io_uring_get_sqe(&ex->ring);
                                 if (sqe == nullptr) {
@@ -407,6 +414,9 @@ static inline monad_async_result monad_async_executor_run_impl(
                                 }
                                 break;
                             }
+                        }
+                        if (done) {
+                            break;
                         }
                     }
                     if (atomic_load_explicit(
