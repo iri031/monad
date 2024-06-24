@@ -138,7 +138,7 @@ storage_pool::chunk::write_fd(size_t bytes_which_shall_be_written) noexcept
         if (!append_only_) {
             return std::pair<int, file_offset_t>{write_fd_, offset_};
         }
-        auto *metadata = device().metadata_;
+        auto const *metadata = device().metadata_;
         auto chunk_bytes_used =
             metadata->chunk_bytes_used(device().size_of_file_);
         MONAD_DEBUG_ASSERT(
@@ -225,7 +225,7 @@ bool storage_pool::chunk::try_trim_contents(uint32_t bytes)
             throw std::system_error(errno, std::system_category());
         }
         if (append_only_) {
-            auto *metadata = device().metadata_;
+            auto const *metadata = device().metadata_;
             auto chunk_bytes_used =
                 metadata->chunk_bytes_used(device().size_of_file_);
             chunk_bytes_used[chunkid_within_device_].store(
@@ -246,8 +246,8 @@ bool storage_pool::chunk::try_trim_contents(uint32_t bytes)
         // /sys/block/nvmeXXX/queue/discard_max_bytes and adjust accordingly,
         // however every NVMe SSD I'm aware of has 512 and 2Tb. If we ran on MMC
         // or legacy SATA SSDs this would be very different, but we never will.
-        auto *buffer =
-            (std::byte *)aligned_alloc(DISK_PAGE_SIZE, DISK_PAGE_SIZE);
+        auto *buffer = reinterpret_cast<std::byte *>(
+            aligned_alloc(DISK_PAGE_SIZE, DISK_PAGE_SIZE));
         auto unbuffer = make_scope_exit([&]() noexcept { ::free(buffer); });
         auto const remainder = offset_ + bytes - range[0];
         // Copy any fragment of DISK_PAGE_SIZE about to get TRIMed to a
@@ -290,7 +290,7 @@ bool storage_pool::chunk::try_trim_contents(uint32_t bytes)
             }
         }
         if (append_only_) {
-            auto *metadata = device().metadata_;
+            auto const *metadata = device().metadata_;
             auto chunk_bytes_used =
                 metadata->chunk_bytes_used(device().size_of_file_);
             chunk_bytes_used[chunkid_within_device_].store(
@@ -363,8 +363,8 @@ storage_pool::device storage_pool::make_device_(
     fnv1a_hash<uint32_t>::add(unique_hash, uint32_t(stat.st_size));
     size_t total_size = 0;
     {
-        auto *buffer =
-            (std::byte *)aligned_alloc(DISK_PAGE_SIZE, DISK_PAGE_SIZE * 2);
+        auto *buffer = reinterpret_cast<std::byte *>(
+            aligned_alloc(DISK_PAGE_SIZE, DISK_PAGE_SIZE * 2));
         auto unbuffer = make_scope_exit([&]() noexcept { ::free(buffer); });
         auto const offset = round_down_align<DISK_PAGE_BITS>(
             file_offset_t(stat.st_size) - sizeof(device::metadata_t));
@@ -462,7 +462,8 @@ storage_pool::device storage_pool::make_device_(
         throw std::system_error(errno, std::system_category());
     }
     auto *metadata = start_lifetime_as<device::metadata_t>(
-        (std::byte *)addr + stat.st_size - offset - sizeof(device::metadata_t));
+        reinterpret_cast<std::byte *>(addr) + stat.st_size - offset -
+        sizeof(device::metadata_t));
     MONAD_DEBUG_ASSERT(0 == memcmp(metadata->magic, "MND0", 4));
     if (auto const **dev = std::get_if<1>(&dev_no_or_dev)) {
         unique_hash = (*dev)->unique_hash_;
@@ -475,7 +476,7 @@ storage_pool::device storage_pool::make_device_(
         metadata);
 }
 
-void storage_pool::fill_chunks_(creation_flags flags)
+void storage_pool::fill_chunks_(creation_flags const &flags)
 {
     (void)flags;
     auto hashshouldbe = fnv1a_hash<uint32_t>::begin();
@@ -487,7 +488,7 @@ void storage_pool::fill_chunks_(creation_flags flags)
     std::vector<size_t> chunks;
     size_t total = 0;
     chunks.reserve(devices_.size());
-    for (auto &device : devices_) {
+    for (auto const &device : devices_) {
         if (device.is_file() || device.is_block_device()) {
             auto const devicechunks = device.chunks();
             MONAD_ASSERT(devicechunks > 0);
@@ -506,7 +507,7 @@ void storage_pool::fill_chunks_(creation_flags flags)
             throw std::runtime_error("zonefs support isn't implemented yet");
         }
     }
-    for (auto &device : devices_) {
+    for (auto const &device : devices_) {
         if (device.metadata_->config_hash == 0) {
             device.metadata_->config_hash = uint32_t(hashshouldbe);
         }
@@ -739,9 +740,9 @@ storage_pool::~storage_pool()
             auto total_size =
                 device.metadata_->total_size(device.size_of_file_);
             ::munmap(
-                (void *)round_down_align<CPU_PAGE_BITS>(
+                reinterpret_cast<void *>(round_down_align<CPU_PAGE_BITS>(
                     (uintptr_t)device.metadata_ + sizeof(device::metadata_t) -
-                    total_size),
+                    total_size)),
                 total_size);
         }
         if (device.uncached_readfd_ != -1) {

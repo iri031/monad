@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <monad/async/config.hpp>
+#include <monad/async/erased_connected_operation.hpp>
 #include <monad/async/util.hpp>
 #include <monad/core/assert.h>
 #include <monad/core/byte_string.hpp>
@@ -25,6 +26,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -32,7 +34,9 @@
 #include <initializer_list>
 #include <iostream>
 #include <iterator>
+#include <stdexcept>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -88,6 +92,114 @@ namespace
             std::filesystem::remove(dbname);
         }
     };
+
+    template <typename DbBase>
+    struct DbTraverseFixture : public DbBase
+    {
+        uint64_t const block_id{0x123};
+        monad::byte_string const prefix{0x00_hex};
+
+        using DbBase::db;
+
+        DbTraverseFixture()
+            : DbBase()
+        {
+            auto const k1 = 0x12345678_hex;
+            auto const v1 = 0xcafebabe_hex;
+            auto const k2 = 0x12346678_hex;
+            auto const v2 = 0xdeadbeef_hex;
+            auto const k3 = 0x12445678_hex;
+            auto const v3 = 0xdeadbabe_hex;
+            auto u1 = make_update(k1, v1);
+            auto u2 = make_update(k2, v2);
+            auto u3 = make_update(k3, v3);
+            UpdateList ul;
+            ul.push_front(u1);
+            ul.push_front(u2);
+            ul.push_front(u3);
+
+            auto u_prefix = Update{
+                .key = prefix,
+                .value = monad::byte_string_view{},
+                .incarnation = false,
+                .next = std::move(ul)};
+
+            UpdateList ul_prefix;
+            ul_prefix.push_front(u_prefix);
+            this->db.upsert(std::move(ul_prefix), block_id);
+
+            /*
+                    00
+                    |
+                    12
+                  /    \
+                 34      445678
+                / \
+             5678  6678
+            */
+        }
+    };
+
+    struct DummyTraverseMachine : public TraverseMachine
+    {
+        Nibbles path{};
+
+        virtual bool down(unsigned char branch, Node const &node) override
+        {
+            if (branch == INVALID_BRANCH) {
+                return true;
+            }
+            path = concat(NibblesView{path}, branch, node.path_nibble_view());
+
+            if (node.has_value()) {
+                EXPECT_EQ(path.nibble_size(), KECCAK256_SIZE * 2);
+            }
+            return true;
+        }
+
+        virtual void up(unsigned char branch, Node const &node) override
+        {
+            auto const path_view = NibblesView{path};
+            auto const rem_size = [&] {
+                if (branch == INVALID_BRANCH) {
+                    MONAD_ASSERT(path_view.nibble_size() == 0);
+                    return 0;
+                }
+                int const rem_size = path_view.nibble_size() - 1 -
+                                     node.path_nibble_view().nibble_size();
+                MONAD_ASSERT(rem_size >= 0);
+                MONAD_ASSERT(
+                    path_view.substr(static_cast<unsigned>(rem_size)) ==
+                    concat(branch, node.path_nibble_view()));
+                return rem_size;
+            }();
+            path = path_view.substr(0, static_cast<unsigned>(rem_size));
+        }
+
+        virtual std::unique_ptr<TraverseMachine> clone() const override
+        {
+            return std::make_unique<DummyTraverseMachine>(*this);
+        }
+    };
+
+    std::pair<std::vector<monad::byte_string>, std::vector<Update>>
+    prepare_random_updates(unsigned size)
+    {
+        std::vector<monad::byte_string> bytes_alloc;
+        std::vector<Update> updates_alloc;
+        for (size_t i = 0; i < size; ++i) {
+            monad::byte_string kv(KECCAK256_SIZE, 0);
+            MONAD_ASSERT(kv.size() == KECCAK256_SIZE);
+            keccak256((unsigned char const *)&i, 8, kv.data());
+            bytes_alloc.emplace_back(kv);
+            updates_alloc.push_back(Update{
+                .key = bytes_alloc.back(),
+                .value = bytes_alloc.back(),
+                .incarnation = false,
+                .next = UpdateList{}});
+        }
+        return std::make_pair(std::move(bytes_alloc), std::move(updates_alloc));
+    }
 }
 
 template <typename TFixture>
@@ -188,6 +300,76 @@ TEST_F(OnDiskDbWithFileFixture, read_only_db_single_thread)
         0x22f3b7fc4b987d8327ec4525baf4cb35087a75d9250a8a3be45881dd889027ad_hex);
 }
 
+TEST_F(OnDiskDbWithFileFixture, read_only_db_single_thread_async)
+{
+    auto const &kv = fixed_updates::kv;
+
+    auto const prefix = 0x00_hex;
+    uint64_t const block_id = 0x123;
+
+    {
+        auto u1 = make_update(kv[0].first, kv[0].second);
+        auto u2 = make_update(kv[1].first, kv[1].second);
+        UpdateList ul;
+        ul.push_front(u1);
+        ul.push_front(u2);
+
+        auto u_prefix = Update{
+            .key = prefix,
+            .value = monad::byte_string_view{},
+            .incarnation = false,
+            .next = std::move(ul)};
+        UpdateList ul_prefix;
+        ul_prefix.push_front(u_prefix);
+
+        this->db.upsert(std::move(ul_prefix), block_id);
+    }
+    ReadOnlyOnDiskDbConfig const ro_config{
+        .dbname_paths = this->config.dbname_paths};
+    Db ro_db{ro_config};
+
+    auto async_get = [&](auto &&sender) -> monad::byte_string {
+        using sender_type = std::decay_t<decltype(sender)>;
+        struct receiver_t
+        {
+            monad::byte_string ret;
+
+            enum : bool
+            {
+                lifetime_managed_internally = true
+            };
+
+            void set_value(
+                monad::async::erased_connected_operation *,
+                sender_type::result_type res)
+            {
+                MONAD_ASSERT(res);
+                MONAD_ASSERT(!res.assume_value().empty());
+                ret = std::move(res).assume_value();
+            }
+        };
+        auto *state =
+            new auto(monad::async::connect(std::move(sender), receiver_t{}));
+        state->initiate();
+        while (state->receiver().ret.empty()) {
+            ro_db.poll(false);
+        }
+        auto ret(std::move(state->receiver().ret));
+        delete state;
+        return ret;
+    };
+
+    EXPECT_EQ(
+        async_get(make_get_sender(ro_db, prefix + kv[0].first, block_id)),
+        kv[0].second);
+    EXPECT_EQ(
+        async_get(make_get_sender(ro_db, prefix + kv[1].first, block_id)),
+        kv[1].second);
+    EXPECT_EQ(
+        async_get(make_get_data_sender(ro_db, prefix, block_id)),
+        0x05a697d6698c55ee3e4d472c4907bca2184648bcfdd0e023e7ff7089dc984e7e_hex);
+}
+
 TEST(ReadOnlyDbTest, error_open_empty_rodb)
 {
     std::filesystem::path const dbname{
@@ -196,9 +378,9 @@ TEST(ReadOnlyDbTest, error_open_empty_rodb)
 
     // construct RWDb, storage pool is set up but db remains empty
     StateMachineAlwaysMerkle machine{};
-    OnDiskDbConfig config{
+    OnDiskDbConfig const config{
         .compaction = true, .dbname_paths = {dbname}, .file_size_db = 8};
-    Db db{machine, config};
+    Db const db{machine, config};
 
     // construct RODb
     ReadOnlyOnDiskDbConfig const ro_config{.dbname_paths = {dbname}};
@@ -263,7 +445,7 @@ TEST(ReadOnlyDbTest, read_only_db_concurrent)
     // construct RWDb
     uint64_t version = 0;
     StateMachineAlwaysMerkle machine{};
-    OnDiskDbConfig config{
+    OnDiskDbConfig const config{
         .compaction = true, .dbname_paths = {dbname}, .file_size_db = 8};
     Db db{machine, config};
     upsert_new_version(
@@ -287,6 +469,101 @@ TEST(ReadOnlyDbTest, read_only_db_concurrent)
     std::cout << "Writer finished. Max version in rwdb is "
               << db.get_latest_block_id().value() << ", min version in rwdb is "
               << db.get_earliest_block_id().value() << std::endl;
+}
+
+TEST(DbTest, read_only_db_traverse_concurrent)
+{
+    std::filesystem::path const dbname{
+        MONAD_ASYNC_NAMESPACE::working_temporary_directory() /
+        "monad_db_test_traverse_concurrent_XXXXXX"};
+    StateMachineAlwaysMerkle machine{};
+    OnDiskDbConfig config{// with compaction
+                          .compaction = true,
+                          .dbname_paths = {dbname},
+                          .file_size_db = 8};
+    Db db{machine, config};
+    auto [bytes_alloc, updates_alloc] = prepare_random_updates(20);
+
+    uint64_t version = 0;
+    auto upsert_once = [&] {
+        UpdateList ls;
+        for (auto &u : updates_alloc) {
+            ls.push_front(u);
+        }
+        db.upsert(std::move(ls), version);
+    };
+    upsert_once();
+
+    std::atomic<bool> done{false};
+
+    std::thread writer([&]() {
+        while (!done.load(std::memory_order_acquire)) {
+            ++version;
+            upsert_once();
+        }
+    });
+
+    ReadOnlyOnDiskDbConfig const ro_config{.dbname_paths = {dbname}};
+    Db ro_db{ro_config};
+    DummyTraverseMachine traverse_machine;
+
+    // read thread loop to traverse block 0 until it gets erased
+    auto res = ro_db.find({}, 0);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_TRUE(res.value().is_valid());
+    while (ro_db.traverse(res.value(), traverse_machine, 0)) {
+    }
+
+    done.store(true, std::memory_order_release);
+    writer.join();
+    EXPECT_TRUE(version > UpdateAuxImpl::version_history_len);
+}
+
+TEST(DBTest, benchmark_blocking_parallel_traverse)
+{
+    std::filesystem::path const dbname{
+        MONAD_ASYNC_NAMESPACE::working_temporary_directory() /
+        "monad_db_test_benchmark_traverse_XXXXXX"};
+    StateMachineAlwaysMerkle machine{};
+    OnDiskDbConfig config{// with compaction
+                          .compaction = true,
+                          .sq_thread_cpu{std::nullopt},
+                          .dbname_paths = {dbname},
+                          .file_size_db = 8};
+    Db db{machine, config};
+    auto [bytes_alloc, updates_alloc] = prepare_random_updates(2000);
+    UpdateList ls;
+    for (auto &u : updates_alloc) {
+        ls.push_front(u);
+    }
+    db.upsert(std::move(ls), 0);
+
+    // benchmark traverse
+    DummyTraverseMachine traverse_machine{};
+
+    auto res_cursor = db.find({}, 0);
+    ASSERT_TRUE(res_cursor.has_value());
+    ASSERT_TRUE(res_cursor.value().is_valid());
+
+    auto begin = std::chrono::steady_clock::now();
+    ASSERT_TRUE(db.traverse(res_cursor.value(), traverse_machine, 0));
+    auto end = std::chrono::steady_clock::now();
+    auto const parallel_elapsed =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - begin)
+            .count();
+    std::cout << "RODb parallel traversal takes " << parallel_elapsed
+              << " ms, ";
+
+    begin = std::chrono::steady_clock::now();
+    ASSERT_TRUE(db.traverse_blocking(res_cursor.value(), traverse_machine, 0));
+    end = std::chrono::steady_clock::now();
+    auto const blocking_elapsed =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - begin)
+            .count();
+    std::cout << "RWDb blocking traversal takes " << blocking_elapsed << " ms."
+              << std::endl;
+
+    EXPECT_TRUE(parallel_elapsed < blocking_elapsed);
 }
 
 TEST(ReadOnlyDbTest, load_correct_root_upon_reopen_nonempty_db)
@@ -403,20 +680,20 @@ TYPED_TEST(DbTest, simple_with_same_prefix)
         this->db.get_data(prefix, block_id).value(),
         0x22f3b7fc4b987d8327ec4525baf4cb35087a75d9250a8a3be45881dd889027ad_hex);
 
-    auto prefix_to_next_root =
-        serialize_as_big_endian<BLOCK_NUM_BYTES>(block_id) + prefix;
-    auto res = this->db.get(this->db.root(), prefix_to_next_root);
+    auto res = this->db.find(prefix, block_id);
     ASSERT_TRUE(res.has_value());
     NodeCursor const root_under_prefix = res.value();
     EXPECT_EQ(
-        this->db.get(root_under_prefix, kv[2].first).value().node->value(),
+        this->db.find(root_under_prefix, kv[2].first).value().node->value(),
         kv[2].second);
     EXPECT_EQ(
-        this->db.get(root_under_prefix, kv[3].first).value().node->value(),
+        this->db.find(root_under_prefix, kv[3].first).value().node->value(),
         kv[3].second);
     EXPECT_EQ(
         this->db.get_data(root_under_prefix, {}).value(),
         0x22f3b7fc4b987d8327ec4525baf4cb35087a75d9250a8a3be45881dd889027ad_hex);
+    auto prefix_to_next_root =
+        serialize_as_big_endian<BLOCK_NUM_BYTES>(block_id) + prefix;
     EXPECT_EQ(
         this->db.get_data(this->db.root(), prefix_to_next_root).value(),
         0x22f3b7fc4b987d8327ec4525baf4cb35087a75d9250a8a3be45881dd889027ad_hex);
@@ -484,20 +761,20 @@ TYPED_TEST(DbTest, simple_with_increasing_block_id_prefix)
         this->db.get_data(prefix, block_id).value(),
         0x22f3b7fc4b987d8327ec4525baf4cb35087a75d9250a8a3be45881dd889027ad_hex);
 
-    auto prefix_to_next_root =
-        serialize_as_big_endian<BLOCK_NUM_BYTES>(block_id) + prefix;
-    auto res = this->db.get(this->db.root(), prefix_to_next_root);
+    auto res = this->db.find(NibblesView{prefix}, block_id);
     ASSERT_TRUE(res.has_value());
     NodeCursor const root_under_prefix = res.value();
     EXPECT_EQ(
-        this->db.get(root_under_prefix, kv[2].first).value().node->value(),
+        this->db.find(root_under_prefix, kv[2].first).value().node->value(),
         kv[2].second);
     EXPECT_EQ(
-        this->db.get(root_under_prefix, kv[3].first).value().node->value(),
+        this->db.find(root_under_prefix, kv[3].first).value().node->value(),
         kv[3].second);
     EXPECT_EQ(
         this->db.get_data(root_under_prefix, {}).value(),
         0x22f3b7fc4b987d8327ec4525baf4cb35087a75d9250a8a3be45881dd889027ad_hex);
+    auto prefix_to_next_root =
+        serialize_as_big_endian<BLOCK_NUM_BYTES>(block_id) + prefix;
     EXPECT_EQ(
         this->db.get_data(this->db.root(), prefix_to_next_root).value(),
         0x22f3b7fc4b987d8327ec4525baf4cb35087a75d9250a8a3be45881dd889027ad_hex);
@@ -505,97 +782,56 @@ TYPED_TEST(DbTest, simple_with_increasing_block_id_prefix)
     EXPECT_FALSE(this->db.get(0x01_hex, block_id).has_value());
 }
 
-TYPED_TEST(DbTest, traverse)
+template <typename TFixture>
+struct DbTraverseTest : public TFixture
 {
-    auto const k1 = 0x12345678_hex;
-    auto const v1 = 0xcafebabe_hex;
-    auto const k2 = 0x12346678_hex;
-    auto const v2 = 0xdeadbeef_hex;
-    auto const k3 = 0x12445678_hex;
-    auto const v3 = 0xdeadbabe_hex;
-    auto u1 = make_update(k1, v1);
-    auto u2 = make_update(k2, v2);
-    auto u3 = make_update(k3, v3);
-    UpdateList ul;
-    ul.push_front(u1);
-    ul.push_front(u2);
-    ul.push_front(u3);
+};
 
-    uint64_t const block_id = 0x123;
-    auto const prefix = 0x00_hex;
-    auto u_prefix = Update{
-        .key = prefix,
-        .value = monad::byte_string_view{},
-        .incarnation = false,
-        .next = std::move(ul)};
+using DbTraverseTypes = ::testing::Types<
+    DbTraverseFixture<InMemoryDbFixture>, DbTraverseFixture<OnDiskDbFixture>>;
+TYPED_TEST_SUITE(DbTraverseTest, DbTraverseTypes);
 
-    UpdateList ul_prefix;
-    ul_prefix.push_front(u_prefix);
-    this->db.upsert(std::move(ul_prefix), block_id);
-
-    /*
-            00
-            |
-            12
-          /    \
-         34      445678
-        / \
-     5678  6678
-    */
+TYPED_TEST(DbTraverseTest, traverse)
+{
     struct SimpleTraverse : public TraverseMachine
     {
-        std::atomic<size_t> index = 0;
-        std::atomic<size_t> num_up = 0;
+        size_t &num_leaves;
+        size_t index{0};
+        size_t num_up{0};
 
-        virtual void down(unsigned char const branch, Node const &node) override
+        SimpleTraverse(size_t &num_leaves)
+            : num_leaves(num_leaves)
         {
-            if (index == 0 + BLOCK_NUM_NIBBLES_LEN) {
-                EXPECT_EQ(branch, INVALID_BRANCH);
+        }
+
+        virtual bool down(unsigned char const branch, Node const &node) override
+        {
+            if (node.has_value()) {
+                ++num_leaves;
+            }
+            if (branch == INVALID_BRANCH) {
                 EXPECT_EQ(node.number_of_children(), 1);
                 EXPECT_EQ(node.mask, 0b10);
                 EXPECT_TRUE(node.has_value());
                 EXPECT_EQ(node.value(), monad::byte_string_view{});
                 EXPECT_TRUE(node.has_path());
-                EXPECT_EQ(node.path_nibble_view(), NibblesView(0x00_hex));
+                EXPECT_EQ(node.path_nibble_view(), make_nibbles({0x0}));
             }
-            else if (index == 1 + BLOCK_NUM_NIBBLES_LEN) {
-                EXPECT_EQ(branch, 1);
+            else if (branch == 1) {
                 EXPECT_EQ(node.number_of_children(), 2);
                 EXPECT_EQ(node.mask, 0b11000);
                 EXPECT_FALSE(node.has_value());
                 EXPECT_TRUE(node.has_path());
                 EXPECT_EQ(node.path_nibble_view(), make_nibbles({0x2}));
             }
-            else if (index == 2 + BLOCK_NUM_NIBBLES_LEN) {
-                EXPECT_EQ(branch, 3);
+            else if (branch == 3) {
                 EXPECT_EQ(node.number_of_children(), 2);
                 EXPECT_EQ(node.mask, 0b1100000);
                 EXPECT_FALSE(node.has_value());
                 EXPECT_TRUE(node.has_path());
                 EXPECT_EQ(node.path_nibble_view(), make_nibbles({0x4}));
             }
-            else if (index == 3 + BLOCK_NUM_NIBBLES_LEN) {
-                EXPECT_EQ(branch, 5);
-                EXPECT_EQ(node.number_of_children(), 0);
-                EXPECT_EQ(node.mask, 0);
-                EXPECT_TRUE(node.has_value());
-                EXPECT_EQ(node.value(), 0xcafebabe_hex);
-                EXPECT_TRUE(node.has_path());
-                EXPECT_EQ(
-                    node.path_nibble_view(), make_nibbles({0x6, 0x7, 0x8}));
-            }
-            else if (index == 4 + BLOCK_NUM_NIBBLES_LEN) {
-                EXPECT_EQ(branch, 6);
-                EXPECT_EQ(node.number_of_children(), 0);
-                EXPECT_EQ(node.mask, 0);
-                EXPECT_TRUE(node.has_value());
-                EXPECT_EQ(node.value(), 0xdeadbeef_hex);
-                EXPECT_TRUE(node.has_path());
-                EXPECT_EQ(
-                    node.path_nibble_view(), make_nibbles({0x6, 0x7, 0x8}));
-            }
-            else if (index == 5 + BLOCK_NUM_NIBBLES_LEN) {
-                EXPECT_EQ(branch, 4);
+            else if (branch == 4) {
                 EXPECT_EQ(node.number_of_children(), 0);
                 EXPECT_EQ(node.mask, 0);
                 EXPECT_TRUE(node.has_value());
@@ -605,16 +841,39 @@ TYPED_TEST(DbTest, traverse)
                     node.path_nibble_view(),
                     make_nibbles({0x4, 0x5, 0x6, 0x7, 0x8}));
             }
-            else if (index > BLOCK_NUM_NIBBLES_LEN + 5) {
-                FAIL();
+            else if (branch == 5) {
+                EXPECT_EQ(node.number_of_children(), 0);
+                EXPECT_EQ(node.mask, 0);
+                EXPECT_TRUE(node.has_value());
+                EXPECT_EQ(node.value(), 0xcafebabe_hex);
+                EXPECT_TRUE(node.has_path());
+                EXPECT_EQ(
+                    node.path_nibble_view(), make_nibbles({0x6, 0x7, 0x8}));
             }
-
+            else if (branch == 6) {
+                EXPECT_EQ(node.number_of_children(), 0);
+                EXPECT_EQ(node.mask, 0);
+                EXPECT_TRUE(node.has_value());
+                EXPECT_EQ(node.value(), 0xdeadbeef_hex);
+                EXPECT_TRUE(node.has_path());
+                EXPECT_EQ(
+                    node.path_nibble_view(), make_nibbles({0x6, 0x7, 0x8}));
+            }
+            else {
+                MONAD_ASSERT(false);
+            }
             ++index;
+            return true;
         }
 
         virtual void up(unsigned char const, Node const &) override
         {
             ++num_up;
+        }
+
+        virtual std::unique_ptr<TraverseMachine> clone() const override
+        {
+            return std::make_unique<SimpleTraverse>(*this);
         }
 
         Nibbles make_nibbles(std::initializer_list<uint8_t> nibbles)
@@ -628,11 +887,118 @@ TYPED_TEST(DbTest, traverse)
             }
             return ret;
         }
-    } traverse;
+    };
 
-    this->db.traverse(concat(NibblesView{prefix}), traverse, block_id);
-    EXPECT_EQ(traverse.index, 6);
-    EXPECT_EQ(traverse.num_up, 6);
+    auto res_cursor = this->db.find(this->prefix, this->block_id);
+    ASSERT_TRUE(res_cursor.has_value());
+    ASSERT_TRUE(res_cursor.value().is_valid());
+    {
+        size_t num_leaves = 0;
+        SimpleTraverse traverse{num_leaves};
+        ASSERT_TRUE(
+            this->db.traverse(res_cursor.value(), traverse, this->block_id));
+        EXPECT_EQ(num_leaves, 4);
+    }
+
+    {
+        size_t num_leaves = 0;
+        SimpleTraverse traverse{num_leaves};
+        ASSERT_TRUE(this->db.traverse_blocking(
+            res_cursor.value(), traverse, this->block_id));
+        EXPECT_EQ(traverse.num_up, 6);
+        EXPECT_EQ(num_leaves, 4);
+    }
+}
+
+TYPED_TEST(DbTraverseTest, trimmed_traverse)
+{
+    // Trimmed traversal
+    struct TrimmedTraverse : public TraverseMachine
+    {
+        size_t &num_leaves;
+
+        TrimmedTraverse(size_t &num_leaves)
+            : num_leaves(num_leaves)
+        {
+        }
+
+        virtual bool down(unsigned char const branch, Node const &node) override
+        {
+            if (node.path_nibbles_len() == 3 && branch == 5) {
+                // trim one leaf
+                return false;
+            }
+            if (node.has_value()) {
+                ++num_leaves;
+            }
+            return true;
+        }
+
+        virtual void up(unsigned char const, Node const &) override {}
+
+        virtual std::unique_ptr<TraverseMachine> clone() const override
+        {
+            return std::make_unique<TrimmedTraverse>(*this);
+        }
+
+        virtual bool
+        should_visit(Node const &, unsigned char const branch) override
+        {
+            // trim the right most leaf
+            return branch != 4;
+        }
+    };
+
+    auto res_cursor = this->db.find(this->prefix, this->block_id);
+    ASSERT_TRUE(res_cursor.has_value());
+    ASSERT_TRUE(res_cursor.value().is_valid());
+    {
+        size_t num_leaves = 0;
+        TrimmedTraverse traverse{num_leaves};
+        ASSERT_TRUE(
+            this->db.traverse(res_cursor.value(), traverse, this->block_id));
+        EXPECT_EQ(num_leaves, 2);
+    }
+    {
+        size_t num_leaves = 0;
+        TrimmedTraverse traverse{num_leaves};
+        ASSERT_TRUE(this->db.traverse_blocking(
+            res_cursor.value(), traverse, this->block_id));
+        EXPECT_EQ(num_leaves, 2);
+    }
+}
+
+TEST_F(OnDiskDbFixture, move_subtrie)
+{
+    uint64_t const src = 0;
+    uint64_t const dest = 1000;
+    // insert under src
+    auto const &kv = fixed_updates::kv;
+    std::vector<Update> update_alloc{};
+    update_alloc.reserve(kv.size());
+    UpdateList updates;
+    for (auto const &[k, v] : kv) {
+        updates.push_front(update_alloc.emplace_back(make_update(k, v)));
+    }
+    db.upsert(std::move(updates), src);
+
+    EXPECT_EQ(db.get_earliest_block_id(), src);
+    EXPECT_EQ(db.get_latest_block_id(), src);
+    auto const res = db.get_data({}, src);
+    ASSERT_TRUE(res.has_value());
+    EXPECT_EQ(
+        res.value(),
+        0x22f3b7fc4b987d8327ec4525baf4cb35087a75d9250a8a3be45881dd889027ad_hex);
+
+    // move to dest version
+    db.move_subtrie(src, dest);
+    EXPECT_EQ(db.get_earliest_block_id(), dest);
+    EXPECT_EQ(db.get_latest_block_id(), dest);
+    auto const res2 = db.get_data({}, dest);
+    ASSERT_TRUE(res2.has_value());
+    EXPECT_EQ(
+        res2.value(),
+        0x22f3b7fc4b987d8327ec4525baf4cb35087a75d9250a8a3be45881dd889027ad_hex);
 }
 
 TYPED_TEST(DbTest, scalability)

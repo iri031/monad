@@ -58,31 +58,35 @@ Node::UniquePtr copy_node(
                             dest.substr(
                                 static_cast<unsigned char>(prefix_index) + 1u),
                             src_leaf->value(),
-                            aux.current_version)
+                            src_leaf->version)
                             .release();
                     // create a node, with no leaf data
                     uint16_t const mask =
                         static_cast<uint16_t>(node->mask | (1u << nibble));
                     std::array<ChildData, 16> children;
                     for (uint8_t i = 0; i < 16; ++i) {
-                        if (i == nibble) {
+                        if (i == nibble) { // is destination
                             children[i].branch = i;
                             children[i].ptr = leaf;
+                            children[i].subtrie_min_version =
+                                calc_min_version(*leaf);
                         }
                         else if (mask & (1u << i)) {
-                            children[i].branch = i;
+                            auto &child = children[i];
                             auto const old_index = node->to_child_index(i);
+                            child.branch = i;
+                            child.subtrie_min_version =
+                                node->subtrie_min_version(old_index);
                             if (aux.is_on_disk()) {
-                                children[i].min_offset_fast =
+                                child.min_offset_fast =
                                     node->min_offset_fast(old_index);
-                                children[i].min_offset_slow =
+                                child.min_offset_slow =
                                     node->min_offset_slow(old_index);
-                                children[i].offset = node->fnext(old_index);
+                                child.offset = node->fnext(old_index);
                                 node->next_ptr(old_index).reset();
                             }
                             else {
-                                children[i].ptr =
-                                    node->next_ptr(old_index).release();
+                                child.ptr = node->next_ptr(old_index).release();
                             }
                         }
                     }
@@ -92,7 +96,7 @@ Node::UniquePtr copy_node(
                                node->path_nibble_view(),
                                std::nullopt,
                                0,
-                               aux.current_version)
+                               leaf->version)
                         .release();
                 }();
                 break;
@@ -115,7 +119,7 @@ Node::UniquePtr copy_node(
                         dest.substr(
                             static_cast<unsigned char>(prefix_index) + 1u),
                         src_leaf->value(),
-                        aux.current_version)
+                        src_leaf->version)
                         .release();
                 Node *node_latter_half =
                     make_node(
@@ -127,17 +131,21 @@ Node::UniquePtr copy_node(
                         node->has_value()
                             ? std::optional<byte_string_view>{node->value()}
                             : std::nullopt,
-                        aux.current_version)
+                        node->version)
                         .release();
                 MONAD_DEBUG_ASSERT(node_latter_half);
                 uint16_t const mask =
                     static_cast<uint16_t>((1u << nibble) | (1u << node_nibble));
                 bool const leaf_first = nibble < node_nibble;
                 ChildData children[2];
-                children[!leaf_first] =
-                    ChildData{.ptr = dest_leaf, .branch = node_nibble};
-                children[leaf_first] =
-                    ChildData{.ptr = node_latter_half, .branch = nibble};
+                children[!leaf_first] = ChildData{
+                    .ptr = dest_leaf,
+                    .subtrie_min_version = calc_min_version(*dest_leaf),
+                    .branch = node_nibble};
+                children[leaf_first] = ChildData{
+                    .ptr = node_latter_half,
+                    .subtrie_min_version = calc_min_version(*node_latter_half),
+                    .branch = nibble};
                 if (aux.is_on_disk()) {
                     // Request a write for the modified node, async_write_node()
                     // serialize nodes to buffer but it's not guaranteed to land
@@ -159,7 +167,7 @@ Node::UniquePtr copy_node(
                                node->path_data()},
                            std::nullopt,
                            0,
-                           aux.current_version)
+                           dest_leaf->version)
                     .release();
             }();
             break;
@@ -174,7 +182,7 @@ Node::UniquePtr copy_node(
                            *src_leaf,
                            node->path_nibble_view(),
                            src_leaf->value(),
-                           aux.current_version)
+                           src_leaf->version)
                            .release();
             // clear parent's children other than new_node
             if (aux.is_on_disk()) {

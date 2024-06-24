@@ -142,6 +142,12 @@ public:
     uint8_t path_nibble_index_end{0};
     /* size (in byte) of user-passed leaf data */
     uint32_t value_len{0};
+    /* A note on definition of node version:
+    version(leaf node) corresponds to the block number when it was
+    last updated.
+    version(interior node) >= max(version of the leaf nodes under its prefix),
+    it is greater than only when the latest update in the subtrie contains only
+    deletions. */
     int64_t version{0};
 
 #pragma GCC diagnostic push
@@ -209,22 +215,30 @@ public:
     //! fastlist min_offset array
     unsigned char *child_min_offset_fast_data() noexcept;
     unsigned char const *child_min_offset_fast_data() const noexcept;
-    compact_virtual_chunk_offset_t min_offset_fast(unsigned index) noexcept;
+    compact_virtual_chunk_offset_t
+    min_offset_fast(unsigned index) const noexcept;
     void set_min_offset_fast(
         unsigned index, compact_virtual_chunk_offset_t) noexcept;
     //! slowlist min_offset array
     unsigned char *child_min_offset_slow_data() noexcept;
     unsigned char const *child_min_offset_slow_data() const noexcept;
-    compact_virtual_chunk_offset_t min_offset_slow(unsigned index) noexcept;
+    compact_virtual_chunk_offset_t
+    min_offset_slow(unsigned index) const noexcept;
     void set_min_offset_slow(
         unsigned index, compact_virtual_chunk_offset_t) noexcept;
+
+    //! subtrie min version array
+    unsigned char *child_min_version_data() noexcept;
+    unsigned char const *child_min_version_data() const noexcept;
+    int64_t subtrie_min_version(unsigned index) const noexcept;
+    void set_subtrie_min_version(unsigned index, int64_t version) noexcept;
 
     //! data_offset array
     unsigned char *child_off_data() noexcept;
     unsigned char const *child_off_data() const noexcept;
     uint16_t child_data_offset(unsigned index) const noexcept;
 
-    unsigned child_data_len(unsigned index);
+    unsigned child_data_len(unsigned index) const;
     unsigned child_data_len();
 
     //! path
@@ -251,7 +265,7 @@ public:
     //! child data
     unsigned char *child_data() noexcept;
     unsigned char const *child_data() const noexcept;
-    byte_string_view child_data_view(unsigned index) noexcept;
+    byte_string_view child_data_view(unsigned index) const noexcept;
     unsigned char *child_data(unsigned index) noexcept;
     void set_child_data(unsigned index, byte_string_view data) noexcept;
 
@@ -279,6 +293,7 @@ struct ChildData
     Node *ptr{nullptr};
     chunk_offset_t offset{INVALID_OFFSET}; // physical offsets
     unsigned char data[32] = {0};
+    int64_t subtrie_min_version{std::numeric_limits<int64_t>::max()};
     compact_virtual_chunk_offset_t min_offset_fast{
         INVALID_COMPACT_VIRTUAL_OFFSET};
     compact_virtual_chunk_offset_t min_offset_slow{
@@ -294,7 +309,7 @@ struct ChildData
     void copy_old_child(Node *old, unsigned i);
 };
 
-static_assert(sizeof(ChildData) == 64);
+static_assert(sizeof(ChildData) == 72);
 static_assert(alignof(ChildData) == 8);
 
 constexpr size_t calculate_node_size(
@@ -306,6 +321,7 @@ constexpr size_t calculate_node_size(
     return sizeof(Node) +
            (sizeof(uint16_t) // child data offset
             + sizeof(compact_virtual_chunk_offset_t) * 2 // min truncated offset
+            + sizeof(int64_t) // subtrie min versions
             + sizeof(chunk_offset_t) + sizeof(Node *)) *
                number_of_children +
            total_child_data_size + value_size + path_size + data_size;
@@ -340,5 +356,7 @@ deserialize_node_from_buffer(unsigned char const *read_pos, size_t max_bytes);
 //! chunk_offset_t spare bits store the num page to read
 Node *read_node_blocking(
     MONAD_ASYNC_NAMESPACE::storage_pool &, chunk_offset_t node_offset);
+
+int64_t calc_min_version(Node const &);
 
 MONAD_MPT_NAMESPACE_END

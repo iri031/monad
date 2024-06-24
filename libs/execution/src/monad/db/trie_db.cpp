@@ -7,7 +7,7 @@
 #include <monad/core/fmt/bytes_fmt.hpp> // NOLINT
 #include <monad/core/fmt/int_fmt.hpp> // NOLINT
 #include <monad/core/int.hpp>
-#include <monad/core/keccak.h>
+#include <monad/core/keccak.hpp>
 #include <monad/core/likely.h>
 #include <monad/core/receipt.hpp>
 #include <monad/core/result.hpp>
@@ -73,15 +73,6 @@ namespace
     auto const state_nibbles = concat(state_nibble);
     auto const code_nibbles = concat(code_nibble);
     auto const receipt_nibbles = concat(receipt_nibble);
-
-    template <class T>
-        requires std::same_as<T, bytes32_t> || std::same_as<T, Address>
-    constexpr byte_string to_key(T const &arg)
-    {
-        ethash::hash256 h;
-        keccak256(arg.bytes, sizeof(arg.bytes), h.bytes);
-        return byte_string{h.bytes, sizeof(ethash::hash256)};
-    }
 
     byte_string encode_account_db(Account const &account)
     {
@@ -235,7 +226,8 @@ namespace
                         .key = state_nibbles,
                         .value = byte_string_view{},
                         .incarnation = false,
-                        .next = std::move(account_updates)};
+                        .next = std::move(account_updates),
+                        .version = static_cast<int64_t>(block_id_)};
                     updates.push_front(state_update);
 
                     db_.upsert(std::move(updates), block_id_, false, false);
@@ -254,7 +246,8 @@ namespace
                         .key = code_nibbles,
                         .value = byte_string_view{},
                         .incarnation = false,
-                        .next = std::move(code_updates)};
+                        .next = std::move(code_updates),
+                        .version = static_cast<int64_t>(block_id_)};
                     updates.push_front(code_update);
 
                     db_.upsert(std::move(updates), block_id_, false, false);
@@ -358,7 +351,8 @@ namespace
                     .key = in.substr(0, sizeof(bytes32_t)),
                     .value = in.substr(hash_and_len_size, code_len),
                     .incarnation = false,
-                    .next = UpdateList{}}));
+                    .next = UpdateList{},
+                    .version = static_cast<int64_t>(block_id_)}));
 
                 total_processed += entry_size;
                 in = in.substr(entry_size);
@@ -383,7 +377,8 @@ namespace
                     .nonce = unaligned_load<uint64_t>(
                         curr.substr(nonce_offset, sizeof(uint64_t)).data())})),
                 .incarnation = false,
-                .next = UpdateList{}};
+                .next = UpdateList{},
+                .version = static_cast<int64_t>(block_id_)};
         }
 
         UpdateList handle_storage(byte_string_view in)
@@ -395,7 +390,8 @@ namespace
                     .value = rlp::zeroless_view(
                         in.substr(sizeof(bytes32_t), sizeof(bytes32_t))),
                     .incarnation = false,
-                    .next = UpdateList{}}));
+                    .next = UpdateList{},
+                    .version = static_cast<int64_t>(block_id_)}));
                 in = in.substr(storage_entry_size);
             }
             return storage_updates;
@@ -606,8 +602,11 @@ TrieDb::~TrieDb() = default;
 
 std::optional<Account> TrieDb::read_account(Address const &addr)
 {
-    auto const value =
-        db_.get(concat(state_nibble, NibblesView{to_key(addr)}), block_number_);
+    auto const value = db_.get(
+        concat(
+            state_nibble,
+            NibblesView{keccak256({addr.bytes, sizeof(addr.bytes)})}),
+        block_number_);
     if (!value.has_value()) {
         return std::nullopt;
     }
@@ -633,7 +632,9 @@ TrieDb::read_storage(Address const &addr, Incarnation, bytes32_t const &key)
 {
     auto const value = db_.get(
         concat(
-            state_nibble, NibblesView{to_key(addr)}, NibblesView{to_key(key)}),
+            state_nibble,
+            NibblesView{keccak256({addr.bytes, sizeof(addr.bytes)})},
+            NibblesView{keccak256({key.bytes, sizeof(key.bytes)})}),
         block_number_);
     if (!value.has_value()) {
         STATS_STORAGE_NO_VALUE();
@@ -671,6 +672,7 @@ void TrieDb::commit(
     std::vector<Receipt> const &receipts)
 {
     MONAD_ASSERT(mode_ != Mode::OnDiskReadOnly);
+    MONAD_ASSERT(block_number_ <= std::numeric_limits<int64_t>::max());
 
     UpdateList account_updates;
     for (auto const &[addr, delta] : state_deltas) {
@@ -682,8 +684,8 @@ void TrieDb::commit(
                 if (delta.first != delta.second) {
                     storage_updates.push_front(
                         update_alloc_.emplace_back(Update{
-                            .key = NibblesView{bytes_alloc_.emplace_back(
-                                to_key(key))},
+                            .key = hash_alloc_.emplace_back(
+                                keccak256({key.bytes, sizeof(key.bytes)})),
                             .value =
                                 delta.second == bytes32_t{}
                                     ? std::nullopt
@@ -691,7 +693,8 @@ void TrieDb::commit(
                                           to_byte_string_view(
                                               delta.second.bytes))),
                             .incarnation = false,
-                            .next = UpdateList{}}));
+                            .next = UpdateList{},
+                            .version = static_cast<int64_t>(block_number_)}));
                 }
             }
             value =
@@ -703,10 +706,12 @@ void TrieDb::commit(
                 account.has_value() && delta.account.first.has_value() &&
                 delta.account.first->incarnation != account->incarnation;
             account_updates.push_front(update_alloc_.emplace_back(Update{
-                .key = NibblesView{bytes_alloc_.emplace_back(to_key(addr))},
+                .key = hash_alloc_.emplace_back(
+                    keccak256({addr.bytes, sizeof(addr.bytes)})),
                 .value = value,
                 .incarnation = incarnation,
-                .next = std::move(storage_updates)}));
+                .next = std::move(storage_updates),
+                .version = static_cast<int64_t>(block_number_)}));
         }
     }
 
@@ -718,7 +723,8 @@ void TrieDb::commit(
             .key = NibblesView{to_byte_string_view(hash.bytes)},
             .value = code_analysis->executable_code,
             .incarnation = false,
-            .next = UpdateList{}}));
+            .next = UpdateList{},
+            .version = static_cast<int64_t>(block_number_)}));
     }
 
     UpdateList receipt_updates;
@@ -729,23 +735,27 @@ void TrieDb::commit(
                 NibblesView{bytes_alloc_.emplace_back(rlp::encode_unsigned(i))},
             .value = bytes_alloc_.emplace_back(rlp::encode_receipt(receipt)),
             .incarnation = false,
-            .next = UpdateList{}}));
+            .next = UpdateList{},
+            .version = static_cast<int64_t>(block_number_)}));
     }
     auto state_update = Update{
         .key = state_nibbles,
         .value = byte_string_view{},
         .incarnation = false,
-        .next = std::move(account_updates)};
+        .next = std::move(account_updates),
+        .version = static_cast<int64_t>(block_number_)};
     auto code_update = Update{
         .key = code_nibbles,
         .value = byte_string_view{},
         .incarnation = false,
-        .next = std::move(code_updates)};
+        .next = std::move(code_updates),
+        .version = static_cast<int64_t>(block_number_)};
     auto receipt_update = Update{
         .key = receipt_nibbles,
         .value = byte_string_view{},
         .incarnation = true,
-        .next = std::move(receipt_updates)};
+        .next = std::move(receipt_updates),
+        .version = static_cast<int64_t>(block_number_)};
     UpdateList updates;
     updates.push_front(state_update);
     updates.push_front(code_update);
@@ -755,6 +765,7 @@ void TrieDb::commit(
 
     update_alloc_.clear();
     bytes_alloc_.clear();
+    hash_alloc_.clear();
 }
 
 void TrieDb::increment_block_number()
@@ -805,20 +816,20 @@ nlohmann::json TrieDb::to_json()
     struct Traverse : public TraverseMachine
     {
         TrieDb &db;
-        nlohmann::json json;
+        nlohmann::json &json;
         Nibbles path{};
 
-        explicit Traverse(TrieDb &db)
+        explicit Traverse(TrieDb &db, nlohmann::json &json)
             : db(db)
-            , json(nlohmann::json::object())
+            , json(json)
         {
         }
 
-        virtual void down(unsigned char const branch, Node const &node) override
+        virtual bool down(unsigned char const branch, Node const &node) override
         {
             if (branch == INVALID_BRANCH) {
                 MONAD_ASSERT(node.path_nibble_view().nibble_size() == 0);
-                return;
+                return true;
             }
             path = concat(NibblesView{path}, branch, node.path_nibble_view());
 
@@ -829,6 +840,7 @@ nlohmann::json TrieDb::to_json()
                 path.nibble_size() == ((KECCAK256_SIZE + KECCAK256_SIZE) * 2)) {
                 handle_storage(node);
             }
+            return true;
         }
 
         virtual void up(unsigned char const branch, Node const &node) override
@@ -898,11 +910,33 @@ nlohmann::json TrieDb::to_json()
                 "0x{:02x}",
                 fmt::join(std::as_bytes(std::span(value.bytes)), ""));
         }
-    } traverse(*this);
 
-    db_.traverse(state_nibbles, traverse, block_number_);
+        virtual std::unique_ptr<TraverseMachine> clone() const override
+        {
+            return std::make_unique<Traverse>(*this);
+        }
+    };
 
-    return traverse.json;
+    auto json = nlohmann::json::object();
+    Traverse traverse(*this, json);
+
+    auto res_cursor = db_.find(state_nibbles, block_number_);
+    MONAD_ASSERT(res_cursor.has_value());
+    MONAD_ASSERT(res_cursor.value().is_valid());
+    // RWOndisk Db prevents any parallel traversal that does blocking i/o
+    // from running on the triedb thread, which include to_json. Thus, we can
+    // only use blocking traversal for RWOnDisk Db, but can still do parallel
+    // traverse in other cases.
+    if (mode_ == Mode::OnDisk) {
+        MONAD_ASSERT(
+            db_.traverse_blocking(res_cursor.value(), traverse, block_number_));
+    }
+    else {
+        // WARNING: excessive memory usage in parallel traverse
+        MONAD_ASSERT(db_.traverse(res_cursor.value(), traverse, block_number_));
+    }
+
+    return json;
 }
 
 size_t TrieDb::prefetch_current_root()
