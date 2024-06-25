@@ -2,6 +2,7 @@
 
 #include <monad/core/assert.h>
 #include <monad/core/byte_string.hpp>
+#include <monad/core/keccak.hpp>
 #include <monad/core/nibble.h>
 #include <monad/mpt/config.hpp>
 
@@ -32,6 +33,10 @@ public:
 
     constexpr Nibbles() = default;
 
+    Nibbles(Nibbles &&) = default;
+
+    Nibbles &operator=(Nibbles &&) = default;
+
     explicit Nibbles(size_t const end_nibble)
         : data_(std::make_unique<unsigned char[]>((end_nibble + 1) / 2))
         , begin_nibble_(false)
@@ -44,6 +49,29 @@ public:
     }
 
     Nibbles(NibblesView other);
+
+    Nibbles(Nibbles const &other)
+    {
+        begin_nibble_ = other.begin_nibble_;
+        end_nibble_ = other.end_nibble_;
+        if (begin_nibble_ != end_nibble_) {
+            data_ = std::make_unique<unsigned char[]>(other.data_size());
+            std::memcpy(data_.get(), other.data_.get(), other.data_size());
+        }
+    }
+
+    Nibbles &operator=(Nibbles const &other)
+    {
+        if (this != &other) {
+            begin_nibble_ = other.begin_nibble_;
+            end_nibble_ = other.end_nibble_;
+            if (begin_nibble_ != end_nibble_) {
+                data_ = std::make_unique<unsigned char[]>(other.data_size());
+                std::memcpy(data_.get(), other.data_.get(), other.data_size());
+            }
+        }
+        return *this;
+    }
 
     [[nodiscard]] bool empty() const noexcept
     {
@@ -134,6 +162,11 @@ public:
     // constructor from byte_string
     constexpr NibblesView(byte_string const &s) noexcept
         : NibblesView(byte_string_view{s})
+    {
+    }
+
+    constexpr NibblesView(hash256 const &h) noexcept
+        : NibblesView(0, 2 * sizeof(h.bytes), h.bytes)
     {
     }
 

@@ -138,3 +138,29 @@ extern "C" int monad_async_make_temporary_inode()
     }
     return fd;
 }
+
+extern "C" enum monad_async_memory_accounting_kind
+monad_async_memory_accounting()
+{
+    static enum monad_async_memory_accounting_kind v {
+        monad_async_memory_accounting_kind_unknown
+    };
+
+    if (v != monad_async_memory_accounting_kind_unknown) {
+        return v;
+    }
+    int fd = ::open("/proc/sys/vm/overcommit_memory", O_RDONLY);
+    if (fd != -1) {
+        char buffer[8];
+        if (::read(fd, buffer, 8) > 0) {
+            if (buffer[0] == '2') {
+                v = monad_async_memory_accounting_kind_commit_charge;
+            }
+            else {
+                v = monad_async_memory_accounting_kind_over_commit;
+            }
+        }
+        ::close(fd);
+    }
+    return v;
+}

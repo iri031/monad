@@ -4,6 +4,8 @@
 
 #include "monad/async/socket_io.h"
 
+#include <atomic>
+
 #include <netinet/in.h>
 
 TEST(socket_io, unregistered_buffers)
@@ -49,7 +51,10 @@ TEST(socket_io, unregistered_buffers)
                     to_result(monad_async_task_socket_accept(
                                   &conn, task, sock.get(), 0))
                         .value();
-                    return socket_ptr(conn, socket_deleter{task});
+                    return socket_ptr(
+                        conn,
+                        socket_deleter{task->current_executor.load(
+                            std::memory_order_acquire)});
                 }());
                 // Close the listening socket
                 sock.reset();
@@ -239,7 +244,10 @@ TEST(socket_io, registered_buffers)
                     to_result(monad_async_task_socket_accept(
                                   &conn, task, sock.get(), 0))
                         .value();
-                    return socket_ptr(conn, socket_deleter{task});
+                    return socket_ptr(
+                        conn,
+                        socket_deleter{task->current_executor.load(
+                            std::memory_order_acquire)});
                 }());
                 // Close the listening socket
                 sock.reset();
@@ -252,9 +260,9 @@ TEST(socket_io, registered_buffers)
                           << std::endl;
                 // Write "hello world" to the connecting socket
                 // Get my registered buffer
-                monad_async_executor_registered_io_buffer buffer;
-                to_result(monad_async_executor_claim_registered_io_buffer(
-                              &buffer, task->current_executor, 11, false))
+                monad_async_task_registered_io_buffer buffer;
+                to_result(monad_async_task_claim_registered_io_buffer(
+                              &buffer, task, 11, {}))
                     .value();
                 std::cout << "   Server has claimed registered i/o buffer no "
                           << buffer.index << " @ " << buffer.iov->iov_base
@@ -272,8 +280,8 @@ TEST(socket_io, registered_buffers)
                               &completed, task, uint64_t(-1)))
                     .value();
                 auto byteswritten = to_result(status.result).value();
-                to_result(monad_async_executor_release_registered_io_buffer(
-                              task->current_executor, buffer.index))
+                to_result(monad_async_task_release_registered_io_buffer(
+                              task, buffer.index))
                     .value();
                 std::cout
                     << "   Server releases registered i/o buffer after writing "
@@ -330,9 +338,9 @@ TEST(socket_io, registered_buffers)
                 // Read from the socket
                 std::cout << "   Client initiates read of socket." << std::endl;
                 // Get my registered buffer
-                monad_async_executor_registered_io_buffer buffer;
-                to_result(monad_async_executor_claim_registered_io_buffer(
-                              &buffer, task->current_executor, 11, false))
+                monad_async_task_registered_io_buffer buffer;
+                to_result(monad_async_task_claim_registered_io_buffer(
+                              &buffer, task, 11, {}))
                     .value();
                 std::cout << "   Client has claimed registered i/o buffer no "
                           << buffer.index << " @ " << buffer.iov->iov_base
@@ -355,8 +363,8 @@ TEST(socket_io, registered_buffers)
                     << (char *)iov[0].iov_base << "'." << std::endl;
                 EXPECT_EQ(bytesread, 11);
                 EXPECT_STREQ((char *)iov[0].iov_base, "hello world");
-                to_result(monad_async_executor_release_registered_io_buffer(
-                              task->current_executor, buffer.index))
+                to_result(monad_async_task_release_registered_io_buffer(
+                              task, buffer.index))
                     .value();
 
                 std::cout << "   Client initiates shutdown of socket."
@@ -383,7 +391,7 @@ TEST(socket_io, registered_buffers)
     // Make an executor
     monad_async_executor_attr ex_attr{};
     ex_attr.io_uring_ring.entries = 64;
-    ex_attr.io_uring_ring.registered_buffers.small = 2;
+    ex_attr.io_uring_ring.registered_buffers.small_count = 2;
     auto ex = make_executor(ex_attr);
 
     // Make a context switcher and two tasks, and attach the tasks to the

@@ -116,7 +116,10 @@ public:
                 auto count = chunks(end_of_this_offset);
                 return {
                     start_lifetime_as_array<std::atomic<uint32_t>>(
-                        (std::byte *)this - count * sizeof(uint32_t), count),
+                        const_cast<std::byte *>(
+                            reinterpret_cast<std::byte const *>(this)) -
+                            count * sizeof(uint32_t),
+                        count),
                     count};
             }
 
@@ -389,7 +392,7 @@ private:
         int fd, std::variant<uint64_t, device const *> dev_no_or_dev,
         creation_flags flags);
 
-    void fill_chunks_(creation_flags flags);
+    void fill_chunks_(creation_flags const &flags);
 
     struct clone_as_read_only_tag_
     {

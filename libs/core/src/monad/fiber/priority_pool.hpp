@@ -19,7 +19,7 @@ class PriorityPool final
 {
     PriorityQueue queue_{};
 
-    bool done_{false};
+    // bool done_{false};
 
     boost::fibers::mutex mutex_{};
     boost::fibers::condition_variable cv_{};
@@ -33,14 +33,17 @@ class PriorityPool final
         {
             t->destroy(t);
         }
+
         void operator()(monad_fiber_t *t) const
         {
             (*this)(&t->task);
         }
     };
 
-    channel<std::unique_ptr<monad_fiber_task_t, monad_fiber_task_deleter>> channel_{1024};
-    std::vector<std::unique_ptr<monad_fiber_t,  monad_fiber_task_deleter>> fibers_;
+    channel<std::unique_ptr<monad_fiber_task_t, monad_fiber_task_deleter>>
+        channel_{1024};
+    std::vector<std::unique_ptr<monad_fiber_t, monad_fiber_task_deleter>>
+        fibers_;
 
     void run_fiber_() noexcept;
     std::atomic_size_t working_;
@@ -53,22 +56,31 @@ public:
 
     ~PriorityPool();
 
-    template<typename Func>
-    void submit(int64_t const priority, Func && func)
+    template <typename Func>
+    void submit(int64_t const priority, Func &&func)
     {
         struct func_t : monad_fiber_task_t
         {
-            func_t(int64_t const priority, Func && func)
+            func_t(int64_t const priority, Func &&func)
                 : monad_fiber_task_t{
-                +[](monad_fiber_task_t * task){static_cast<struct func_t*>(task)->func();},
-                +[](monad_fiber_task_t * task){delete static_cast<struct func_t*>(task);},
-                priority
-            }, func(std::forward<Func>(func)) {}
+                      +[](monad_fiber_task_t *task) {
+                          static_cast<struct func_t *>(task)->func();
+                      },
+                      +[](monad_fiber_task_t *task) {
+                          delete static_cast<struct func_t *>(task);
+                      },
+                      priority}
+                , func(std::forward<Func>(func))
+            {
+            }
+
             std::decay_t<Func> func;
         };
 
-        using pt = std::unique_ptr<monad_fiber_task_t, monad_fiber_task_deleter>;
-        pt p{std::make_unique<func_t>(priority, std::forward<Func>(func)).release()};
+        using pt =
+            std::unique_ptr<monad_fiber_task_t, monad_fiber_task_deleter>;
+        pt p{std::make_unique<func_t>(priority, std::forward<Func>(func))
+                 .release()};
         channel_.send(std::move(p));
     }
 };

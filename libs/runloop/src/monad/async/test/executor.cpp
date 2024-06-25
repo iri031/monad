@@ -2,18 +2,16 @@
 
 #include "test_common.hpp"
 
+#include "monad/async/config.h"
 #include "monad/async/executor.h"
-
 #include "monad/async/task.h"
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <sstream>
-#include <stdexcept>
 #include <thread>
-#include <utility>
 
 extern "C" void monad_fiber_init_main();
 
@@ -44,6 +42,13 @@ TEST(async_result, works)
     try {
         r = monad_async_make_failure(EINVAL);
         CHECK_RESULT(r);
+    }
+    catch (std::exception const &e) {
+        EXPECT_STREQ(e.what(), "Invalid argument");
+    }
+    auto r2(to_result(r));
+    try {
+        r2.value();
     }
     catch (std::exception const &e) {
         EXPECT_STREQ(e.what(), "Invalid argument");
@@ -550,4 +555,61 @@ TEST(executor, foreign_thread)
     test(monad_async_context_switcher_none, "none");
     test(monad_async_context_switcher_sjlj, "setjmp/longjmp");
     test(monad_async_context_switcher_fiber, "monad fiber");
+}
+
+TEST(executor, registered_io_buffers)
+{
+    monad_async_executor_attr ex_attr{};
+    ex_attr.io_uring_ring.entries = 1;
+    ex_attr.io_uring_ring.registered_buffers.small_count = 1;
+    auto ex = make_executor(ex_attr);
+    auto switcher = make_context_switcher(monad_async_context_switcher_sjlj);
+
+    struct shared_t
+    {
+        std::set<monad_async_task> have_buffer, waiting_for_buffer;
+    } shared;
+
+    auto task_impl = +[](monad_async_task task) -> monad_async_result {
+        auto *shared = (shared_t *)task->user_ptr;
+        shared->waiting_for_buffer.insert(task);
+        monad_async_task_registered_io_buffer buffer{};
+        to_result(
+            monad_async_task_claim_registered_io_buffer(&buffer, task, 1, {}))
+            .value();
+        shared->waiting_for_buffer.erase(task);
+        shared->have_buffer.insert(task);
+        to_result(monad_async_task_suspend_for_duration(nullptr, task, 0))
+            .value();
+        to_result(
+            monad_async_task_release_registered_io_buffer(task, buffer.index))
+            .value();
+        shared->have_buffer.erase(task);
+        return monad_async_make_success(0);
+    };
+
+    monad_async_task_attr t_attr{};
+    std::vector<task_ptr> tasks;
+    for (size_t n = 0; n < 10; n++) {
+        tasks.push_back(make_task(switcher.get(), t_attr));
+        tasks.back()->user_code = task_impl;
+        tasks.back()->user_ptr = (void *)&shared;
+        to_result(
+            monad_async_task_attach(ex.get(), tasks.back().get(), nullptr))
+            .value();
+    }
+    to_result(monad_async_executor_run(ex.get(), 10, nullptr)).value();
+    bool have_buffer = true;
+    do {
+        to_result(monad_async_executor_run(ex.get(), 1, nullptr)).value();
+        std::cout << "have_buffer=" << shared.have_buffer.size()
+                  << " waiting_for_buffer=" << shared.waiting_for_buffer.size()
+                  << std::endl;
+        // One executor pump should resume the task holding the buffer which
+        // releases it Next executor pump should resume the next task awaiting
+        // the buffer
+        have_buffer = !have_buffer;
+        EXPECT_EQ(have_buffer, shared.have_buffer.size());
+    }
+    while (shared.have_buffer.size() + shared.waiting_for_buffer.size() > 0);
 }

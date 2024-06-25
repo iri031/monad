@@ -26,6 +26,7 @@ monad_async_result monad_async_task_create(
     if (p == nullptr) {
         return monad_async_make_failure(errno);
     }
+    p->head.io_recipient_task = (monad_async_task)p;
     p->head.priority.cpu = monad_async_priority_normal;
     p->head.priority.io = monad_async_priority_normal;
     monad_async_result r =
@@ -37,6 +38,7 @@ monad_async_result monad_async_task_create(
     atomic_store_explicit(
         &p->context->switcher, switcher, memory_order_release);
     p->fiber_task.resume = monad_fiber_task_from_async_task_compute_resume;
+    memcpy(p->magic, "MNASTASK", 8);
     *task = (monad_async_task)p;
     return monad_async_make_success(0);
 }
@@ -61,6 +63,7 @@ monad_async_result monad_async_task_destroy(monad_async_task task)
             }
         }
     }
+    memset(p->magic, 0, 8);
     MONAD_ASYNC_TRY_RESULT(
         ,
         atomic_load_explicit(&p->context->switcher, memory_order_acquire)

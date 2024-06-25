@@ -2,6 +2,9 @@
 
 #include "context_switcher.h"
 
+#include <liburing.h>
+
+// Must come after <liburing.h>, otherwise breaks build on clang
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -37,6 +40,11 @@ typedef struct monad_async_io_status
     // You can place any additional data you want after here ...
 } monad_async_io_status;
 
+#if __STDC_VERSION__ >= 202300L
+static_assert(sizeof(monad_async_io_status) == 80);
+static_assert(alignof(monad_async_io_status) == 8);
+#endif
+
 //! \brief True if the i/o is currently in progress
 static inline bool
 monad_async_is_io_in_progress(monad_async_io_status const *iostatus)
@@ -64,7 +72,12 @@ struct monad_async_task_head
     monad_async_result (*user_code)(struct monad_async_task_head *);
     void *user_ptr;
 
-    // The following are not user modifiable
+    // Set this to have i/o completions target a different task to this
+    // one. This can be useful where you have tasks work on what i/o to
+    // initiate, but a different task will reap i/o completions.
+    struct monad_async_task_head *io_recipient_task;
+
+    // The following are **NOT** user modifiable
     struct
     {
         monad_async_priority cpu;
@@ -85,8 +98,6 @@ struct monad_async_task_head
         is_pending_launch, is_running, is_suspended_sqe_exhaustion,
         is_suspended_sqe_exhaustion_wr, is_suspended_awaiting,
         is_suspended_completed, is_running_on_foreign_executor;
-
-    monad_async_priority pending_launch_queue_;
 
     monad_async_cpu_ticks_count_t ticks_when_submitted;
     monad_async_cpu_ticks_count_t ticks_when_attached;
@@ -114,7 +125,8 @@ static inline bool monad_async_task_has_exited(monad_async_task const task)
            atomic_load_explicit(
                &task->current_executor, memory_order_acquire) == NULL &&
            atomic_load_explicit(
-               &task->is_running_on_foreign_executor, memory_order_acquire);
+               &task->is_running_on_foreign_executor, memory_order_acquire) ==
+               false;
 #endif
 }
 
@@ -171,8 +183,8 @@ MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_task_attach(
 //! \brief THREADSAFE If a task is currently suspended on an operation, cancel
 //! it. This can take some time for the relevant io_uring operation to also
 //! cancel. If the task is yet to launch, don't launch it. If the task isn't
-//! currently running, returns `ENOENT`. The suspension point will return
-//! `ECANCELED` next time the task resumes.
+//! currently running, do nothing. The suspension point will return
+//! `ECANCELED` next time the cancelled task resumes.
 MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_task_cancel(
     monad_async_executor executor,
     monad_async_task task); // implemented in executor.c
@@ -194,6 +206,14 @@ MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_task_io_cancel(
 MONAD_ASYNC_NODISCARD extern monad_async_io_status *
 monad_async_task_completed_io(
     monad_async_task task); // implemented in executor.c
+
+//! \brief Non-cancellable infinity duration
+static uint64_t const monad_async_duration_infinite_non_cancelling =
+    (uint64_t)-1;
+
+//! \brief Cancellable infinity duration
+static uint64_t const monad_async_duration_infinite_cancelling =
+    31536000000000000ULL; // ten years
 
 //! \brief CANCELLATION POINT Suspend execution of a task for a given duration,
 //! which can be zero (which equates "yield"). If `completed` is not null, if
@@ -229,6 +249,63 @@ static inline monad_async_result monad_async_task_suspend_until_completed_io(
     return monad_async_make_success(
         1 + (intptr_t)task->io_completed_not_reaped);
 }
+
+//! \brief A registered i/o buffer
+typedef struct monad_async_task_registered_io_buffer
+{
+    int index;
+    struct iovec iov[1];
+} monad_async_task_registered_io_buffer;
+
+//! \brief Flags for claiming a registered i/o buffer
+struct monad_async_task_claim_registered_io_buffer_flags
+{
+    //! \brief Claim the buffer from the write ring
+    unsigned for_write_ring : 1;
+    //! \brief If there aren't enough buffers, return `ENOMEM` instead of
+    //! suspending until more buffers appear. An error is always returned if no
+    //! buffers were configured.
+    unsigned fail_dont_suspend : 1;
+};
+
+/*! \brief CANCELLATION POINT Claim an unused registered buffer, suspending if
+none currently available.
+
+There are two sizes of registered i/o buffer, small and large which are the page
+size of the host platform (e.g. 4Kb and 2Mb if on Intel x64). Through being
+always whole page sizes, DMA using registered i/o buffers has the lowest
+possible overhead.
+
+As memory buffers have to be registered with the io_uring ring they are to be
+used with, `for_write_ring` selects buffers from the write ring.
+
+If the Linux kernel has been configured for strict memory accounting and more
+than one page is used per i/o buffer, the remaining pages will be committed by
+this call. Whilst a syscall, this is generally very fast.
+
+If the Linux kernel has been configured for overcommit, no syscalls are
+performed.
+*/
+MONAD_ASYNC_NODISCARD extern monad_async_result
+monad_async_task_claim_registered_io_buffer(
+    monad_async_task_registered_io_buffer *buffer, monad_async_task task,
+    size_t bytes_requested,
+    struct monad_async_task_claim_registered_io_buffer_flags
+        flags); // implemented in executor.c
+
+/*! \brief Release a previously claimed registered buffer.
+
+If the Linux kernel has been configured for strict memory accounting and more
+than one page is used per i/o buffer, the remaining pages will be decommitted by
+this call.
+
+If the Linux kernel has been configured for overcommit, the remaining pages
+are marked LazyFree which will cause the OOM killer to ignore them when
+deciding what process to kill.
+*/
+MONAD_ASYNC_NODISCARD extern monad_async_result
+monad_async_task_release_registered_io_buffer(
+    monad_async_task task, int buffer_index); // implemented in executor.c
 
 /***************************************************************************/
 

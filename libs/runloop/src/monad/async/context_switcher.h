@@ -110,7 +110,12 @@ typedef struct monad_async_context_head
 
     struct
     {
-        void *fake_stack_save;
+        union
+        {
+            void *fake_stack_save;
+            unsigned valgrind_stack_id;
+        };
+
         void const *bottom;
         size_t size;
     } sanitizer;

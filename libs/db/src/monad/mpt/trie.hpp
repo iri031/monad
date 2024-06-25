@@ -321,7 +321,6 @@ protected:
     };
 
 public:
-    int64_t current_version{0};
     compact_virtual_chunk_offset_t compact_offset_fast{
         MIN_COMPACT_VIRTUAL_OFFSET};
     compact_virtual_chunk_offset_t compact_offset_slow{
@@ -492,6 +491,9 @@ public:
         uint64_t version, bool compaction = false,
         bool can_write_to_fast = true);
 
+    Node::UniquePtr move_subtrie(
+        Node::UniquePtr prev_root, StateMachine &, uint64_t src, uint64_t dest);
+
 #if MONAD_MPT_COLLECT_STATS
     detail::TrieUpdateCollectedStats stats;
 #endif
@@ -624,7 +626,7 @@ public:
 
 static_assert(
     sizeof(UpdateAuxImpl) ==
-    128 + MONAD_MPT_COLLECT_STATS * sizeof(detail::TrieUpdateCollectedStats));
+    120 + MONAD_MPT_COLLECT_STATS * sizeof(detail::TrieUpdateCollectedStats));
 static_assert(alignof(UpdateAuxImpl) == 8);
 
 template <lockable_or_void LockType = void>
@@ -756,6 +758,37 @@ public:
     }
 };
 
+template <receiver Receiver>
+    requires(
+        MONAD_ASYNC_NAMESPACE::compatible_sender_receiver<
+            read_short_update_sender, Receiver> &&
+        MONAD_ASYNC_NAMESPACE::compatible_sender_receiver<
+            read_long_update_sender, Receiver> &&
+        Receiver::lifetime_managed_internally)
+void async_read(UpdateAuxImpl &aux, Receiver &&receiver)
+{
+    [[likely]] if (
+        receiver.bytes_to_read <=
+        MONAD_ASYNC_NAMESPACE::AsyncIO::READ_BUFFER_SIZE) {
+        read_short_update_sender sender(receiver);
+        auto iostate =
+            aux.io->make_connected(std::move(sender), std::move(receiver));
+        iostate->initiate();
+        // TEMPORARY UNTIL ALL THIS GETS BROKEN OUT: Release
+        // management until i/o completes
+        iostate.release();
+    }
+    else {
+        read_long_update_sender sender(receiver);
+        using connected_type =
+            decltype(connect(*aux.io, std::move(sender), std::move(receiver)));
+        auto *iostate = new connected_type(
+            connect(*aux.io, std::move(sender), std::move(receiver)));
+        iostate->initiate();
+        // drop iostate
+    }
+}
+
 // batch upsert, updates can be nested
 Node::UniquePtr
 upsert(UpdateAuxImpl &, StateMachine &, Node::UniquePtr old, UpdateList &&);
@@ -764,6 +797,7 @@ upsert(UpdateAuxImpl &, StateMachine &, Node::UniquePtr old, UpdateList &&);
 size_t load_all(UpdateAuxImpl &, StateMachine &, NodeCursor);
 
 //////////////////////////////////////////////////////////////////////////////
+// find
 
 enum class find_result : uint8_t
 {
@@ -822,7 +856,8 @@ find_blocking(UpdateAuxImpl const &, NodeCursor, NibblesView key);
 Nibbles find_min_key_blocking(UpdateAuxImpl const &, Node &root);
 Nibbles find_max_key_blocking(UpdateAuxImpl const &, Node &root);
 
-// helper
+//////////////////////////////////////////////////////////////////////////////
+// helpers
 inline constexpr unsigned num_pages(file_offset_t const offset, unsigned bytes)
 {
     auto const rd_offset = round_down_align<DISK_PAGE_BITS>(offset);

@@ -407,6 +407,12 @@ extern "C" {
         source: *const ::std::os::raw::c_void,
     ) -> ::std::os::raw::c_int;
 }
+extern "C" {
+    pub fn monad_fiber_channel_send(
+        arg1: *mut monad_fiber_channel_t,
+        source: *const ::std::os::raw::c_void,
+    ) -> ::std::os::raw::c_int;
+}
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone)]
 pub struct monad_fiber_channel_read_op {

@@ -29,6 +29,19 @@ MONAD_ASYNC_NODISCARD extern monad_async_result monad_async_task_socket_create(
     monad_async_socket *sock, monad_async_task task, int domain, int type,
     int protocol, unsigned flags);
 
+/*! \brief EXPENSIVE, CANCELLATION POINT Suspend execution of the task until the
+userspace file descriptor has been registered with io_uring and a socket
+instance representing it returned.
+
+This function is provided purely for bridging this to legacy code -- wherever
+possible you should use the native file and socket creation functions as
+these completely bypass userspace and don't create any of the problems POSIX
+file descriptors do.
+*/
+MONAD_ASYNC_NODISCARD extern monad_async_result
+monad_async_task_socket_create_from_existing_fd(
+    monad_async_socket *sock, monad_async_task task, int fd);
+
 //! \brief Suspend execution of the task until the socket has been closed
 MONAD_ASYNC_NODISCARD extern monad_async_result
 monad_async_task_socket_destroy(monad_async_task task, monad_async_socket sock);

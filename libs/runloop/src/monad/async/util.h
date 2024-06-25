@@ -22,6 +22,18 @@ extern int monad_async_make_temporary_file(char *buffer, size_t buffer_len);
 //! after. You will need to close the file descriptor it returns.
 extern int monad_async_make_temporary_inode();
 
+//! \brief How this Linux accounts for memory
+enum monad_async_memory_accounting_kind
+{
+    monad_async_memory_accounting_kind_unknown,
+    //! \brief This Linux has been configured for strict memory accounting
+    monad_async_memory_accounting_kind_commit_charge,
+    //! \brief This Linux has been configured for over commit memory accounting
+    monad_async_memory_accounting_kind_over_commit
+};
+//! \brief Return how this Linux accounts for memory
+extern enum monad_async_memory_accounting_kind monad_async_memory_accounting();
+
 #ifdef __cplusplus
 }
 #endif

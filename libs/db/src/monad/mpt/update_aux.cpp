@@ -497,9 +497,6 @@ Node::UniquePtr UpdateAuxImpl::do_update(
     auto g(unique_lock());
     auto g2(set_current_upsert_tid());
 
-    MONAD_ASSERT(version <= std::numeric_limits<int64_t>::max());
-    current_version = static_cast<int64_t>(version);
-
     compaction &= is_on_disk(); // compaction only takes effect for on disk trie
     auto const curr_version_key =
         serialize_as_big_endian<BLOCK_NUM_BYTES>(version);
@@ -553,16 +550,49 @@ Node::UniquePtr UpdateAuxImpl::do_update(
             *this, std::move(prev_root), prev_version, curr_version_key);
     }
     Update u = make_update(
-        curr_version_key, byte_string_view{}, false, std::move(updates));
+        curr_version_key,
+        byte_string_view{},
+        false,
+        std::move(updates),
+        version);
     db_updates.push_front(u);
 
     // 4. upsert version updates
     auto root = upsert(*this, sm, std::move(prev_root), std::move(db_updates));
+    MONAD_ASSERT(root->version == static_cast<int64_t>(version));
     // 5. free compacted chunks and update version metadata if on disk
     if (is_on_disk()) {
         free_compacted_chunks();
         update_ondisk_db_history_metadata(min_version, version);
     }
+    return root;
+}
+
+Node::UniquePtr UpdateAuxImpl::move_subtrie(
+    Node::UniquePtr prev_root, StateMachine &sm, uint64_t const src,
+    uint64_t const dest)
+{
+    MONAD_ASSERT(is_on_disk());
+    auto g(unique_lock());
+    auto g2(set_current_upsert_tid());
+    // db has only one version
+    MONAD_ASSERT(
+        db_metadata()->min_db_history_version.load(std::memory_order_acquire) ==
+            src &&
+        db_metadata()->max_db_history_version.load(std::memory_order_acquire) ==
+            src);
+    auto const src_block_number_prefix =
+        serialize_as_big_endian<BLOCK_NUM_BYTES>(src);
+    auto root = copy_node(
+        *this,
+        std::move(prev_root),
+        src_block_number_prefix,
+        serialize_as_big_endian<BLOCK_NUM_BYTES>(dest));
+    Update u = make_erase(src_block_number_prefix);
+    UpdateList updates;
+    updates.push_front(u);
+    root = upsert(*this, sm, std::move(root), std::move(updates));
+    update_ondisk_db_history_metadata(dest, dest);
     return root;
 }
 

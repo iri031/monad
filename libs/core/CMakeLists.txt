@@ -94,6 +94,7 @@ add_library(
   "src/monad/core/hex_literal.hpp"
   "src/monad/core/keccak.c"
   "src/monad/core/keccak.h"
+  "src/monad/core/keccak.hpp"
   "src/monad/core/keccak_impl.S"
   "src/monad/core/likely.h"
   "src/monad/core/math.hpp"
@@ -162,6 +163,7 @@ endif()
 target_link_libraries(monad_core PUBLIC cgroup openssl_sha3_asm uring Boost::fiber
                                         TBB::tbb)
 target_link_libraries(monad_core PUBLIC komihash)
+target_link_libraries(monad_core PUBLIC ethash::keccak)
 target_link_libraries(monad_core PUBLIC monad_fiber_c )
 
 add_library(

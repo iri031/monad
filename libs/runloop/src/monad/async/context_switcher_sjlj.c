@@ -12,6 +12,7 @@ extern void monad_async_executor_task_detach(monad_async_task task);
 #include <assert.h>
 #include <errno.h>
 #include <setjmp.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 #include <threads.h>
@@ -26,6 +27,9 @@ extern void monad_async_executor_task_detach(monad_async_task task);
 #endif
 #if MONAD_ASYNC_HAVE_TSAN
     #include <sanitizer/tsan_interface.h>
+#endif
+#if MONAD_ASYNC_HAVE_VALGRIND
+    #include <valgrind/valgrind.h>
 #endif
 
 monad_async_context_switcher_impl const monad_async_context_switcher_sjlj = {
@@ -338,6 +342,10 @@ static monad_async_result monad_async_context_sjlj_create(
         (void *)p->stack_storage);
     fflush(stdout);
 #endif
+#if MONAD_ASYNC_HAVE_VALGRIND
+    p->head.sanitizer.valgrind_stack_id =
+        VALGRIND_STACK_REGISTER(stack_front, stack_base);
+#endif
     // Clone the current execution context
     if (getcontext(&p->uctx) == -1) {
         monad_async_result ret = monad_async_make_failure(errno);
@@ -359,8 +367,11 @@ static monad_async_result monad_async_context_sjlj_create(
 #if MONAD_ASYNC_HAVE_TSAN
     p->tsan.fiber = __tsan_create_fiber(0);
 #endif
+    jmp_buf old_buf;
+    if (switcher->within_resume_many++ > 0) {
+        memcpy(&old_buf, &switcher->resume_many_context.buf, sizeof(old_buf));
+    }
     if (setjmp(switcher->resume_many_context.buf) == 0) {
-        switcher->within_resume_many = true;
         start_switch_context(
             p,
             &switcher->resume_many_context.head.sanitizer.fake_stack_save,
@@ -373,7 +384,9 @@ static monad_async_result monad_async_context_sjlj_create(
         switcher->resume_many_context.head.sanitizer.fake_stack_save,
         nullptr,
         nullptr);
-    switcher->within_resume_many = false;
+    if (switcher->within_resume_many-- > 0) {
+        memcpy(&switcher->resume_many_context.buf, &old_buf, sizeof(old_buf));
+    }
 #if MONAD_ASYNC_CONTEXT_TRACK_OWNERSHIP
     p->head.stack_top = stack_base;
     p->head.stack_bottom = stack_front;
@@ -403,6 +416,9 @@ monad_async_context_sjlj_destroy(monad_async_context context)
             (void *)context);
         fflush(stdout);
 #endif
+#if MONAD_ASYNC_HAVE_VALGRIND
+        VALGRIND_STACK_DEREGISTER(p->head.sanitizer.valgrind_stack_id);
+#endif
         size_t const page_size = (size_t)getpagesize();
         if (munmap(p->stack_storage, p->uctx.uc_stack.ss_size + page_size) ==
             -1) {
@@ -411,7 +427,11 @@ monad_async_context_sjlj_destroy(monad_async_context context)
         p->stack_storage = nullptr;
     }
     monad_async_context_reparent_switcher(context, nullptr);
+#if MONAD_ASYNC_GUARD_PAGE_JMPBUF
+    munmap(p, sizeof(struct monad_async_context_sjlj));
+#else
     free(context);
+#endif
     return monad_async_make_success(0);
 }
 
