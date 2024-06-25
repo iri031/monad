@@ -36,7 +36,7 @@ TEST_F(FiberFutureWrappedFind, single_thread_fibers_read)
     struct receiver_t
     {
         FiberFutureWrappedFind::shared_state_t *const fixture_shared_state;
-        ::boost::fibers::promise<
+        ::monad::fiber::promise<
             MONAD_ASYNC_NAMESPACE::read_single_buffer_sender::buffer_type>
             promise;
         chunk_offset_t offset;
@@ -50,7 +50,7 @@ TEST_F(FiberFutureWrappedFind, single_thread_fibers_read)
 
         receiver_t(
             FiberFutureWrappedFind::shared_state_t *fixture_shared_state_,
-            ::boost::fibers::promise<
+            ::monad::fiber::promise<
                 MONAD_ASYNC_NAMESPACE::read_single_buffer_sender::buffer_type>
                 &&p,
             chunk_offset_t const offset_)
@@ -90,7 +90,7 @@ TEST_F(FiberFutureWrappedFind, single_thread_fibers_read)
                 shared_state_()->test_rand() %
                 (TEST_FILE_SIZE - DISK_PAGE_SIZE)));
         auto sender = read_single_buffer_sender(offset, DISK_PAGE_SIZE);
-        ::boost::fibers::promise<promise_result_t> promise;
+        ::monad::fiber::promise<promise_result_t> promise;
         auto fut = promise.get_future();
         auto iostate = shared_state_()->testio->make_connected(
             std::move(sender),
@@ -130,19 +130,18 @@ TEST_F(FiberFutureWrappedFind, single_thread_fibers_read)
     };
 
     // Launch the fiber task
-    std::vector<::boost::fibers::future<result<std::vector<std::byte>>>>
+    std::vector<::monad::fiber::future<result<std::vector<std::byte>>>>
         futures;
     int const n_each = MAX_CONCURRENCY / 2;
     futures.reserve(MAX_CONCURRENCY);
     for (int i = 0; i < n_each; ++i) {
-        futures.emplace_back(::boost::fibers::async(impl_sender));
-        futures.emplace_back(::boost::fibers::async(impl_fiber_wrapper_sender));
+        futures.emplace_back(::monad::fiber::async(impl_sender));
+        futures.emplace_back(::monad::fiber::async(impl_fiber_wrapper_sender));
     }
 
     // Pump the loop until the fiber completes
     for (auto &fut : futures) {
-        while (::boost::fibers::future_status::ready !=
-               fut.wait_for(std::chrono::seconds(0))) {
+        while (!fut.ready()) {
             shared_state_()->testio->poll_nonblocking(1);
         }
         auto res = fut.get();

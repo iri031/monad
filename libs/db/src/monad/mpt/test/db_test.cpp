@@ -100,6 +100,7 @@ TYPED_TEST_SUITE(DbTest, DbTypes);
 
 TEST_F(OnDiskDbWithFileFixture, read_only_db_single_thread)
 {
+    monad_fiber_init_main();
     auto const &kv = fixed_updates::kv;
 
     auto const prefix = 0x00_hex;

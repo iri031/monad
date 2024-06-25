@@ -10,8 +10,6 @@
 
 #include <monad/test/gtest_signal_stacktrace_printer.hpp> // NOLINT
 
-#include <boost/fiber/future/future_status.hpp>
-
 #include <chrono>
 #include <utility>
 #include <vector>
@@ -405,8 +403,7 @@ TYPED_TEST(PlainTrieTest, large_values)
         inflight_map_t inflights;
         fiber_find_request_t const req{&p, *this->root, key1};
         find_notify_fiber_future(this->aux, inflights, req);
-        while (fut.wait_for(std::chrono::seconds(0)) !=
-               ::boost::fibers::future_status::ready) {
+        while (!fut.ready()) {
             this->aux.io->wait_until_done();
         }
         auto [leaf_it, res] = fut.get();
@@ -424,8 +421,7 @@ TYPED_TEST(PlainTrieTest, large_values)
         inflight_map_t inflights;
         fiber_find_request_t const req{&p, *this->root, key2};
         find_notify_fiber_future(this->aux, inflights, req);
-        while (fut.wait_for(std::chrono::seconds(0)) !=
-               ::boost::fibers::future_status::ready) {
+        while (!fut.ready()) {
             this->aux.io->wait_until_done();
         }
         auto [leaf_it, res] = fut.get();

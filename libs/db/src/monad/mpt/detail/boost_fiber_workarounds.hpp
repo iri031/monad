@@ -4,17 +4,8 @@
 
 #include <monad/core/unordered_map.hpp>
 
-#include <boost/fiber/algo/round_robin.hpp>
-#include <boost/fiber/fiber.hpp>
+#include <monad/fiber/wrappers.hpp>
 
-#ifdef __clang__
-    #pragma clang diagnostic push
-    #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#endif
-#include <boost/fiber/future.hpp>
-#ifdef __clang__
-    #pragma clang diagnostic pop
-#endif
 
 #include <iostream>
 #include <mutex>
@@ -29,7 +20,7 @@ namespace detail
     class threadsafe_boost_fibers_future
     {
         std::shared_ptr<
-            std::pair<::boost::fibers::promise<T>, ::boost::fibers::future<T>>>
+            std::pair<::monad::fiber::promise<T>, ::monad::fiber::future<T>>>
             state_;
 
     public:
@@ -41,7 +32,7 @@ namespace detail
 
         explicit threadsafe_boost_fibers_future(
             std::shared_ptr<std::pair<
-                ::boost::fibers::promise<T>, ::boost::fibers::future<T>>>
+                ::monad::fiber::promise<T>, ::monad::fiber::future<T>>>
                 state)
             : state_(std::move(state))
         {
@@ -69,7 +60,7 @@ namespace detail
     };
 }
 
-/*! \brief A threadsafe `boost::fibers::promise`.
+/*! \brief A threadsafe `monad::fiber::promise`.
 
 Rather annoyingly when using Boost.Fibers promises across kernel threads,
 if you destroy either side in the awoken kernel thread before the kernel
@@ -77,17 +68,20 @@ thread setting the value is done with the promise, you get a segfault.
 This deeply unhelpful behaviour is worked around using a shared ptr.
 */
 template <class T>
+using threadsafe_boost_fibers_promise = monad::fiber::promise<T>;/*
+
+template <class T>
 class threadsafe_boost_fibers_promise
 {
     std::shared_ptr<
-        std::pair<::boost::fibers::promise<T>, ::boost::fibers::future<T>>>
+        std::pair<::monad::fiber::promise<T>, ::monad::fiber::future<T>>>
         state_;
 
 public:
     threadsafe_boost_fibers_promise()
         : state_(
               std::make_shared<std::pair<
-                  ::boost::fibers::promise<T>, ::boost::fibers::future<T>>>())
+                  ::monad::fiber::promise<T>, ::monad::fiber::future<T>>>())
     {
     }
 
@@ -109,8 +103,8 @@ public:
     void reset()
     {
         state_ = std::make_shared<std::pair<
-            ::boost::fibers::promise<T>,
-            ::boost::fibers::future<T>>>();
+            ::monad::fiber::promise<T>,
+            ::monad::fiber::future<T>>>();
     }
 
     auto get_future()
@@ -139,14 +133,14 @@ template <>
 class threadsafe_boost_fibers_promise<void>
 {
     std::shared_ptr<std::pair<
-        ::boost::fibers::promise<void>, ::boost::fibers::future<void>>>
+        ::monad::fiber::promise<void>, ::monad::fiber::future<void>>>
         state_;
 
 public:
     threadsafe_boost_fibers_promise()
         : state_(std::make_shared<std::pair<
-                     ::boost::fibers::promise<void>,
-                     ::boost::fibers::future<void>>>())
+                     ::monad::fiber::promise<void>,
+                     ::monad::fiber::future<void>>>())
     {
     }
 
@@ -168,8 +162,8 @@ public:
     void reset()
     {
         state_ = std::make_shared<std::pair<
-            ::boost::fibers::promise<void>,
-            ::boost::fibers::future<void>>>();
+            ::monad::fiber::promise<void>,
+            ::monad::fiber::future<void>>>();
     }
 
     auto get_future()
@@ -178,17 +172,13 @@ public:
         return detail::threadsafe_boost_fibers_future<void>(state_);
     }
 
-    void set_exception(std::exception_ptr p)
-    {
-        state_->first.set_exception(std::move(p));
-    }
-
     void set_value()
     {
         state_->first.set_value();
     }
 };
-
+*/
+/*
 namespace detail
 {
     struct debugging_fiber_scheduler_algorithm_wrapper_shared_state_t
@@ -207,12 +197,14 @@ namespace detail
         return v;
     }
 }
+ */
 
 /*! \brief Non-hanging Boost.Fiber scheduler
 
 When multiple kernel threads use Boost.Fiber objects, you can get random
 hangs. This custom Fiber scheduler works around those issues.
 */
+/*
 template <class BaseFiberScheduler>
 class debugging_fiber_scheduler_algorithm_wrapper : public BaseFiberScheduler
 {
@@ -333,12 +325,13 @@ public:
         }
     }
 };
-
+ */
+/*
 template <class BaseFiberScheduler = ::boost::fibers::algo::round_robin>
 inline void use_debugging_fiber_scheduler_wrapper()
 {
     ::boost::fibers::use_scheduling_algorithm<
         debugging_fiber_scheduler_algorithm_wrapper<BaseFiberScheduler>>();
-}
+}*/
 
 MONAD_NAMESPACE_END

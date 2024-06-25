@@ -106,8 +106,16 @@ TYPED_TEST(StateTest, account_exists)
     EXPECT_FALSE(s.account_exists(b));
 }
 
+extern thread_local monad_fiber_t *monad_fiber_current_;
+
+
 TYPED_TEST(StateTest, create_contract)
 {
+    monad::fiber::scheduler sh{8};
+    monad_fiber_current_ = NULL;
+    monad_fiber_init_main();
+    monad_fiber_main()->scheduler = &sh;
+
     BlockState bs{this->db};
 
     State s{bs, Incarnation{1, 1}};

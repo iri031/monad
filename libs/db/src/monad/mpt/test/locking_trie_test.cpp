@@ -240,13 +240,13 @@ TEST_F(LockingTrieTest, works)
     */
     {
         aux.lock().clear();
-        ::boost::fibers::promise<::monad::mpt::find_result_type> p;
+        ::monad::fiber::promise<::monad::mpt::find_result_type> p;
         auto fut = p.get_future();
         ::monad::mpt::inflight_map_t inflights;
         ::monad::mpt::find_request_t req{&p, *root, keys[keys.size() - 2].first};
         ::monad::mpt::find_notify_fiber_future(aux, inflights, req);
         while (fut.wait_for(std::chrono::seconds(0)) !=
-               ::boost::fibers::future_status::ready) {
+               ::monad::fiber::future_status::ready) {
             aux.io->wait_until_done();
         }
         auto [leaf_it, res] = fut.get();
@@ -268,13 +268,13 @@ TEST_F(LockingTrieTest, works)
     // Now the node is in cache, no exclusive lock should get taken
     {
         aux.lock().clear();
-        ::boost::fibers::promise<::monad::mpt::find_result_type> p;
+        ::monad::fiber::promise<::monad::mpt::find_result_type> p;
         auto fut = p.get_future();
         ::monad::mpt::inflight_map_t inflights;
         ::monad::mpt::find_request_t req{&p, *root, keys[keys.size() - 2].first};
         ::monad::mpt::find_notify_fiber_future(aux, inflights, req);
         while (fut.wait_for(std::chrono::seconds(0)) !=
-               ::boost::fibers::future_status::ready) {
+               ::monad::fiber::future_status::ready) {
             aux.io->wait_until_done();
         }
         auto [leaf_it, res] = fut.get();

@@ -873,7 +873,7 @@ int main(int argc, char *argv[])
                             .promise = &*promise_it++,
                             .start = state_start,
                             .key = key};
-                        request.promise->reset();
+                        *request.promise = {};
                         req.enqueue(request);
                         auto const [node_cursor, errc] =
                             request.promise->get_future().get();
@@ -981,7 +981,7 @@ int main(int argc, char *argv[])
 
                         void reset(NodeCursor const state_start)
                         {
-                            p.reset();
+                            p = {};
                             request = fiber_find_request_t{
                                 .promise = &p,
                                 .start = state_start,

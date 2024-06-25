@@ -80,8 +80,8 @@ Result<std::vector<Receipt>> execute_block(
     std::shared_ptr<std::optional<Result<Receipt>>[]> const results{
         new std::optional<Result<Receipt>>[block.transactions.size()]};
 
-    std::shared_ptr<boost::fibers::promise<void>[]> const promises{
-        new boost::fibers::promise<void>[block.transactions.size() + 1]};
+    std::shared_ptr<monad::fiber::promise<void>[]> const promises{
+        new monad::fiber::promise<void>[block.transactions.size() + 1]};
     promises[0].set_value();
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
@@ -106,7 +106,7 @@ Result<std::vector<Receipt>> execute_block(
     }
 
     auto const last = static_cast<std::ptrdiff_t>(block.transactions.size());
-    promises[last].get_future().wait();
+    promises[last].get_future().get();
 
     std::vector<Receipt> receipts;
     for (unsigned i = 0; i < block.transactions.size(); ++i) {

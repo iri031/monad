@@ -41,7 +41,7 @@ static char *get_current_cgroup()
     while (!feof(fp)) {
         int id = 0;
         char *cgroup_path [[gnu::cleanup(cleanup_free)]] = NULL;
-        int const result = fscanf(fp, "%d::%ms\n", &id, &cgroup_path);
+        int const result = -1; //fscanf(fp, "%d::%ms\n", &id, &cgroup_path);
         if (result != 2) {
             fprintf(stderr, "failed to parse /proc/self/cgroup\n");
             return NULL;

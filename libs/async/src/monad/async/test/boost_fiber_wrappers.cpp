@@ -34,8 +34,15 @@ struct BoostFiberWrappers
 {
 };
 
+extern thread_local monad_fiber_t *monad_fiber_current_;
+
 TEST_F(BoostFiberWrappers, fiber_read)
 {
+    monad::fiber::scheduler sh{8};
+    monad_fiber_current_ = NULL;
+    monad_fiber_init_main();
+    monad_fiber_main()->scheduler = &sh;
+
     auto impl = [&]() -> result<std::vector<std::byte>> {
         // This initiates the i/o reading DISK_PAGE_SIZE bytes from offset
         // 0, returning a boost fiber future like object
@@ -55,12 +62,12 @@ TEST_F(BoostFiberWrappers, fiber_read)
     };
 
     // Launch the fiber task
-    ::boost::fibers::future<result<std::vector<std::byte>>> fut =
-        ::boost::fibers::async(impl);
+    ::monad::fiber::future<result<std::vector<std::byte>>> fut =
+        ::monad::fiber::async(impl, sh);
     // Pump the loop until the fiber completes
-    while (::boost::fibers::future_status::ready !=
-           fut.wait_for(std::chrono::seconds(0))) {
-        shared_state_()->testio->poll_blocking(1);
+    while (!fut.ready()) {
+        if (shared_state_()->testio->poll_blocking(1) == 0)
+            sh.run_one();
     }
     // Get the result of the fiber task
     result<std::vector<std::byte>> res = fut.get();
@@ -81,6 +88,11 @@ TEST_F(BoostFiberWrappers, fiber_read)
 
 TEST_F(BoostFiberWrappers, fiber_timeout)
 {
+    monad::fiber::scheduler sh{8};
+    monad_fiber_current_ = NULL;
+    monad_fiber_init_main();
+    monad_fiber_main()->scheduler = &sh;
+
     auto impl = [&]() -> std::chrono::steady_clock::duration {
         auto begin = std::chrono::steady_clock::now();
         boost_fibers::timed_delay(
@@ -89,10 +101,9 @@ TEST_F(BoostFiberWrappers, fiber_timeout)
             .value();
         return std::chrono::steady_clock::now() - begin;
     };
-    ::boost::fibers::future<std::chrono::steady_clock::duration> fut =
-        ::boost::fibers::async(impl);
-    while (::boost::fibers::future_status::ready !=
-           fut.wait_for(std::chrono::seconds(0))) {
+    ::monad::fiber::future<std::chrono::steady_clock::duration> fut =
+        ::monad::fiber::async(impl, sh);
+    while (fut.ready()) {
         shared_state_()->testio->poll_blocking(1);
     }
     std::chrono::steady_clock::duration const res = fut.get();
@@ -101,6 +112,11 @@ TEST_F(BoostFiberWrappers, fiber_timeout)
 
 TEST_F(BoostFiberWrappers, resume_execution_upon)
 {
+    monad::fiber::scheduler sh{8};
+    monad_fiber_current_ = NULL;
+    monad_fiber_init_main();
+    monad_fiber_main()->scheduler = &sh;
+
     std::atomic<AsyncIO *> other{nullptr};
     std::jthread thr([&](std::stop_token token) {
         storage_pool pool{use_anonymous_inode_tag{}};
@@ -135,7 +151,7 @@ TEST_F(BoostFiberWrappers, resume_execution_upon)
         MONAD_ASSERT(thread_ids.push(final_tid));
         done = true;
     };
-    ::boost::fibers::future<void> fut = ::boost::fibers::async(impl);
+    ::monad::fiber::future<void> fut = ::monad::fiber::async(impl, sh);
     while (!done) {
         ::boost::this_fiber::yield();
         shared_state_()->testio->poll_nonblocking(1);

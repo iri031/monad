@@ -194,7 +194,7 @@ Result<Receipt> execute_impl(
     [[maybe_unused]] uint64_t const i, Transaction const &tx,
     Address const &sender, BlockHeader const &hdr,
     BlockHashBuffer const &block_hash_buffer, BlockState &block_state,
-    boost::fibers::promise<void> &prev)
+    monad::fiber::promise<void> &prev)
 {
     BOOST_OUTCOME_TRY(
         static_validate_transaction<rev>(tx, hdr.base_fee_per_gas));
@@ -209,7 +209,7 @@ Result<Receipt> execute_impl(
 
         {
             TRACE_TXN_EVENT(StartStall);
-            prev.get_future().wait();
+            prev.get_future().get();
         }
 
         if (block_state.can_merge(state)) {
@@ -258,7 +258,7 @@ template <evmc_revision rev>
 Result<Receipt> execute(
     [[maybe_unused]] uint64_t const i, Transaction const &tx,
     BlockHeader const &hdr, BlockHashBuffer const &block_hash_buffer,
-    BlockState &block_state, boost::fibers::promise<void> &prev)
+    BlockState &block_state, monad::fiber::promise<void> &prev)
 {
     TRACE_TXN_EVENT(StartTxn);
 
