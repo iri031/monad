@@ -298,6 +298,7 @@ int monad_fiber_channel_read(monad_fiber_channel_t * this, void * target)
   {
     // ask james if this should be prioritized
     struct monad_fiber_channel_read_op my_op = {.fiber=monad_fiber_current(), .target = target, .next = NULL};
+    MONAD_ASSERT(my_op.fiber->scheduler != NULL);
     struct monad_fiber_channel_read_op * op = this->pending_reads;
     if (op == NULL) // insert directly
       this->pending_reads = op = &my_op;
@@ -375,6 +376,7 @@ int monad_fiber_channel_write(monad_fiber_channel_t * this, const void * source)
   {
     // ask james if this should be prioritized.
     struct monad_fiber_channel_write_op my_op = {.fiber=monad_fiber_current(), .source = source, .next = NULL};
+    MONAD_ASSERT(my_op.fiber->scheduler != NULL);
     struct monad_fiber_channel_write_op * op = this->pending_writes;
     if (op == NULL) // insert directly
       this->pending_writes = op = &my_op;
@@ -447,7 +449,7 @@ int monad_fiber_channel_send(monad_fiber_channel_t * this, const void * source)
       void * tmp = ((char*)my_op) + sizeof(struct monad_fiber_channel_write_op);
       my_op->source = memcpy(tmp, source, this->element_size);
     }
-
+    MONAD_ASSERT(my_op->fiber->scheduler != NULL);
     my_op->fiber = &monad_fiber_channel_noop;
     struct monad_fiber_channel_write_op * op = this->pending_writes;
     if (op == NULL) // insert directly
@@ -464,4 +466,12 @@ int monad_fiber_channel_send(monad_fiber_channel_t * this, const void * source)
   return 0;
 }
 
+size_t monad_fiber_channel_available(monad_fiber_channel_t * this)
+{
+    MONAD_CCALL_ASSERT(pthread_mutex_lock(&this->mutex));
+    fprintf(stderr, "monad_fiber_channel_available(%p) %ld %p\n", (void*)this, this->size, (void*)this->pending_writes);
+    size_t res = this->size;
+    MONAD_CCALL_ASSERT(pthread_mutex_unlock(&this->mutex));
+    return res;
+}
 

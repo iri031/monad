@@ -39,7 +39,7 @@ int monad_fiber_channel_write(monad_fiber_channel_t *, void const *source);
 
 int monad_fiber_channel_send(monad_fiber_channel_t *, void const * source);
 
-
+size_t monad_fiber_channel_available(monad_fiber_channel_t *);
 
 #if defined(__cplusplus)
 }
