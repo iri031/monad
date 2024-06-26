@@ -3,12 +3,14 @@
 #include <monad/core/bytes.hpp>
 #include <monad/core/int.hpp>
 
+#include <map>
 #include <set>
 
 MONAD_NAMESPACE_BEGIN
 
 extern uint64_t blk_num;
-extern std::set<std::pair<Address, bytes32_t>> accessed;
+extern std::map<std::pair<Address, bytes32_t>, std::set<bytes32_t>> accessed;
+extern std::set<std::pair<Address, bytes32_t>> accessed_nonzero;
 
 extern uint64_t nonzero_unaccessed;
 extern uint64_t nonzero_accessed;

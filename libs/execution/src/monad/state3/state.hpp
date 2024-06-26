@@ -32,6 +32,8 @@
 #include <set>
 #include <utility>
 
+#include <map>
+
 MONAD_NAMESPACE_BEGIN
 
 class State
@@ -95,8 +97,8 @@ class State
     friend class BlockState; // TODO
 
 public:
-    std::set<std::pair<Address, bytes32_t>> write_storage_zero;
-    std::set<std::pair<Address, bytes32_t>> write_storage_non_zero;
+    std::map<std::pair<Address, bytes32_t>, bytes32_t> write_storage_zero;
+    std::map<std::pair<Address, bytes32_t>, bytes32_t> write_storage_non_zero;
     std::set<std::pair<Address, bytes32_t>> read_storage;
 
     State(BlockState &block_state, Incarnation const incarnation)
@@ -320,17 +322,16 @@ public:
             original_value = it->second;
         }
 
-        // temp
-        if ((write_storage_non_zero.find({address, key}) ==
-             write_storage_non_zero.end()) &&
-            (write_storage_zero.find({address, key}) ==
-             write_storage_zero.end())) {
+        // temp: Modified => will ensure final value of tthe txn
+        {
             if (read_storage.find({address, key}) == read_storage.end()) {
                 if (original_value == bytes32_t{}) {
-                    write_storage_zero.emplace(address, key);
+                    write_storage_zero.emplace(
+                        std::make_pair(address, key), value);
                 }
                 else {
-                    write_storage_non_zero.emplace(address, key);
+                    write_storage_non_zero.emplace(
+                        std::make_pair(address, key), value);
                 }
             }
         }

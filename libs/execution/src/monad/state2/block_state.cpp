@@ -26,12 +26,14 @@
 #include <fstream>
 #include <set>
 
+#include <map>
 #include <monad/core/global.hpp>
 
 MONAD_NAMESPACE_BEGIN
 
 extern uint64_t blk_num;
-extern std::set<std::pair<Address, bytes32_t>> accessed;
+extern std::map<std::pair<Address, bytes32_t>, std::set<bytes32_t>> accessed;
+extern std::set<std::pair<Address, bytes32_t>> accessed_nonzero;
 
 extern uint64_t nonzero_unaccessed;
 extern uint64_t nonzero_accessed;
@@ -203,24 +205,29 @@ void BlockState::merge(State const &state)
         }
     }
 
-    for (auto const &acc_stor : state.write_storage_non_zero) {
+    for (auto const &[acc_stor, value] : state.write_storage_non_zero) {
         if (accessed.find(acc_stor) == accessed.end()) {
             ++nonzero_unaccessed;
+            std::set<bytes32_t> s{value};
+            accessed.emplace(acc_stor, s);
         }
         else {
             ++nonzero_accessed;
+            accessed[acc_stor].emplace(value);
+            accessed_nonzero.emplace(acc_stor);
         }
-        accessed.emplace(acc_stor);
     }
 
-    for (auto const &acc_stor : state.write_storage_zero) {
+    for (auto const &[acc_stor, value] : state.write_storage_zero) {
         if (accessed.find(acc_stor) == accessed.end()) {
             ++zero_unaccessed;
+            std::set<bytes32_t> s{value};
+            accessed.emplace(acc_stor, s);
         }
         else {
             ++zero_accessed;
+            accessed[acc_stor].emplace(value);
         }
-        accessed.emplace(acc_stor);
     }
 }
 

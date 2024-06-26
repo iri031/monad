@@ -33,11 +33,14 @@
 #include <utility>
 #include <vector>
 
+#include <map>
+
 MONAD_NAMESPACE_BEGIN
 
 static std::ofstream ofile_agg("total_stats.csv");
 
-extern std::set<std::pair<Address, bytes32_t>> accessed;
+extern std::map<std::pair<Address, bytes32_t>, std::set<bytes32_t>> accessed;
+extern std::set<std::pair<Address, bytes32_t>> accessed_nonzero;
 
 extern uint64_t nonzero_unaccessed;
 extern uint64_t nonzero_accessed;
@@ -118,10 +121,20 @@ Result<std::vector<Receipt>> execute_block(
     auto const last = static_cast<std::ptrdiff_t>(block.transactions.size());
     promises[last].get_future().wait();
 
+    uint64_t nonzero_accessed_waszero{0};
+
+    for (auto const &[acc_stor, values] : accessed) {
+        if ((accessed_nonzero.find(acc_stor) != accessed_nonzero.end()) &&
+            values.contains(bytes32_t{})) {
+            nonzero_accessed_waszero++;
+            nonzero_accessed--;
+        }
+    }
+
     // output
     ofile_agg << block.header.number << ", " << nonzero_unaccessed << ", "
-              << nonzero_accessed << ", " << zero_unaccessed << ", "
-              << zero_accessed << std::endl;
+              << nonzero_accessed << ", " << nonzero_accessed_waszero << ", "
+              << zero_unaccessed << ", " << zero_accessed << std::endl;
 
     nonzero_unaccessed = nonzero_accessed = zero_unaccessed = zero_accessed = 0;
     accessed.clear();
