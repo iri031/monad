@@ -31,7 +31,12 @@
 #include <optional>
 #include <utility>
 
+#include <monad/core/global.hpp>
+
 MONAD_NAMESPACE_BEGIN
+
+extern std::set<Address> empty_address;
+extern std::set<Address> address_cache;
 
 class State
 {
@@ -88,7 +93,14 @@ class State
 
     std::optional<Account> &current_account(Address const &address)
     {
-        return current_account_state(address).account_;
+        auto &account = current_account_state(address).account_;
+        if (MONAD_UNLIKELY(
+                address_cache.find(address) == address_cache.end()) &&
+            is_dead(account)) {
+            empty_address.insert(address);
+            address_cache.insert(address);
+        }
+        return account;
     }
 
     friend class BlockState; // TODO
@@ -149,7 +161,14 @@ public:
 
     std::optional<Account> const &recent_account(Address const &address)
     {
-        return recent_account_state(address).account_;
+        auto &account = recent_account_state(address).account_;
+        if (MONAD_UNLIKELY(
+                address_cache.find(address) == address_cache.end()) &&
+            is_dead(account)) {
+            empty_address.insert(address);
+            address_cache.insert(address);
+        }
+        return account;
     }
 
     ////////////////////////////////////////

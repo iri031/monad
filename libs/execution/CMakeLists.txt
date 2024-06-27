@@ -36,6 +36,8 @@ add_library(
   "src/monad/core/fmt/signature_fmt.hpp"
   "src/monad/core/fmt/transaction_fmt.hpp"
   "src/monad/core/fmt/withdrawal_fmt.hpp"
+  "src/monad/core/global.cpp"
+  "src/monad/core/global.hpp"
   "src/monad/core/int.hpp"
   "src/monad/core/log_level_map.hpp"
   "src/monad/core/receipt.cpp"

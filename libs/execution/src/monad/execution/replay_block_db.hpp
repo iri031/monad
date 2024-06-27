@@ -26,7 +26,16 @@
 #include <fstream>
 #include <optional>
 
+#include <map>
+#include <monad/core/global.hpp>
+#include <set>
+
 MONAD_NAMESPACE_BEGIN
+
+static std::ofstream ofile("empty_accounts.csv");
+
+extern std::set<Address> empty_address;
+extern std::set<Address> account_cache;
 
 class ReplayFromBlockDb
 {
@@ -135,6 +144,29 @@ public:
                 auto const receipts,
                 execute_block(
                     rev, block, block_state, block_hash_buffer, priority_pool));
+
+            // temp output code
+            if (block_number > 12'100'000u && block_number <= 12'110'000u) {
+                State state{
+                    block_state,
+                    Incarnation{block.header.number, Incarnation::LAST_TX}};
+                uint64_t modified = 0;
+                uint64_t unmodified = 0;
+                for (auto const &addr : empty_address) {
+                    auto const &account = state.recent_account(addr);
+                    if (is_dead(account)) {
+                        unmodified++;
+                    }
+                    else {
+                        modified++;
+                    }
+                }
+
+                ofile << block_number << ", " << unmodified << ", " << modified
+                      << std::endl;
+            }
+            empty_address.clear();
+
             BOOST_OUTCOME_TRY(validate_header(receipts, block.header));
             block_state.log_debug();
             block_state.commit(receipts);
