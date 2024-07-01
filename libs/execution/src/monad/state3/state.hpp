@@ -32,11 +32,14 @@
 #include <utility>
 
 #include <monad/core/global.hpp>
+#include <mutex>
 
 MONAD_NAMESPACE_BEGIN
 
 extern std::set<Address> empty_address;
 extern std::set<Address> address_cache;
+
+extern std::mutex mtx;
 
 class State
 {
@@ -95,9 +98,11 @@ class State
     {
         auto &account = current_account_state(address).account_;
         if (MONAD_UNLIKELY(
-                address_cache.find(address) == address_cache.end()) &&
-            is_dead(account)) {
-            empty_address.insert(address);
+                address_cache.find(address) == address_cache.end())) {
+            std::lock_guard<std::mutex> guard{mtx};
+            if (is_dead(account)) {
+                empty_address.insert(address);
+            }
             address_cache.insert(address);
         }
         return account;
@@ -163,9 +168,11 @@ public:
     {
         auto &account = recent_account_state(address).account_;
         if (MONAD_UNLIKELY(
-                address_cache.find(address) == address_cache.end()) &&
-            is_dead(account)) {
-            empty_address.insert(address);
+                address_cache.find(address) == address_cache.end())) {
+            std::lock_guard<std::mutex> guard{mtx};
+            if (is_dead(account)) {
+                empty_address.insert(address);
+            }
             address_cache.insert(address);
         }
         return account;

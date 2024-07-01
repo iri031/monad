@@ -30,12 +30,20 @@
 #include <monad/core/global.hpp>
 #include <set>
 
+#include <iostream>
+#include <mutex>
+
 MONAD_NAMESPACE_BEGIN
 
 static std::ofstream ofile("empty_accounts.csv");
 
 extern std::set<Address> empty_address;
-extern std::set<Address> account_cache;
+extern std::set<Address> address_cache;
+
+extern std::mutex mtx;
+
+extern std::set<Address> empty_address_changed;
+extern std::set<Address> empty_address_unchanged;
 
 class ReplayFromBlockDb
 {
@@ -145,27 +153,55 @@ public:
                 execute_block(
                     rev, block, block_state, block_hash_buffer, priority_pool));
 
+            uint64_t modified_accessed = 0;
+            uint64_t modified_unaccessed = 0;
+            uint64_t unmodified_accessed = 0;
+            uint64_t unmodified_unaccessed = 0;
+
             // temp output code
-            if (block_number > 12'100'000u && block_number <= 12'110'000u) {
+            if (block_number > 12'010'000u && block_number <= 12'011'000u) {
                 State state{
                     block_state,
-                    Incarnation{block.header.number, Incarnation::LAST_TX}};
-                uint64_t modified = 0;
-                uint64_t unmodified = 0;
+                    Incarnation{
+                        block.header.number, Incarnation::LAST_TX - 10u}};
                 for (auto const &addr : empty_address) {
                     auto const &account = state.recent_account(addr);
                     if (is_dead(account)) {
-                        unmodified++;
+                        empty_address_unchanged.insert(addr);
                     }
                     else {
-                        modified++;
+                        empty_address_changed.insert(addr);
                     }
                 }
-
-                ofile << block_number << ", " << unmodified << ", " << modified
-                      << std::endl;
+                if (block_number == 12'011'000u) {
+                    address_cache.clear();
+                }
             }
             empty_address.clear();
+
+            if (block_number == 12'022'000u) {
+                for (auto const &addr : empty_address_changed) {
+                    if (address_cache.find(addr) != address_cache.end()) {
+                        modified_accessed++;
+                    }
+                    else {
+                        modified_unaccessed++;
+                    }
+                }
+                for (auto const &addr : empty_address_unchanged) {
+                    if (address_cache.find(addr) != address_cache.end()) {
+                        unmodified_accessed++;
+                    }
+                    else {
+                        unmodified_unaccessed++;
+                    }
+                }
+                std::cerr << "modified_accessed: " << modified_accessed
+                          << ", modified_unaccessed: " << modified_unaccessed
+                          << ", unmodified_accessed: " << unmodified_accessed
+                          << ", unmodified_unaccessed: "
+                          << unmodified_unaccessed << std::endl;
+            }
 
             BOOST_OUTCOME_TRY(validate_header(receipts, block.header));
             block_state.log_debug();
