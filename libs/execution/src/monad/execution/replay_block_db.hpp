@@ -35,15 +35,15 @@
 
 MONAD_NAMESPACE_BEGIN
 
-static std::ofstream ofile("empty_accounts.csv");
+static std::ofstream ofile("empty_storage.csv");
 
-extern std::set<Address> empty_address;
-extern std::set<Address> address_cache;
+extern std::set<std::pair<Address, bytes32_t>> empty_storage;
+extern std::set<std::pair<Address, bytes32_t>> storage_cache;
 
 extern std::mutex mtx;
 
-extern std::set<Address> empty_address_changed;
-extern std::set<Address> empty_address_unchanged;
+extern std::set<std::pair<Address, bytes32_t>> empty_storage_changed;
+extern std::set<std::pair<Address, bytes32_t>> empty_storage_unchanged;
 
 class ReplayFromBlockDb
 {
@@ -164,32 +164,39 @@ public:
                     block_state,
                     Incarnation{
                         block.header.number, Incarnation::LAST_TX - 10u}};
-                for (auto const &addr : empty_address) {
-                    auto const &account = state.recent_account(addr);
-                    if (is_dead(account)) {
-                        empty_address_unchanged.insert(addr);
+                for (auto const &[addr, storage] : empty_storage) {
+                    // we need to access account first
+                    auto const &acct = state.recent_account(addr);
+                    if (MONAD_UNLIKELY(!acct.has_value())) {
+                        empty_storage_unchanged.emplace(addr, storage);
+                        continue;
+                    }
+                    auto const &value = state.get_storage(addr, storage);
+                    if (value == bytes32_t{}) {
+                        empty_storage_unchanged.emplace(addr, storage);
                     }
                     else {
-                        empty_address_changed.insert(addr);
+                        empty_storage_changed.emplace(addr, storage);
                     }
                 }
                 if (block_number == 12'011'000u) {
-                    address_cache.clear();
+                    storage_cache.clear();
                 }
             }
-            empty_address.clear();
+            // This happens every block
+            empty_storage.clear();
 
-            if (block_number == 12'022'000u) {
-                for (auto const &addr : empty_address_changed) {
-                    if (address_cache.find(addr) != address_cache.end()) {
+            if (block_number == 12'021'000u) {
+                for (auto const &addr_stor : empty_storage_changed) {
+                    if (storage_cache.find(addr_stor) != storage_cache.end()) {
                         modified_accessed++;
                     }
                     else {
                         modified_unaccessed++;
                     }
                 }
-                for (auto const &addr : empty_address_unchanged) {
-                    if (address_cache.find(addr) != address_cache.end()) {
+                for (auto const &addr_stor : empty_storage_unchanged) {
+                    if (storage_cache.find(addr_stor) != storage_cache.end()) {
                         unmodified_accessed++;
                     }
                     else {

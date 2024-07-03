@@ -36,8 +36,8 @@
 
 MONAD_NAMESPACE_BEGIN
 
-extern std::set<Address> empty_address;
-extern std::set<Address> address_cache;
+extern std::set<std::pair<Address, bytes32_t>> empty_storage;
+extern std::set<std::pair<Address, bytes32_t>> storage_cache;
 
 extern std::mutex mtx;
 
@@ -96,16 +96,7 @@ class State
 
     std::optional<Account> &current_account(Address const &address)
     {
-        auto &account = current_account_state(address).account_;
-        if (MONAD_UNLIKELY(
-                address_cache.find(address) == address_cache.end())) {
-            std::lock_guard<std::mutex> guard{mtx};
-            if (is_dead(account)) {
-                empty_address.insert(address);
-            }
-            address_cache.insert(address);
-        }
-        return account;
+        return current_account_state(address).account_;
     }
 
     friend class BlockState; // TODO
@@ -166,16 +157,7 @@ public:
 
     std::optional<Account> const &recent_account(Address const &address)
     {
-        auto &account = recent_account_state(address).account_;
-        if (MONAD_UNLIKELY(
-                address_cache.find(address) == address_cache.end())) {
-            std::lock_guard<std::mutex> guard{mtx};
-            if (is_dead(account)) {
-                empty_address.insert(address);
-            }
-            address_cache.insert(address);
-        }
-        return account;
+        return recent_account_state(address).account_;
     }
 
     ////////////////////////////////////////
@@ -233,6 +215,14 @@ public:
                     address, account.value().incarnation, key);
                 it3 = storage.try_emplace(key, value).first;
             }
+
+            if (storage_cache.find({address, key}) == storage_cache.end()) {
+                std::lock_guard<std::mutex> guard{mtx};
+                if (MONAD_UNLIKELY(it3->second == bytes32_t{})) {
+                    empty_storage.emplace(address, key);
+                }
+                storage_cache.emplace(address, key);
+            }
             return it3->second;
         }
         else {
@@ -241,6 +231,13 @@ public:
             MONAD_ASSERT(account.has_value());
             auto const &storage = account_state.storage_;
             if (auto const it2 = storage.find(key); it2 != storage.end()) {
+                if (storage_cache.find({address, key}) == storage_cache.end()) {
+                    std::lock_guard<std::mutex> guard{mtx};
+                    if (MONAD_UNLIKELY(it2->second == bytes32_t{})) {
+                        empty_storage.emplace(address, key);
+                    }
+                    storage_cache.emplace(address, key);
+                }
                 return it2->second;
             }
             auto const it2 = original_.find(address);
@@ -250,6 +247,11 @@ public:
             if (!original_account.has_value() ||
                 account.value().incarnation !=
                     original_account.value().incarnation) {
+                if (storage_cache.find({address, key}) == storage_cache.end()) {
+                    std::lock_guard<std::mutex> guard{mtx};
+                    empty_storage.emplace(address, key);
+                    storage_cache.emplace(address, key);
+                }
                 return {};
             }
             auto &original_storage = original_account_state.storage_;
@@ -258,6 +260,13 @@ public:
                 bytes32_t const value = block_state_.read_storage(
                     address, account.value().incarnation, key);
                 it3 = original_storage.try_emplace(key, value).first;
+            }
+            if (storage_cache.find({address, key}) == storage_cache.end()) {
+                std::lock_guard<std::mutex> guard{mtx};
+                if (MONAD_UNLIKELY(it3->second == bytes32_t{})) {
+                    empty_storage.emplace(address, key);
+                }
+                storage_cache.emplace(address, key);
             }
             return it3->second;
         }

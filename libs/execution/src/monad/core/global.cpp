@@ -1,3 +1,5 @@
+#include <monad/core/address.hpp>
+#include <monad/core/bytes.hpp>
 #include <monad/core/global.hpp>
 
 #include <map>
@@ -6,12 +8,12 @@
 
 MONAD_NAMESPACE_BEGIN
 
-std::set<Address> empty_address{};
-std::set<Address> address_cache{};
+std::set<std::pair<Address, bytes32_t>> empty_storage{};
+std::set<std::pair<Address, bytes32_t>> storage_cache{};
 
 std::mutex mtx;
 
-std::set<Address> empty_address_changed{};
-std::set<Address> empty_address_unchanged{};
+std::set<std::pair<Address, bytes32_t>> empty_storage_changed{};
+std::set<std::pair<Address, bytes32_t>> empty_storage_unchanged{};
 
 MONAD_NAMESPACE_END
