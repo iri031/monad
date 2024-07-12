@@ -56,7 +56,9 @@ namespace
     struct BinaryDbLoader
     {
     private:
-        static constexpr uint64_t CHUNK_SIZE = 1ul << 13; // 8 kb
+        static constexpr auto chunk_size = 1ul << 13; // 8 kb
+        static constexpr auto max_code_size =
+            24'676ul; // we DON'T support code overflow
 
         ::monad::mpt::Db &db_;
         std::deque<mpt::Update> update_alloc_;
@@ -65,6 +67,13 @@ namespace
         std::unique_ptr<unsigned char[]> buf_;
         uint64_t block_id_;
 
+        bool overflow_;
+        bool overflow_storage_processed_;
+        Update overflowed_update_;
+        uint64_t remaining_storage_;
+        std::deque<Nibbles> overflowed_account_nibbles_;
+        std::deque<byte_string> overflowed_account_value_;
+
     public:
         BinaryDbLoader(
             ::monad::mpt::Db &db, size_t buf_size, uint64_t const block_id)
@@ -72,8 +81,12 @@ namespace
             , buf_size_{buf_size}
             , buf_{std::make_unique_for_overwrite<unsigned char[]>(buf_size)}
             , block_id_{block_id}
+            , overflow_{false}
+            , overflow_storage_processed_{false}
+            , overflowed_update_{}
+            , remaining_storage_{0}
         {
-            MONAD_ASSERT(buf_size >= CHUNK_SIZE);
+            MONAD_ASSERT(buf_size >= std::max(chunk_size, max_code_size));
         };
 
         void load(std::istream &accounts, std::istream &code)
@@ -123,6 +136,20 @@ namespace
     private:
         static constexpr auto storage_entry_size = sizeof(bytes32_t) * 2;
         static_assert(storage_entry_size == 64);
+        static constexpr auto account_fixed_size =
+            sizeof(bytes32_t) + sizeof(uint256_t) + sizeof(uint64_t) +
+            sizeof(bytes32_t) + sizeof(uint64_t);
+        static_assert(account_fixed_size == 112);
+        static constexpr auto num_storage_offset =
+            account_fixed_size - sizeof(uint64_t);
+        static constexpr auto balance_offset = sizeof(bytes32_t);
+        static constexpr auto nonce_offset = balance_offset + sizeof(uint256_t);
+        static constexpr auto code_hash_offset =
+            nonce_offset + sizeof(uint64_t);
+
+        static constexpr auto hash_and_len_size =
+            sizeof(bytes32_t) + sizeof(uint64_t);
+        static_assert(hash_and_len_size == 40);
 
         void load(
             std::istream &input,
@@ -132,16 +159,31 @@ namespace
             UpdateList updates;
             size_t total_processed = 0;
             size_t total_read = 0;
-            while (input.read((char *)buf_.get() + total_read, CHUNK_SIZE)) {
+            while (input.read((char *)buf_.get() + total_read, chunk_size)) {
                 auto const count = static_cast<size_t>(input.gcount());
-                MONAD_ASSERT(count <= CHUNK_SIZE);
+                MONAD_ASSERT(count <= chunk_size);
                 total_read += count;
                 total_processed += fparse(
                     byte_string_view{
                         buf_.get() + total_processed,
                         total_read - total_processed},
                     updates);
-                if (MONAD_UNLIKELY((total_read + CHUNK_SIZE) > buf_size_)) {
+                if (MONAD_UNLIKELY(
+                        ((total_read + chunk_size) > buf_size_) ||
+                        (overflow_ && overflow_storage_processed_))) {
+
+                    if (MONAD_UNLIKELY(overflow_)) {
+                        MONAD_ASSERT(!overflowed_update_.key.empty())
+                        overflowed_account_nibbles_.emplace_back(
+                            overflowed_update_.key);
+
+                        MONAD_ASSERT(overflowed_update_.value.has_value())
+                        overflowed_account_value_.emplace_back(
+                            overflowed_update_.value.value());
+
+                        updates.push_front(overflowed_update_);
+                    }
+
                     fwrite(std::move(updates));
                     std::memmove(
                         buf_.get(),
@@ -149,12 +191,26 @@ namespace
                         total_read - total_processed);
                     total_read -= total_processed;
                     total_processed = 0;
+                    if (MONAD_UNLIKELY(overflow_)) {
+                        if (remaining_storage_ == 0) {
+                            overflow_ = false;
+                            overflowed_update_ = Update{};
+                        }
+                        else {
+                            overflowed_update_ = Update{
+                                .key = overflowed_account_nibbles_.back(),
+                                .value = overflowed_account_value_.back(),
+                                .incarnation = false,
+                                .next = UpdateList{},
+                                .version = static_cast<int64_t>(block_id_)};
+                        }
+                    }
                     updates.clear();
                 }
             }
 
             auto const count = static_cast<size_t>(input.gcount());
-            MONAD_ASSERT(count <= CHUNK_SIZE);
+            MONAD_ASSERT(count <= chunk_size);
             total_read += count;
             total_processed += fparse(
                 byte_string_view{
@@ -166,20 +222,56 @@ namespace
             fwrite(std::move(updates));
         }
 
+        // used only when this is overflow
+        size_t parse_accounts_overflow(byte_string_view in)
+        {
+            MONAD_ASSERT(remaining_storage_ != 0);
+            if ((in.size() < buf_size_ * 2 / 3) &&
+                (in.size() < remaining_storage_ * storage_entry_size)) {
+                overflow_storage_processed_ = false;
+                return 0;
+            }
+            overflow_storage_processed_ = true;
+            auto const num_storage_processed = in.size() / storage_entry_size;
+            if (num_storage_processed >= remaining_storage_) {
+                auto const processed_bytes =
+                    remaining_storage_ * storage_entry_size;
+                overflowed_update_.next =
+                    handle_storage(in.substr(0, processed_bytes));
+                remaining_storage_ = 0;
+                return processed_bytes;
+            }
+            else {
+                auto const processed_bytes =
+                    num_storage_processed * storage_entry_size;
+                overflowed_update_.next =
+                    handle_storage(in.substr(0, processed_bytes));
+                remaining_storage_ -= num_storage_processed;
+                return processed_bytes;
+            }
+        }
+
         size_t parse_accounts(byte_string_view in, UpdateList &account_updates)
         {
-            constexpr auto account_fixed_size =
-                sizeof(bytes32_t) + sizeof(uint256_t) + sizeof(uint64_t) +
-                sizeof(bytes32_t) + sizeof(uint64_t);
-            static_assert(account_fixed_size == 112);
+            if (MONAD_UNLIKELY(overflow_)) {
+                return parse_accounts_overflow(in);
+            }
             size_t total_processed = 0;
             while (in.size() >= account_fixed_size) {
-                constexpr auto num_storage_offset =
-                    account_fixed_size - sizeof(uint64_t);
                 auto const num_storage = unaligned_load<uint64_t>(
                     in.substr(num_storage_offset, sizeof(uint64_t)).data());
                 auto const storage_size = num_storage * storage_entry_size;
                 auto const entry_size = account_fixed_size + storage_size;
+
+                // If overflow, we just process the account and return
+                if (MONAD_UNLIKELY(entry_size > buf_size_)) {
+                    remaining_storage_ = num_storage;
+                    overflow_ = true;
+                    overflowed_update_ = handle_account(in);
+                    total_processed += account_fixed_size;
+                    return total_processed;
+                }
+
                 MONAD_ASSERT(entry_size <= buf_size_);
                 if (in.size() < entry_size) {
                     return total_processed;
@@ -198,9 +290,6 @@ namespace
 
         size_t parse_code(byte_string_view in, UpdateList &code_updates)
         {
-            constexpr auto hash_and_len_size =
-                sizeof(bytes32_t) + sizeof(uint64_t);
-            static_assert(hash_and_len_size == 40);
             size_t total_processed = 0;
             while (in.size() >= hash_and_len_size) {
                 auto const code_len = unaligned_load<uint64_t>(
@@ -225,10 +314,6 @@ namespace
 
         Update handle_account(byte_string_view curr)
         {
-            constexpr auto balance_offset = sizeof(bytes32_t);
-            constexpr auto nonce_offset = balance_offset + sizeof(uint256_t);
-            constexpr auto code_hash_offset = nonce_offset + sizeof(uint64_t);
-
             return Update{
                 .key = curr.substr(0, sizeof(bytes32_t)),
                 .value = bytes_alloc_.emplace_back(encode_account_db(Account{
