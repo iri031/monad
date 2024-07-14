@@ -226,17 +226,23 @@ int main(int const argc, char const *argv[])
             replay_eth.n_transactions,
             replay_eth.n_transactions /
                 std::max(1UL, static_cast<uint64_t>(elapsed.count())));
-    }
 
-    if (!dump_snapshot.empty()) {
-        LOG_INFO("Dump db of block: {}", last_block_number);
-        TrieDb ro_db{mpt::ReadOnlyOnDiskDbConfig{
-            .sq_thread_cpu = sq_thread_cpu,
-            .dbname_paths = dbname_paths,
-            .concurrent_read_io_limit = 128}};
-        // WARNING: to_json() does parallel traverse which consumes excessive
-        // memory
-        write_to_file(ro_db.to_json(), dump_snapshot, last_block_number);
+        if (!dump_snapshot.empty()) {
+            LOG_INFO("Dump db of block: {}", last_block_number);
+            if (on_disk) {
+                TrieDb ro_db{mpt::ReadOnlyOnDiskDbConfig{
+                    .sq_thread_cpu = sq_thread_cpu,
+                    .dbname_paths = dbname_paths,
+                    .concurrent_read_io_limit = 128}};
+                // WARNING: to_json() does parallel traverse which consumes
+                // excessive memory
+                incremental_write_to_file(
+                    ro_db, dump_snapshot, last_block_number);
+            }
+            else {
+                incremental_write_to_file(db, dump_snapshot, last_block_number);
+            }
+        }
     }
     return 0;
 }

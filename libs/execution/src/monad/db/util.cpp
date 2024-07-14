@@ -1,5 +1,7 @@
 #include <monad/config.hpp>
 #include <monad/core/assert.h>
+#include <monad/core/likely.h>
+#include <monad/db/trie_db.hpp>
 #include <monad/db/util.hpp>
 
 #include <nlohmann/json_fwd.hpp>
@@ -15,8 +17,8 @@
 
 MONAD_NAMESPACE_BEGIN
 
-void write_to_file(
-    nlohmann::json const &j, std::filesystem::path const &root_path,
+void incremental_write_to_file(
+    TrieDb &trie_db, std::filesystem::path const &root_path,
     uint64_t const block_number)
 {
     auto const start_time = std::chrono::steady_clock::now();
@@ -28,7 +30,7 @@ void write_to_file(
     auto const file = dir / "state.json";
     MONAD_ASSERT(!std::filesystem::exists(file));
     std::ofstream ofile(file);
-    ofile << j.dump(4);
+    trie_db.to_json(&ofile);
 
     auto const finished_time = std::chrono::steady_clock::now();
     auto const elapsed_ms =
