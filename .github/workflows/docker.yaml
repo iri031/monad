@@ -47,7 +47,7 @@ jobs:
 
       - run: cat /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages
       - run: cat /sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages
-      - run: sudo bash -c "echo 2048 > /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages"
+      - run: sudo bash -c "echo 4096 > /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages"
       - run: sudo bash -c "echo 8 > /sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages"
       - run: cat /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages
       - run: cat /sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages
@@ -64,4 +64,15 @@ jobs:
           allow: security.insecure # for tests which use io_uring
           ulimit: "memlock=-1:-1"
           target: build_and_test
+# Enable this to have the docker container copied to 'package' afterwards
+#          outputs: type=local,dest=package
           cache-from: type=gha,scope=base
+
+# Enable this to publish the unabridged ctest logs output in a downloadable archive
+#      - name: Publish test logs stage
+#        if: success() || failure()
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: CTest LastTest.log ${{ matrix.compiler.CXX }} ${{ matrix.CMAKE_BUILD_TYPE }}
+#          path: package/src/build/Testing/Temporary/LastTest.log
+#          retention-days: 7

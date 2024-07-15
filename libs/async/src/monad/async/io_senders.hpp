@@ -72,12 +72,8 @@ public:
 
     result<void> operator()(erased_connected_operation *io_state) noexcept
     {
-        if (!buffer_) {
-            buffer_.set_read_buffer(
-                io_state->executor()->get_read_buffer(buffer_.size()));
-        }
         size_t bytes_transferred = io_state->executor()->submit_read_request(
-            buffer_.to_mutable_span(), offset_, io_state);
+            buffer_, offset_, io_state);
         if (bytes_transferred != size_t(-1)) {
             // It completed early
             return make_status_code(
@@ -88,7 +84,8 @@ public:
     }
 
     result_type completed(
-        erased_connected_operation *, result<size_t> bytes_transferred) noexcept
+        erased_connected_operation *io_state,
+        result<size_t> bytes_transferred) noexcept
     {
         if (bytes_transferred.has_error()) {
             fprintf(
@@ -102,12 +99,12 @@ public:
         }
 
         BOOST_OUTCOME_TRY(auto &&count, std::move(bytes_transferred));
-        buffer_.set_bytes_transferred(count);
+        buffer_.set_bytes_transferred(io_state->executor(), count);
         return success(std::ref(buffer_));
     }
 };
 
-static_assert(sizeof(read_single_buffer_sender) == 40);
+static_assert(sizeof(read_single_buffer_sender) == 72);
 static_assert(alignof(read_single_buffer_sender) == 8);
 static_assert(sender<read_single_buffer_sender>);
 
@@ -385,7 +382,7 @@ public:
     }
 };
 
-static_assert(sizeof(write_single_buffer_sender) == 48);
+static_assert(sizeof(write_single_buffer_sender) == 56);
 static_assert(alignof(write_single_buffer_sender) == 8);
 static_assert(sender<write_single_buffer_sender>);
 

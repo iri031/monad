@@ -4,6 +4,8 @@
 
 #include <monad/core/assert.h>
 
+#include <monad/async/task.h>
+
 #include <boost/intrusive/rbtree_algorithms.hpp>
 
 #include <chrono>
@@ -24,14 +26,22 @@ namespace detail
     class read_buffer_deleter
     {
         AsyncIO *parent_{nullptr};
+        int index_{0};
 
     public:
         read_buffer_deleter() = default;
 
-        constexpr explicit read_buffer_deleter(AsyncIO *parent)
+        constexpr explicit read_buffer_deleter(AsyncIO *parent, int index)
             : parent_(parent)
+            , index_(index)
         {
             MONAD_DEBUG_ASSERT(parent != nullptr);
+        }
+
+        void set_buffer_index(AsyncIO *parent, int index) noexcept
+        {
+            parent_ = parent;
+            index_ = index;
         }
 
         inline void operator()(std::byte *b);
@@ -40,12 +50,14 @@ namespace detail
     class write_buffer_deleter
     {
         AsyncIO *parent_{nullptr};
+        int index_{0};
 
     public:
         write_buffer_deleter() = default;
 
-        constexpr explicit write_buffer_deleter(AsyncIO *parent)
+        constexpr explicit write_buffer_deleter(AsyncIO *parent, int index)
             : parent_(parent)
+            , index_(index)
         {
             MONAD_DEBUG_ASSERT(parent != nullptr);
         }
@@ -75,6 +87,10 @@ class filled_read_buffer : protected std::span<std::byte const>
 {
     using base_ = std::span<std::byte const>;
     detail::read_buffer_ptr buffer_;
+
+    struct monad_async_task_registered_io_buffer registered_io_buffer_
+    {
+    };
 
 public:
     using element_type = typename base_::element_type;
@@ -120,19 +136,19 @@ public:
         return !!buffer_;
     }
 
-    //! Allocates the i/o buffer
-    void set_read_buffer(detail::read_buffer_ptr b) noexcept
+    struct monad_async_task_registered_io_buffer &registered_io_buffer()
     {
-        buffer_ = std::move(b);
-        auto *self = static_cast<base_ *>(this);
-        *self = {buffer_.get(), self->size()};
+        return registered_io_buffer_;
     }
 
     //! Sets the span length
-    void set_bytes_transferred(size_t bytes) noexcept
+    void set_bytes_transferred(AsyncIO *io, size_t bytes) noexcept
     {
         auto *span = static_cast<base_ *>(this);
-        *span = span->subspan(0, bytes);
+        *span = {
+            (std::byte const *)registered_io_buffer_.iov[0].iov_base, bytes};
+        buffer_.reset((std::byte *)registered_io_buffer_.iov[0].iov_base);
+        buffer_.get_deleter().set_buffer_index(io, registered_io_buffer_.index);
     }
 
     //! Reset the filled read buffer, releasing its i/o buffer
@@ -155,7 +171,7 @@ public:
     }
 };
 
-static_assert(sizeof(filled_read_buffer) == 32);
+static_assert(sizeof(filled_read_buffer) == 64);
 static_assert(alignof(filled_read_buffer) == 8);
 
 /*! \class filled_write_buffer
@@ -246,7 +262,7 @@ public:
     }
 };
 
-static_assert(sizeof(filled_write_buffer) == 32);
+static_assert(sizeof(filled_write_buffer) == 40);
 static_assert(alignof(filled_write_buffer) == 8);
 
 /* \class erased_connected_operation
@@ -284,6 +300,8 @@ protected:
     std::atomic<AsyncIO *> io_{
         nullptr}; // set at construction if associated with an AsyncIO instance,
                   // which isn't mandatory
+
+    monad_async_io_status iostatus_{};
 
     struct rbtree_t_
     {
@@ -513,6 +531,30 @@ public:
         MONAD_ASSERT(!being_executed_);
     }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winvalid-offsetof" // just do what you're told
+
+    static erased_connected_operation *
+    from_iostatus(monad_async_io_status *status) noexcept
+    {
+        return (erased_connected_operation *)(((uintptr_t)status) -
+                                              offsetof(
+                                                  erased_connected_operation,
+                                                  iostatus_));
+    }
+
+#pragma GCC diagnostic pop
+
+    monad_async_io_status const *to_iostatus() const noexcept
+    {
+        return &iostatus_;
+    }
+
+    monad_async_io_status *to_iostatus() noexcept
+    {
+        return &iostatus_;
+    }
+
     bool is_unknown_operation_type() const noexcept
     {
         return operation_type_ == operation_type::unknown;
@@ -622,7 +664,7 @@ public:
     }
 };
 
-static_assert(sizeof(erased_connected_operation) == 64);
+static_assert(sizeof(erased_connected_operation) == 144);
 static_assert(alignof(erased_connected_operation) == 8);
 
 MONAD_ASYNC_NAMESPACE_END

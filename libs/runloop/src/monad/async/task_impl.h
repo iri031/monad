@@ -2,6 +2,8 @@
 
 #include "task.h"
 
+#include "sorted_ring_buffer.h"
+
 #include <monad/linked_list_impl_common.h>
 
 #include <assert.h>
@@ -17,15 +19,34 @@ struct io_buffer_awaiting_list_item_t
 {
     struct io_buffer_awaiting_list_item_t *prev, *next;
 };
+
+struct max_concurrent_io_list_item_t
+{
+    struct max_concurrent_io_list_item_t *prev, *next;
+};
+
+typedef struct monad_async_executor_impl_timeout
+{
+    monad_cpu_ticks_count_t key;
+    struct monad_async_task_impl *task;
+} monad_async_executor_impl_timeout;
+
+SORTED_RING_BUFFER_DECLARE(monad_async_executor_impl_timeout)
+
 struct monad_async_executor_impl;
 
 enum monad_async_task_impl_please_cancel_invoked_status : uint8_t
 {
     please_cancel_not_invoked = 0,
+    // cancellation requested but nothing else has seen it yet
     please_cancel_invoked_not_seen_yet,
+    // the task's user code has been told ECANCELED
     please_cancel_invoked_seen,
-    please_cancel_invoked_seen_awaiting_uring, // io_uring still has to return a
-                                               // completion
+    // io_uring still has to return a completion for the op cancellation request
+    // until the last of those is received cannot tell task user code ECANCELED
+    please_cancel_invoked_seen_awaiting_uring,
+    // the task will not resume again (it never started executing before
+    // cancellation)
     please_cancel_cancelled
 };
 
@@ -45,7 +66,13 @@ struct monad_async_task_impl
         size_t count;
     } io_submitted, io_completed;
 
-    struct io_buffer_awaiting_list_item_t io_buffer_awaiting;
+    union
+    {
+        struct io_buffer_awaiting_list_item_t io_buffer_awaiting;
+        struct max_concurrent_io_list_item_t max_concurrent_io_awaiting;
+        struct monad_async_executor_impl_timeout suspend_for_duration_awaiting;
+    };
+
     monad_async_io_status **completed;
     bool io_buffer_awaiting_was_inserted_at_front;
     bool io_buffer_awaiting_is_for_write;

@@ -971,6 +971,9 @@ TEST_F(OnDiskDbWithFileFixture, read_only_db_traverse_concurrent)
 
 TEST_F(OnDiskDbWithFileFixture, benchmark_blocking_parallel_traverse)
 {
+#ifndef NDEBUG // new runloop wrapper is very slow without optimisation
+    return;
+#endif
     constexpr size_t nkeys = 2000;
     auto [bytes_alloc, updates_alloc] = prepare_random_updates(nkeys);
     UpdateList ls;

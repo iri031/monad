@@ -19,9 +19,16 @@ typedef struct monad_async_socket_head
 
     // The following are not user modifiable
     struct monad_async_executor_head *MONAD_CONTEXT_PUBLIC_CONST executor;
+
+    MONAD_CONTEXT_PUBLIC_CONST uint32_t total_io_submitted;
+    MONAD_CONTEXT_PUBLIC_CONST uint32_t total_io_completed; // only in debug
 } *monad_async_socket;
 
 /*! \brief EXPENSIVE Create a socket. See `man socket` to explain parameters.
+
+Note that `SO_LINGER` is set to zero to enable hard socket closes. If you want
+different, create your own socket manually and add it to io_uring via
+`monad_async_task_socket_create_from_existing_fd()`.
 
 At least one malloc is performed, and possibly more.
 */
@@ -41,6 +48,13 @@ file descriptors do.
 BOOST_OUTCOME_C_NODISCARD extern monad_c_result
 monad_async_task_socket_create_from_existing_fd(
     monad_async_socket *sock, monad_async_task task, int fd);
+
+/* \brief The io_uring internal descriptor index for this socket. This will be
+unique per executor instance and will be all bits one if invalid.
+
+Note that until io_uring takes control of the socket, this will be invalid.
+*/
+extern unsigned monad_async_task_socket_index(monad_async_socket sock);
 
 //! \brief Suspend execution of the task until the socket has been closed
 BOOST_OUTCOME_C_NODISCARD extern monad_c_result
@@ -84,6 +98,9 @@ monad_async_task_socket_transfer_to_uring(
 pending connection on the socket until there is a new connection. See `man
 accept4` to explain parameters.
 
+Note that `SO_LINGER` is set to zero to enable hard socket closes, which you
+generally want as a server.
+
 Note that if `SOCK_CLOEXEC` is set in the flags, io_uring will fail the request
 (this is non-obvious, cost me half a day of debugging, so I document it here)
 */
@@ -91,30 +108,36 @@ BOOST_OUTCOME_C_NODISCARD extern monad_c_result monad_async_task_socket_accept(
     monad_async_socket *connected_sock, monad_async_task task,
     monad_async_socket listening_sock, int flags);
 
-/*! \brief Initiate the connection of an open socket using `iostatus` as the
-identifier.
+/*! \brief CANCELLATION POINT Initiate the connection of an open socket using
+`iostatus` as the identifier.
 
 Returns immediately unless there are no free io_uring submission entries.
 See `man connect` to explain parameters. The i/o priority used will be that
 from the task's current i/o priority setting.
+
+Cancellation, or any other error, is reflected by the i/o status becoming
+immediately completed with the error.
 */
 extern void monad_async_task_socket_connect(
     monad_async_io_status *iostatus, monad_async_task task,
     monad_async_socket sock, const struct sockaddr *addr, socklen_t addrlen);
 
-/*! \brief Initiate a shutdown of an open socket using `iostatus` as the
-identifier.
+/*! \brief CANCELLATION POINT Initiate a shutdown of an open socket using
+`iostatus` as the identifier.
 
 Returns immediately unless there are no free io_uring submission entries.
 See `man shutdown` to explain parameters. The i/o priority used will be that
 from the task's current i/o priority setting.
+
+Cancellation, or any other error, is reflected by the i/o status becoming
+immediately completed with the error.
 */
 extern void monad_async_task_socket_shutdown(
     monad_async_io_status *iostatus, monad_async_task task,
     monad_async_socket sock, int how);
 
-/*! \brief Initiate a ring buffer read from an open socket using `iostatus` as
-the identifier.
+/*! \brief CANCELLATION POINT Initiate a kernel allocated buffer read from an
+open socket using `iostatus` as the identifier.
 
 Returns immediately unless there are no free io_uring submission entries.
 See `man recvmsg` to explain parameters. The i/o priority used will be that
@@ -132,13 +155,18 @@ then io_uring ran out of buffers to allocate. You should increase
 If the executor was not configured with `small_kernel_allocated_count` et al,
 then lack of i/o buffers will cause suspension of the calling task until i/o
 buffers are released. You must still release buffers filled back to
-io_uring using `monad_async_task_release_registered_io_buffer()`
+io_uring using `monad_async_task_release_registered_io_buffer()`. You can still
+receive a result failure comparing equivalent to `ENOBUFS` if the executor
+would hang otherwise.
 
 `max_bytes` chooses whether to use large or small page sized buffers and the
 actual bytes read does not affect the size of buffer chosen.
 
 \warning io_uring **requires** that the contents of `tofill` and everything it
 points at have lifetime until the read completes.
+
+Cancellation, or any other error, is reflected by the i/o status becoming
+immediately completed with the error.
 */
 extern void monad_async_task_socket_receive(
     monad_async_io_status *iostatus, monad_async_task task,
@@ -146,8 +174,8 @@ extern void monad_async_task_socket_receive(
     struct monad_async_task_registered_io_buffer *tofill, size_t max_bytes,
     unsigned flags);
 
-/*! \brief Initiate a scatter read from an open socket using `iostatus` as the
-identifier.
+/*! \brief CANCELLATION POINT Initiate a scatter read from an open socket using
+`iostatus` as the identifier.
 
 Returns immediately unless there are no free io_uring submission entries.
 See `man recvmsg` to explain parameters. The i/o priority used will be that
@@ -155,13 +183,16 @@ from the task's current i/o priority setting.
 
 \warning io_uring **requires** that the contents of `msg` and everything it
 points at have lifetime until the read completes.
+
+Cancellation, or any other error, is reflected by the i/o status becoming
+immediately completed with the error.
 */
 extern void monad_async_task_socket_receivev(
     monad_async_io_status *iostatus, monad_async_task task,
     monad_async_socket sock, struct msghdr *msg, unsigned flags);
 
-/*! \brief Initiate a write to an open socket using `iostatus` as the
-identifier.
+/*! \brief CANCELLATION POINT Initiate a write to an open socket using
+`iostatus` as the identifier.
 
 Returns immediately unless there are no free io_uring submission entries.
 See `man sendmsg` to explain parameters. The i/o priority used will be that
@@ -169,6 +200,9 @@ from the task's current i/o priority setting.
 
 \warning io_uring **requires** that the contents of `msg` and everything it
 points at have lifetime until the write completes.
+
+Cancellation, or any other error, is reflected by the i/o status becoming
+immediately completed with the error.
 */
 extern void monad_async_task_socket_send(
     monad_async_io_status *iostatus, monad_async_task task,

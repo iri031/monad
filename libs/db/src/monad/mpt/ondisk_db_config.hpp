@@ -16,7 +16,6 @@ struct OnDiskDbConfig
     bool compaction{false};
     bool enable_io_polling{false};
     bool capture_io_latencies{false};
-    bool eager_completions{false};
     bool rewind_to_latest_finalized{false};
     unsigned rd_buffers{1024};
     unsigned wr_buffers{4};
@@ -36,7 +35,6 @@ struct ReadOnlyOnDiskDbConfig
     bool disable_mismatching_storage_pool_check{
         false}; // risk of severe data loss
     bool capture_io_latencies{false};
-    bool eager_completions{false};
     unsigned rd_buffers{1024};
     unsigned uring_entries{128};
     // default to disable sqpoll kernel thread since now ReadOnlyDb uses

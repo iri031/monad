@@ -238,3 +238,9 @@ add_subdirectory(${PROJECT_SOURCE_DIR}/cmd)
 
 add_subdirectory(${PROJECT_SOURCE_DIR}/test/ethereum_test)
 add_subdirectory(${PROJECT_SOURCE_DIR}/test/unit/common)
+
+# ##############################################################################
+# third party
+# ##############################################################################
+
+add_subdirectory(${PROJECT_SOURCE_DIR}/third_party)

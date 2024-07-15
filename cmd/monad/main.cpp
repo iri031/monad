@@ -166,7 +166,6 @@ int main(int const argc, char const *argv[])
         });
     group->add_option(
         "--statesync", statesync, "socket for statesync communication");
-    group->require_option(1);
 #ifdef ENABLE_EVENT_TRACING
     fs::path trace_log = fs::absolute("trace");
     cli.add_option("--trace_log", trace_log, "path to output trace file");

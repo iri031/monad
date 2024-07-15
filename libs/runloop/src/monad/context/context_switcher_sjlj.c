@@ -243,7 +243,8 @@ static void monad_context_sjlj_task_runner(
         struct monad_context_switcher_sjlj *switcher =
             (struct monad_context_switcher_sjlj *)atomic_load_explicit(
                 &context->head.switcher, memory_order_acquire);
-        if (switcher->owning_thread != thrd_current()) {
+        if (!switcher->head.disable_calling_thread_is_correct_checks &&
+            switcher->owning_thread != thrd_current()) {
             fprintf(
                 stderr,
                 "FATAL: Context being switched on a kernel thread different to "

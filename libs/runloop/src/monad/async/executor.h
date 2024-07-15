@@ -39,14 +39,16 @@ typedef struct monad_async_executor_head
 
     struct
     {
-        MONAD_CONTEXT_PUBLIC_CONST size_t total_claimed, total_released;
+        MONAD_CONTEXT_PUBLIC_CONST uint64_t total_claimed, total_released,
+            total_deadlocks_broken;
         MONAD_CONTEXT_PUBLIC_CONST monad_cpu_ticks_count_t ticks_last_claim,
             ticks_last_release;
     } registered_buffers;
 } *monad_async_executor;
 
 //! \brief Returns true if an executor has work before it
-static inline bool monad_async_executor_has_work(monad_async_executor ex)
+MONAD_CONTEXT_EMITTED_INLINE bool
+monad_async_executor_has_work(monad_async_executor ex)
 {
 #ifdef __cplusplus
     return ex->current_task.load(std::memory_order_acquire) != nullptr ||
@@ -67,25 +69,62 @@ static inline bool monad_async_executor_has_work(monad_async_executor ex)
 #endif
 }
 
+//! \brief Returns total number of tasks in an executor
+MONAD_CONTEXT_EMITTED_INLINE size_t
+monad_async_executor_task_count(monad_async_executor ex)
+{
+#ifdef __cplusplus
+    return ex->tasks_pending_launch.load(std::memory_order_relaxed) +
+           ex->tasks_running.load(std::memory_order_relaxed) +
+           ex->tasks_suspended_sqe_exhaustion.load(std::memory_order_relaxed) +
+           ex->tasks_suspended.load(std::memory_order_relaxed);
+#else
+    return atomic_load_explicit(
+               &ex->tasks_pending_launch, memory_order_relaxed) +
+           atomic_load_explicit(&ex->tasks_running, memory_order_relaxed) +
+           atomic_load_explicit(
+               &ex->tasks_suspended_sqe_exhaustion, memory_order_relaxed) +
+           atomic_load_explicit(&ex->tasks_suspended, memory_order_relaxed);
+#endif
+}
+
 //! \brief Attributes by which to construct an executor
 struct monad_async_executor_attr
 {
     struct
     {
-        //! \brief If this is zero, this executor will be incapable of doing
-        //! i/o! It also no longer initialises io_uring for this executor.
+        /*! \brief If this is zero, this executor will be incapable of doing
+        i/o! It also no longer initialises io_uring for this executor.
+
+        Initiating more i/o than there are io_uring entries is inefficient as it
+        will cause initiating tasks to be suspended and resumed when more
+        io_uring entries appear. The overhead isn't as bad as running out of
+        registered i/o buffers which you should avoid where possible.
+        */
         unsigned entries;
+
+        //! \brief The parameters to give to io_uring during ring
+        //! construction.
         struct io_uring_params params;
 
         struct
         {
-            //! \brief How many small and large buffers to register.
+            /*! \brief How many small and large buffers to register.
+
+            Be aware that running out of registered i/o buffers causes execution
+            of a slow code path, and can cause execution of a **very** slow code
+            path in rare occasions. You should endeavour to never run out of i/o
+            buffers, constraining how much i/o you initiate instead (see
+            `max_io_concurrency` below).
+            */
             unsigned small_count, large_count;
             //! \brief How many of each of small pages and of large pages the
             //! small and large buffer sizes are.
             unsigned small_multiplier, large_multiplier;
             /*! \brief Number of small and large buffers to have io_uring
-            allocate during read operations.
+            allocate during read operations. THIS IS A SUBSET OF `small_count`
+            AND `large_count`, IF YOU SET BOTH TO THE SAME VALUE YOU GET ZERO
+            USERSPACE AVAILABLE REGISTERED BUFFERS.
 
             io_uring can allocate i/o buffers at the point of successful read
             which is obviously much more efficient than userspace allocating
@@ -100,20 +139,48 @@ struct monad_async_executor_attr
             io_uring receives i/o and no buffers remain available to it, it
             will fail the read i/o with a result equivalent to `ENOBUFS`. It
             is 100% on you to free up some buffers and reschedule the read if
-            this occurs.
-
-            Note that kernel 6.8 (Ubuntu 24.04) appears to refuse to allocate
-            buffers for file i/o only, a future kernel release may fix this.
-            https://github.com/axboe/liburing/issues/1214 tracks the feature
-            request.
+            this occurs. io_uring is much keener to return `ENOBUFS` than if
+            you don't use this facility where we use a timeout to detect i/o
+            buffer deadlock, and we only issue `ENOBUFS` in that circumstance
+            only.
             */
             unsigned small_kernel_allocated_count, large_kernel_allocated_count;
         } registered_buffers;
     } io_uring_ring, io_uring_wr_ring;
+
+    /*! For file i/o, the maximum concurrent read or write ops is
+    constrained by registered i/o buffers available. However, as i/o
+    buffers remain in use for a while, one may wish to reduce max i/o
+    concurrency still further.
+
+    The kernel considerably gates i/o concurrency on its own, however
+    it has been benchmarked that io_uring appears to not scale well
+    to outstanding i/o (I think it uses linear lists). So for highly
+    bursty concurrent i/o loads, gating i/o concurrency in user space
+    can prove to be an overall win.
+
+    You should benchmark turning this on, as it does add a fair bit of
+    overhead so it can be an overall loss as well as a win.
+
+    If enabled, this will ensure that `total_io_submitted - total_io_completed
+    <= max_io_concurrency`.
+    */
+    unsigned max_io_concurrency;
+
+    /*! It is very strongly advised that you run an i/o executor instance
+    per kernel thread, as io_uring has best performance when used from a single
+    kernel thread.
+
+    If however you are happy to take and release a mutex around every use
+    of a single i/o executor instance, accepting the performance loss and
+    problems with potential mutex deadlock which result, you can set this
+    flag.
+    */
+    bool disable_calling_thread_is_correct_checks;
 };
 
 /*! \brief EXPENSIVE Creates an executor instance. You must create it on the
- kernel thread where it will be used.
+kernel thread where it will be used.
 
 Generally, one also needs to create context switcher instances for each
 executor instance. This is because the context switcher needs to store how
@@ -188,6 +255,16 @@ features were detected, as well as versions and other config.
 */
 BOOST_OUTCOME_C_NODISCARD extern monad_c_result
 monad_async_executor_config_string(
+    monad_async_executor ex); // implemented in util.cpp
+
+/*! \brief Return a pointer (as `intptr_t`) to a null terminated string
+describing the internal state of this executor. This is useful for debugging the
+executor if it goes wrong e.g. hangs.
+
+\warning You need to call `free()` on the pointer when you are done with it.
+*/
+BOOST_OUTCOME_C_NODISCARD extern monad_c_result
+monad_async_executor_debug_string(
     monad_async_executor ex); // implemented in util.cpp
 
 #ifdef __cplusplus

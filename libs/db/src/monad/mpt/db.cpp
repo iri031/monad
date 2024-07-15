@@ -112,11 +112,9 @@ AsyncIOContext::AsyncIOContext(ReadOnlyOnDiskDbConfig const &options)
     , buffers{io::make_buffers_for_read_only(
           read_ring, options.rd_buffers,
           async::AsyncIO::MONAD_IO_BUFFERS_READ_SIZE)}
-    , io{pool, buffers}
+    , io{pool, buffers, options.concurrent_read_io_limit}
 {
     io.set_capture_io_latencies(options.capture_io_latencies);
-    io.set_concurrent_read_io_limit(options.concurrent_read_io_limit);
-    io.set_eager_completions(options.eager_completions);
 }
 
 AsyncIOContext::AsyncIOContext(OnDiskDbConfig const &options)
@@ -153,11 +151,9 @@ AsyncIOContext::AsyncIOContext(OnDiskDbConfig const &options)
           read_ring, *write_ring, options.rd_buffers, options.wr_buffers,
           async::AsyncIO::MONAD_IO_BUFFERS_READ_SIZE,
           async::AsyncIO::MONAD_IO_BUFFERS_WRITE_SIZE)}
-    , io{pool, buffers}
+    , io{pool, buffers, options.concurrent_read_io_limit}
 {
     io.set_capture_io_latencies(options.capture_io_latencies);
-    io.set_concurrent_read_io_limit(options.concurrent_read_io_limit);
-    io.set_eager_completions(options.eager_completions);
 }
 
 class Db::ROOnDiskBlocking final : public Db::Impl
@@ -762,6 +758,7 @@ struct OnDiskWithWorkerThreadImpl
 
     explicit OnDiskWithWorkerThreadImpl(OnDiskDbConfig const &options)
         : worker_thread_([&, options = options] {
+            pthread_setname_np(pthread_self(), "triedb rw");
             {
                 std::unique_lock const g(lock_);
                 worker_ = std::make_unique<DbAsyncWorker>(this, options);
@@ -781,6 +778,7 @@ struct OnDiskWithWorkerThreadImpl
 
     explicit OnDiskWithWorkerThreadImpl(ReadOnlyOnDiskDbConfig const &options)
         : worker_thread_([&, options = options] {
+            pthread_setname_np(pthread_self(), "triedb ro");
             {
                 std::unique_lock const g(lock_);
                 worker_ = std::make_unique<DbAsyncWorker>(this, options);

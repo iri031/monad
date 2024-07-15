@@ -266,10 +266,27 @@ static monad_c_result mytask(monad_async_task task)
 
 ## Todo
 
+- Integrated socket i/o timeout would be real nice to have. io_uring timeouts
+need a second SQE as well as being quite slow, and we don't currently have the
+ability to fetch two consecutive SQEs without possibility of them getting split.
+Perhaps investigate `SO_SNDTIMEO` and `SO_RCVTIMEO` which are actually somewhat
+useful on Linux?
 - Need to test cancellation works at every possible lifecycle and suspend state
 a task can have.
-- Should be able to clamp max i/o concurrency, and have `AsyncIO` wrapper set that from its config.
-- `AsyncIO` wrapper doesn't currently handle `EAGAIN`.
+    - Also need to test cancellation of individual i/o, which isn't the same as
+cancelling a task (which causes all new i/o initiation to cancel).
+- Operations to have a portion of a memory map asynchronously paged in, and paged
+out, would be useful:
+    - `IORING_OP_MADVISE`:
+        - `MADV_REMOVE` punches a hole in the backing file.
+        - `MADV_FREE` throws away contents of any dirty pages (lazy).
+        - `MADV_COLD` page these out before other pages.
+        - `MADV_PAGEOUT` page these out immediately                  <===== THIS ONE
+        - `MADV_POPULATE_READ` page these in for read immediately    <===== THIS ONE
+        - `MADV_POPULATE_WRITE` page these in for write immediately  <===== THIS ONE
+- `AsyncIO` wrapper doesn't currently handle `EAGAIN`. _Probably_ doesn't matter as
+99% of that should be handled internally by the new runloop. But not ALL of it is
+handled, some is passed on.
 - Multiple context switcher types at the same time should work, but is completely untested
 and ought to become tested. Including with perf impact (as they usually have to
 thunk when switching between disparate contexts)

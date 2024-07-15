@@ -259,7 +259,8 @@ monad_context_fcontext_task_runner(struct monad_transfer_t creation_transfer)
         switcher =
             (struct monad_context_switcher_fcontext *)atomic_load_explicit(
                 &context->head.switcher, memory_order_acquire);
-        if (switcher->owning_thread != thrd_current()) {
+        if (!switcher->head.disable_calling_thread_is_correct_checks &&
+            switcher->owning_thread != thrd_current()) {
             fprintf(
                 stderr,
                 "FATAL: Context being switched on a kernel thread different to "

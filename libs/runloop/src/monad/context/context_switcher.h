@@ -30,7 +30,7 @@ typedef struct monad_context_head *monad_context;
 //! monad_context_task_head`
 #define MONAD_CONTEXT_TASK_ALLOCATION_SIZE (296)
 //! \brief How many of those bytes are used by the i/o executor for its state
-#define MONAD_ASYNC_TASK_FOOTPRINT (288)
+#define MONAD_ASYNC_TASK_FOOTPRINT (296)
 
 //! \brief The public attributes of a task
 typedef struct monad_context_task_head
@@ -84,6 +84,11 @@ typedef struct monad_context_switcher_head
 {
     // These can be set by the user
     void *user_ptr;
+
+    //! \brief Resumption of contexts across kernel threads normally is
+    //! prevented as it is fraught with unpleasant surprise. Set this to disable
+    //! the check.
+    bool disable_calling_thread_is_correct_checks;
 
     // The following are not user modifiable
 
@@ -183,7 +188,7 @@ extern void monad_context_reparent_switcher(
     monad_context context, monad_context_switcher new_switcher);
 
 //! \brief Destroys any context switcher
-BOOST_OUTCOME_C_NODISCARD inline monad_c_result
+BOOST_OUTCOME_C_NODISCARD MONAD_CONTEXT_EMITTED_INLINE monad_c_result
 monad_context_switcher_destroy(monad_context_switcher switcher)
 {
     return switcher->self_destroy(switcher);

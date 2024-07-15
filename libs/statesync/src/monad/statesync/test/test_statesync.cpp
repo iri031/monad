@@ -1083,6 +1083,9 @@ TEST_F(StateSyncFixture, handle_request_from_bad_block)
 
 TEST_F(StateSyncFixture, benchmark)
 {
+#ifndef NDEBUG
+    return; // too slow in debug mode, times out CI
+#endif
     constexpr auto N = 1'000'000;
     std::vector<std::pair<Address, StateDelta>> v;
     v.reserve(N);
