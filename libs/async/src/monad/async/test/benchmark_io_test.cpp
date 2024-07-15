@@ -1,16 +1,20 @@
+#include <CLI/CLI.hpp>
+
 #include <monad/async/config.hpp>
+#include <monad/async/cpp_helpers.hpp>
 #include <monad/async/detail/scope_polyfill.hpp>
 #include <monad/async/erased_connected_operation.hpp>
+#include <monad/async/executor.h>
 #include <monad/async/io.hpp>
 #include <monad/async/io_senders.hpp>
 #include <monad/async/storage_pool.hpp>
+#include <monad/async/task.h>
+#include <monad/async/util.h>
 #include <monad/core/assert.h>
 #include <monad/core/small_prng.hpp>
 #include <monad/io/buffers.hpp>
 #include <monad/io/ring.hpp>
 #include <monad/mem/huge_mem.hpp>
-
-#include <CLI/CLI.hpp>
 
 #include <algorithm>
 #include <cerrno>
@@ -34,84 +38,101 @@
 #endif
 #include <unistd.h>
 
-/* Throughput maximising with complete disregard to latency:
+// These test a raw block device with 75% of chunks full
 
-- For the peach27 device (Micron Technology Inc 7450 PRO NVMe SSD):
+/* This is the codebase from start of July 2024
 
-benchmark_io_test --storage /dev/mapper/raid0-rawblk0 \
---kernel-poll-thread 15 --ring-entries 256 --eager-completions
+./benchmark_io_test_main1 --storage /dev/mapper/raid0-rawblk1 --workload 0
 
-Total ops/sec: 820388 mean latency: 1.4192e+06 min: 175299 max: 1.26249e+07
-
-i/o polling appears to make no difference for this machine.
+Total ops/sec: 243310 mean latency: 314526 min: 72311 max: 1.05242e+06
 
 
-- For the peach11 device (Samsung 990 Pro SSD):
+./benchmark_io_test_main1 --storage /dev/mapper/raid0-rawblk1 --workload 0
+--kernel-poll-thread 15
 
-benchmark_io_test --storage /dev/nvme0n1 --kernel-poll-thread 15 \
---enable-io-polling
-
-Total ops/sec: 850750 mean latency: 283715 min: 56461 max: 1.65677e+06
-
-Eager completions is a little slower.
-
-*/
-
-/***************************************************************************/
-
-/* Throughput maximising without significantly increasing mean and max latency:
-
-- For the peach27 device (Micron Technology Inc 7450 PRO NVMe SSD):
-
-benchmark_io_test --storage /dev/mapper/raid0-rawblk0 \
---workload 0 --concurrent-io 16 --eager-completions
-
-Total ops/sec: 203233 mean latency: 78421.1 min: 58399 max: 515098
+Total ops/sec: 312201 mean latency: 576083 min: 75852 max: 2.19743e+06
 
 
-- For the peach11 device (Samsung 990 Pro SSD):
+./benchmark_io_test_main1 --storage /dev/mapper/raid0-rawblk1 --workload 0
+--kernel-poll-thread 15 --concurrent-io 64
 
-benchmark_io_test --storage /dev/nvme0n1 --workload 0 --concurrent-io 256 \
---eager-completions
-
-Total ops/sec: 565411 mean latency: 42563.2 min: 32500 max: 386681
-
-*/
-
-/***************************************************************************/
-
-/* fio verification of above results, same config as immediately above:
-
-- For Intel Corporation Optane SSD 900P:
-
-fio no SQPOLL:
-Total ops/sec: 367000 mean latency: 43390 min: 12000 max: 184000
-
-benchmark_io_test no SQPOLL:
-Total ops/sec: 343724 mean latency: 13338.5 min: 9289 max: 107679
-
-fio with SQPOLL:
-Total ops/sec: 494000 mean latency: 32210 min: 13000 max: 222000
-
-benchmark_io_test with SQPOLL:
-Total ops/sec: 507668 mean latency: 30479.3 min: 11860 max: 113338
+Total ops/sec: 290986 mean latency: 219821 min: 62501 max: 757597
 
 
 
-- For Samsung Electronics Co Ltd NVMe SSD Controller PM9A1/PM9A3/980PRO:
 
-fio no SQPOLL:
-Total ops/sec: 358000 mean latency: 44430 min: 13000 max: 7877000
+This is the codebase from right now (mid August 2024) - note that the
+benchmark test has changed since to fix bugs which were incorrecyly boosting
+results
 
-benchmark_io_test no SQPOLL:
-Total ops/sec: 334397 mean latency: 14738.1 min: 11410 max: 136048
+./benchmark_io_test_main2 --storage /dev/mapper/raid0-rawblk1 --workload 0
 
-fio with SQPOLL:
-Total ops/sec: 518000 mean latency: 30680 min: 12000 max: 7908000
+Total ops/sec: 241384 mean latency: 318730 min: 54522 max: 1.7509e+06
 
-benchmark_io_test with SQPOLL:
-Total ops/sec: 530874 mean latency: 29019.5 min: 12080 max: 160468
 
+./benchmark_io_test_main2 --storage /dev/mapper/raid0-rawblk1 --workload 0
+--kernel-poll-thread 15
+
+Total ops/sec: 312703 mean latency: 581221 min: 89132 max: 2.13405e+06
+
+
+./benchmark_io_test_main2 --storage /dev/mapper/raid0-rawblk1 --workload 0
+--kernel-poll-thread 15 --concurrent-io 64
+
+Total ops/sec: 291103 mean latency: 219732 min: 65601 max: 740587
+
+
+
+
+This is the AsyncIO wrapper of the new i/o executor at mid August 2024.
+
+./benchmark_io_test_wrapped --storage /dev/mapper/raid0-rawblk1 --workload 0
+
+Total ops/sec: 185334 mean latency: 1.10067e+07 min: 1.02387e+07
+max: 2.33998e+07
+
+./benchmark_io_test_wrapped --storage /dev/mapper/raid0-rawblk1 --workload 0
+--kernel-poll-thread 15
+
+Total ops/sec: 322897 mean latency: 6.32644e+06 min: 5.5215e+06 max: 1.65021e+07
+
+
+./benchmark_io_test_wrapped --storage /dev/mapper/raid0-rawblk1 --workload 0
+--kernel-poll-thread 15 --concurrent-io 64
+
+Total ops/sec: 254484 mean latency: 235690 min: 69342 max: 1.1954e+06
+
+
+
+
+This is the new i/o executor direct at mid August 2024.
+
+./benchmark_io_test_wrapped --storage /dev/mapper/raid0-rawblk1 --workload 0
+--new-io-executor
+
+Total ops/sec: 303884 mean latency: 557550 min: 306297 max: 1.3066e+07
+
+
+./benchmark_io_test_wrapped --storage /dev/mapper/raid0-rawblk1 --workload 0
+--kernel-poll-thread 15 --new-io-executor
+
+Total ops/sec: 319918 mean latency: 562282 min: 309937 max: 1.00402e+07
+
+
+./benchmark_io_test_wrapped --storage /dev/mapper/raid0-rawblk1 --workload 0
+--kernel-poll-thread 15 --concurrent-io 64 --new-io-executor
+
+Total ops/sec: 298526 mean latency: 211974 min: 66621 max: 8.1498e+06
+
+
+
+
+AsyncIO wrapper is 23% slower for the syscall io_uring, but 3.3% faster for the
+sqpoll io_uring (but 12.6% slower for the 64 concurrent i/o case).
+
+Native is 26% faster for the syscall io_uring and 2.3% faster for the sqpoll
+io_uring (I think that is measurement noise, it should be faster than the
+AsyncIO wrapper)
 */
 
 struct shared_state_t
@@ -248,6 +269,7 @@ set it to the desired size beforehand).
         unsigned concurrent_read_io_limit = 0;
         bool eager_completions = false;
         bool highest_io_priority = false;
+        bool new_io_executor = false;
         unsigned workload_us = 5;
         unsigned duration_secs = 30;
         cli.add_option(
@@ -317,6 +339,11 @@ set it to the desired size beforehand).
             duration_secs,
             "how long the benchmark should run for in seconds. Default is "
             "thirty seconds.");
+        cli.add_flag(
+            "--new-io-executor",
+            new_io_executor,
+            "whether to use the new i/o executor directly instead of via its "
+            "AsyncIO wrapper. Default is no.");
         cli.parse(argc, argv);
 
 #if MONAD_HAVE_LIBCAP
@@ -443,7 +470,7 @@ set it to the desired size beforehand).
                       << " max: " << statistics.max_latency << std::endl;
         };
 
-        {
+        if (!new_io_executor) {
             std::vector<connected_state_ptr_type> states;
             states.reserve(concurrent_io);
             for (size_t n = 0; n < concurrent_io; n++) {
@@ -491,6 +518,139 @@ set it to the desired size beforehand).
                    std::chrono::seconds(duration_secs));
             shared_state.done = true;
             io.wait_until_done();
+        }
+        else {
+            static auto const ticks_per_ns =
+                (double)monad_async_ticks_per_second() / 1000000000.0;
+            std::cout << "CPU ticks per second on this machine: "
+                      << monad_async_ticks_per_second() << std::endl;
+            {
+                auto *desc =
+                    (char *)to_result(
+                        monad_async_executor_config_string(io.tr_executor()))
+                        .value();
+                std::cout << "Config: " << desc << "\n" << std::endl;
+                free(desc);
+            }
+
+            struct io_state
+            {
+                monad_async_task_registered_io_buffer buffer;
+                monad_async_io_status iostatus;
+
+                constexpr io_state()
+                    : buffer{}
+                    , iostatus{}
+                {
+                }
+            };
+
+            std::vector<io_state> states(concurrent_io);
+            std::chrono::seconds elapsed_secs(2);
+            const struct timespec nowait = {0, 0};
+            for (
+                auto h = io.tr_launch_on_task_from_pool(
+                    [&](monad_async_task task)
+                        -> monad::async::result<intptr_t> {
+                        if (highest_io_priority) {
+                            to_result(monad_async_task_set_priorities(
+                                          task,
+                                          monad_async_priority_unchanged,
+                                          monad_async_priority_high))
+                                .value();
+                        }
+                        for (auto &i : states) {
+                            io.tr_submit_request(
+                                &i.iostatus,
+                                task,
+                                i.buffer,
+                                MONAD_ASYNC_NAMESPACE::DISK_PAGE_SIZE,
+                                shared_state.add_op(0));
+                        }
+                        shared_state.acc_ns = 0;
+                        shared_state.max_ns = 0;
+                        shared_state.min_ns = UINT64_MAX;
+                        begin = std::chrono::steady_clock::now();
+                        do {
+                            monad_async_io_status *completed = nullptr;
+                            to_result(
+                                monad_async_task_suspend_until_completed_io(
+                                    &completed,
+                                    task,
+                                    monad_async_duration_infinite_non_cancelling))
+                                .value();
+                            auto *state =
+                                (io_state *)((uintptr_t)completed -
+                                             offsetof(io_state, iostatus));
+                            to_result(
+                                monad_async_task_release_registered_io_buffer(
+                                    task, state->buffer.index))
+                                .value();
+                            io.tr_submit_request(
+                                completed,
+                                task,
+                                state->buffer,
+                                MONAD_ASYNC_NAMESPACE::DISK_PAGE_SIZE,
+                                shared_state.add_op((
+                                    uint64_t)((double)(completed
+                                                           ->ticks_when_completed -
+                                                       completed
+                                                           ->ticks_when_initiated) /
+                                              ticks_per_ns)));
+                        }
+                        while (!shared_state.done);
+                        for (;;) {
+                            monad_async_io_status *completed = nullptr;
+                            if (to_result(
+                                    monad_async_task_suspend_until_completed_io(
+                                        &completed,
+                                        task,
+                                        monad_async_duration_infinite_non_cancelling))
+                                    .value() == 0) {
+                                break;
+                            }
+                            auto *state =
+                                (io_state *)((uintptr_t)completed -
+                                             offsetof(io_state, iostatus));
+                            to_result(
+                                monad_async_task_release_registered_io_buffer(
+                                    task, state->buffer.index))
+                                .value();
+                            shared_state.add_op((
+                                uint64_t)((double)(completed
+                                                       ->ticks_when_completed -
+                                                   completed
+                                                       ->ticks_when_initiated) /
+                                          ticks_per_ns));
+                        }
+                        return monad::async::success();
+                    });
+                h();) {
+                auto diff = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::steady_clock::now() - begin);
+                if (diff > elapsed_secs) {
+                    print_statistics();
+                    elapsed_secs = diff;
+                }
+                auto r = to_result(
+                    monad_async_executor_run(io.tr_executor(), 1, &nowait));
+                if (!r &&
+                    r.assume_error() != monad::async::errc::stream_timeout) {
+                    r.value();
+                }
+                if (workload_us > 0) {
+                    auto const begin2 = std::chrono::steady_clock::now();
+                    do {
+                        /* deliberately occupy the CPU fully */
+                    }
+                    while (std::chrono::steady_clock::now() - begin2 <
+                           std::chrono::microseconds(workload_us));
+                }
+                if (std::chrono::steady_clock::now() - begin >=
+                    std::chrono::seconds(duration_secs)) {
+                    shared_state.done = true;
+                }
+            }
         }
         print_statistics();
     }

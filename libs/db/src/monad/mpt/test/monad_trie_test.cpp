@@ -463,7 +463,7 @@ int main(int argc, char *argv[])
             monad::io::Buffers rwbuf = make_buffers_for_segregated_read_write(
                 ring1,
                 ring2,
-                8192 * 16,
+                16384, /* max io_uring allows */
                 16, /* max concurrent write buffers in use <= 6 */
                 MONAD_ASYNC_NAMESPACE::AsyncIO::MONAD_IO_BUFFERS_READ_SIZE,
                 MONAD_ASYNC_NAMESPACE::AsyncIO::MONAD_IO_BUFFERS_WRITE_SIZE);
