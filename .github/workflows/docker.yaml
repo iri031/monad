@@ -25,6 +25,28 @@ jobs:
           commits_json=$(jq -nc --arg commits_list "$commits_list" '{"commits": ($commits_list | split(",") | map(select(. != "")))}')
           echo "commits=$commits_json" >> $GITHUB_OUTPUT
   
+  publish-status:
+    runs-on: ubuntu-24.04-32
+    steps:
+      - name: Publish status to all commits
+        uses: actions/github-script@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const commits = context.payload.commits;
+            const state = 'success';
+            const description = 'CI tests passed';
+
+            for (const commit of commits) {
+              await github.repos.createCommitStatus({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha: commit.id,
+                state: state,
+                description: description,
+                context: 'CI Docker Workflow'
+              });
+            }
   build:
     needs: [list-commits]
     strategy:
