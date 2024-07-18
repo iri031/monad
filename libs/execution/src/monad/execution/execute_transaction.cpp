@@ -191,10 +191,9 @@ Result<evmc::Result> execute_impl2(
 
 template <evmc_revision rev>
 Result<Receipt> execute_impl(
-    [[maybe_unused]] uint64_t const i, Transaction const &tx,
-    Address const &sender, BlockHeader const &hdr,
-    BlockHashBuffer const &block_hash_buffer, BlockState &block_state,
-    boost::fibers::promise<void> &prev)
+    uint64_t const i, Transaction const &tx, Address const &sender,
+    BlockHeader const &hdr, BlockHashBuffer const &block_hash_buffer,
+    BlockState &block_state, boost::fibers::promise<void> &prev)
 {
     BOOST_OUTCOME_TRY(
         static_validate_transaction<rev>(tx, hdr.base_fee_per_gas));
@@ -202,7 +201,12 @@ Result<Receipt> execute_impl(
     {
         TRACE_TXN_EVENT(StartExecution);
 
+#ifdef ENABLE_CALL_TRACING
+        State state{
+            block_state, Incarnation{hdr.number, i + 1}, hdr.number, tx};
+#else
         State state{block_state, Incarnation{hdr.number, i + 1}};
+#endif
 
         auto result =
             execute_impl2<rev>(tx, sender, hdr, block_hash_buffer, state);
@@ -230,7 +234,12 @@ Result<Receipt> execute_impl(
     {
         TRACE_TXN_EVENT(StartRetry);
 
+#ifdef ENABLE_CALL_TRACING
+        State state{
+            block_state, Incarnation{hdr.number, i + 1}, hdr.number, tx};
+#else
         State state{block_state, Incarnation{hdr.number, i + 1}};
+#endif
 
         auto result =
             execute_impl2<rev>(tx, sender, hdr, block_hash_buffer, state);
@@ -256,9 +265,9 @@ EXPLICIT_EVMC_REVISION(execute_impl);
 
 template <evmc_revision rev>
 Result<Receipt> execute(
-    [[maybe_unused]] uint64_t const i, Transaction const &tx,
-    BlockHeader const &hdr, BlockHashBuffer const &block_hash_buffer,
-    BlockState &block_state, boost::fibers::promise<void> &prev)
+    uint64_t const i, Transaction const &tx, BlockHeader const &hdr,
+    BlockHashBuffer const &block_hash_buffer, BlockState &block_state,
+    boost::fibers::promise<void> &prev)
 {
     TRACE_TXN_EVENT(StartTxn);
 

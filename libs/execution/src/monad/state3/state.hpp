@@ -12,6 +12,7 @@
 #include <monad/core/keccak.hpp>
 #include <monad/core/receipt.hpp>
 #include <monad/execution/code_analysis.hpp>
+#include <monad/execution/trace/call_trace.hpp>
 #include <monad/state2/block_state.hpp>
 #include <monad/state3/account_state.hpp>
 #include <monad/state3/version_stack.hpp>
@@ -94,10 +95,20 @@ class State
     friend class BlockState; // TODO
 
 public:
+    std::unique_ptr<CallTracer> call_tracer = nullptr;
+
     State(BlockState &block_state, Incarnation const incarnation)
         : block_state_{block_state}
         , incarnation_{incarnation}
     {
+    }
+
+    State(
+        BlockState &block_state, Incarnation const incarnation,
+        uint64_t const block_number, Transaction const &tx)
+        : State{block_state, incarnation}
+    {
+        call_tracer = std::make_unique<CallTracer>(block_number, tx);
     }
 
     State(State &&) = delete;

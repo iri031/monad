@@ -81,6 +81,9 @@ struct EvmcHost final : public EvmcHostBase
 
     virtual evmc::Result call(evmc_message const &msg) noexcept override
     {
+        if (state_.call_tracer) {
+            state_.call_tracer->on_enter<rev>(msg);
+        }
         return (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2)
                    ? ::monad::create_contract_account<rev>(this, state_, msg)
                    : ::monad::call<rev>(this, state_, msg);

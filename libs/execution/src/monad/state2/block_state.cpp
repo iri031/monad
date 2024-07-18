@@ -77,8 +77,8 @@ bytes32_t BlockState::read_storage(
     // database
     {
         auto const result = read_storage
-                               ? db_.read_storage(address, incarnation, key)
-                               : bytes32_t{};
+                                ? db_.read_storage(address, incarnation, key)
+                                : bytes32_t{};
         StateDeltas::accessor it{};
         MONAD_ASSERT(state_.find(it, address));
         auto const &account = it->second.account.second;
@@ -187,6 +187,10 @@ void BlockState::merge(State const &state)
         else {
             it->second.storage.clear();
         }
+    }
+
+    if (state.call_tracer) {
+        state.call_tracer->to_file();
     }
 }
 
