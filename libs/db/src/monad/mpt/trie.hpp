@@ -507,6 +507,7 @@ public:
         compact_virtual_chunk_offset_t subtrie_min_offset_slow);
     void collect_compacted_nodes_from_to_stats(
         chunk_offset_t node_offset, bool rewrite_to_fast);
+    void collect_written_node_size(uint32_t node_size);
     void print_update_stats();
 
     enum class chunk_list : uint8_t

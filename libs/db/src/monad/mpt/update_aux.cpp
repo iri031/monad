@@ -723,6 +723,11 @@ void UpdateAuxImpl::print_update_stats()
 {
 #if MONAD_MPT_COLLECT_STATS
     printf("created/updated nodes: %u\n", stats.num_nodes_created);
+    printf("on-disk node size START\n");
+    for (auto ns : stats.on_disk_node_sizes) {
+        printf("%d ", int(ns));
+    }
+    printf("\non-disk node sizes END\n");
 
     if (compact_offset_fast || compact_offset_slow) {
         printf(
@@ -863,6 +868,15 @@ void UpdateAuxImpl::collect_compacted_nodes_from_to_stats(
     (void)node_offset;
     (void)rewrite_to_fast;
 
+#endif
+}
+
+void UpdateAuxImpl::collect_written_node_size(uint32_t const node_size)
+{
+#if MONAD_MPT_COLLECT_STATS
+    stats.on_disk_node_sizes.push_back(node_size);
+#else
+    (void)node_size;
 #endif
 }
 

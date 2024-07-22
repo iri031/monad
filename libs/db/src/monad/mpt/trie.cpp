@@ -1366,6 +1366,7 @@ retry:
             }
         }
     }
+    aux.collect_written_node_size(node.get_disk_size());
     return ret;
 }
 
