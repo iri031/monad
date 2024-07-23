@@ -87,7 +87,7 @@ struct async_write_node_result
 };
 
 // invoke at the end of each block upsert
-chunk_offset_t write_new_root_node(UpdateAuxImpl &, Node &);
+chunk_offset_t write_new_root_node(UpdateAuxImpl &, StateMachine &, Node &);
 
 Node::UniquePtr upsert(
     UpdateAuxImpl &aux, StateMachine &sm, Node::UniquePtr old,
@@ -119,7 +119,7 @@ Node::UniquePtr upsert(
         auto *const root = entry.ptr;
         if (aux.is_on_disk()) {
             if (root) {
-                write_new_root_node(aux, *root);
+                write_new_root_node(aux, sm, *root);
             }
             aux.print_update_stats();
         }
@@ -517,8 +517,10 @@ Node *create_node_from_children_if_any(
                 // won't duplicate write of unchanged old child
                 MONAD_DEBUG_ASSERT(child.branch < 16);
                 MONAD_DEBUG_ASSERT(child.ptr);
+                sm.down(child.branch);
                 child.offset =
-                    async_write_node_set_spare(aux, *child.ptr, true);
+                    async_write_node_set_spare(aux, *child.ptr, true, &sm);
+                sm.up(1);
                 std::tie(child.min_offset_fast, child.min_offset_slow) =
                     calc_min_offsets(
                         *child.ptr, aux.physical_to_virtual(child.offset));
@@ -1131,8 +1133,8 @@ void try_fillin_parent_with_rewritten_node(
         tnode.release();
         return;
     }
-    auto const new_offset =
-        async_write_node_set_spare(aux, *tnode->node, tnode->rewrite_to_fast);
+    auto const new_offset = async_write_node_set_spare(
+        aux, *tnode->node, tnode->rewrite_to_fast, nullptr);
     auto const [min_offset_fast, min_offset_slow] =
         calc_min_offsets(*tnode->node, aux.physical_to_virtual(new_offset));
     MONAD_DEBUG_ASSERT(min_offset_fast >= aux.compact_offset_fast);
@@ -1366,14 +1368,13 @@ retry:
             }
         }
     }
-    aux.collect_written_node_size(node.get_disk_size());
     return ret;
 }
 
 // Return node's physical offset the node is written at, triedb should not
 // depend on any metadata to walk the data structure.
-chunk_offset_t
-async_write_node_set_spare(UpdateAuxImpl &aux, Node &node, bool write_to_fast)
+chunk_offset_t async_write_node_set_spare(
+    UpdateAuxImpl &aux, Node &node, bool write_to_fast, StateMachine *sm)
 {
     write_to_fast &= aux.can_write_to_fast();
     if (aux.alternate_slow_fast_writer()) {
@@ -1388,13 +1389,20 @@ async_write_node_set_spare(UpdateAuxImpl &aux, Node &node, bool write_to_fast)
                    .offset_written_to;
     unsigned const pages = num_pages(off.offset, node.get_disk_size());
     off.set_spare(static_cast<uint16_t>(node_disk_pages_spare_15{pages}));
+    if (sm) {
+        aux.collect_written_node_size(
+            node.get_disk_size() - 8 * node.number_of_children(),
+            (uint8_t)sm->trie_section);
+    }
     return off;
 }
 
 // return root physical offset
-chunk_offset_t write_new_root_node(UpdateAuxImpl &aux, Node &root)
+chunk_offset_t
+write_new_root_node(UpdateAuxImpl &aux, StateMachine &sm, Node &root)
 {
-    auto const offset_written_to = async_write_node_set_spare(aux, root, true);
+    auto const offset_written_to =
+        async_write_node_set_spare(aux, root, true, &sm);
     // Round up with all bits zero
     auto replace = [&](node_writer_unique_ptr_type &node_writer) {
         auto *sender = &node_writer->sender();

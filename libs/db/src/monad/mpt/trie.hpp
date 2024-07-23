@@ -131,8 +131,8 @@ public:
     }
 };
 
-chunk_offset_t
-async_write_node_set_spare(UpdateAuxImpl &aux, Node &node, bool is_fast);
+chunk_offset_t async_write_node_set_spare(
+    UpdateAuxImpl &aux, Node &node, bool is_fast, StateMachine *sm);
 
 node_writer_unique_ptr_type
 replace_node_writer(UpdateAuxImpl &, node_writer_unique_ptr_type const &);
@@ -507,7 +507,7 @@ public:
         compact_virtual_chunk_offset_t subtrie_min_offset_slow);
     void collect_compacted_nodes_from_to_stats(
         chunk_offset_t node_offset, bool rewrite_to_fast);
-    void collect_written_node_size(uint32_t node_size);
+    void collect_written_node_size(uint32_t node_size, uint8_t trie_section);
     void print_update_stats();
 
     enum class chunk_list : uint8_t

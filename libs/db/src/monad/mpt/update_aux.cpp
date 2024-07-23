@@ -723,11 +723,16 @@ void UpdateAuxImpl::print_update_stats()
 {
 #if MONAD_MPT_COLLECT_STATS
     printf("created/updated nodes: %u\n", stats.num_nodes_created);
-    printf("on-disk node size START\n");
-    for (auto ns : stats.on_disk_node_sizes) {
+    printf("state on-disk node size START\n");
+    for (auto ns : stats.state_on_disk_node_sizes) {
         printf("%d ", int(ns));
     }
-    printf("\non-disk node sizes END\n");
+    printf("\nstate on-disk node sizes END\n");
+    printf("code on-disk node size START\n");
+    for (auto ns : stats.code_on_disk_node_sizes) {
+        printf("%d ", int(ns));
+    }
+    printf("\ncode on-disk node sizes END\n");
 
     if (compact_offset_fast || compact_offset_slow) {
         printf(
@@ -871,12 +876,19 @@ void UpdateAuxImpl::collect_compacted_nodes_from_to_stats(
 #endif
 }
 
-void UpdateAuxImpl::collect_written_node_size(uint32_t const node_size)
+void UpdateAuxImpl::collect_written_node_size(
+    uint32_t const node_size, uint8_t const trie_section)
 {
 #if MONAD_MPT_COLLECT_STATS
-    stats.on_disk_node_sizes.push_back(node_size);
+    if (trie_section == 1) {
+        stats.state_on_disk_node_sizes.push_back(node_size);
+    }
+    else if (trie_section == 2) {
+        stats.code_on_disk_node_sizes.push_back(node_size);
+    }
 #else
     (void)node_size;
+    (void)trie_section
 #endif
 }
 

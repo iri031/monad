@@ -12,6 +12,15 @@ enum class CacheOption : uint8_t;
 
 struct StateMachine
 {
+    enum class TrieType : uint8_t
+    {
+        Prefix,
+        State,
+        Code,
+        Receipt
+    };
+
+    TrieType trie_section{TrieType::Prefix};
     virtual ~StateMachine() = default;
     virtual std::unique_ptr<StateMachine> clone() const = 0;
     virtual void down(unsigned char nibble) = 0;

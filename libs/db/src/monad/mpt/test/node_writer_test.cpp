@@ -67,7 +67,7 @@ public:
         auto const chunks_before = state()->fast_list_ids().size();
         // write node
         auto const node_offset =
-            async_write_node_set_spare(state()->aux, *node, true);
+            async_write_node_set_spare(state()->aux, *node, true, nullptr);
         if (node->get_disk_size() > remaining_bytes_in_chunk) {
             // Node will be written to the start of next chunk
             auto &new_node_writer = state()->aux.node_writer_fast;

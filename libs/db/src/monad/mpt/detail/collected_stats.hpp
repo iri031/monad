@@ -23,7 +23,9 @@ namespace detail
         unsigned bytes_read_after_offset[2] = {0, 0};
         unsigned nodes_copied_for_compacting_slow = 0;
         unsigned nodes_copied_for_compacting_fast = 0;
-        std::vector<uint32_t> on_disk_node_sizes = std::vector<uint32_t>();
+        std::vector<uint32_t> state_on_disk_node_sizes =
+            std::vector<uint32_t>();
+        std::vector<uint32_t> code_on_disk_node_sizes = std::vector<uint32_t>();
 
         void reset()
         {

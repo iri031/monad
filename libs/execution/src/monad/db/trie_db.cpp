@@ -426,16 +426,16 @@ namespace
 
 struct TrieDb::Machine : public mpt::StateMachine
 {
-    enum class TrieType : uint8_t
-    {
-        Prefix,
-        State,
-        Code,
-        Receipt
-    };
+    // enum class TrieType : uint8_t
+    // {
+    //     Prefix,
+    //     State,
+    //     Code,
+    //     Receipt
+    // };
 
     uint8_t depth{0};
-    TrieType trie_section{TrieType::Prefix};
+    // TrieType trie_section{TrieType::Prefix};
     static constexpr auto prefix_len = 1;
     static constexpr auto max_depth =
         prefix_len + sizeof(bytes32_t) * 2 + sizeof(bytes32_t) * 2;
