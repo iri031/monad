@@ -517,10 +517,8 @@ Node *create_node_from_children_if_any(
                 // won't duplicate write of unchanged old child
                 MONAD_DEBUG_ASSERT(child.branch < 16);
                 MONAD_DEBUG_ASSERT(child.ptr);
-                sm.down(child.branch);
                 child.offset =
                     async_write_node_set_spare(aux, *child.ptr, true, &sm);
-                sm.up(1);
                 std::tie(child.min_offset_fast, child.min_offset_slow) =
                     calc_min_offsets(
                         *child.ptr, aux.physical_to_virtual(child.offset));
