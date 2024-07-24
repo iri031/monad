@@ -29,8 +29,9 @@
 
 MONAD_MPT_NAMESPACE_BEGIN
 
-uint32_t *read_offsets = nullptr;
-int rd_offset_count = 0;
+uint32_t *read_offsets, *write_offsets;
+unsigned long *write_sizes;
+int rd_offset_count, wr_offset_count;
 
 using namespace MONAD_ASYNC_NAMESPACE;
 
@@ -892,6 +893,16 @@ void UpdateAuxImpl::collect_read_offsets(chunk_offset_t const rd_offset)
     if (read_offsets) {
         monad::mpt::read_offsets[rd_offset_count] = rd_offset.offset;
         monad::mpt::rd_offset_count++;
+    }
+}
+
+void UpdateAuxImpl::collect_write_offsets(
+    chunk_offset_t const wr_offset, unsigned long const size)
+{
+    if (write_offsets && write_sizes) {
+        monad::mpt::write_offsets[wr_offset_count] = wr_offset.offset;
+        monad::mpt::write_sizes[wr_offset_count] = size;
+        monad::mpt::wr_offset_count++;
     }
 }
 

@@ -188,7 +188,10 @@ int main(int const argc, char const *argv[])
 
         // exclude warming up the cache
         monad::mpt::read_offsets = new uint32_t[100000000];
+        monad::mpt::write_offsets = new uint32_t[100000000];
+        monad::mpt::write_sizes = new unsigned long[100000000];
         monad::mpt::rd_offset_count = 0;
+        monad::mpt::wr_offset_count = 0;
 
         LOG_INFO(
             "Running with block_db = {}, start block number = {}, "
@@ -244,6 +247,12 @@ int main(int const argc, char const *argv[])
                   << "\n";
         std::cout << "# of unique read offsets: " << unique_offsets.size()
                   << "\n";
+        std::cout << "# of all write offsets: " << monad::mpt::wr_offset_count
+                  << "\n";
+        for (int i = 0; i < monad::mpt::wr_offset_count; ++i) {
+            std::cout << monad::mpt::write_sizes[i] << " ";
+        }
+        std::cout << "\n";
     }
 
     if (!dump_snapshot.empty()) {

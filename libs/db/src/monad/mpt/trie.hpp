@@ -34,8 +34,9 @@
 
 MONAD_MPT_NAMESPACE_BEGIN
 
-extern uint32_t *read_offsets;
-extern int rd_offset_count;
+extern uint32_t *read_offsets, *write_offsets;
+extern unsigned long *write_sizes;
+extern int rd_offset_count, wr_offset_count;
 
 template <class T>
 concept lockable_or_void = std::is_void_v<T> || requires(T x) {
@@ -515,6 +516,8 @@ public:
     void collect_compacted_nodes_from_to_stats(
         chunk_offset_t node_offset, bool rewrite_to_fast);
     void collect_read_offsets(chunk_offset_t const rd_offset);
+    void collect_write_offsets(
+        chunk_offset_t const wr_offset, unsigned long const size);
     void print_update_stats();
 
     enum class chunk_list : uint8_t

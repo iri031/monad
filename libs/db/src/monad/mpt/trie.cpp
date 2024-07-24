@@ -1329,6 +1329,9 @@ retry:
             node_writer->sender().written_buffer_bytes() ==
             node_writer->sender().buffer().size());
         node_writer->initiate();
+        aux.collect_write_offsets(
+            node_writer->sender().offset(),
+            node_writer->sender().buffer().size());
         // shall be recycled by the i/o receiver
         node_writer.release();
         node_writer = std::move(new_node_writer);
@@ -1359,6 +1362,9 @@ retry:
                         node_writer->sender().written_buffer_bytes() ==
                         node_writer->sender().buffer().size());
                     node_writer->initiate();
+                    aux.collect_write_offsets(
+                        node_writer->sender().offset(),
+                        node_writer->sender().buffer().size());
                     // shall be recycled by the i/o receiver
                     node_writer.release();
                     node_writer = std::move(new_node_writer);
@@ -1412,6 +1418,9 @@ write_new_root_node(UpdateAuxImpl &aux, Node &root, uint64_t const version)
         auto to_initiate = std::move(node_writer);
         node_writer = std::move(new_node_writer);
         to_initiate->initiate();
+        aux.collect_write_offsets(
+            to_initiate->sender().offset(),
+            to_initiate->sender().buffer().size());
         // shall be recycled by the i/o receiver
         to_initiate.release();
     };
