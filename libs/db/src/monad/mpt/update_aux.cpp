@@ -29,7 +29,7 @@
 
 MONAD_MPT_NAMESPACE_BEGIN
 
-uint32_t *read_offsets, *write_offsets;
+uint64_t *read_offsets, *write_offsets;
 unsigned long *write_sizes;
 int rd_offset_count, wr_offset_count;
 
@@ -891,7 +891,7 @@ void UpdateAuxImpl::collect_compacted_nodes_from_to_stats(
 void UpdateAuxImpl::collect_read_offsets(chunk_offset_t const rd_offset)
 {
     if (read_offsets) {
-        monad::mpt::read_offsets[rd_offset_count] = rd_offset.offset;
+        monad::mpt::read_offsets[rd_offset_count] = rd_offset.raw();
         monad::mpt::rd_offset_count++;
     }
 }

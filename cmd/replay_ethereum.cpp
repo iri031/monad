@@ -187,8 +187,8 @@ int main(int const argc, char const *argv[])
         uint64_t const start_block_number = init_block_number + 1;
 
         // exclude warming up the cache
-        monad::mpt::read_offsets = new uint32_t[100000000];
-        monad::mpt::write_offsets = new uint32_t[100000000];
+        monad::mpt::read_offsets = new uint64_t[100000000];
+        monad::mpt::write_offsets = new uint64_t[100000000];
         monad::mpt::write_sizes = new unsigned long[100000000];
         monad::mpt::rd_offset_count = 0;
         monad::mpt::wr_offset_count = 0;
@@ -234,8 +234,8 @@ int main(int const argc, char const *argv[])
             replay_eth.n_transactions /
                 std::max(1UL, static_cast<uint64_t>(elapsed.count())));
 
-        std::unordered_set<uint32_t> unique_offsets;
-        uint32_t lower_bound_4k = ~((1u << 12) - 1);
+        std::unordered_set<uint64_t> unique_offsets;
+        uint64_t lower_bound_4k = ~((1u << 12) - 1);
 
         for (int i = 0; i < monad::mpt::rd_offset_count; ++i) {
             // std::cout << monad::mpt::read_offsets[i] << " "

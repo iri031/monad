@@ -34,7 +34,7 @@
 
 MONAD_MPT_NAMESPACE_BEGIN
 
-extern uint32_t *read_offsets, *write_offsets;
+extern uint64_t *read_offsets, *write_offsets;
 extern unsigned long *write_sizes;
 extern int rd_offset_count, wr_offset_count;
 
