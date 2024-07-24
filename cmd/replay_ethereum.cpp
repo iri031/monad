@@ -114,8 +114,6 @@ int main(int const argc, char const *argv[])
 
     uint64_t last_block_number;
     {
-        monad::mpt::read_offsets = new uint32_t[100000000];
-        monad::mpt::rd_offset_count = 0;
         auto block_db = BlockDb(block_db_path);
 
         auto const load_start_time = std::chrono::steady_clock::now();
@@ -188,6 +186,10 @@ int main(int const argc, char const *argv[])
 
         uint64_t const start_block_number = init_block_number + 1;
 
+        // exclude warming up the cache
+        monad::mpt::read_offsets = new uint32_t[100000000];
+        monad::mpt::rd_offset_count = 0;
+
         LOG_INFO(
             "Running with block_db = {}, start block number = {}, "
             "number blocks = {}",
@@ -233,8 +235,9 @@ int main(int const argc, char const *argv[])
         uint32_t lower_bound_4k = ~((1u << 12) - 1);
 
         for (int i = 0; i < monad::mpt::rd_offset_count; ++i) {
-            std::cout << monad::mpt::read_offsets[i] << " "
-                      << (monad::mpt::read_offsets[i] & lower_bound_4k) << "\n";
+            // std::cout << monad::mpt::read_offsets[i] << " "
+            //           << (monad::mpt::read_offsets[i] & lower_bound_4k) <<
+            //           "\n";
             unique_offsets.insert(monad::mpt::read_offsets[i] & lower_bound_4k);
         }
         std::cout << "# of all read offsets: " << monad::mpt::rd_offset_count

@@ -889,9 +889,10 @@ void UpdateAuxImpl::collect_compacted_nodes_from_to_stats(
 
 void UpdateAuxImpl::collect_read_offsets(chunk_offset_t const rd_offset)
 {
-    // std::cout << rd_offset.offset << "\n";
-    monad::mpt::read_offsets[rd_offset_count] = rd_offset.offset;
-    monad::mpt::rd_offset_count++;
+    if (read_offsets) {
+        monad::mpt::read_offsets[rd_offset_count] = rd_offset.offset;
+        monad::mpt::rd_offset_count++;
+    }
 }
 
 MONAD_MPT_NAMESPACE_END
