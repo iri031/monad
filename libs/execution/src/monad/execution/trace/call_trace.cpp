@@ -12,6 +12,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <quill/Quill.h>
 #include <quill/bundled/fmt/core.h>
 #include <quill/bundled/fmt/format.h>
 
@@ -108,9 +109,6 @@ CallTracer::CallTracer(
     , tx_(tx)
     , tx_hash_(keccak256(rlp::encode_transaction(tx)))
 {
-    if (MONAD_UNLIKELY(!std::filesystem::exists(trace_dir_))) {
-        std::filesystem::create_directories(trace_dir_);
-    }
 }
 
 void CallTracer::to_json_helper(
@@ -143,10 +141,7 @@ nlohmann::json CallTracer::to_json() const
 
 void CallTracer::to_file() const
 {
-    auto const path = trace_dir_ / (std::to_string(block_number_) + ".json");
-    std::ofstream ofile(path, std::ios::app);
-    // TODO: better delimiter?
-    ofile << to_json().dump(4) << ";" << std::endl;
+    QUILL_LOG_INFO(quill::get_logger("call_trace"), "{}", to_json().dump());
 }
 
 MONAD_NAMESPACE_END

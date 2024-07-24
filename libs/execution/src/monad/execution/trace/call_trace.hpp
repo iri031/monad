@@ -12,6 +12,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <quill/Quill.h> // NOLINT
+
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -62,15 +64,11 @@ class CallTracer
     std::vector<CallFrame> call_frames_;
     uint64_t depth_;
 
-    uint64_t block_number_;
+    [[maybe_unused]] uint64_t block_number_;
     Transaction const &tx_;
     hash256 tx_hash_;
 
     uint64_t intrinsic_gas_{0};
-
-    std::filesystem::path const trace_dir_{
-        std::filesystem::current_path() /
-        "call_trace"}; // TODO: make it configurable
 
 public:
     /*

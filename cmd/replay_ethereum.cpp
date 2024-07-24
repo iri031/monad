@@ -35,6 +35,7 @@
 MONAD_NAMESPACE_BEGIN
 
 quill::Logger *event_tracer = nullptr;
+quill::Logger *call_tracer = nullptr;
 
 MONAD_NAMESPACE_END
 
@@ -106,10 +107,19 @@ int main(int const argc, char const *argv[])
     quill::start(true);
 
 #ifdef ENABLE_EVENT_TRACING
-    quill::FileHandlerConfig handler_cfg;
-    handler_cfg.set_pattern("%(message)", "");
+    quill::FileHandlerConfig event_handler_cfg;
+    event_handler_cfg.set_pattern("%(message)", "");
     event_tracer = quill::create_logger(
-        "event_trace", quill::file_handler(trace_log, handler_cfg));
+        "event_trace", quill::file_handler(event_trace_log, event_handler_cfg));
+#endif
+
+#ifdef ENABLE_CALL_TRACING
+    quill::FileHandlerConfig call_handler_cfg;
+    call_handler_cfg.set_pattern("%(message)", "");
+    call_tracer = quill::create_logger(
+        "call_trace",
+        quill::file_handler(
+            std::filesystem::current_path() / "call_trace", call_handler_cfg));
 #endif
 
     uint64_t last_block_number;
