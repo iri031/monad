@@ -34,6 +34,9 @@
 
 MONAD_MPT_NAMESPACE_BEGIN
 
+extern uint32_t *read_offsets;
+extern int rd_offset_count;
+
 template <class T>
 concept lockable_or_void = std::is_void_v<T> || requires(T x) {
     x.lock();
@@ -511,6 +514,7 @@ public:
         compact_virtual_chunk_offset_t subtrie_min_offset_slow);
     void collect_compacted_nodes_from_to_stats(
         chunk_offset_t node_offset, bool rewrite_to_fast);
+    void collect_read_offsets(chunk_offset_t const rd_offset);
     void print_update_stats();
 
     enum class chunk_list : uint8_t
@@ -793,6 +797,7 @@ template <receiver Receiver>
         Receiver::lifetime_managed_internally)
 void async_read(UpdateAuxImpl &aux, Receiver &&receiver)
 {
+    aux.collect_read_offsets(receiver.rd_offset);
     [[likely]] if (
         receiver.bytes_to_read <=
         MONAD_ASYNC_NAMESPACE::AsyncIO::READ_BUFFER_SIZE) {
