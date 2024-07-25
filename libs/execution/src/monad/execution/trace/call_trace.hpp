@@ -160,8 +160,7 @@ public:
         depth_--;
     }
 
-    ///////////////////////////////// debug helpers
-    /////////////////////////////////////
+    //////////////////////// debug helpers ////////////////////////
     std::vector<CallFrame> get_call_frames() const
     {
         return call_frames_;
