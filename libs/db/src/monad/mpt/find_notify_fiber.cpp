@@ -5,14 +5,12 @@
 #include <monad/async/io.hpp>
 #include <monad/core/assert.h>
 #include <monad/core/nibble.h>
+#include <monad/fiber/future.hpp>
 #include <monad/mpt/config.hpp>
-#include <monad/mpt/detail/boost_fiber_workarounds.hpp>
 #include <monad/mpt/nibbles_view.hpp>
 #include <monad/mpt/node.hpp>
 #include <monad/mpt/trie.hpp>
 #include <monad/mpt/util.hpp>
-
-#include <boost/fiber/future.hpp>
 
 #include <cassert>
 #include <cstdint>
@@ -29,7 +27,7 @@ using namespace MONAD_ASYNC_NAMESPACE;
 
 void find_recursive(
     UpdateAuxImpl &, inflight_map_t &,
-    threadsafe_boost_fibers_promise<find_result_type> &, NodeCursor root,
+    fiber::simple_promise<find_result_type> &, NodeCursor root,
     NibblesView key);
 
 namespace
@@ -100,7 +98,7 @@ namespace
 // map
 void find_recursive(
     UpdateAuxImpl &aux, inflight_map_t &inflights,
-    threadsafe_boost_fibers_promise<find_result_type> &promise, NodeCursor root,
+    fiber::simple_promise<find_result_type> &promise, NodeCursor root,
     NibblesView const key)
 
 {

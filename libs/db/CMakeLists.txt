@@ -14,7 +14,7 @@ option(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(
   Boost 1.83 # 1.83 really is the minimum
-  COMPONENTS context fiber json thread
+  COMPONENTS context json thread
   REQUIRED)
 find_package(GTest)
 find_package(PkgConfig REQUIRED)
@@ -57,7 +57,7 @@ target_include_directories(monad_trie PUBLIC "src")
 target_include_directories(monad_trie PRIVATE "third_party")
 monad_compile_options(monad_trie)
 target_link_libraries(monad_trie PRIVATE Boost::boost)
-target_link_libraries(monad_trie PUBLIC monad_async)
+target_link_libraries(monad_trie PUBLIC monad_async monad_core_c)
 add_executable(monad_mpt "src/monad/mpt/cli_tool_main.cpp"
                          "src/monad/mpt/cli_tool_impl.cpp")
 monad_compile_options(monad_mpt)

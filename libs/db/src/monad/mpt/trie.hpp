@@ -15,22 +15,11 @@
 #include <monad/async/io_senders.hpp>
 
 #include <monad/core/unordered_map.hpp>
-
-#ifdef __clang__
-    #pragma clang diagnostic push
-    #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#endif
-#include <boost/fiber/future.hpp>
-#ifdef __clang__
-    #pragma clang diagnostic pop
-#endif
+#include <monad/fiber/future.hpp>
 
 #include <cstdint>
 #include <functional>
 #include <vector>
-
-// temporary
-#include "detail/boost_fiber_workarounds.hpp"
 
 MONAD_MPT_NAMESPACE_BEGIN
 
@@ -857,7 +846,7 @@ using inflight_map_t = unordered_dense_map<
 // to work on
 struct fiber_find_request_t
 {
-    threadsafe_boost_fibers_promise<find_result_type> *promise;
+    fiber::simple_promise<find_result_type> *promise;
     NodeCursor start{};
     NibblesView key{};
 };
