@@ -33,6 +33,7 @@ class BlockchainTest : public testing::Test
 
     std::filesystem::path const file_;
     std::optional<evmc_revision> const revision_;
+    std::string contract_compile_dir_;
 
     template <evmc_revision rev>
     static Result<std::vector<Receipt>>
@@ -50,15 +51,18 @@ public:
 
     BlockchainTest(
         std::filesystem::path const &file,
-        std::optional<evmc_revision> const &revision) noexcept
+        std::optional<evmc_revision> const &revision,
+        std::string const &contract_dir) noexcept
         : file_{file}
         , revision_{revision}
+        , contract_compile_dir_{contract_dir}
     {
     }
 
     void TestBody() override;
 };
 
-void register_blockchain_tests(std::optional<evmc_revision> const &);
+void register_blockchain_tests(std::optional<evmc_revision> const &,
+        std::string const &contract_dir, bool enable_slow_tests);
 
 MONAD_TEST_NAMESPACE_END

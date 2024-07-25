@@ -261,25 +261,31 @@ void BlockchainTest::TestBody()
             validate_post_state(j_contents.at("postState"), dump);
         }
         LOG_DEBUG("post_state: {}", dump.dump());
-    }
 
+        remove_compiled_contracts(contract_compile_dir_);
+    }
     if (!executed) {
         MONAD_ASSERT(revision_.has_value());
         GTEST_SKIP() << "no test cases found revision=" << revision_.value();
     }
 }
 
-void register_blockchain_tests(std::optional<evmc_revision> const &revision)
+void register_blockchain_tests(
+        std::optional<evmc_revision> const &revision,
+        std::string const &contract_dir,
+        bool enable_slow_tests)
 {
     namespace fs = std::filesystem;
 
-    // skip slow tests
-    testing::FLAGS_gtest_filter +=
-        ":-:BlockchainTests.GeneralStateTests/stTimeConsuming/*:"
-        "BlockchainTests.GeneralStateTests/VMTests/vmPerformance/*:"
-        "BlockchainTests.GeneralStateTests/stQuadraticComplexityTest/"
-        "Call50000_sha256.json:"
-        "BlockchainTests.ValidBlocks/bcForkStressTest/ForkStressTest.json";
+    if (!enable_slow_tests) {
+        // skip slow tests
+        testing::FLAGS_gtest_filter +=
+            ":-:BlockchainTests.GeneralStateTests/stTimeConsuming/*:"
+            "BlockchainTests.GeneralStateTests/VMTests/vmPerformance/*:"
+            "BlockchainTests.GeneralStateTests/stQuadraticComplexityTest/"
+            "Call50000_sha256.json:"
+            "BlockchainTests.ValidBlocks/bcForkStressTest/ForkStressTest.json";
+    }
 
     constexpr auto suite = "BlockchainTests";
     auto const root = test_resource::ethereum_tests_dir / suite;
@@ -300,7 +306,7 @@ void register_blockchain_tests(std::optional<evmc_revision> const &revision)
                 nullptr,
                 path.string().c_str(),
                 0,
-                [=] { return new BlockchainTest(path, revision); });
+                [=] { return new BlockchainTest(path, revision, contract_dir); });
         }
     }
 }

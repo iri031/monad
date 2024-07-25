@@ -12,4 +12,10 @@ MONAD_NAMESPACE_BEGIN
 evmc::Result baseline_execute(
     evmc_message const &, evmc_revision, evmc::Host *, CodeAnalysis const &);
 
+evmc::Result baseline_execute_evmone(
+    evmc_message const &, evmc_revision, evmc::Host *, CodeAnalysis const &);
+
+evmc::Result baseline_execute_monad_jit(
+    evmc_message const &, evmc_revision, evmc::Host *, CodeAnalysis const &);
+
 MONAD_NAMESPACE_END

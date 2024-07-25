@@ -54,7 +54,7 @@ PriorityPool::PriorityPool(unsigned const n_threads, unsigned const n_fibers)
             boost::fibers::fiber fiber{
                 static_cast<boost::fibers::fiber_properties *>(properties),
                 std::allocator_arg,
-                boost::fibers::protected_fixedsize_stack{8 * 1024 * 1024},
+                boost::fibers::protected_fixedsize_stack{8 * 1024 * 1024 * 16},
                 [this, properties] {
                     PriorityTask task;
                     while (channel_.pop(task) ==
