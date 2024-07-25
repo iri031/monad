@@ -48,21 +48,21 @@ struct CallFrame
     std::optional<byte_string> output{std::nullopt};
     evmc_status_code status{EVMC_SUCCESS};
 
-    std::vector<CallFrame> calls{};
-
     // TODO: official documentation doesn't contain "logs", but geth/reth
     // implementation does
 
-    nlohmann::json to_json() const; // key = hash(tx)
+    uint64_t depth;
 
-    uint64_t depth; // needed for internal tracking
+    // for debug only
+    nlohmann::json to_json() const; // key = hash(tx)
 };
 
 class CallTracer
 {
     bool only_top_;
-    std::vector<CallFrame> call_frames_;
-    uint64_t depth_;
+    std::vector<CallFrame> call_frames_{};
+    std::unordered_map<size_t, size_t> depth_to_last_pos_{};
+    size_t depth_;
 
     [[maybe_unused]] uint64_t block_number_;
     Transaction const &tx_;
@@ -81,14 +81,13 @@ public:
         uint64_t const block_number, Transaction const &,
         bool only_top = false);
 
-    nlohmann::json to_json() const;
     void to_file() const;
 
     // called when entering a new frame
     template <evmc_revision rev>
     void on_enter(evmc_message const &msg)
     {
-        depth_ = static_cast<uint64_t>(msg.depth);
+        depth_ = static_cast<size_t>(msg.depth);
 
         if (MONAD_UNLIKELY(msg.depth >= 1 && only_top_)) {
             return;
@@ -123,19 +122,8 @@ public:
             .depth = static_cast<uint64_t>(msg.depth),
         };
 
-        if (msg.depth == 0) {
-            call_frames_.emplace_back(std::move(call_frame));
-            return;
-        }
-
-        MONAD_ASSERT(!call_frames_.empty());
-        auto *last_frame = &call_frames_.back();
-        for (int i = 1; i < msg.depth; ++i) {
-            last_frame = &last_frame->calls.back();
-        }
-        MONAD_DEBUG_ASSERT(
-            last_frame->depth + 1 == static_cast<uint64_t>(msg.depth));
-        last_frame->calls.emplace_back(call_frame);
+        call_frames_.emplace_back(std::move(call_frame));
+        depth_to_last_pos_[depth_] = call_frames_.size() - 1;
     }
 
     // called when exiting the current frame
@@ -144,27 +132,27 @@ public:
     {
         MONAD_ASSERT(!call_frames_.empty());
 
-        auto *last_frame = &call_frames_.back();
-        for (unsigned i = 0; i < depth_; ++i) {
-            last_frame = &last_frame->calls.back();
-        }
+        auto it = depth_to_last_pos_.find(depth_);
+        MONAD_ASSERT(it != depth_to_last_pos_.end());
+        auto& frame = call_frames_[it->second];
 
-        auto const gas_limit = last_frame->gas;
+        auto const gas_limit = frame.gas;
         auto const gas_remaining = g_star(
             rev,
             gas_limit,
             static_cast<uint64_t>(res.gas_left),
             static_cast<uint64_t>(res.gas_refund));
-        auto const gas_used = gas_limit - gas_remaining;
-        last_frame->gas_used = gas_used;
+        frame.gas_used = gas_limit - gas_remaining;
 
         if (res.status_code == EVMC_SUCCESS || res.status_code == EVMC_REVERT) {
-            last_frame->output = res.output_data == nullptr
+            frame.output = res.output_data == nullptr
                                      ? std::nullopt
                                      : std::make_optional(byte_string{
                                            res.output_data, res.output_size});
         }
-        last_frame->status = res.status_code;
+        frame.status = res.status_code;
+        
+        depth_to_last_pos_.erase(it);
         depth_--;
     }
 
@@ -173,6 +161,9 @@ public:
     {
         return call_frames_;
     }
+
+    // debug helper
+    nlohmann::json to_json() const;
 
 private:
     void to_json_helper(nlohmann::json &, CallFrame const &) const;

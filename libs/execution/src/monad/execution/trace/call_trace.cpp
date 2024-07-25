@@ -89,14 +89,6 @@ nlohmann::json CallFrame::to_json() const
         res["error"] = "ERROR"; // TODO: generic error for now
     }
 
-    if (!calls.empty()) {
-        res["calls"] = nlohmann::json::array();
-        for (unsigned i = 0; i < calls.size(); ++i) {
-            nlohmann::json obj = nlohmann::json::object();
-            res["calls"].push_back(obj);
-        }
-    }
-
     return res;
 }
 
@@ -112,36 +104,39 @@ CallTracer::CallTracer(
 }
 
 void CallTracer::to_json_helper(
-    nlohmann::json &json, CallFrame const &call_frame) const
+    [[maybe_unused]] nlohmann::json &json,
+    [[maybe_unused]] CallFrame const &call_frame) const
 {
-    json = call_frame.to_json();
+    // json = call_frame.to_json();
 
-    if (call_frame.calls.empty()) {
-        return;
-    }
-    MONAD_ASSERT(json.contains("calls"));
-    for (unsigned i = 0; i < call_frame.calls.size(); ++i) {
-        to_json_helper(json["calls"][i], call_frame.calls[i]);
-    }
+    // if (call_frame.calls.empty()) {
+    //     return;
+    // }
+    // MONAD_ASSERT(json.contains("calls"));
+    // for (unsigned i = 0; i < call_frame.calls.size(); ++i) {
+    //     to_json_helper(json["calls"][i], call_frame.calls[i]);
+    // }
 }
 
 nlohmann::json CallTracer::to_json() const
 {
-    MONAD_ASSERT(!call_frames_.empty());
+    // MONAD_ASSERT(!call_frames_.empty());
 
-    nlohmann::json res{};
-    auto const key = fmt::format(
-        "0x{:02x}", fmt::join(std::as_bytes(std::span(tx_hash_.bytes)), ""));
-    nlohmann::json value{};
-    to_json_helper(value, call_frames_[0]);
-    res[key] = value;
+    // nlohmann::json res{};
+    // auto const key = fmt::format(
+    //     "0x{:02x}", fmt::join(std::as_bytes(std::span(tx_hash_.bytes)), ""));
+    // nlohmann::json value{};
+    // to_json_helper(value, call_frames_[0]);
+    // res[key] = value;
 
-    return res;
+    // return res;
+    return nlohmann::json::object();
 }
 
 void CallTracer::to_file() const
 {
-    QUILL_LOG_INFO(quill::get_logger("call_trace"), "{}", to_json().dump());
+    QUILL_LOG_INFO(
+        quill::get_logger("call_trace_logger"), "{}", call_frames_[0].gas);
 }
 
 MONAD_NAMESPACE_END
