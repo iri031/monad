@@ -57,7 +57,7 @@ nlohmann::json CallFrame::to_json() const
 {
     nlohmann::json res{};
     res["type"] = evmc_call_to_string(type);
-    if (MONAD_UNLIKELY(type == EVMC_CALL && flags == 1)){
+    if (MONAD_UNLIKELY(type == EVMC_CALL && flags == 1)) {
         res["type"] = "STATICCALL";
     }
     res["from"] = fmt::format(
@@ -68,17 +68,11 @@ nlohmann::json CallFrame::to_json() const
             "0x{:02x}",
             fmt::join(std::as_bytes(std::span(to.value().bytes)), ""));
     }
-    // DITTO
-    if (value.has_value()) {
-        res["value"] = "0x" + intx::to_string(value.value(), 16);
-    }
+    res["value"] = "0x" + intx::to_string(value, 16);
     res["gas"] = fmt::format("0x{:x}", gas);
     res["gasUsed"] = fmt::format("0x{:x}", gas_used);
     res["input"] = to_hex_string(input);
-
-    if (output.has_value()) {
-        res["output"] = to_hex_string(output.value());
-    }
+    res["output"] = to_hex_string(output);
 
     // If status == EVMC_SUCCESS, no error field is shown
     if (status == EVMC_REVERT) {

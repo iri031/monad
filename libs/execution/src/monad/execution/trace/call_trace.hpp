@@ -42,11 +42,11 @@ struct CallFrame
     uint64_t flags{0};
     Address from;
     std::optional<Address> to{std::nullopt};
-    std::optional<uint256_t> value{std::nullopt}; // amount of value transfer
+    uint256_t value; // amount of value transfer
     uint64_t gas;
     uint64_t gas_used{0};
     byte_string input{};
-    std::optional<byte_string> output{std::nullopt};
+    byte_string output{};
     evmc_status_code status{EVMC_SUCCESS};
 
     // TODO: official documentation doesn't contain "logs", but geth/reth
@@ -143,9 +143,8 @@ public:
 
         if (res.status_code == EVMC_SUCCESS || res.status_code == EVMC_REVERT) {
             frame.output = res.output_size == 0
-                               ? std::nullopt
-                               : std::make_optional(byte_string{
-                                     res.output_data, res.output_size});
+                               ? byte_string{}
+                               : byte_string{res.output_data, res.output_size};
         }
         frame.status = res.status_code;
 
