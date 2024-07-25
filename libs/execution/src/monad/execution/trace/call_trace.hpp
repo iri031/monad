@@ -39,7 +39,7 @@ namespace
 struct CallFrame
 {
     evmc_call_kind type;
-    uint32_t flags{0};
+    uint64_t flags{0};
     Address from;
     std::optional<Address> to{std::nullopt};
     std::optional<uint256_t> value{std::nullopt}; // amount of value transfer
@@ -106,7 +106,7 @@ public:
 
         CallFrame call_frame{
             .type = msg.kind,
-            .flags = msg.flags,
+            .flags = static_cast<uint64_t>(msg.flags),
             .from = from,
             .to = to,
             .value = intx::be::load<uint256_t>(msg.value),
@@ -142,12 +142,16 @@ public:
         frame.gas_used = gas_limit - gas_remaining;
 
         if (res.status_code == EVMC_SUCCESS || res.status_code == EVMC_REVERT) {
-            frame.output = res.output_data == nullptr
+            frame.output = res.output_size == 0
                                ? std::nullopt
                                : std::make_optional(byte_string{
                                      res.output_data, res.output_size});
         }
         frame.status = res.status_code;
+
+        if (frame.type == EVMC_CREATE2 || frame.type == EVMC_CREATE) {
+            frame.to = res.create_address;
+        }
 
         depth_to_last_pos_.erase(it);
         depth_--;
