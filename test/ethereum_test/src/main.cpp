@@ -35,6 +35,8 @@ int main(int argc, char *argv[])
     auto log_level = quill::LogLevel::None;
     std::optional<evmc_revision> revision = std::nullopt;
     std::optional<size_t> txn_index = std::nullopt;
+    std::string contract_dir;
+    bool enable_slow_tests = false;
 
     CLI::App app{"monad ethereum tests runner"};
     app.add_option("--log_level", log_level, "Logging level")
@@ -43,6 +45,10 @@ int main(int argc, char *argv[])
         ->transform(
             CLI::CheckedTransformer(test::revision_map, CLI::ignore_case));
     app.add_option("--txn", txn_index, "Index of transaction to run");
+    app.add_option("--contract_dir", contract_dir,
+            "Directory where NEVM (Monad JIT) puts the compiled contracts");
+    app.add_flag("--enable_slow", enable_slow_tests,
+            "Do not filter out slow tests");
     CLI11_PARSE(app, argc, argv);
 
     quill::start(true);
@@ -51,8 +57,8 @@ int main(int argc, char *argv[])
     tracer = quill::create_logger("trace", quill::null_handler());
 #endif
 
-    test::register_blockchain_tests(revision);
-    test::register_transaction_tests(revision);
+    test::register_blockchain_tests(revision, contract_dir, enable_slow_tests);
+    test::register_transaction_tests(revision, contract_dir);
 
     int return_code = RUN_ALL_TESTS();
 

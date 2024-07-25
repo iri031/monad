@@ -35,4 +35,6 @@ inline std::unordered_map<std::string, evmc_revision> const revision_map = {
 
 void load_state_from_json(nlohmann::json const &, State &);
 
+void remove_compiled_contracts(std::string const &contract_dir);
+
 MONAD_TEST_NAMESPACE_END

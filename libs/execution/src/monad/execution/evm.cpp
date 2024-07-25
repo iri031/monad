@@ -264,7 +264,9 @@ evmc::Result create_contract_account(
 
     auto const input_code_analysis =
         evmone::baseline::analyze(rev, {msg.input_data, msg.input_size});
-    auto result = baseline_execute(m_call, rev, host, input_code_analysis);
+    // We do not compile a contract constructor, which is executed just once.
+    // Use evmone to immediately execute the constructor here:
+    auto result = baseline_execute_evmone(m_call, rev, host, input_code_analysis);
 
     post_create_contract_account<rev>(state, m_call.recipient, result);
     return std::move(result);

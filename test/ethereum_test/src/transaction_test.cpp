@@ -131,7 +131,10 @@ void TransactionTest::TestBody()
         if (revision_.has_value() && rev != revision_) {
             continue;
         }
+
         executed = true;
+
+        remove_compiled_contracts(contract_compile_dir_);
 
         process_transaction(rev, txn.value(), expected);
     }
@@ -143,7 +146,9 @@ void TransactionTest::TestBody()
     }
 }
 
-void register_transaction_tests(std::optional<evmc_revision> const &revision)
+void register_transaction_tests(
+        std::optional<evmc_revision> const &revision,
+        std::string const &contract_dir)
 {
     namespace fs = std::filesystem;
 
@@ -166,7 +171,7 @@ void register_transaction_tests(std::optional<evmc_revision> const &revision)
                 path.string().c_str(),
                 0,
                 [=] -> testing::Test * {
-                    return new TransactionTest(path, revision);
+                    return new TransactionTest(path, revision, contract_dir);
                 });
         }
     }
