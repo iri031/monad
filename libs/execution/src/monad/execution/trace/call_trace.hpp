@@ -1,3 +1,5 @@
+#pragma once
+
 #include <monad/config.hpp>
 #include <monad/core/address.hpp>
 #include <monad/core/byte_string.hpp>
@@ -56,6 +58,8 @@ struct CallFrame
 
     // for debug only
     nlohmann::json to_json() const; // key = hash(tx)
+
+    friend bool operator==(CallFrame const &, CallFrame const &) = default;
 };
 
 class CallTracer
