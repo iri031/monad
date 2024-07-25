@@ -68,8 +68,6 @@ class CallTracer
     Transaction const &tx_;
     hash256 tx_hash_;
 
-    uint64_t intrinsic_gas_{0};
-
 public:
     /*
         block_number: needed to write to specific file
@@ -91,12 +89,6 @@ public:
     void on_enter(evmc_message const &msg)
     {
         depth_ = static_cast<uint64_t>(msg.depth);
-
-        uint64_t gas = 0;
-        if (call_frames_.empty()) {
-            intrinsic_gas_ = intrinsic_gas<rev>(tx_);
-            gas = intrinsic_gas_;
-        }
 
         if (MONAD_UNLIKELY(msg.depth >= 1 && only_top_)) {
             return;
@@ -122,7 +114,9 @@ public:
             .from = from,
             .to = to,
             .value = intx::be::load<uint256_t>(msg.value),
-            .gas = static_cast<uint64_t>(msg.gas) + gas,
+            .gas = call_frames_.empty() ? static_cast<uint64_t>(msg.gas) +
+                                              intrinsic_gas<rev>(tx_)
+                                        : static_cast<uint64_t>(msg.gas),
             .input = msg.input_data == nullptr
                          ? byte_string{}
                          : byte_string{msg.input_data, msg.input_size},
