@@ -202,8 +202,7 @@ Result<Receipt> execute_impl(
         TRACE_TXN_EVENT(StartExecution);
 
 #ifdef ENABLE_CALL_TRACING
-        State state{
-            block_state, Incarnation{hdr.number, i + 1}, hdr.number, tx};
+        State state{block_state, Incarnation{hdr.number, i + 1}, tx};
 #else
         State state{block_state, Incarnation{hdr.number, i + 1}};
 #endif
@@ -235,8 +234,7 @@ Result<Receipt> execute_impl(
         TRACE_TXN_EVENT(StartRetry);
 
 #ifdef ENABLE_CALL_TRACING
-        State state{
-            block_state, Incarnation{hdr.number, i + 1}, hdr.number, tx};
+        State state{block_state, Incarnation{hdr.number, i + 1}, tx};
 #else
         State state{block_state, Incarnation{hdr.number, i + 1}};
 #endif

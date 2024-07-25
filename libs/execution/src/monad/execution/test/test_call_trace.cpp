@@ -48,7 +48,9 @@ TEST(CallFrame, to_json)
         "input":"0x",
         "to":"0xbebebebebebebebebebebebebebebebebebebebe",
         "type":"CALL",
-        "value":"0x51a5"
+        "value":"0x51a5",
+        "depth":0, 
+        "calls":[]
     })";
 
     EXPECT_EQ(call_frame.to_json(), nlohmann::json::parse(json_str));
@@ -60,7 +62,7 @@ TEST(CallTrace, enter_and_exit)
     static evmc::Result res{};
     res.output_data = output;
 
-    CallTracer call_tracer{0, tx};
+    CallTracer call_tracer{tx};
     {
         msg.depth = 0;
         call_tracer.on_enter<rev>(msg);

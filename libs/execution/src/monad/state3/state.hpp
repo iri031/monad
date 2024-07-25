@@ -105,10 +105,10 @@ public:
 
     State(
         BlockState &block_state, Incarnation const incarnation,
-        uint64_t const block_number, Transaction const &tx)
+        Transaction const &tx)
         : State{block_state, incarnation}
     {
-        call_tracer = std::make_unique<CallTracer>(block_number, tx);
+        call_tracer = std::make_unique<CallTracer>(tx);
     }
 
     State(State &&) = delete;

@@ -39,6 +39,7 @@ namespace
 struct CallFrame
 {
     evmc_call_kind type;
+    uint32_t flags{0};
     Address from;
     std::optional<Address> to{std::nullopt};
     std::optional<uint256_t> value{std::nullopt}; // amount of value transfer
@@ -64,7 +65,6 @@ class CallTracer
     std::unordered_map<size_t, size_t> depth_to_last_pos_{};
     size_t depth_;
 
-    [[maybe_unused]] uint64_t block_number_;
     Transaction const &tx_;
     hash256 tx_hash_;
 
@@ -77,11 +77,7 @@ public:
     CallTracer(CallTracer const &) = delete;
     CallTracer(CallTracer &&) = delete;
 
-    explicit CallTracer(
-        uint64_t const block_number, Transaction const &,
-        bool only_top = false);
-
-    void to_file() const;
+    explicit CallTracer(Transaction const &, bool only_top = false);
 
     // called when entering a new frame
     template <evmc_revision rev>
@@ -110,6 +106,7 @@ public:
 
         CallFrame call_frame{
             .type = msg.kind,
+            .flags = msg.flags,
             .from = from,
             .to = to,
             .value = intx::be::load<uint256_t>(msg.value),
@@ -134,7 +131,7 @@ public:
 
         auto it = depth_to_last_pos_.find(depth_);
         MONAD_ASSERT(it != depth_to_last_pos_.end());
-        auto& frame = call_frames_[it->second];
+        auto &frame = call_frames_[it->second];
 
         auto const gas_limit = frame.gas;
         auto const gas_remaining = g_star(
@@ -146,27 +143,35 @@ public:
 
         if (res.status_code == EVMC_SUCCESS || res.status_code == EVMC_REVERT) {
             frame.output = res.output_data == nullptr
-                                     ? std::nullopt
-                                     : std::make_optional(byte_string{
-                                           res.output_data, res.output_size});
+                               ? std::nullopt
+                               : std::make_optional(byte_string{
+                                     res.output_data, res.output_size});
         }
         frame.status = res.status_code;
-        
+
         depth_to_last_pos_.erase(it);
         depth_--;
     }
 
-    // debug helper
+    ///////////////////////////////// debug helpers
+    /////////////////////////////////////
     std::vector<CallFrame> get_call_frames() const
     {
         return call_frames_;
     }
 
-    // debug helper
-    nlohmann::json to_json() const;
+    nlohmann::json to_json();
+
+    void to_file()
+    {
+        QUILL_LOG_INFO(
+            quill::get_logger("call_trace_logger"), "{}", to_json().dump());
+    }
 
 private:
-    void to_json_helper(nlohmann::json &, CallFrame const &) const;
+    // debug helpers
+    void to_json_helper(nlohmann::json &);
+    size_t pos_{0};
 };
 
 MONAD_NAMESPACE_END

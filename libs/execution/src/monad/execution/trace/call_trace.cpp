@@ -12,10 +12,6 @@
 
 #include <nlohmann/json.hpp>
 
-#include <quill/Quill.h>
-#include <quill/bundled/fmt/core.h>
-#include <quill/bundled/fmt/format.h>
-
 #include <fstream>
 #include <iomanip>
 #include <optional>
@@ -61,6 +57,9 @@ nlohmann::json CallFrame::to_json() const
 {
     nlohmann::json res{};
     res["type"] = evmc_call_to_string(type);
+    if (MONAD_UNLIKELY(type == EVMC_CALL && flags == 1)){
+        res["type"] = "STATICCALL";
+    }
     res["from"] = fmt::format(
         "0x{:02x}", fmt::join(std::as_bytes(std::span(from.bytes)), ""));
     // TODO: need to verify if it's correct to omit "to" on create/create2
@@ -89,54 +88,55 @@ nlohmann::json CallFrame::to_json() const
         res["error"] = "ERROR"; // TODO: generic error for now
     }
 
+    res["depth"] = depth; // needed for recursion
+    res["calls"] = nlohmann::json::array();
+
     return res;
 }
 
-CallTracer::CallTracer(
-    uint64_t const block_number, Transaction const &tx, bool only_top)
+CallTracer::CallTracer(Transaction const &tx, bool only_top)
     : only_top_(only_top)
     , call_frames_{}
     , depth_{0}
-    , block_number_(block_number)
     , tx_(tx)
     , tx_hash_(keccak256(rlp::encode_transaction(tx)))
 {
 }
 
-void CallTracer::to_json_helper(
-    [[maybe_unused]] nlohmann::json &json,
-    [[maybe_unused]] CallFrame const &call_frame) const
+void CallTracer::to_json_helper(nlohmann::json &json)
 {
-    // json = call_frame.to_json();
+    if (pos_ >= call_frames_.size()) {
+        return;
+    }
+    json = call_frames_[pos_].to_json();
 
-    // if (call_frame.calls.empty()) {
-    //     return;
-    // }
-    // MONAD_ASSERT(json.contains("calls"));
-    // for (unsigned i = 0; i < call_frame.calls.size(); ++i) {
-    //     to_json_helper(json["calls"][i], call_frame.calls[i]);
-    // }
+    while (pos_ + 1 < call_frames_.size()) {
+        MONAD_ASSERT(json.contains("depth"));
+        if (call_frames_[pos_ + 1].depth > json["depth"]) {
+            nlohmann::json j;
+            pos_++;
+            to_json_helper(j);
+            json["calls"].push_back(j);
+        }
+        else {
+            return;
+        }
+    }
 }
 
-nlohmann::json CallTracer::to_json() const
+nlohmann::json CallTracer::to_json()
 {
-    // MONAD_ASSERT(!call_frames_.empty());
+    MONAD_ASSERT(!call_frames_.empty());
+    MONAD_ASSERT(call_frames_[0].depth == 0);
 
-    // nlohmann::json res{};
-    // auto const key = fmt::format(
-    //     "0x{:02x}", fmt::join(std::as_bytes(std::span(tx_hash_.bytes)), ""));
-    // nlohmann::json value{};
-    // to_json_helper(value, call_frames_[0]);
-    // res[key] = value;
+    nlohmann::json res{};
+    auto const key = fmt::format(
+        "0x{:02x}", fmt::join(std::as_bytes(std::span(tx_hash_.bytes)), ""));
+    nlohmann::json value{};
+    to_json_helper(value);
+    res[key] = value;
 
-    // return res;
-    return nlohmann::json::object();
-}
-
-void CallTracer::to_file() const
-{
-    QUILL_LOG_INFO(
-        quill::get_logger("call_trace_logger"), "{}", call_frames_[0].gas);
+    return res;
 }
 
 MONAD_NAMESPACE_END
