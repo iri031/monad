@@ -13,6 +13,8 @@
 #include <monad/mpt/ondisk_db_config.hpp>
 #include <monad/mpt/state_machine.hpp>
 
+#include <ethash/hash_types.hpp>
+
 #include <nlohmann/json.hpp>
 
 #include <istream>
@@ -20,6 +22,7 @@
 #include <memory>
 #include <optional>
 #include <utility>
+#include <vector>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -57,6 +60,10 @@ public:
 
     // read-only operations
     void set_block_number(uint64_t);
+
+    // for testing only
+    std::vector<CallFrame>
+    read_call_frame(hash256 const &call_frame_hash) const;
 
 private:
     /// STATS

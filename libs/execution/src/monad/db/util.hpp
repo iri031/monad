@@ -25,7 +25,8 @@ struct MachineBase : public mpt::StateMachine
         Prefix,
         State,
         Code,
-        Receipt
+        Receipt,
+        CallFrame,
     };
 
     uint8_t depth{0};

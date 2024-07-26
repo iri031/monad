@@ -16,6 +16,7 @@
 #include <monad/db/util.hpp>
 #include <monad/execution/code_analysis.hpp>
 #include <monad/execution/trace/call_trace.hpp>
+#include <monad/execution/trace/rlp/call_frame_rlp.hpp>
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/nibbles_view.hpp>
 #include <monad/mpt/nibbles_view_fmt.hpp> // NOLINT
@@ -153,10 +154,25 @@ std::shared_ptr<CodeAnalysis> TrieDb::read_code(bytes32_t const &code_hash)
     return std::make_shared<CodeAnalysis>(analyze(value.assume_value()));
 }
 
+std::vector<CallFrame>
+TrieDb::read_call_frame(hash256 const &call_frame_hash) const
+{
+    auto const value = db_.get(
+        concat(CALL_FRAME_NIBBLE, NibblesView{call_frame_hash}), block_number_);
+    if (!value.has_value()) {
+        return {};
+    }
+
+    auto encoded_call_frame = value.value();
+    auto call_frame = rlp::decode_call_frames(encoded_call_frame);
+    MONAD_DEBUG_ASSERT(!call_frame.has_error());
+    MONAD_DEBUG_ASSERT(encoded_call_frame.empty());
+    return call_frame.value();
+}
+
 void TrieDb::commit(
     StateDeltas const &state_deltas, Code const &code,
-    [[maybe_unused]] CallFrames const &call_frames,
-    std::vector<Receipt> const &receipts)
+    CallFrames const &call_frames, std::vector<Receipt> const &receipts)
 {
     MONAD_ASSERT(block_number_ <= std::numeric_limits<int64_t>::max());
 
@@ -224,6 +240,18 @@ void TrieDb::commit(
             .next = UpdateList{},
             .version = static_cast<int64_t>(block_number_)}));
     }
+
+    UpdateList call_frame_updates;
+    for (auto const &[tx_hash, call_frame] : call_frames) {
+        call_frame_updates.push_front(update_alloc_.emplace_back(Update{
+            .key = NibblesView{tx_hash},
+            .value =
+                bytes_alloc_.emplace_back(rlp::encode_call_frames(call_frame)),
+            .incarnation = false,
+            .next = UpdateList{},
+            .version = static_cast<int64_t>(block_number_)}));
+    }
+
     auto state_update = Update{
         .key = state_nibbles,
         .value = byte_string_view{},
@@ -242,10 +270,17 @@ void TrieDb::commit(
         .incarnation = true,
         .next = std::move(receipt_updates),
         .version = static_cast<int64_t>(block_number_)};
+    auto call_frame_update = Update{
+        .key = call_frame_nibbles,
+        .value = byte_string_view{},
+        .incarnation = true, // TODO: Is it right to set it to true here??
+        .next = std::move(call_frame_updates),
+        .version = static_cast<int64_t>(block_number_)};
     UpdateList updates;
     updates.push_front(state_update);
     updates.push_front(code_update);
     updates.push_front(receipt_update);
+    updates.push_front(call_frame_update);
     db_.upsert(std::move(updates), block_number_);
 
     update_alloc_.clear();

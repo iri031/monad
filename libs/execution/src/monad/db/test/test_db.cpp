@@ -7,6 +7,7 @@
 #include <monad/db/trie_db.hpp>
 #include <monad/db/util.hpp>
 #include <monad/execution/code_analysis.hpp>
+#include <monad/execution/trace/call_trace.hpp>
 #include <monad/mpt/ondisk_db_config.hpp>
 #include <monad/state2/state_deltas.hpp>
 
@@ -427,6 +428,53 @@ TYPED_TEST(DBTest, commit_receipts)
     EXPECT_EQ(
         tdb.receipts_root(),
         0x61f9b4707b28771a63c1ac6e220b2aa4e441dd74985be385eaf3cd7021c551e9_bytes32);
+}
+
+TYPED_TEST(DBTest, commit_call_frames)
+{
+    TrieDb tdb{this->db};
+
+    static CallFrame const call_frame1{
+        .type = EVMC_CALL,
+        .flags = 1, // static call
+        .from = a,
+        .to = b,
+        .value = 11'111u,
+        .gas = 100'000u,
+        .gas_used = 21'000u,
+        .input = byte_string{0xaa, 0xbb, 0xcc},
+        .output = byte_string{},
+        .status = EVMC_SUCCESS,
+        .depth = 0,
+    };
+
+    static CallFrame const call_frame2{
+        .type = EVMC_DELEGATECALL,
+        .flags = 0,
+        .from = b,
+        .to = a,
+        .value = 0,
+        .gas = 10'000u,
+        .gas_used = 10'000u,
+        .input = byte_string{0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01},
+        .output = byte_string{0x01, 0x02},
+        .status = EVMC_REVERT,
+        .depth = 1,
+    };
+
+    static byte_string const encoded_txn = byte_string{0x1a, 0x1b, 0x1c};
+    hash256 call_frame_hash = keccak256(encoded_txn);
+    std::vector<CallFrame> call_frame{call_frame1, call_frame2};
+    CallFrames call_frames;
+    call_frames.emplace_back(call_frame_hash, call_frame);
+
+    tdb.commit(StateDeltas{}, Code{}, call_frames);
+
+    auto const &res = tdb.read_call_frame(call_frame_hash);
+    ASSERT_TRUE(!res.empty());
+    EXPECT_EQ(res.size(), 2);
+    EXPECT_EQ(res[0], call_frame1);
+    EXPECT_EQ(res[1], call_frame2);
 }
 
 TYPED_TEST(DBTest, to_json)
