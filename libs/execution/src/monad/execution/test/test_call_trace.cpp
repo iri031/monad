@@ -50,7 +50,8 @@ TEST(CallFrame, to_json)
         "type":"CALL",
         "value":"0x51a5",
         "depth":0, 
-        "calls":[]
+        "calls":[],
+        "output":"0x"
     })";
 
     EXPECT_EQ(call_frame.to_json(), nlohmann::json::parse(json_str));
