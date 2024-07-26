@@ -20,7 +20,7 @@ class BlockState final
     Db &db_;
     StateDeltas state_{};
     Code code_{};
-    std::vector<std::vector<CallFrame>> txn_call_frames_{};
+    CallFrames txn_call_frames_{};
 
 public:
     BlockState(Db &);

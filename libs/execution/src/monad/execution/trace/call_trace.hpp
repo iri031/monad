@@ -17,6 +17,7 @@
 #include <quill/Quill.h> // NOLINT
 
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -61,6 +62,9 @@ struct CallFrame
 
     friend bool operator==(CallFrame const &, CallFrame const &) = default;
 };
+
+// TODO: Better DS
+using CallFrames = std::vector<std::pair<hash256, std::vector<CallFrame>>>;
 
 class CallTracer
 {
@@ -160,12 +164,17 @@ public:
         depth_--;
     }
 
-    //////////////////////// debug helpers ////////////////////////
     std::vector<CallFrame> get_call_frames() const
     {
         return call_frames_;
     }
 
+    hash256 get_tx_hash() const
+    {
+        return tx_hash_;
+    }
+
+    //////////////////////// debug helpers ////////////////////////
     nlohmann::json to_json();
 
     void to_file()

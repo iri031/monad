@@ -31,8 +31,7 @@ struct Db
     virtual void increment_block_number() = 0;
 
     virtual void commit(
-        StateDeltas const &, Code const &,
-        std::vector<std::vector<CallFrame>> const & = {},
+        StateDeltas const &, Code const &, CallFrames const & = {},
         std::vector<Receipt> const & = {}) = 0;
 
     virtual std::string print_stats()

@@ -190,7 +190,9 @@ void BlockState::merge(State const &state)
     }
 
     if (state.call_tracer) {
-        txn_call_frames_.emplace_back(state.call_tracer->get_call_frames());
+        txn_call_frames_.emplace_back(
+            state.call_tracer->get_tx_hash(),
+            state.call_tracer->get_call_frames());
     }
 
     // TODO: temp testing code

@@ -41,8 +41,7 @@ public:
     virtual std::shared_ptr<CodeAnalysis> read_code(bytes32_t const &) override;
     virtual void increment_block_number() override;
     virtual void commit(
-        StateDeltas const &, Code const &,
-        std::vector<std::vector<CallFrame>> const & = {},
+        StateDeltas const &, Code const &, CallFrames const & = {},
         std::vector<Receipt> const & = {}) override;
     virtual bytes32_t state_root() override;
     virtual bytes32_t receipts_root() override;

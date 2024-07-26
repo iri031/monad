@@ -155,7 +155,7 @@ std::shared_ptr<CodeAnalysis> TrieDb::read_code(bytes32_t const &code_hash)
 
 void TrieDb::commit(
     StateDeltas const &state_deltas, Code const &code,
-    [[maybe_unused]] std::vector<std::vector<CallFrame>> const &call_frames,
+    [[maybe_unused]] CallFrames const &call_frames,
     std::vector<Receipt> const &receipts)
 {
     MONAD_ASSERT(block_number_ <= std::numeric_limits<int64_t>::max());
