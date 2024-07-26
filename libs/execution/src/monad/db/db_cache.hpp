@@ -7,6 +7,7 @@
 #include <monad/core/bytes_hash_compare.hpp>
 #include <monad/db/db.hpp>
 #include <monad/execution/code_analysis.hpp>
+#include <monad/execution/trace/call_trace.hpp>
 #include <monad/lru/lru_cache.hpp>
 #include <monad/state2/state_deltas.hpp>
 
@@ -114,9 +115,10 @@ public:
 
     virtual void commit(
         StateDeltas const &state_deltas, Code const &code,
+        std::vector<std::vector<CallFrame>> const &call_frames,
         std::vector<Receipt> const &receipts) override
     {
-        db_.commit(state_deltas, code, receipts);
+        db_.commit(state_deltas, code, call_frames, receipts);
 
         for (auto it = state_deltas.cbegin(); it != state_deltas.cend(); ++it) {
             auto const &address = it->first;

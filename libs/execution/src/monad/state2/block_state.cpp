@@ -190,6 +190,11 @@ void BlockState::merge(State const &state)
     }
 
     if (state.call_tracer) {
+        txn_call_frames_.emplace_back(state.call_tracer->get_call_frames());
+    }
+
+    // TODO: temp testing code
+    if (state.call_tracer) {
         state.call_tracer->to_file();
     }
 }
@@ -197,7 +202,7 @@ void BlockState::merge(State const &state)
 void BlockState::commit(std::vector<Receipt> const &receipts)
 {
     db_.increment_block_number();
-    db_.commit(state_, code_, receipts);
+    db_.commit(state_, code_, txn_call_frames_, receipts);
 }
 
 void BlockState::log_debug()

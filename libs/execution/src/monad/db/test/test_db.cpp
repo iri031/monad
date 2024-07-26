@@ -412,7 +412,8 @@ TYPED_TEST(DBTest, commit_receipts)
         .address = 0x8d12a197cb00d4747a1fe03395095ce2a5cc6819_address});
     receipts.push_back(std::move(r));
 
-    tdb.commit(StateDeltas{}, Code{}, receipts);
+    tdb.commit(
+        StateDeltas{}, Code{}, std::vector<std::vector<CallFrame>>{}, receipts);
     EXPECT_EQ(
         tdb.receipts_root(),
         0x7ea023138ee7d80db04eeec9cf436dc35806b00cc5fe8e5f611fb7cf1b35b177_bytes32);
@@ -423,7 +424,8 @@ TYPED_TEST(DBTest, commit_receipts)
         .status = 1, .gas_used = 34865, .type = TransactionType::eip1559});
     receipts.emplace_back(Receipt{
         .status = 1, .gas_used = 77969, .type = TransactionType::eip1559});
-    tdb.commit(StateDeltas{}, Code{}, receipts);
+    tdb.commit(
+        StateDeltas{}, Code{}, std::vector<std::vector<CallFrame>>{}, receipts);
     EXPECT_EQ(
         tdb.receipts_root(),
         0x61f9b4707b28771a63c1ac6e220b2aa4e441dd74985be385eaf3cd7021c551e9_bytes32);

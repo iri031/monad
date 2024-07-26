@@ -7,6 +7,7 @@
 #include <monad/db/db.hpp>
 #include <monad/db/util.hpp>
 #include <monad/execution/code_analysis.hpp>
+#include <monad/execution/trace/call_trace.hpp>
 #include <monad/mpt/compute.hpp>
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/ondisk_db_config.hpp>
@@ -41,6 +42,7 @@ public:
     virtual void increment_block_number() override;
     virtual void commit(
         StateDeltas const &, Code const &,
+        std::vector<std::vector<CallFrame>> const & = {},
         std::vector<Receipt> const & = {}) override;
     virtual bytes32_t state_root() override;
     virtual bytes32_t receipts_root() override;

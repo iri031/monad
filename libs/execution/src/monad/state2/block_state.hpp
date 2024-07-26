@@ -4,10 +4,12 @@
 #include <monad/core/receipt.hpp>
 #include <monad/db/db.hpp>
 #include <monad/execution/code_analysis.hpp>
+#include <monad/execution/trace/call_trace.hpp>
 #include <monad/state2/state_deltas.hpp>
 #include <monad/types/incarnation.hpp>
 
 #include <memory>
+#include <vector>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -18,6 +20,7 @@ class BlockState final
     Db &db_;
     StateDeltas state_{};
     Code code_{};
+    std::vector<std::vector<CallFrame>> txn_call_frames_{};
 
 public:
     BlockState(Db &);
