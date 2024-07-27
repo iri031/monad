@@ -61,3 +61,7 @@ static inline void spinlock_unlock(spinlock_t *const lock)
 {
     atomic_store_explicit(lock, 0, memory_order_release);
 }
+
+static inline bool spinlock_is_owned(spinlock_t *const lock) {
+    return atomic_load_explicit(lock, memory_order_acquire) == get_tl_tid();
+}
