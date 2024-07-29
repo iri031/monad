@@ -32,7 +32,8 @@ using StorageDelta = Delta<bytes32_t>;
 static_assert(sizeof(StorageDelta) == 64);
 static_assert(alignof(StorageDelta) == 1);
 
-using StorageDeltas = oneapi::tbb::concurrent_hash_map<bytes32_t, StorageDelta>;
+using StorageDeltas = oneapi::tbb::concurrent_hash_map<bytes32_t, StorageDelta>;// what does the hash key of type bytes32_t represent here?
+//what does 2 stand for in the directory name?
 
 static_assert(sizeof(StorageDeltas) == 576);
 static_assert(alignof(StorageDeltas) == 8);
@@ -52,7 +53,7 @@ static_assert(sizeof(StateDeltas) == 576);
 static_assert(alignof(StateDeltas) == 8);
 
 using Code =
-    oneapi::tbb::concurrent_hash_map<bytes32_t, std::shared_ptr<CodeAnalysis>>;
+    oneapi::tbb::concurrent_hash_map<bytes32_t, std::shared_ptr<CodeAnalysis>>; // what does the hash key of type bytes32_t represent here? each smat contract function has a unique number as identifer? the value in the map is the EVM bytecode of the function?
 
 static_assert(sizeof(Code) == 576);
 static_assert(alignof(Code) == 8);

@@ -16,9 +16,9 @@ class State;
 class BlockState final
 {
     Db &db_;
-    StateDeltas state_{};
-    Code code_{};
-
+    StateDeltas state_{};// state changes of all the transactions in this block?
+    Code code_{};// code of all the createContract transactions in this block?
+// for scheduling, can we make a graph of must-happen-before constraints between the transactions and then schedule in a way that minimizes the number of transactions running concurrently that have a happens before path between them?
 public:
     BlockState(Db &);
 
