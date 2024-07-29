@@ -207,6 +207,10 @@ Result<Receipt> execute_impl(
 
         State state{block_state, Incarnation{hdr.number, i + 1}};
 
+#ifdef ENABLE_CALL_TRACING
+        state.add_call_tracer(tx);
+#endif
+
         auto result = execute_impl2<rev>(
             chain, tx, sender, hdr, block_hash_buffer, state);
 
@@ -234,6 +238,10 @@ Result<Receipt> execute_impl(
         TRACE_TXN_EVENT(StartRetry);
 
         State state{block_state, Incarnation{hdr.number, i + 1}};
+
+#ifdef ENABLE_CALL_TRACING
+        state.add_call_tracer(tx);
+#endif
 
         auto result = execute_impl2<rev>(
             chain, tx, sender, hdr, block_hash_buffer, state);

@@ -77,8 +77,8 @@ bytes32_t BlockState::read_storage(
     // database
     {
         auto const result = read_storage
-                               ? db_.read_storage(address, incarnation, key)
-                               : bytes32_t{};
+                                ? db_.read_storage(address, incarnation, key)
+                                : bytes32_t{};
         StateDeltas::accessor it{};
         MONAD_ASSERT(state_.find(it, address));
         auto const &account = it->second.account.second;
@@ -188,12 +188,36 @@ void BlockState::merge(State const &state)
             it->second.storage.clear();
         }
     }
+
+    if (state.call_tracer) {
+
+        auto call_frame = state.call_tracer->get_call_frames();
+        // a conversative bound to ensure node_size <= 256MB, as required by
+        // on-disk triedb. Practically, it doesn't make sure to have CallTrace
+        // with more than 100 CallFrames.
+        if (MONAD_UNLIKELY(call_frame.size() > 100u)) {
+            std::vector<CallFrame> truncated_call_frame{};
+            for (auto const &single_frame : call_frame) {
+                if (single_frame.depth <= 1 &&
+                    truncated_call_frame.size() < 100) {
+                    truncated_call_frame.emplace_back(single_frame);
+                }
+            }
+            txn_call_frames_.emplace_back(
+                state.call_tracer->get_tx_hash(),
+                std::move(truncated_call_frame));
+        }
+        else {
+            txn_call_frames_.emplace_back(
+                state.call_tracer->get_tx_hash(), std::move(call_frame));
+        }
+    }
 }
 
 void BlockState::commit(std::vector<Receipt> const &receipts)
 {
     db_.increment_block_number();
-    db_.commit(state_, code_, receipts);
+    db_.commit(state_, code_, receipts, txn_call_frames_);
 }
 
 void BlockState::log_debug()

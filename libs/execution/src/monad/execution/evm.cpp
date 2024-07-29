@@ -259,6 +259,9 @@ evmc::Result create_contract_account(
     evmc_message m_call;
     if (auto result = pre_create_contract_account<rev>(state, msg, m_call);
         result.has_value()) {
+        if (state.call_tracer) {
+            state.call_tracer->on_exit<rev>(result.value());
+        }
         return std::move(result.value());
     }
 
@@ -267,6 +270,9 @@ evmc::Result create_contract_account(
     auto result = baseline_execute(m_call, rev, host, input_code_analysis);
 
     post_create_contract_account<rev>(state, m_call.recipient, result);
+    if (state.call_tracer) {
+        state.call_tracer->on_exit<rev>(result);
+    }
     return std::move(result);
 }
 
@@ -281,6 +287,9 @@ call(EvmcHost<rev> *const host, State &state, evmc_message const &msg) noexcept
         msg.kind == EVMC_CALL);
 
     if (auto result = pre_call<rev>(msg, state); result.has_value()) {
+        if (state.call_tracer) {
+            state.call_tracer->on_exit<rev>(result.value());
+        }
         return std::move(result.value());
     }
 
@@ -295,6 +304,9 @@ call(EvmcHost<rev> *const host, State &state, evmc_message const &msg) noexcept
     }
 
     post_call(state, result);
+    if (state.call_tracer) {
+        state.call_tracer->on_exit<rev>(result);
+    }
     return result;
 }
 

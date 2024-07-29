@@ -7,10 +7,13 @@
 #include <monad/db/db.hpp>
 #include <monad/db/util.hpp>
 #include <monad/execution/code_analysis.hpp>
+#include <monad/execution/trace/call_tracer.hpp>
 #include <monad/mpt/compute.hpp>
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/ondisk_db_config.hpp>
 #include <monad/mpt/state_machine.hpp>
+
+#include <ethash/hash_types.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -19,6 +22,7 @@
 #include <memory>
 #include <optional>
 #include <utility>
+#include <vector>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -40,8 +44,8 @@ public:
     virtual std::shared_ptr<CodeAnalysis> read_code(bytes32_t const &) override;
     virtual void increment_block_number() override;
     virtual void commit(
-        StateDeltas const &, Code const &,
-        std::vector<Receipt> const & = {}) override;
+        StateDeltas const &, Code const &, std::vector<Receipt> const & = {},
+        CallFrames const & = {}) override;
     virtual bytes32_t state_root() override;
     virtual bytes32_t receipts_root() override;
     virtual std::string print_stats() override;
@@ -56,6 +60,10 @@ public:
 
     // read-only operations
     void set_block_number(uint64_t);
+
+    // for testing only
+    std::vector<CallFrame>
+    read_call_frame(hash256 const &call_frame_hash) const;
 
 private:
     /// STATS
