@@ -35,6 +35,7 @@
 
 MONAD_NAMESPACE_BEGIN
 
+// should this function be named credit_withdrawals?
 // EIP-4895
 constexpr void process_withdrawal(
     State &state, std::optional<std::vector<Withdrawal>> const &withdrawals)
@@ -43,7 +44,7 @@ constexpr void process_withdrawal(
         for (auto const &withdrawal : withdrawals.value()) {
             state.add_to_balance(
                 withdrawal.recipient,
-                uint256_t{withdrawal.amount} * uint256_t{1'000'000'000u});
+                uint256_t{withdrawal.amount} * uint256_t{1'000'000'000u});// why the multiplication?
         }
     }
 }
@@ -90,7 +91,7 @@ Result<std::vector<Receipt>> execute_block(
             i,
             [i = i,
              results = results,
-             promises = promises,
+             promises = promises,// when running in a fiber, when boost::future::get blocks because the other thread has not yet produced a value, does it automatically yield the fiber so that another fiber can run?
              &transaction = block.transactions[i],
              &header = block.header,
              &block_hash_buffer = block_hash_buffer,
@@ -102,7 +103,7 @@ Result<std::vector<Receipt>> execute_block(
                     block_hash_buffer,
                     block_state,
                     promises[i]);
-                promises[i + 1].set_value();
+                promises[i + 1].set_value();// what is the value being set here?
             });
     }
 
@@ -134,7 +135,7 @@ Result<std::vector<Receipt>> execute_block(
         block_state, Incarnation{block.header.number, Incarnation::LAST_TX}};
 
     if constexpr (rev >= EVMC_SHANGHAI) {
-        process_withdrawal(state, block.withdrawals);
+        process_withdrawal(state, block.withdrawals); // why now when all transactions have finished executing?
     }
 
     apply_block_reward<rev>(state, block);

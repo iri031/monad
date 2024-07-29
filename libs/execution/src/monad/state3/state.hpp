@@ -32,13 +32,13 @@
 #include <utility>
 
 MONAD_NAMESPACE_BEGIN
-
+//what is this the state of?
 class State
 {
     template <typename K, typename V>
     using Map = ankerl::unordered_dense::segmented_map<K, V>;
 
-    BlockState &block_state_;
+    BlockState &block_state_;// what is the significance of this? is it the state of a block before executing a transaction in the block?
 
     Incarnation const incarnation_;
 

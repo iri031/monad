@@ -27,7 +27,7 @@ public: // TODO
     using Map = ankerl::unordered_dense::segmented_map<Key, T>;
 
     std::optional<Account> account_{};
-    Map<bytes32_t, bytes32_t> storage_{};
+    Map<bytes32_t, bytes32_t> storage_{};//map from contract variables to values? what if the value is of a non-scalar type?
 
     evmc_storage_status zero_out_key(
         bytes32_t const &key, bytes32_t const &original_value,

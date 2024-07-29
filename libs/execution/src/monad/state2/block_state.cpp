@@ -142,7 +142,7 @@ bool BlockState::can_merge(State const &state)
     }
     return true;
 }
-
+// after executing this function, `this` object will have all the updates from state
 void BlockState::merge(State const &state)
 {
     ankerl::unordered_dense::segmented_set<bytes32_t> code_hashes;
@@ -166,7 +166,7 @@ void BlockState::merge(State const &state)
     }
 
     for (auto const &[address, stack] : state.state_) {
-        auto const &account_state = stack.recent();
+        auto const &account_state = stack.recent();// there is a stack of account states? why?
         auto const &account = account_state.account_;
         auto const &storage = account_state.storage_;
         StateDeltas::accessor it{};

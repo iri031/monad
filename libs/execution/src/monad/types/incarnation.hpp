@@ -6,7 +6,7 @@
 #include <cstdint>
 
 MONAD_NAMESPACE_BEGIN
-
+// what is an incarnation?
 class Incarnation
 {
     uint64_t block_ : 40;
