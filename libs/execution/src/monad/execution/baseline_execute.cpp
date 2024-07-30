@@ -27,6 +27,10 @@
     #include <sstream>
 #endif
 
+#include <chrono>
+
+#include <dlfcn.h>
+
 #include <evmc/evmc.h>
 #include <evmc/evmc.hpp>
 #include <evmc/loader.h>
@@ -106,6 +110,26 @@ evmc::Result baseline_execute_evmone(
     return evmc::Result{result};
 }
 
+#define MONAD_JIT
+
+#ifdef MONAD_JIT
+namespace {
+    evmc_loader_error_code ec = EVMC_LOADER_UNSPECIFIED_ERROR;
+    evmc::VM vm{evmc_load_and_configure(
+            "/home/andreaslyn/Source/monad-jit/target/release/libmonad_nevm_vm.so", &ec)};
+    struct VMLibHandle  {
+        void *handle;
+        VMLibHandle() {
+            handle = dlopen("libmonad_nevm_vmlib.so", RTLD_NOW);
+            if (handle == nullptr) {
+                printf("dlopen libmonad_nevm_vmlib.so error: %s\n", dlerror());
+            }
+        }
+    } vmlib_handle;
+}
+#endif
+
+#ifdef MONAD_JIT
 evmc::Result baseline_execute_monad_jit(
     evmc_message const &msg, evmc_revision const rev, evmc::Host *const host,
     CodeAnalysis const &code_analysis)
@@ -114,9 +138,6 @@ evmc::Result baseline_execute_monad_jit(
         return evmc::Result{EVMC_SUCCESS, msg.gas};
     }
 
-    evmc_loader_error_code ec = EVMC_LOADER_UNSPECIFIED_ERROR;
-    evmc::VM vm{evmc_load_and_configure(
-        "/home/andreaslyn/Source/monad-jit/target/release/libmonad_nevm_vm.so", &ec)};
     if (ec != EVMC_LOADER_SUCCESS) {
         std::cout << "evmc: " << evmc_last_error_msg() << std::endl;
     }
@@ -129,6 +150,7 @@ evmc::Result baseline_execute_monad_jit(
 
     return result;
 }
+#endif
 
 evmc::Result baseline_execute(
     evmc_message const &msg, evmc_revision const rev, evmc::Host *const host,
@@ -139,18 +161,25 @@ evmc::Result baseline_execute(
     for (auto b : msg.code_address.bytes)
         printf("%02X", (int)b);
     std::cout << std::endl;
+
+    auto start_time = std::chrono::high_resolution_clock::now();
     */
-#if 0
-    auto result = baseline_execute_evmone(msg, rev, host, code_analysis);
-#else
+
+#ifdef MONAD_JIT
     auto result = baseline_execute_monad_jit(msg, rev, host, code_analysis);
+#else
+    auto result = baseline_execute_evmone(msg, rev, host, code_analysis);
 #endif
+
     /*
+    auto end_time = std::chrono::high_resolution_clock::now();
+
     std::cout << "END baseline_execute address ";
     for (auto b : msg.code_address.bytes)
         printf("%02X", (int)b);
-    std::cout << std::endl;
+    std::cout << '\n' << "TIME: " << (end_time - start_time) << std::endl;
     */
+
     return result;
 }
 
