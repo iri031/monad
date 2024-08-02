@@ -888,7 +888,7 @@ void UpdateAuxImpl::collect_written_node_size(
     }
 #else
     (void)node_size;
-    (void)trie_section
+    (void)trie_section;
 #endif
 }
 
