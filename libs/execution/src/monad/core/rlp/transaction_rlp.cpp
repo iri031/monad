@@ -86,16 +86,23 @@ byte_string encode_transaction(Transaction const &txn)
             encode_unsigned(txn.sc.s));
     }
     else {
-        auto const prefix = txn.type == TransactionType::eip1559
-                                ? byte_string{0x02}
-                                : byte_string{0x01};
-        return encode_string2(
-            prefix +
-            encode_list2(
-                encode_eip2718_base(txn),
-                encode_unsigned(static_cast<unsigned>(txn.sc.odd_y_parity)),
-                encode_unsigned(txn.sc.r),
-                encode_unsigned(txn.sc.s)));
+        auto const prefix = [&txn]() {
+            switch (txn.type) {
+            case TransactionType::eip1559:
+                return byte_string{0x02};
+            case TransactionType::eip2930:
+                return byte_string{0x01};
+            default:
+                MONAD_ASSERT(false);
+            }
+        }();
+
+        return prefix +
+               encode_list2(
+                   encode_eip2718_base(txn),
+                   encode_unsigned(static_cast<unsigned>(txn.sc.odd_y_parity)),
+                   encode_unsigned(txn.sc.r),
+                   encode_unsigned(txn.sc.s));
     }
 }
 
@@ -242,28 +249,12 @@ Result<Transaction> decode_transaction(byte_string_view &enc)
         return DecodeError::InputTooShort;
     }
 
-    uint8_t const &first = enc[0];
-    if (first < 0xc0) // eip 2718 - typed transaction envelope
-    {
-        BOOST_OUTCOME_TRY(auto payload, parse_string_metadata(enc));
-        MONAD_ASSERT(payload.size() > 0);
-
-        uint8_t const &type = payload[0];
-
-        if (MONAD_UNLIKELY(type != 0x01 && type != 0x02)) {
-            return DecodeError::InvalidTxnType;
-        }
-
-        Transaction txn;
-        BOOST_OUTCOME_TRY(txn, decode_transaction_eip2718(payload));
-
-        if (MONAD_UNLIKELY(!payload.empty())) {
-            return DecodeError::InputTooLong;
-        }
-
-        return txn;
+    if (enc[0] == 0x01 || enc[0] == 0x02) {
+        return decode_transaction_eip2718(enc);
     }
-    return decode_transaction_legacy(enc);
+    else {
+        return decode_transaction_legacy(enc);
+    }
 }
 
 MONAD_RLP_NAMESPACE_END
