@@ -46,9 +46,20 @@ namespace
     }
 }
 
+enum class CallKind
+{
+    CALL = 0,
+    DELEGATECALL,
+    CALLCODE,
+    CREATE,
+    CREATE2,
+    SELFDESTRUCT,
+};
+
 struct CallFrame
 {
-    evmc_call_kind type;
+
+    CallKind type;
     uint64_t flags{0};
     Address from;
     std::optional<Address> to{std::nullopt};
@@ -115,7 +126,7 @@ public:
         }
 
         CallFrame call_frame{
-            .type = msg.kind,
+            .type = static_cast<CallKind>(msg.kind),
             .flags = static_cast<uint64_t>(msg.flags),
             .from = from,
             .to = to,
@@ -159,12 +170,30 @@ public:
         }
         frame.status = res.status_code;
 
-        if (frame.type == EVMC_CREATE2 || frame.type == EVMC_CREATE) {
+        if (frame.type == CallKind::CREATE || frame.type == CallKind::CREATE2) {
             frame.to = res.create_address;
         }
 
         depth_to_last_pos_.erase(it);
         depth_--;
+    }
+
+    void on_self_destruct(Address const &from, Address const &to)
+    {
+        CallFrame call_frame{
+            .type = CallKind::SELFDESTRUCT,
+            .from = from,
+            .to = to,
+            .value = 0,
+            .gas = 0,
+            .gas_used = 0,
+            .status = EVMC_SUCCESS, // TODO
+            .depth = depth_ + 1,
+        };
+
+        // we don't change depth_ here, because exit and enter combined together
+        // here
+        call_frames_.emplace_back(std::move(call_frame));
     }
 
     std::vector<CallFrame> get_call_frames() const

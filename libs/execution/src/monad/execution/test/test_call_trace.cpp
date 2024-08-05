@@ -30,7 +30,7 @@ namespace
 TEST(CallFrame, to_json)
 {
     CallFrame call_frame{
-        .type = EVMC_CALL,
+        .type = CallKind::CALL,
         .from = a,
         .to = std::make_optional(b),
         .value = 20'901u,

@@ -345,6 +345,9 @@ public:
 
     bool selfdestruct(Address const &address, Address const &beneficiary)
     {
+        if (call_tracer) {
+            call_tracer->on_self_destruct(address, beneficiary);
+        }
         auto &account_state = current_account_state(address);
         auto &account = account_state.account_;
         MONAD_ASSERT(account.has_value());
