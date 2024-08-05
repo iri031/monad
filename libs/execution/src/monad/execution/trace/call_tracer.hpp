@@ -18,6 +18,7 @@
 
 #include <filesystem>
 #include <map>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <vector>
@@ -171,6 +172,12 @@ public:
 
     //////////////////////// debug helpers ////////////////////////
     nlohmann::json to_json();
+
+    void to_file()
+    {
+        std::ofstream ofile("call_trace.txt", std::ios::app);
+        ofile << to_json().dump() << std::endl;
+    }
 
 private:
     //////////////////////// debug helpers ////////////////////////
