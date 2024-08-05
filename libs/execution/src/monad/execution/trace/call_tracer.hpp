@@ -17,8 +17,8 @@
 #include <quill/Quill.h> // NOLINT
 
 #include <filesystem>
-#include <map>
 #include <fstream>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -29,14 +29,20 @@ namespace
 {
     inline constexpr uint64_t g_star(
         evmc_revision const &rev, uint64_t const gas_limit,
-        uint64_t const gas_remaining, uint64_t const refund)
+        uint64_t const gas_remaining, uint64_t const refund,
+        bool const top_level = false)
     {
         // EIP-3529
-        auto const max_refund_quotient = rev >= EVMC_LONDON ? 5u : 2u;
-        auto const refund_allowance =
-            (gas_limit - gas_remaining) / max_refund_quotient;
+        if (top_level) {
+            auto const max_refund_quotient = rev >= EVMC_LONDON ? 5u : 2u;
+            auto const refund_allowance =
+                (gas_limit - gas_remaining) / max_refund_quotient;
 
-        return gas_remaining + std::min(refund_allowance, refund);
+            return gas_remaining + std::min(refund_allowance, refund);
+        }
+        else {
+            return gas_remaining;
+        }
     }
 }
 
@@ -142,7 +148,8 @@ public:
             rev,
             gas_limit,
             static_cast<uint64_t>(res.gas_left),
-            static_cast<uint64_t>(res.gas_refund));
+            static_cast<uint64_t>(res.gas_refund),
+            depth_ == 0);
         frame.gas_used = gas_limit - gas_remaining;
 
         if (res.status_code == EVMC_SUCCESS || res.status_code == EVMC_REVERT) {
