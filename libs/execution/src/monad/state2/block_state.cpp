@@ -193,7 +193,8 @@ void BlockState::merge(State const &state)
 
         // auto call_frame = state.call_tracer->get_call_frames();
         // // a conversative bound to ensure node_size <= 256MB, as required by
-        // // on-disk triedb. Practically, it doesn't make sure to have CallTrace
+        // // on-disk triedb. Practically, it doesn't make sure to have
+        // CallTrace
         // // with more than 100 CallFrames.
         // if (MONAD_UNLIKELY(call_frame.size() > 100u)) {
         //     std::vector<CallFrame> truncated_call_frame{};
@@ -211,6 +212,19 @@ void BlockState::merge(State const &state)
         //     txn_call_frames_.emplace_back(
         //         state.call_tracer->get_tx_hash(), std::move(call_frame));
         // }
+
+        auto& call_frame = state.call_tracer->get_call_frames();
+        // this is too hacky, not sure if we need it...
+        for (auto &frame : call_frame) {
+            if (MONAD_UNLIKELY(
+                    (frame.type == CallKind::CREATE ||
+                     frame.type == CallKind::CREATE2) &&
+                    (frame.status == EVMC_SUCCESS))) {
+                frame.output = const_cast<State &>(state)
+                                   .get_code(frame.to.value())
+                                   ->executable_code;
+            }
+        }
 
         state.call_tracer->to_file();
     }

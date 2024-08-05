@@ -201,6 +201,11 @@ public:
         return call_frames_;
     }
 
+    std::vector<CallFrame>& get_call_frames()
+    {
+        return call_frames_;
+    }
+
     hash256 get_tx_hash() const
     {
         return tx_hash_;
