@@ -38,7 +38,8 @@ TEST(TransactionProcessor, irrevocable_gas_and_refund_new_contract)
     InMemoryMachine machine;
     mpt::Db db{machine};
     db_t tdb{db};
-    BlockState bs{tdb};
+    MonadJitCompiler jit;
+    BlockState bs{tdb, jit};
 
     {
         State state{bs, Incarnation{0, 0}};

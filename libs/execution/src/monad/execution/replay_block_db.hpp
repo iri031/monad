@@ -62,8 +62,8 @@ public:
 
     Result<uint64_t> run_fork(
         Db &db, BlockDb &block_db, BlockHashBuffer &block_hash_buffer,
-        fiber::PriorityPool &priority_pool, uint64_t const start_block_number,
-        uint64_t const nblocks)
+        fiber::PriorityPool &priority_pool, MonadJitCompiler &monad_jit_compiler,
+        uint64_t const start_block_number, uint64_t const nblocks)
     {
         MONAD_ASSERT(start_block_number);
 
@@ -130,7 +130,7 @@ public:
 
             BOOST_OUTCOME_TRY(static_validate_block(rev, block));
 
-            BlockState block_state(db);
+            BlockState block_state(db, monad_jit_compiler);
             BOOST_OUTCOME_TRY(
                 auto const receipts,
                 execute_block(
@@ -183,11 +183,13 @@ public:
             block_hash_buffer.set(block_number - 1, block.header.parent_hash);
         }
 
+        MonadJitCompiler monad_jit_compiler;
         return run_fork(
             db,
             block_db,
             block_hash_buffer,
             priority_pool,
+            monad_jit_compiler,
             start_block_number,
             nblocks);
     }

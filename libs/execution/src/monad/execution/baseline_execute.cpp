@@ -4,6 +4,7 @@
 #include <monad/core/likely.h>
 #include <monad/execution/baseline_execute.hpp>
 #include <monad/execution/code_analysis.hpp>
+#include <monad/execution/monad_jit_compiler.hpp>
 
 #include <evmone/baseline.hpp>
 #include <evmone/baseline_instruction_table.hpp>
@@ -29,30 +30,17 @@
 
 #include <chrono>
 
-#include <dlfcn.h>
-
 #include <evmc/evmc.h>
 #include <evmc/evmc.hpp>
-#include <evmc/loader.h>
 
 #include <iostream>
-#include <memory>
 
 MONAD_NAMESPACE_BEGIN
 
-evmc::Result baseline_execute_evmone(
+static evmc::Result baseline_execute_evmone_nonempty(
     evmc_message const &msg, evmc_revision const rev, evmc::Host *const host,
-    CodeAnalysis const &code_analysis)
+    ::evmone::baseline::CodeAnalysis const &code_analysis)
 {
-    if (code_analysis.executable_code.empty()) {
-        return evmc::Result{EVMC_SUCCESS, msg.gas};
-    }
-
-#ifdef EVMONE_TRACING
-    std::ostringstream trace_ostream;
-    vm.add_tracer(evmone::create_instruction_tracer(trace_ostream));
-#endif
-
     auto const execution_state = std::make_unique<evmone::ExecutionState>(
         msg,
         rev,
@@ -110,51 +98,43 @@ evmc::Result baseline_execute_evmone(
     return evmc::Result{result};
 }
 
-#define MONAD_JIT
-
-#ifdef MONAD_JIT
-namespace {
-    evmc_loader_error_code ec = EVMC_LOADER_UNSPECIFIED_ERROR;
-    evmc::VM vm{evmc_load_and_configure(
-            "/home/andreaslyn/Source/monad-jit/target/release/libmonad_nevm_vm.so", &ec)};
-    struct VMLibHandle  {
-        void *handle;
-        VMLibHandle() {
-            handle = dlopen("libmonad_nevm_vmlib.so", RTLD_NOW);
-            if (handle == nullptr) {
-                printf("dlopen libmonad_nevm_vmlib.so error: %s\n", dlerror());
-            }
-        }
-    } vmlib_handle;
-}
-#endif
-
-#ifdef MONAD_JIT
-evmc::Result baseline_execute_monad_jit(
+evmc::Result baseline_execute_evmone(
     evmc_message const &msg, evmc_revision const rev, evmc::Host *const host,
-    CodeAnalysis const &code_analysis)
+    ::evmone::baseline::CodeAnalysis const &code_analysis)
 {
     if (code_analysis.executable_code.empty()) {
         return evmc::Result{EVMC_SUCCESS, msg.gas};
     }
+    return baseline_execute_evmone_nonempty(msg, rev, host, code_analysis);
+}
 
-    if (ec != EVMC_LOADER_SUCCESS) {
-        std::cout << "evmc: " << evmc_last_error_msg() << std::endl;
+#ifdef MONAD_JIT
+evmc::Result baseline_execute_monad_jit(
+    evmc_message const &msg, evmc_revision const rev, evmc::Host *const host,
+    std::shared_ptr<CodeAnalysis> code_analysis, MonadJitCompiler &jit)
+{
+    if (code_analysis->executable_code.empty()) {
+        return evmc::Result{EVMC_SUCCESS, msg.gas};
     }
-    MONAD_ASSERT(ec == EVMC_LOADER_SUCCESS);
-    evmc::Result result = vm.execute(*host, rev, msg,
-        code_analysis.executable_code.data(), code_analysis.executable_code.size());
+
+    if (code_analysis->native_contract_main() == nullptr) {
+        jit.add_compile_job(msg.code_address, code_analysis);
+        //jit.debug_wait_for(msg.code_address);
+        return baseline_execute_evmone_nonempty(msg, rev, host, *code_analysis);
+    }
+
+    evmc_result result = jit.execute(msg, rev, host, *code_analysis);
 
     //std::cout << "execution gas used: " << (msg.gas - result.gas_left) << std::endl;
     //std::cout << "execution gas left: " << result.gas_left << std::endl;
 
-    return result;
+    return evmc::Result{result};
 }
-#endif
+#endif // MONAD_JIT
 
 evmc::Result baseline_execute(
     evmc_message const &msg, evmc_revision const rev, evmc::Host *const host,
-    CodeAnalysis const &code_analysis)
+    std::shared_ptr<CodeAnalysis> code_analysis, MonadJitCompiler &jit)
 {
     /*
     std::cout << "START baseline_execute address ";
@@ -166,9 +146,10 @@ evmc::Result baseline_execute(
     */
 
 #ifdef MONAD_JIT
-    auto result = baseline_execute_monad_jit(msg, rev, host, code_analysis);
+    auto result = baseline_execute_monad_jit(msg, rev, host, code_analysis, jit);
 #else
-    auto result = baseline_execute_evmone(msg, rev, host, code_analysis);
+    (void)jit;
+    auto result = baseline_execute_evmone(msg, rev, host, *code_analysis);
 #endif
 
     /*

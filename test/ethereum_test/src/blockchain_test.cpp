@@ -58,7 +58,7 @@ Result<std::vector<Receipt>> BlockchainTest::execute(
 
     BOOST_OUTCOME_TRY(static_validate_block<rev>(block));
 
-    BlockState block_state(db);
+    BlockState block_state(db, monad_jit_compiler);
     BOOST_OUTCOME_TRY(
         auto const receipts,
         execute_block<rev>(
@@ -192,7 +192,7 @@ void BlockchainTest::TestBody()
         mpt::Db db{machine};
         db_t tdb{db};
         {
-            BlockState bs{tdb};
+            BlockState bs{tdb, monad_jit_compiler};
             State state{bs, Incarnation{0, 0}};
             load_state_from_json(j_contents.at("pre"), state);
             bs.merge(state);
@@ -262,7 +262,10 @@ void BlockchainTest::TestBody()
         }
         LOG_DEBUG("post_state: {}", dump.dump());
 
-        remove_compiled_contracts(contract_compile_dir_);
+#ifdef MONAD_JIT
+        if (!keep_compiler_state_)
+            monad_jit_compiler.restart_compiler(true);
+#endif
     }
     if (!executed) {
         MONAD_ASSERT(revision_.has_value());
@@ -272,7 +275,7 @@ void BlockchainTest::TestBody()
 
 void register_blockchain_tests(
         std::optional<evmc_revision> const &revision,
-        std::string const &contract_dir,
+        bool keep_compiler_state,
         bool enable_slow_tests)
 {
     namespace fs = std::filesystem;
@@ -306,7 +309,7 @@ void register_blockchain_tests(
                 nullptr,
                 path.string().c_str(),
                 0,
-                [=] { return new BlockchainTest(path, revision, contract_dir); });
+                [=] { return new BlockchainTest(path, revision, keep_compiler_state); });
         }
     }
 }

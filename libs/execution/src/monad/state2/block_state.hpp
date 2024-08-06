@@ -4,6 +4,7 @@
 #include <monad/core/receipt.hpp>
 #include <monad/db/db.hpp>
 #include <monad/execution/code_analysis.hpp>
+#include <monad/execution/monad_jit_compiler.hpp>
 #include <monad/state2/state_deltas.hpp>
 #include <monad/types/incarnation.hpp>
 
@@ -16,11 +17,17 @@ class State;
 class BlockState final
 {
     Db &db_;
+    MonadJitCompiler &monad_jit_compiler_;
     StateDeltas state_{};
     Code code_{};
 
 public:
-    BlockState(Db &);
+    BlockState(Db &, MonadJitCompiler &);
+
+    MonadJitCompiler &monad_jit_compiler()
+    {
+        return monad_jit_compiler_;
+    }
 
     std::optional<Account> read_account(Address const &);
 

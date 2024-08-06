@@ -134,8 +134,6 @@ void TransactionTest::TestBody()
 
         executed = true;
 
-        remove_compiled_contracts(contract_compile_dir_);
-
         process_transaction(rev, txn.value(), expected);
     }
 
@@ -146,9 +144,7 @@ void TransactionTest::TestBody()
     }
 }
 
-void register_transaction_tests(
-        std::optional<evmc_revision> const &revision,
-        std::string const &contract_dir)
+void register_transaction_tests(std::optional<evmc_revision> const &revision)
 {
     namespace fs = std::filesystem;
 
@@ -171,7 +167,7 @@ void register_transaction_tests(
                 path.string().c_str(),
                 0,
                 [=] -> testing::Test * {
-                    return new TransactionTest(path, revision, contract_dir);
+                    return new TransactionTest(path, revision);
                 });
         }
     }

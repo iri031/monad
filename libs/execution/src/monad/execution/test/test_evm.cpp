@@ -35,7 +35,8 @@ TEST(Evm, create_with_insufficient)
     InMemoryMachine machine;
     mpt::Db db{machine};
     db_t tdb{db};
-    BlockState bs{tdb};
+    MonadJitCompiler jit;
+    BlockState bs{tdb, jit};
     State s{bs, Incarnation{0, 0}};
 
     static constexpr auto from{
@@ -69,7 +70,8 @@ TEST(Evm, eip684_existing_code)
     InMemoryMachine machine;
     mpt::Db db{machine};
     db_t tdb{db};
-    BlockState bs{tdb};
+    MonadJitCompiler jit;
+    BlockState bs{tdb, jit};
     State s{bs, Incarnation{0, 0}};
 
     static constexpr auto from{
@@ -110,7 +112,8 @@ TEST(Evm, transfer_call_balances)
     InMemoryMachine machine;
     mpt::Db db{machine};
     db_t tdb{db};
-    BlockState bs{tdb};
+    MonadJitCompiler jit;
+    BlockState bs{tdb, jit};
     State s{bs, Incarnation{0, 0}};
 
     static constexpr auto from{
@@ -148,7 +151,8 @@ TEST(Evm, transfer_call_balances_to_self)
     InMemoryMachine machine;
     mpt::Db db{machine};
     db_t tdb{db};
-    BlockState bs{tdb};
+    MonadJitCompiler jit;
+    BlockState bs{tdb, jit};
     State s{bs, Incarnation{0, 0}};
 
     static constexpr auto from{
@@ -183,7 +187,8 @@ TEST(Evm, dont_transfer_on_delegatecall)
     InMemoryMachine machine;
     mpt::Db db{machine};
     db_t tdb{db};
-    BlockState bs{tdb};
+    MonadJitCompiler jit;
+    BlockState bs{tdb, jit};
     State s{bs, Incarnation{0, 0}};
 
     static constexpr auto from{
@@ -222,7 +227,8 @@ TEST(Evm, dont_transfer_on_staticcall)
     InMemoryMachine machine;
     mpt::Db db{machine};
     db_t tdb{db};
-    BlockState bs{tdb};
+    MonadJitCompiler jit;
+    BlockState bs{tdb, jit};
     State s{bs, Incarnation{0, 0}};
 
     static constexpr auto from{
@@ -262,7 +268,8 @@ TEST(Evm, create_nonce_out_of_range)
     InMemoryMachine machine;
     mpt::Db db{machine};
     db_t tdb{db};
-    BlockState bs{tdb};
+    MonadJitCompiler jit;
+    BlockState bs{tdb, jit};
     State s{bs, Incarnation{0, 0}};
 
     static constexpr auto from{
@@ -303,7 +310,8 @@ TEST(Evm, static_precompile_execution)
     InMemoryMachine machine;
     mpt::Db db{machine};
     db_t tdb{db};
-    BlockState bs{tdb};
+    MonadJitCompiler jit;
+    BlockState bs{tdb, jit};
     State s{bs, Incarnation{0, 0}};
 
     static constexpr auto from{
@@ -350,7 +358,8 @@ TEST(Evm, out_of_gas_static_precompile_execution)
     InMemoryMachine machine;
     mpt::Db db{machine};
     db_t tdb{db};
-    BlockState bs{tdb};
+    MonadJitCompiler jit;
+    BlockState bs{tdb, jit};
     State s{bs, Incarnation{0, 0}};
 
     static constexpr auto from{
@@ -398,7 +407,8 @@ TEST(Evm, deploy_contract_code)
     tdb.commit(
         StateDeltas{{a, StateDelta{.account = {std::nullopt, Account{}}}}},
         Code{});
-    BlockState bs{tdb};
+    MonadJitCompiler jit;
+    BlockState bs{tdb, jit};
 
     // Frontier
     {

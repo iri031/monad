@@ -35,8 +35,8 @@ TEST(BlockReward, apply_block_reward)
         tdb.commit(
             StateDeltas{{a, StateDelta{.account = {std::nullopt, Account{}}}}},
             Code{});
-
-        BlockState bs{tdb};
+        MonadJitCompiler jit;
+        BlockState bs{tdb, jit};
         State as{bs, Incarnation{1, 1}};
 
         EXPECT_TRUE(as.account_exists(a));
@@ -65,7 +65,8 @@ TEST(BlockReward, apply_block_reward)
         InMemoryMachine machine;
         mpt::Db db{machine};
         db_t tdb{db};
-        BlockState bs{tdb};
+        MonadJitCompiler jit;
+        BlockState bs{tdb, jit};
         State as{bs, Incarnation{1, 1}};
         (void)as.get_balance(a);
 
@@ -96,7 +97,8 @@ TEST(BlockReward, apply_block_reward)
         InMemoryMachine machine;
         mpt::Db db{machine};
         db_t tdb{db};
-        BlockState bs{tdb};
+        MonadJitCompiler jit;
+        BlockState bs{tdb, jit};
         State s{bs, Incarnation{0, 0}};
 
         Block const block{
@@ -126,7 +128,8 @@ TEST(BlockReward, apply_block_reward)
         InMemoryMachine machine;
         mpt::Db db{machine};
         db_t tdb{db};
-        BlockState bs{tdb};
+        MonadJitCompiler jit;
+        BlockState bs{tdb, jit};
         State s{bs, Incarnation{0, 0}};
 
         apply_block_reward<EVMC_PARIS>(s, block);

@@ -47,6 +47,7 @@ void run_monad(
     Chain const &chain, fs::path const &block_db, Db &db,
     fiber::PriorityPool &priority_pool, size_t block_number)
 {
+    MonadJitCompiler monad_jit_compiler;
     BlockHashBuffer block_hash_buffer;
 
     auto const try_get = [&block_db](uint64_t const i, Block &block) {
@@ -110,7 +111,7 @@ void run_monad(
         }
 
         auto const before = std::chrono::steady_clock::now();
-        BlockState block_state(db);
+        BlockState block_state(db, monad_jit_compiler);
         auto const receipts = execute_block(
             chain, rev, block, block_state, block_hash_buffer, priority_pool);
         if (receipts.has_error()) {

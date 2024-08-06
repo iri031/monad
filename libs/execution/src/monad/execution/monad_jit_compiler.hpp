@@ -1,0 +1,121 @@
+#pragma once
+
+#include <monad/execution/code_analysis.hpp>
+
+#include <evmc/evmc.h>
+#include <evmc/evmc.hpp>
+
+#include <tbb/concurrent_hash_map.h>
+#include <tbb/concurrent_queue.h>
+
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+
+//#define MONAD_JIT
+
+MONAD_NAMESPACE_BEGIN
+
+class MonadJitCompiler
+{
+#ifdef MONAD_JIT
+    using MonadJitExecuteFn = evmc_result (*)(
+        evmc_vm *vm,
+        evmc_host_interface const *host,
+        evmc_host_context *context,
+        evmc_revision rev,
+        evmc_message const *msg,
+        uint8_t const *code,
+        size_t code_size,
+        void *contract_main
+    );
+
+    using MonadJitCompileFn = bool (*)(
+            evmc_address const *, uint8_t const* code, size_t code_size);
+
+    struct EvmcAddressHashCompare
+    {
+        size_t hash(evmc_address const &x) const;
+        bool equal(evmc_address const& x, evmc_address const& y) const;
+    };
+
+    using CompileJobMap =
+        tbb::concurrent_hash_map<
+            evmc_address,
+            std::shared_ptr<CodeAnalysis>,
+            EvmcAddressHashCompare>;
+
+    using CompileJobAccessor = CompileJobMap::accessor;
+
+    using CompileJobQueue = tbb::concurrent_queue<evmc_address>;
+
+    char const *jit_directory;
+
+    bool is_remove_compiled_contracts_enabled;
+
+    evmc::VM vm;
+
+    void *vmhandle;
+    void *libhandle;
+
+    MonadJitExecuteFn monad_jit_execute;
+    MonadJitCompileFn monad_jit_compile;
+
+    CompileJobMap compile_job_map;
+    CompileJobQueue compile_job_queue;
+    std::condition_variable compile_job_cv;
+    std::mutex compile_job_mutex;
+    std::unique_lock<std::mutex> compile_job_lock;
+
+    std::thread compiler_thread;
+    std::atomic<bool> stop_flag;
+
+public:
+    MonadJitCompiler();
+
+    ~MonadJitCompiler();
+
+    void restart_compiler(bool remove_contracts);
+
+    void add_compile_job(
+        evmc_address const &a,
+        std::shared_ptr<CodeAnalysis> const &code_analysis)
+    {
+        if (!compile_job_map.insert({a, code_analysis}))
+            return;
+        compile_job_queue.push(a);
+        compile_job_cv.notify_one();
+    }
+
+    evmc_result execute(
+        evmc_message const &msg,
+        evmc_revision const rev,
+        evmc::Host *const host,
+        CodeAnalysis const &code_analysis)
+    {
+        return monad_jit_execute(
+            vm.get_raw_pointer(),
+            &host->get_interface(),
+            host->to_context(),
+            rev,
+            &msg,
+            code_analysis.executable_code.data(),
+            code_analysis.executable_code.size(),
+            code_analysis.native_contract_main());
+    }
+
+    void enable_remove_compiled_contracts();
+
+    void debug_wait_for(evmc_address const& a);
+
+private:
+    void run_compile_loop();
+    void dispense_compile_jobs();
+    void compile(evmc_address const &, CodeAnalysis &);
+    void remove_compiled_contracts();
+    void stop_compiler();
+    void start_compiler();
+#endif // MONAD_JIT
+};
+
+MONAD_NAMESPACE_END

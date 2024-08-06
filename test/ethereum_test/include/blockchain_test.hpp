@@ -4,6 +4,7 @@
 
 #include <monad/config.hpp>
 #include <monad/core/result.hpp>
+#include <monad/execution/monad_jit_compiler.hpp>
 #include <monad/fiber/priority_pool.hpp>
 #include <monad/test/config.hpp>
 
@@ -31,15 +32,17 @@ class BlockchainTest : public testing::Test
 {
     static fiber::PriorityPool *pool_;
 
+    MonadJitCompiler monad_jit_compiler;
+
     std::filesystem::path const file_;
     std::optional<evmc_revision> const revision_;
-    std::string contract_compile_dir_;
+    bool keep_compiler_state_;
 
     template <evmc_revision rev>
-    static Result<std::vector<Receipt>>
+    Result<std::vector<Receipt>>
     execute(Block &, test::db_t &, BlockHashBuffer const &);
 
-    static Result<std::vector<Receipt>> execute_dispatch(
+    Result<std::vector<Receipt>> execute_dispatch(
         evmc_revision, Block &, test::db_t &, BlockHashBuffer const &);
 
     static void
@@ -52,10 +55,10 @@ public:
     BlockchainTest(
         std::filesystem::path const &file,
         std::optional<evmc_revision> const &revision,
-        std::string const &contract_dir) noexcept
+        bool keep_compiler_state) noexcept
         : file_{file}
         , revision_{revision}
-        , contract_compile_dir_{contract_dir}
+        , keep_compiler_state_{keep_compiler_state}
     {
     }
 
@@ -63,6 +66,6 @@ public:
 };
 
 void register_blockchain_tests(std::optional<evmc_revision> const &,
-        std::string const &contract_dir, bool enable_slow_tests);
+    bool keep_compiler_state, bool enable_slow_tests);
 
 MONAD_TEST_NAMESPACE_END

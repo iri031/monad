@@ -116,7 +116,8 @@ TEST(EvmcHost, emit_log)
     InMemoryMachine machine;
     mpt::Db db{machine};
     db_t tdb{db};
-    BlockState bs{tdb};
+    MonadJitCompiler jit;
+    BlockState bs{tdb, jit};
     State state{bs, Incarnation{0, 0}};
     BlockHashBuffer const block_hash_buffer;
     evmc_host_t host{EMPTY_TX_CONTEXT, block_hash_buffer, state};
@@ -142,7 +143,8 @@ TEST(EvmcHost, access_precompile)
     InMemoryMachine machine;
     mpt::Db db{machine};
     db_t tdb{db};
-    BlockState bs{tdb};
+    MonadJitCompiler jit;
+    BlockState bs{tdb, jit};
     State state{bs, Incarnation{0, 0}};
     BlockHashBuffer const block_hash_buffer;
     evmc_host_t host{EMPTY_TX_CONTEXT, block_hash_buffer, state};

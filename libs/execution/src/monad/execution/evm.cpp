@@ -292,8 +292,8 @@ call(EvmcHost<rev> *const host, State &state, evmc_message const &msg) noexcept
         result = std::move(maybe_result.value());
     }
     else {
-        auto const code = state.get_code(msg.code_address);
-        result = baseline_execute(msg, rev, host, *code);
+        auto code = state.get_code(msg.code_address);
+        result = baseline_execute(msg, rev, host, code, state.monad_jit_compiler());
     }
 
     post_call(state, result);

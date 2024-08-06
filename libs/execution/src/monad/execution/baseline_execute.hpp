@@ -9,13 +9,18 @@
 
 MONAD_NAMESPACE_BEGIN
 
+class MonadJitCompiler;
+
 evmc::Result baseline_execute(
-    evmc_message const &, evmc_revision, evmc::Host *, CodeAnalysis const &);
+    evmc_message const &, evmc_revision, evmc::Host *,
+    std::shared_ptr<CodeAnalysis>, MonadJitCompiler &);
 
 evmc::Result baseline_execute_evmone(
-    evmc_message const &, evmc_revision, evmc::Host *, CodeAnalysis const &);
+    evmc_message const &, evmc_revision, evmc::Host *,
+    ::evmone::baseline::CodeAnalysis const &);
 
 evmc::Result baseline_execute_monad_jit(
-    evmc_message const &, evmc_revision, evmc::Host *, CodeAnalysis const &);
+    bool *, evmc_message const &, evmc_revision, evmc::Host *,
+    std::shared_ptr<CodeAnalysis>, MonadJitCompiler &);
 
 MONAD_NAMESPACE_END

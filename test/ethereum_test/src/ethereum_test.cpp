@@ -18,7 +18,6 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
-#include <filesystem>
 
 MONAD_TEST_NAMESPACE_BEGIN
 
@@ -63,32 +62,6 @@ void load_state_from_json(nlohmann::json const &j, State &state)
                         account_address, key_bytes32, value_bytes32),
                     EVMC_STORAGE_ADDED);
             }
-        }
-    }
-}
-
-void remove_compiled_contracts(std::string const &contract_dir)
-{
-    namespace fs = std::filesystem;
-
-    if (contract_dir == "")
-        return;
-
-    fs::path p{contract_dir};
-    MONAD_ASSERT(fs::is_directory(p));
-
-    fs::directory_iterator end;
-    for(fs::directory_iterator it(p); it != end; ++it) {
-        auto const &p = it->path();
-        try {
-            if (!fs::is_regular_file(it->status()))
-                continue;
-            if (p.extension().compare(".so") != 0)
-                continue;
-            fs::remove(p);
-        }
-        catch(const std::exception &ex) {
-            LOG_ERROR("error deleting {} contract: {}", p, ex.what());
         }
     }
 }

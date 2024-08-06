@@ -105,6 +105,11 @@ public:
     State &operator=(State &&) = delete;
     State &operator=(State const &) = delete;
 
+    MonadJitCompiler &monad_jit_compiler()
+    {
+        return block_state_.monad_jit_compiler();
+    }
+
     void push()
     {
         ++version_;

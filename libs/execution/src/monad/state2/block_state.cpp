@@ -24,8 +24,8 @@
 
 MONAD_NAMESPACE_BEGIN
 
-BlockState::BlockState(Db &db)
-    : db_{db}
+BlockState::BlockState(Db &db, MonadJitCompiler &jit)
+    : db_{db}, monad_jit_compiler_{jit}
 {
 }
 

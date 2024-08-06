@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
     auto log_level = quill::LogLevel::None;
     std::optional<evmc_revision> revision = std::nullopt;
     std::optional<size_t> txn_index = std::nullopt;
-    std::string contract_dir;
+    bool keep_compiler_state = false;
     bool enable_slow_tests = false;
 
     CLI::App app{"monad ethereum tests runner"};
@@ -45,8 +45,10 @@ int main(int argc, char *argv[])
         ->transform(
             CLI::CheckedTransformer(test::revision_map, CLI::ignore_case));
     app.add_option("--txn", txn_index, "Index of transaction to run");
-    app.add_option("--contract_dir", contract_dir,
-            "Directory where NEVM (Monad JIT) puts the compiled contracts");
+    app.add_flag("--keep_compiler_state", keep_compiler_state,
+            "Whether to keep JIT compiler state between tests. "
+            "Useful for benchmarking, but it can cause test failures "
+            "due to different tests using the same contract addresses");
     app.add_flag("--enable_slow", enable_slow_tests,
             "Do not filter out slow tests");
     CLI11_PARSE(app, argc, argv);
@@ -57,8 +59,8 @@ int main(int argc, char *argv[])
     event_tracer = quill::create_logger("event_trace", quill::null_handler());
 #endif
 
-    test::register_blockchain_tests(revision, contract_dir, enable_slow_tests);
-    test::register_transaction_tests(revision, contract_dir);
+    test::register_blockchain_tests(revision, keep_compiler_state, enable_slow_tests);
+    test::register_transaction_tests(revision);
 
     int return_code = RUN_ALL_TESTS();
 
