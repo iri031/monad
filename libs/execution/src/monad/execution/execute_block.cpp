@@ -17,6 +17,7 @@
 #include <monad/execution/switch_evmc_revision.hpp>
 #include <monad/execution/trace/event_trace.hpp>
 #include <monad/execution/validate_block.hpp>
+#include <monad/fiber/future.hpp>
 #include <monad/fiber/priority_pool.hpp>
 #include <monad/state2/block_state.hpp>
 #include <monad/state3/state.hpp>
@@ -25,9 +26,9 @@
 
 #include <intx/intx.hpp>
 
-#include <boost/fiber/future/promise.hpp>
 #include <boost/outcome/try.hpp>
 
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -83,8 +84,8 @@ Result<std::vector<Receipt>> execute_block(
     std::shared_ptr<std::optional<Result<Receipt>>[]> const results{
         new std::optional<Result<Receipt>>[block.transactions.size()]};
 
-    std::shared_ptr<boost::fibers::promise<void>[]> const promises{
-        new boost::fibers::promise<void>[block.transactions.size() + 1]};
+    std::shared_ptr<fiber::simple_promise<void>[]> const promises {
+        new fiber::simple_promise<void>[block.transactions.size() + 1]};
     promises[0].set_value();
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
