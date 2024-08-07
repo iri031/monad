@@ -1,35 +1,45 @@
 #pragma once
 
+#include <monad/core/spinlock.h>
 #include <monad/fiber/config.hpp>
-#include <monad/fiber/priority_queue.hpp>
+#include <monad/fiber/future.hpp>
+#include <monad/fiber/fiber.h>
+#include <monad/fiber/fiber_channel.h>
+#include <monad/fiber/run_queue.h>
 #include <monad/fiber/priority_task.hpp>
 
-#include <boost/fiber/buffered_channel.hpp>
-#include <boost/fiber/condition_variable.hpp>
-#include <boost/fiber/mutex.hpp>
-
-#include <future>
+#include <atomic>
+#include <deque>
+#include <functional>
+#include <list>
 #include <thread>
+#include <vector>
 #include <utility>
 
 MONAD_FIBER_NAMESPACE_BEGIN
 
+class PriorityPool;
+
+// A PriorityTask, plus additional book-keeping fields to help manage its memory
+// and allow it to be linked onto a fiber channel
+struct TaskChannelItem {
+    using token_t = std::list<TaskChannelItem>::const_iterator;
+
+    monad_fiber_vbuf_t vbuf; ///< vbuf header to link us onto a channel
+    PriorityPool *pool;      ///< Pool we live in
+    PriorityTask prio_task;  ///< The task itself
+    token_t self;            ///< Reference to ourselves, from pool perspective
+};
+
 class PriorityPool final
 {
-    PriorityQueue queue_{};
-
-    bool done_{false};
-
-    boost::fibers::mutex mutex_{};
-    boost::fibers::condition_variable cv_{};
-
+    monad_run_queue_t *run_queue_{};
+    monad_fiber_channel_t task_channel_{};
     std::vector<std::thread> threads_{};
-
-    boost::fibers::buffered_channel<PriorityTask> channel_{1024};
-
-    std::vector<boost::fibers::fiber> fibers_{};
-
-    std::promise<void> start_{};
+    std::deque<monad_fiber_t> fibers_{};
+    std::atomic<bool> done_{false};
+    alignas(64) spinlock_t channel_items_lock_;
+    std::list<TaskChannelItem> channel_items_;
 
 public:
     PriorityPool(unsigned n_threads, unsigned n_fibers);
@@ -39,9 +49,14 @@ public:
 
     ~PriorityPool();
 
-    void submit(uint64_t const priority, std::function<void()> task)
-    {
-        channel_.push({priority, std::move(task)});
+    // Submit a task to the fiber pool
+    void submit(monad_fiber_prio_t priority, std::function<void()> task);
+
+    // Called by the fiber to mark that the task is finished
+    void finish(TaskChannelItem::token_t finished) {
+        spinlock_lock(&channel_items_lock_);
+        channel_items_.erase(finished); // Reclaim the memory
+        spinlock_unlock(&channel_items_lock_);
     }
 };
 
