@@ -9,6 +9,15 @@ option(EVMONE_TRACING
 option(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(BUILD_SHARED_LIBS OFF)
 
+option(MONAD_USE_ASAN "Enable the address sanitizer runtime" OFF)
+
+if (MONAD_USE_ASAN)
+  # Set compile options globally
+  add_compile_options("-fsanitize=address")
+  add_compile_definitions("MONAD_HAVE_ASAN=1")
+  link_libraries(asan)
+endif()
+
 include(cmake/test.cmake)
 
 # ##############################################################################
