@@ -66,7 +66,15 @@ target_include_directories(openssl_sha3_asm INTERFACE "third_party/openssl")
 
 add_library(monad_core_c OBJECT
   "src/monad/core/dump.h"
-  "src/monad/core/dump.c")
+  "src/monad/core/dump.c"
+  "src/monad/fiber/fiber.h"
+  "src/monad/fiber/fiber.c"
+  "src/monad/fiber/fiber_ctx.h"
+  "src/monad/fiber/fiber_thr.c"
+  "src/monad/fiber/fiber_channel.h"
+  "src/monad/fiber/fiber_semaphore.h"
+  "src/monad/fiber/run_queue.h"
+  "src/monad/fiber/run_queue.c")
 
 target_compile_features(monad_core_c PRIVATE c_std_23)
 target_compile_options(monad_core_c PRIVATE -Wall -Werror -Wextra)
@@ -175,6 +183,7 @@ target_link_libraries(monad_core PUBLIC cgroup openssl_sha3_asm uring Boost::fib
 target_link_libraries(monad_core PUBLIC komihash)
 target_link_libraries(monad_core PUBLIC ethash::keccak)
 target_link_libraries(monad_core PUBLIC evmc)
+target_link_libraries(monad_core PRIVATE monad_core_c)
 
 add_library(
   monad_core_disas STATIC
