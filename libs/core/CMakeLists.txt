@@ -64,6 +64,17 @@ target_include_directories(openssl_sha3_asm INTERFACE "third_party/openssl")
 # libs
 # ##############################################################################
 
+add_library(monad_core_c OBJECT
+  "src/monad/core/dump.h"
+  "src/monad/core/dump.c")
+
+target_compile_features(monad_core_c PRIVATE c_std_23)
+target_compile_options(monad_core_c PRIVATE -Wall -Werror -Wextra)
+
+target_include_directories(monad_core_c
+        PUBLIC "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(monad_core_c PRIVATE Boost::context)
+
 add_library(
   monad_core STATIC
   # config
@@ -86,6 +97,7 @@ add_library(
   "src/monad/core/cpuset.c"
   "src/monad/core/cpuset.h"
   "src/monad/core/cpu_relax.h"
+  "src/monad/core/dump.hpp"
   "src/monad/core/endian.hpp"
   "src/monad/core/hash.hpp"
   "src/monad/core/hex_literal.hpp"
