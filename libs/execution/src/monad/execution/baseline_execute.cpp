@@ -118,7 +118,13 @@ evmc::Result baseline_execute_monad_jit(
     }
 
     if (code_analysis->native_contract_main() == nullptr) {
-        jit.add_compile_job(msg.code_address, code_analysis);
+        auto c = code_analysis->post_increment_execution_count();
+        if ((c+1) % 1000 == 0) {
+            std::cout << "compile job queue size = " << jit.job_count() << " this exec count = " << c << " goal = " << 9999 << std::endl;
+        }
+        if (c == 9999) {
+            jit.add_compile_job(msg.code_address, code_analysis);
+        }
         //jit.debug_wait_for(msg.code_address);
         return baseline_execute_evmone_nonempty(msg, rev, host, *code_analysis);
     }
@@ -132,6 +138,9 @@ evmc::Result baseline_execute_monad_jit(
 }
 #endif // MONAD_JIT
 
+//static tbb::concurrent_queue<std::chrono::duration<int64_t, std::nano>> times;
+//static std::atomic<size_t> count;
+
 evmc::Result baseline_execute(
     evmc_message const &msg, evmc_revision const rev, evmc::Host *const host,
     std::shared_ptr<CodeAnalysis> code_analysis, MonadJitCompiler &jit)
@@ -143,6 +152,12 @@ evmc::Result baseline_execute(
     std::cout << std::endl;
 
     auto start_time = std::chrono::high_resolution_clock::now();
+
+    std::cout << "bytecode\n";
+    for (unsigned b : code_analysis->executable_code) {
+        std::cout << std::format("{:02x}", b);
+    }
+    std::cout << std::endl;
     */
 
 #ifdef MONAD_JIT
@@ -155,10 +170,95 @@ evmc::Result baseline_execute(
     /*
     auto end_time = std::chrono::high_resolution_clock::now();
 
+    times.push(end_time - start_time);
+    size_t n = count.fetch_add(1) + 1;
+    static constexpr size_t N = 500000;
+    if (n % N == 0) {
+        int64_t total = 0;
+        for (size_t i = 0; i < N; ++i) {
+            std::chrono::duration<int64_t, std::nano> t;
+            bool b = times.try_pop(t);
+            MONAD_ASSERT(b);
+            total += t.count();
+        }
+        int64_t avg = total / N;
+        std::cout << "avg runtime of " << n << " messages was: " << avg << " ns" << std::endl;
+    }
+
     std::cout << "END baseline_execute address ";
     for (auto b : msg.code_address.bytes)
         printf("%02X", (int)b);
     std::cout << '\n' << "TIME: " << (end_time - start_time) << std::endl;
+
+    for (auto b : msg.code_address.bytes) {
+        std::cout << std::format("{:02x}", b);
+    }
+    std::cout << " => " << "gas_left=" << result.gas_left << ", gas_refund=" << result.gas_refund << ", status_code=";
+    switch (result.status_code) {
+    case EVMC_SUCCESS:
+        std::cout << "EVMC_SUCCESS" << std::endl;;
+        break;
+    case EVMC_FAILURE:
+        std::cout << "EVMC_FAILURE" << std::endl;
+        break;
+    case EVMC_REVERT:
+        std::cout << "EVMC_REVERT" << std::endl;
+        break;
+    case EVMC_OUT_OF_GAS:
+        std::cout << "EVMC_OUT_OF_GAS" << std::endl;
+        break;
+    case EVMC_INVALID_INSTRUCTION:
+        std::cout << "EVMC_INVALID_INSTRUCTION" << std::endl;
+        break;
+    case EVMC_UNDEFINED_INSTRUCTION:
+        std::cout << "EVMC_UNDEFINED_INSTRUCTION" << std::endl;
+        break;
+    case EVMC_STACK_OVERFLOW:
+        std::cout << "EVMC_STACK_OVERFLOW" << std::endl;
+        break;
+    case EVMC_STACK_UNDERFLOW:
+        std::cout << "EVMC_STACK_UNDERFLOW" << std::endl;
+        break;
+    case EVMC_BAD_JUMP_DESTINATION:
+        std::cout << "EVMC_BAD_JUMP_DESTINATION" << std::endl;
+        break;
+    case EVMC_INVALID_MEMORY_ACCESS:
+        std::cout << "EVMC_INVALID_MEMORY_ACCESS" << std::endl;
+        break;
+    case EVMC_CALL_DEPTH_EXCEEDED:
+        std::cout << "EVMC_CALL_DEPTH_EXCEEDED" << std::endl;
+        break;
+    case EVMC_STATIC_MODE_VIOLATION:
+        std::cout << "EVMC_STATIC_MODE_VIOLATION" << std::endl;
+        break;
+    case EVMC_PRECOMPILE_FAILURE:
+        std::cout << "EVMC_PRECOMPILE_FAILURE" << std::endl;
+        break;
+    case EVMC_CONTRACT_VALIDATION_FAILURE:
+        std::cout << "EVMC_CONTRACT_VALIDATION_FAILURE" << std::endl;
+        break;
+    case EVMC_ARGUMENT_OUT_OF_RANGE:
+        std::cout << "EVMC_ARGUMENT_OUT_OF_RANGE" << std::endl;
+        break;
+    case EVMC_WASM_UNREACHABLE_INSTRUCTION:
+        std::cout << "EVMC_WASM_UNREACHABLE_INSTRUCTION" << std::endl;
+        break;
+    case EVMC_WASM_TRAP:
+        std::cout << "EVMC_WASM_TRAP" << std::endl;
+        break;
+    case EVMC_INSUFFICIENT_BALANCE:
+        std::cout << "EVMC_INSUFFICIENT_BALANCE" << std::endl;
+        break;
+    case EVMC_INTERNAL_ERROR:
+        std::cout << "EVMC_INTERNAL_ERROR" << std::endl;
+        break;
+    case EVMC_REJECTED:
+        std::cout << "EVMC_REJECTED" << std::endl;
+        break;
+    case EVMC_OUT_OF_MEMORY:
+        std::cout << "EVMC_OUT_OF_MEMORY" << std::endl;
+        break;
+    };
     */
 
     return result;

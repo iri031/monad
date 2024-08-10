@@ -12,7 +12,10 @@
 #include <mutex>
 #include <thread>
 
-//#define MONAD_JIT
+#include <iostream>
+#include <format>
+
+#define MONAD_JIT
 
 MONAD_NAMESPACE_BEGIN
 
@@ -49,26 +52,24 @@ class MonadJitCompiler
 
     using CompileJobQueue = tbb::concurrent_queue<evmc_address>;
 
-    char const *jit_directory;
+    char const *jit_directory_;
 
-    bool is_remove_compiled_contracts_enabled;
+    evmc::VM vm_;
 
-    evmc::VM vm;
+    void *vmhandle_;
+    void *libhandle_;
 
-    void *vmhandle;
-    void *libhandle;
+    MonadJitExecuteFn monad_jit_execute_;
+    MonadJitCompileFn monad_jit_compile_;
 
-    MonadJitExecuteFn monad_jit_execute;
-    MonadJitCompileFn monad_jit_compile;
+    CompileJobMap compile_job_map_;
+    CompileJobQueue compile_job_queue_;
+    std::condition_variable compile_job_cv_;
+    std::mutex compile_job_mutex_;
+    std::unique_lock<std::mutex> compile_job_lock_;
 
-    CompileJobMap compile_job_map;
-    CompileJobQueue compile_job_queue;
-    std::condition_variable compile_job_cv;
-    std::mutex compile_job_mutex;
-    std::unique_lock<std::mutex> compile_job_lock;
-
-    std::thread compiler_thread;
-    std::atomic<bool> stop_flag;
+    std::thread compiler_thread_;
+    std::atomic<bool> stop_flag_;
 
 public:
     MonadJitCompiler();
@@ -77,14 +78,23 @@ public:
 
     void restart_compiler(bool remove_contracts);
 
+    size_t job_count() const {
+        return compile_job_map_.size();
+    }
+
     void add_compile_job(
         evmc_address const &a,
         std::shared_ptr<CodeAnalysis> const &code_analysis)
     {
-        if (!compile_job_map.insert({a, code_analysis}))
+        if (!compile_job_map_.insert({a, code_analysis}))
             return;
-        compile_job_queue.push(a);
-        compile_job_cv.notify_one();
+        std::cout << "compile: ";
+        for (unsigned b : a.bytes) {
+            std::cout << std::format("{:02x}", b);
+        }
+        std::cout << std::endl;
+        compile_job_queue_.push(a);
+        compile_job_cv_.notify_one();
     }
 
     evmc_result execute(
@@ -93,8 +103,8 @@ public:
         evmc::Host *const host,
         CodeAnalysis const &code_analysis)
     {
-        return monad_jit_execute(
-            vm.get_raw_pointer(),
+        return monad_jit_execute_(
+            vm_.get_raw_pointer(),
             &host->get_interface(),
             host->to_context(),
             rev,

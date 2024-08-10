@@ -8,6 +8,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <iostream>
 
 namespace fs = std::filesystem;
 
@@ -25,29 +26,31 @@ bool MonadJitCompiler::EvmcAddressHashCompare::equal(
 }
 
 MonadJitCompiler::MonadJitCompiler()
-    : jit_directory{std::getenv("MONAD_VM_COMPILE_DIR")}
-    , is_remove_compiled_contracts_enabled{}
-    , compile_job_lock{compile_job_mutex}
+    : jit_directory_{std::getenv("MONAD_VM_COMPILE_DIR")}
+    , compile_job_lock_{compile_job_mutex_}
 {
-    MONAD_ASSERT(fs::is_directory(jit_directory));
+    MONAD_ASSERT(fs::is_directory(jit_directory_));
 
-    vmhandle = dlopen("libmonad_nevm_vm.so", RTLD_NOW);
-    MONAD_ASSERT(vmhandle != nullptr);
+    vmhandle_ = dlopen("libmonad_nevm_vm.so", RTLD_NOW);
+    MONAD_ASSERT(vmhandle_ != nullptr);
 
-    monad_jit_execute =
-        (MonadJitExecuteFn) dlsym(vmhandle, "monad_jit_execute");
-    MONAD_ASSERT(monad_jit_execute != nullptr);
+    monad_jit_execute_ =
+        (MonadJitExecuteFn) dlsym(vmhandle_, "monad_jit_execute");
+    MONAD_ASSERT(monad_jit_execute_ != nullptr);
 
-    monad_jit_compile =
-        (MonadJitCompileFn) dlsym(vmhandle, "monad_jit_compile");
-    MONAD_ASSERT(monad_jit_compile != nullptr);
+    monad_jit_compile_ =
+        (MonadJitCompileFn) dlsym(vmhandle_, "monad_jit_compile");
+    MONAD_ASSERT(monad_jit_compile_ != nullptr);
 
     evmc_loader_error_code ec = EVMC_LOADER_UNSPECIFIED_ERROR;
-    vm = evmc::VM{evmc_load_and_configure("libmonad_nevm_vm.so", &ec)};
+    vm_ = evmc::VM{evmc_load_and_configure("libmonad_nevm_vm.so", &ec)};
     MONAD_ASSERT(ec == EVMC_LOADER_SUCCESS);
 
-    libhandle = dlopen("libmonad_nevm_vmlib.so", RTLD_NOW);
-    MONAD_ASSERT(libhandle != nullptr);
+    libhandle_ = dlopen("libmonad_nevm_vmlib.so", RTLD_NOW);
+    if (libhandle_ == nullptr) {
+        std::cout << "error: " << dlerror() << std::endl;
+    }
+    MONAD_ASSERT(libhandle_ != nullptr);
 
     start_compiler();
 }
@@ -55,21 +58,21 @@ MonadJitCompiler::MonadJitCompiler()
 MonadJitCompiler::~MonadJitCompiler()
 {
     stop_compiler();
-    dlclose(vmhandle);
-    dlclose(libhandle);
+    dlclose(vmhandle_);
+    dlclose(libhandle_);
 }
 
 void MonadJitCompiler::stop_compiler()
 {
-    stop_flag.store(true, std::memory_order_release);
-    compile_job_cv.notify_one();
-    compiler_thread.join();
+    stop_flag_.store(true, std::memory_order_release);
+    compile_job_cv_.notify_one();
+    compiler_thread_.join();
 }
 
 void MonadJitCompiler::start_compiler()
 {
-    stop_flag.store(false, std::memory_order_release);
-    compiler_thread = std::thread{[this]{ this->run_compile_loop(); }};
+    stop_flag_.store(false, std::memory_order_release);
+    compiler_thread_ = std::thread{[this]{ this->run_compile_loop(); }};
 }
 
 void MonadJitCompiler::restart_compiler(bool remove_contracts)
@@ -82,18 +85,13 @@ void MonadJitCompiler::restart_compiler(bool remove_contracts)
 
 void MonadJitCompiler::debug_wait_for(evmc_address const& a)
 {
-    while (compile_job_map.count(a))
+    while (compile_job_map_.count(a))
         std::this_thread::sleep_for(std::chrono::microseconds(100));
-}
-
-void MonadJitCompiler::enable_remove_compiled_contracts()
-{
-    is_remove_compiled_contracts_enabled = true;
 }
 
 void MonadJitCompiler::remove_compiled_contracts()
 {
-    fs::path p{jit_directory};
+    fs::path p{jit_directory_};
     fs::directory_iterator end;
     for(fs::directory_iterator it(p); it != end; ++it) {
         auto const &p = it->path();
@@ -112,9 +110,9 @@ void MonadJitCompiler::remove_compiled_contracts()
 
 void MonadJitCompiler::run_compile_loop()
 {
-    while (!stop_flag.load(std::memory_order_acquire)) {
-        compile_job_cv.wait_for(
-            compile_job_lock,
+    while (!stop_flag_.load(std::memory_order_acquire)) {
+        compile_job_cv_.wait_for(
+            compile_job_lock_,
             std::chrono::milliseconds(50));
         dispense_compile_jobs();
     }
@@ -123,36 +121,36 @@ void MonadJitCompiler::run_compile_loop()
 void MonadJitCompiler::dispense_compile_jobs()
 {
     evmc_address a;
-    while (compile_job_queue.try_pop(a)
-            && !stop_flag.load(std::memory_order_acquire)) {
+    while (compile_job_queue_.try_pop(a)
+            && !stop_flag_.load(std::memory_order_acquire)) {
         bool ok;
         CompileJobAccessor ac;
 
-        ok = compile_job_map.find(ac, a);
+        ok = compile_job_map_.find(ac, a);
         MONAD_ASSERT(ok);
 
         compile(a, *ac->second);
 
-        ok = compile_job_map.erase(ac);
+        ok = compile_job_map_.erase(ac);
         MONAD_ASSERT(ok);
     }
 }
 
 void MonadJitCompiler::compile(evmc_address const &a, CodeAnalysis &code_analysis)
 {
-    code_analysis.load_native_contract_code(jit_directory, a);
+    code_analysis.load_native_contract_code(jit_directory_, a);
 
     if (code_analysis.native_contract_main() != nullptr)
         return;
 
-    bool success = monad_jit_compile(
+    bool success = monad_jit_compile_(
         &a,
         code_analysis.executable_code.data(),
         code_analysis.executable_code.size());
     if (!success)
         return;
 
-    code_analysis.load_native_contract_code(jit_directory, a);
+    code_analysis.load_native_contract_code(jit_directory_, a);
 }
 
 #endif // MONAD_JIT
