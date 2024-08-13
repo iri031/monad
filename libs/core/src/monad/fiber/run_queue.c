@@ -1,7 +1,5 @@
-#include <assert.h>
 #include <errno.h>
 #include <stddef.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -22,7 +20,7 @@ int monad_run_queue_create(size_t capacity, monad_run_queue_t **rq) {
     if (run_queue == nullptr)
         return errno;
     memset((void *)run_queue, 0, sizeof *run_queue);
-    spinlock_init(&run_queue->lock);
+    monad_spinlock_init(&run_queue->lock);
     run_queue->fibers = (monad_fiber_t**)(run_queue + 1);
     run_queue->capacity = capacity;
     return 0;

@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdio.h>
 
+#include <monad/core/assert.h>
 #include <monad/core/dump.h>
 #include <monad/core/spinlock.h>
 #include <monad/fiber/fiber.h>
@@ -30,15 +31,16 @@ static inline int monad_run_queue_try_push(monad_run_queue_t *rq,
                                            monad_fiber_t *fiber);
 
 /// Try to pop the highest priority fiber from the queue; this is non-blocking
-/// and returns nullptr if the queue is empty
+/// and returns nullptr if the queue is empty, otherwise it returns a locked
+/// fiber
 static inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq);
 
 /// Dump statistics about the run queue to the given stream
 void monad_run_queue_dump_stats(const monad_run_queue_t *rq,
                                 monad_dump_ctx_t *ctx);
 
-/// Scheduling statistics; most writes to these do not use fetch_add atomic
-/// semantics, so they are only approximate
+/// Scheduling statistics; some writes to these are unlocked without the use
+/// of fetch_add atomic semantics, so they are only approximate
 struct monad_run_queue_stats {
     size_t total_pop;              ///< # of times caller tried to pop a fiber
     size_t total_pop_empty;        ///< # of times there was no fiber in queue
@@ -52,7 +54,7 @@ struct monad_run_queue_stats {
 /// priority fiber to schedule next. For reference, see
 /// [CLRS 6.5: Priority Queues]
 struct monad_run_queue {
-    alignas(64) spinlock_t lock;
+    alignas(64) monad_spinlock_t lock;
     monad_fiber_t **fibers;
     size_t capacity;
     alignas(64) atomic_size_t size;
@@ -100,22 +102,31 @@ static inline int monad_run_queue_try_push(monad_run_queue_t *rq,
                                            monad_fiber_t *fiber) {
     size_t idx;
     size_t size;
+    int rc = 0;
     unsigned heapify_iters = 0;
 
     MONAD_DEBUG_ASSERT(rq != nullptr && fiber != nullptr);
-    ++rq->stats.total_push;
-    if (MONAD_UNLIKELY(!spinlock_try_lock(&rq->lock))) {
+    if (MONAD_UNLIKELY(!MONAD_SPINLOCK_TRY_LOCK(&rq->lock))) {
+        MONAD_SPINLOCK_LOCK(&rq->lock);
         ++rq->stats.total_push_lock_fail;
-        spinlock_lock(&rq->lock);
     }
+    ++rq->stats.total_push;
     // Relaxed because it isn't ordered before the spinlock acquisition
     size = atomic_load_explicit(&rq->size, memory_order_relaxed);
     if (MONAD_UNLIKELY(size == rq->capacity)) {
-        spinlock_unlock(&rq->lock);
         ++rq->stats.total_push_full;
-        return ENOBUFS;
+        rc = ENOBUFS;
+        goto Finish;
     }
-    fiber->run_queue = rq;
+
+    if (MONAD_UNLIKELY(!monad_spinlock_is_owned(&fiber->lock)))
+        MONAD_SPINLOCK_LOCK(&fiber->lock);
+    if (MONAD_UNLIKELY(fiber->state != MONAD_FIBER_CAN_RUN)) {
+        monad_spinlock_unlock(&fiber->lock);
+        rc = EBUSY;
+        goto Finish;
+    }
+
     idx = size++;
     rq->fibers[idx] = fiber;
     while (idx != 0 &&
@@ -126,10 +137,14 @@ static inline int monad_run_queue_try_push(monad_run_queue_t *rq,
         idx = PQ_PARENT_IDX(idx);
         ++heapify_iters;
     }
+    fiber->run_queue = rq;
+    fiber->state = MONAD_FIBER_RUN_QUEUE;
+    monad_spinlock_unlock(&fiber->lock);
     atomic_store_explicit(&rq->size, size, memory_order_relaxed);
-    spinlock_unlock(&rq->lock);
+Finish:
+    monad_spinlock_unlock(&rq->lock);
     (void)heapify_iters;
-    return 0;
+    return rc;
 }
 
 static inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq) {
@@ -147,7 +162,7 @@ static inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq) {
         ++rq->stats.total_pop_empty;
         return nullptr;
     }
-    if (MONAD_UNLIKELY(!spinlock_try_lock(&rq->lock))) {
+    if (MONAD_UNLIKELY(!MONAD_SPINLOCK_TRY_LOCK(&rq->lock))) {
         ++rq->stats.total_pop_empty;
         ++rq->stats.total_pop_lock_fail;
         // We failed to get the lock; the likeliest sequence of events is that
@@ -162,9 +177,10 @@ static inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq) {
     size = atomic_load_explicit(&rq->size, memory_order_relaxed);
     if (MONAD_UNLIKELY(size == 0)) {
         ++rq->stats.total_pop_empty;
-        spinlock_unlock(&rq->lock);
+        monad_spinlock_unlock(&rq->lock);
         return nullptr;
     }
+
     min_prio_fiber = rq->fibers[0];
     --size;
     atomic_store_explicit(&rq->size, size, memory_order_release);
@@ -174,8 +190,13 @@ static inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq) {
         heapify_iter = prio_queue_min_heapify((const monad_fiber_t**)rq->fibers,
                                               size, 0);
     }
-    spinlock_unlock(&rq->lock);
+    monad_spinlock_unlock(&rq->lock);
     (void)heapify_iter; // XXX: make a histogram of iter count?
+
+    // Return the fiber in a locked state; the caller is almost certainly going
+    // to call monad_fiber_run immediately
+    MONAD_SPINLOCK_LOCK(&min_prio_fiber->lock);
+    min_prio_fiber->state = MONAD_FIBER_CAN_RUN;
     return min_prio_fiber;
 }
 
