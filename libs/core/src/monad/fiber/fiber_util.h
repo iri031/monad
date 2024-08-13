@@ -22,14 +22,14 @@ extern "C" {
 /// Given a fiber stack and the suspended context of the fiber, return the
 /// remaining stack space
 static inline size_t monad_fiber_get_free_stack_space(monad_fiber_stack_t stack,
-                                                      monad_fiber_ctx_t ctx) {
+                                                      monad_fcontext_t ctx) {
     return (size_t)((const uint8_t*)ctx - (const uint8_t*)stack.stack_bottom);
 }
 
 /// Given a fiber stack and the suspended context of the fiber, return the used
 /// stack space
 static inline size_t monad_fiber_get_used_stack_space(monad_fiber_stack_t stack,
-                                                      monad_fiber_ctx_t ctx) {
+                                                      monad_fcontext_t ctx) {
     return (size_t)((const uint8_t*)stack.stack_top - (const uint8_t*)ctx);
 }
 
