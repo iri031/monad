@@ -5,8 +5,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
 #include <sys/mman.h>
+
+#include <libunwind/libunwind.h>
 
 #include <monad/core/assert.h>
 #include <monad/core/dump.h>
@@ -114,6 +115,7 @@ monad_dump_ctx_t *monad_dump_ctx_push(monad_dump_ctx_t *push,
     case MONAD_DUMP_CTX:
         push->prev_ctx = (const monad_dump_ctx_t*)parent;
         push->backend = push->prev_ctx->backend;
+        push->indent_incr = push->backend->indent_incr;
         break;
 
     case MONAD_DUMP_BACKEND_FD:
@@ -121,10 +123,10 @@ monad_dump_ctx_t *monad_dump_ctx_push(monad_dump_ctx_t *push,
     case MONAD_DUMP_BACKEND_STREAM:
         push->prev_ctx = nullptr;
         push->backend = (monad_dump_backend_t*)parent;
+        push->indent_incr = 0;
         break;
     }
 
-    push->indent_incr = push->backend->indent_incr;
     push->backend->leading_indent += push->indent_incr;
     return push;
 }
@@ -137,7 +139,8 @@ monad_dump_ctx_t *monad_dump_ctx_pop(monad_dump_ctx_t *pop) {
 }
 
 void monad_dump_siginfo(monad_dump_ctx_t *ctx, const siginfo_t *siginfo,
-                        ucontext_t * /*unused*/) {
+                        void *ucontext) {
+    (void)ucontext; // XXX: not currently used
     ctx->max_field_length = sizeof "si_addr_lsb" - 1;
 
     monad_dump_printf_field(ctx, "si_signo", "%d", siginfo->si_signo);
@@ -153,6 +156,38 @@ void monad_dump_siginfo(monad_dump_ctx_t *ctx, const siginfo_t *siginfo,
                                 siginfo->si_addr_lsb);
         break;
     }
+}
+
+[[gnu::noinline]] void monad_dump_stacktrace(monad_dump_ctx_t *ctx) {
+    constexpr unsigned MAX_FRAMES = 256;
+    unw_context_t context;
+    unw_cursor_t cursor;
+    unw_word_t offset, ip;
+    char fnbuf[64];
+    int frame = 0;
+    int rc;
+
+    (void)unw_getcontext(&context);
+    (void)unw_init_local(&cursor, &context);
+
+    while ((rc = unw_step(&cursor)) > 0) {
+        unw_get_reg(&cursor, UNW_REG_IP, &ip);
+        rc = unw_get_proc_name(&cursor, fnbuf, sizeof fnbuf, &offset);
+        if (rc != UNW_ESUCCESS)
+            monad_dump_println(ctx, "%02d: %p in ??: %d", frame, ip, rc);
+        else
+            monad_dump_println(ctx, "%02d: %p in %s+%p", frame, ip, fnbuf, offset);
+        if (frame++ == MAX_FRAMES) {
+            // Because fiber stack corruption is likely to lead to bouncing
+            // around aimlessly, we impose a maximum length to the iterative
+            // stack trace
+            monad_dump_println(ctx, "aborting stack trace after %d frames",
+                               frame);
+            return;
+        }
+    }
+    if (rc < 0)
+        monad_dump_println(ctx, "uwn_step(3) stack trace ended early: %d", rc);
 }
 
 void monad_dump_vprintf(monad_dump_ctx_t *ctx, const char *format, va_list ap) {

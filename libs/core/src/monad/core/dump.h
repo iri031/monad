@@ -63,7 +63,9 @@ monad_dump_ctx_t *monad_dump_ctx_push(monad_dump_ctx_t *push,
 monad_dump_ctx_t *monad_dump_ctx_pop(monad_dump_ctx_t *pop);
 
 void monad_dump_siginfo(monad_dump_ctx_t *ctx, const siginfo_t *siginfo,
-                        ucontext_t *uc);
+                        void *ucontext);
+
+void monad_dump_stacktrace(monad_dump_ctx_t *ctx);
 
 void monad_dump_vprintf(monad_dump_ctx_t *ctx, const char *format, va_list ap);
 
