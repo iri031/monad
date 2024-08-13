@@ -99,6 +99,9 @@ Result<std::vector<Receipt>> execute_block(
              &header = block.header,
              &block_hash_buffer = block_hash_buffer,
              &block_state] {
+                // Set the debug name of promise[i] "txn_wb_<txn-no>", the
+                // transaction wait barrier for transaction i
+                promises[i].set_debug_name(fmt::format("txn_wb_{}", i));
                 results[i] = execute<rev>(
                     chain,
                     i,
