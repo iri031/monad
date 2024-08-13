@@ -5,7 +5,11 @@
 #include <cstring>
 #include <exception>
 #include <future>
+#include <source_location>
+#include <string_view>
+#include <system_error>
 
+#include <monad/core/srcloc.hpp>
 #include <monad/fiber/config.hpp>
 #include <monad/fiber/fiber_channel.h>
 #include <monad/fiber/fiber_semaphore.h>
@@ -66,7 +70,8 @@ template <typename T>
 class simple_promise
 {
 public:
-    simple_promise();
+    simple_promise(const std::source_location& =
+                       std::source_location::current());
     simple_promise(const simple_promise&) = delete;
     simple_promise(simple_promise&&) noexcept;
     ~simple_promise() = default;
@@ -76,6 +81,8 @@ public:
     void set_value(const T&);
 
     void set_value(T&&);
+
+    std::errc set_debug_name(std::string_view);
 
     simple_promise& operator=(const simple_promise&) = delete;
     simple_promise& operator=(simple_promise&&) noexcept;
@@ -126,7 +133,8 @@ private:
 template <>
 class simple_promise<void> {
 public:
-    simple_promise();
+    simple_promise(const std::source_location& =
+                       std::source_location::current());
     simple_promise(const simple_promise&) = delete;
     simple_promise(simple_promise&&) noexcept;
     ~simple_promise() = default;
@@ -134,6 +142,8 @@ public:
     simple_future<void> get_future();
 
     void set_value();
+
+    std::errc set_debug_name(std::string_view);
 
     simple_promise& operator=(const simple_promise&) = delete;
     simple_promise& operator=(simple_promise&&) noexcept;
@@ -215,9 +225,9 @@ inline void simple_future<void>::wait() {
 }
 
 template <typename T>
-simple_promise<T>::simple_promise() {
+simple_promise<T>::simple_promise(const std::source_location &s) {
     iovec ext_buf = {.iov_base = buffer_, .iov_len = sizeof buffer_ };
-    monad_fiber_channel_init(&channel_);
+    monad_fiber_channel_init(&channel_, make_srcloc(s));
     monad_fiber_vbuf_init(&vbuf_, using_vbuf_inplace ? nullptr : &ext_buf);
 }
 
@@ -225,7 +235,7 @@ template <typename T>
 simple_promise<T>::simple_promise(simple_promise &&other) noexcept
     : simple_promise{}
 {
-    spinlock_lock(&other.channel_.lock);
+    MONAD_SPINLOCK_LOCK(&other.channel_.lock);
     // Copy the bits for the vbuf
     std::memcpy(&vbuf_, &other.vbuf_, sizeof vbuf_);
     if (!TAILQ_EMPTY(&other.channel_.ready_vbufs)) {
@@ -241,9 +251,9 @@ simple_promise<T>::simple_promise(simple_promise &&other) noexcept
         new(get_value_buffer()) T{std::move(*other.get_value_buffer())};
 
     // Steal the old list of waiting fibers
-    TAILQ_CONCAT(&channel_.waiting_fibers, &other.channel_.waiting_fibers,
-                 wait_link);
-    spinlock_unlock(&other.channel_.lock);
+    TAILQ_CONCAT(&channel_.wait_queue.waiting_fibers,
+                 &other.channel_.wait_queue.waiting_fibers, wait_link);
+    monad_spinlock_unlock(&other.channel_.lock);
 }
 
 template <typename T>
@@ -268,6 +278,12 @@ void simple_promise<T>::set_value(T&& value) {
 }
 
 template <typename T>
+std::errc simple_promise<T>::set_debug_name(std::string_view sv) {
+    return static_cast<std::errc>(
+        monad_fiber_channel_set_name(&channel_, sv.data()));
+}
+
+template <typename T>
 simple_promise<T>&
 simple_promise<T>::operator=(simple_promise&& other) noexcept {
     return *new(this) simple_promise{std::move(other)};
@@ -281,17 +297,18 @@ T *simple_promise<T>::get_value_buffer() const {
         return std::bit_cast<T*>(buffer_);
 }
 
-inline simple_promise<void>::simple_promise() {
-    monad_fiber_semaphore_init(&sem_);
+inline simple_promise<void>::simple_promise(const std::source_location &s) {
+    monad_fiber_semaphore_init(&sem_, make_srcloc(s));
 }
 
 inline simple_promise<void>::simple_promise(simple_promise &&other) noexcept
     : simple_promise{}
 {
-    spinlock_lock(&other.sem_.lock);
+    MONAD_SPINLOCK_LOCK(&other.sem_.lock);
     sem_.tokens = other.sem_.tokens;
-    TAILQ_CONCAT(&sem_.waiting_fibers, &other.sem_.waiting_fibers, wait_link);
-    spinlock_unlock(&other.sem_.lock);
+    TAILQ_CONCAT(&sem_.wait_queue.waiting_fibers,
+                 &other.sem_.wait_queue.waiting_fibers, wait_link);
+    monad_spinlock_unlock(&other.sem_.lock);
 }
 
 inline simple_future<void> simple_promise<void>::get_future() {
@@ -303,6 +320,11 @@ inline void simple_promise<void>::set_value() {
     if (atomic_tokens > 0)
         throw std::future_error{std::future_errc::promise_already_satisfied};
     monad_fiber_semaphore_signal(&sem_);
+}
+
+inline std::errc simple_promise<void>::set_debug_name(std::string_view sv) {
+    return static_cast<std::errc>(
+        monad_fiber_semaphore_set_name(&sem_, sv.data()));
 }
 
 inline simple_promise<void>&
