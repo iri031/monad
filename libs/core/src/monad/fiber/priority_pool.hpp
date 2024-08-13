@@ -43,7 +43,7 @@ class PriorityPool final
         size_t total_tasks; ///< # of times we called submit
     };
 
-    alignas(64) spinlock_t channel_items_lock_;
+    alignas(64) monad_spinlock_t channel_items_lock_;
     std::list<TaskChannelItem> channel_items_;
     ChannelItemStats channel_items_stats_{};
 
@@ -60,9 +60,9 @@ public:
 
     // Called by the fiber to mark that the task is finished
     void finish(TaskChannelItem::token_t finished) {
-        spinlock_lock(&channel_items_lock_);
+        monad_spinlock_lock(&channel_items_lock_);
         channel_items_.erase(finished); // Reclaim the memory
-        spinlock_unlock(&channel_items_lock_);
+        monad_spinlock_unlock(&channel_items_lock_);
     }
 
     void print_stats(monad_dump_ctx_t *ctx, bool dump_fibers);

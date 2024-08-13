@@ -3,6 +3,7 @@
 #include <sys/mman.h>
 #include <monad/core/assert.h>
 #include <monad/core/dump.hpp>
+#include <monad/core/srcloc.hpp>
 #include <monad/fiber/config.hpp>
 #include <monad/fiber/fiber.h>
 #include <monad/fiber/fiber_channel.h>
@@ -12,6 +13,7 @@
 #include <bit>
 #include <cstdio>
 #include <memory>
+#include <source_location>
 #include <thread>
 #include <utility>
 
@@ -56,11 +58,14 @@ PriorityPool::PriorityPool(unsigned const n_threads, unsigned const n_fibers)
 
     threads_.reserve(n_threads);
     monad_run_queue_create(n_fibers, &run_queue_); // XXX: check return code
-    monad_fiber_channel_init(&task_channel_);
-    spinlock_init(&channel_items_lock_);
+    monad_fiber_channel_init(&task_channel_,
+                             make_srcloc(std::source_location::current()));
+    monad_fiber_channel_set_name(&task_channel_, "task_chan");
+    monad_spinlock_init(&channel_items_lock_);
 
     // Initialize our pool of fibers: set them to run the work-stealing
     // algorithm, and add them to the run queue
+    char namebuf[MONAD_FIBER_NAME_LEN + 1];
     for (unsigned i = 0; i < n_fibers; ++i) {
         monad_fiber_stack_t fiber_stack;
         size_t fiber_stack_size = FIBER_STACK_SIZE;
@@ -73,6 +78,8 @@ PriorityPool::PriorityPool(unsigned const n_threads, unsigned const n_fibers)
         monad_fiber_init(&fiber, fiber_stack);
         monad_fiber_set_function(&fiber, MONAD_FIBER_PRIO_LOWEST, fiber_main,
                                  std::bit_cast<uintptr_t>(&task_channel_));
+        snprintf(namebuf, sizeof namebuf, "F%03d", i);
+        (void)monad_fiber_set_name(&fiber, namebuf);
         monad_fiber_debug_add(&fiber);
         const int rc = monad_run_queue_try_push(run_queue_, &fiber);
         MONAD_ASSERT(rc == 0); // Run queue should always be big enough
@@ -82,6 +89,7 @@ PriorityPool::PriorityPool(unsigned const n_threads, unsigned const n_fibers)
     for (unsigned i = 0; i < n_threads; ++i) {
         auto thread = std::thread([this, i] {
             char name[16];
+            int rc;
             std::snprintf(name, sizeof name, "worker_%02u", i);
             pthread_setname_np(pthread_self(), name);
             while (!done_.load(std::memory_order_acquire)) {
@@ -92,7 +100,8 @@ PriorityPool::PriorityPool(unsigned const n_threads, unsigned const n_fibers)
 
                 // Run the fiber until it suspends; the work-stealing fibers
                 // never return
-                (void)monad_fiber_run(fiber);
+                rc = monad_fiber_run(fiber, nullptr);
+                MONAD_ASSERT(rc == 0);
             }
         });
         threads_.push_back(std::move(thread));
@@ -116,13 +125,13 @@ PriorityPool::~PriorityPool()
 
 void PriorityPool::submit(monad_fiber_prio_t priority,
                           std::function<void()> task) {
-    spinlock_lock(&channel_items_lock_);
+    monad_spinlock_lock(&channel_items_lock_);
     ++channel_items_stats_.total_tasks;
     TaskChannelItem &channel_item =
         channel_items_.emplace_back(monad_fiber_vbuf_t{}, this,
                                     PriorityTask{priority, std::move(task)});
     channel_item.self = --channel_items_.end();
-    spinlock_unlock(&channel_items_lock_);
+    monad_spinlock_unlock(&channel_items_lock_);
     const iovec iov = {std::addressof(channel_item), sizeof channel_item};
     monad_fiber_vbuf_init(&channel_item.vbuf, &iov);
     monad_fiber_channel_push(&task_channel_, &channel_item.vbuf);
