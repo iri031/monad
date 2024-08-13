@@ -5,7 +5,24 @@ include(CheckCXXSymbolExists)
 
 project(monad_core LANGUAGES C CXX ASM)
 
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+  set(_monad_spinlock_track_owner_info ON)
+  set(_monad_spinlock_track_stats ON)
+else()
+  set(_monad_spinlock_track_owner_info OFF)
+  set(_monad_spinlock_track_stats OFF)
+endif()
+
 option(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+option(MONAD_CORE_SPINLOCK_TRACK_OWNER_INFO
+       "enable source location of owner in spinlocks"
+       ${_monad_spinlock_track_owner_info})
+option(MONAD_CORE_SPINLOCK_TRACK_STATS
+       "enable contention statistics tracking of spinlocks"
+       ${_monad_spinlock_track_stats})
+option(MONAD_CORE_SPINLOCK_TRACK_STATS_ATOMIC
+       "use fetch_add on atomics statistics tracking" OFF)
 
 # ##############################################################################
 # deps
@@ -15,12 +32,15 @@ include("cmake/find_our_dependency.cmake")
 
 cmake_host_system_information(RESULT linux_flavour QUERY DISTRIB_ID)
 if(linux_flavour MATCHES "debian|ubuntu")
-  find_package(Boost REQUIRED COMPONENTS context stacktrace_backtrace)
+  find_package(Boost REQUIRED COMPONENTS stacktrace_backtrace)
 else()
-  find_package(Boost REQUIRED COMPONENTS context stacktrace_addr2line)
+  find_package(Boost REQUIRED COMPONENTS stacktrace_addr2line)
 endif()
 
 find_package(TBB REQUIRED)
+
+
+add_subdirectory("third_party/monad-boost-context")
 
 add_subdirectory("third_party/nanobench")
 
@@ -43,23 +63,44 @@ target_include_directories(openssl_sha3_asm INTERFACE "third_party/openssl")
 add_library(monad_core_c OBJECT
   "src/monad/core/dump.h"
   "src/monad/core/dump.c"
+  "src/monad/core/spinlock.h"
+  "src/monad/core/srcloc.h"
   "src/monad/fiber/fiber.h"
   "src/monad/fiber/fiber.c"
-  "src/monad/fiber/fiber_ctx.h"
   "src/monad/fiber/fiber_thr.c"
   "src/monad/fiber/fiber_util.h"
   "src/monad/fiber/fiber_util.c"
+  "src/monad/fiber/fiber_sync.h"
   "src/monad/fiber/fiber_channel.h"
   "src/monad/fiber/fiber_semaphore.h"
   "src/monad/fiber/run_queue.h"
   "src/monad/fiber/run_queue.c")
+
+if (MONAD_CORE_SPINLOCK_TRACK_OWNER_INFO)
+  target_compile_definitions(monad_core_c
+          PUBLIC MONAD_SPINLOCK_TRACK_OWNER_INFO)
+endif()
+
+if (MONAD_CORE_SPINLOCK_TRACK_STATS)
+  target_compile_definitions(monad_core_c
+          PUBLIC MONAD_SPINLOCK_TRACK_STATS)
+endif()
+
+if (MONAD_CORE_SPINLOCK_TRACK_STATS_ATOMIC)
+  target_compile_definitions(monad_core_c
+          PUBLIC MONAD_SPINLOCK_TRACK_STATS_ATOMIC)
+endif()
 
 target_compile_features(monad_core_c PRIVATE c_std_23)
 target_compile_options(monad_core_c PRIVATE -Wall -Werror -Wextra)
 
 target_include_directories(monad_core_c
         PUBLIC "${PROJECT_SOURCE_DIR}/src")
-target_link_libraries(monad_core_c PRIVATE Boost::context)
+target_link_libraries(monad_core_c PRIVATE monad_boost_context)
+
+# XXX fix this later
+target_include_directories(monad_core_c PRIVATE /usr/include/libunwind)
+target_link_libraries(monad_core_c PRIVATE unwind)
 
 add_library(
   monad_core STATIC
@@ -98,7 +139,6 @@ add_library(
   "src/monad/core/result.hpp"
   "src/monad/core/size_of.hpp"
   "src/monad/core/small_prng.hpp"
-  "src/monad/core/spinlock.h"
   "src/monad/core/tl_tid.c"
   "src/monad/core/tl_tid.h"
   "src/monad/core/unaligned.hpp"
