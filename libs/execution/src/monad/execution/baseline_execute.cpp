@@ -90,8 +90,8 @@ evmc::Result baseline_execute_evmone(
             : nullptr,
         execution_state->output_size);
 
-    //std::cout << "execution gas used: " << (msg.gas - gas_left) << std::endl;
-    //std::cout << "execution gas left: " << gas_left << std::endl;
+    std::cout << "execution gas used: " << (msg.gas - gas_left) << std::endl;
+    std::cout << "execution gas left: " << gas_left << std::endl;
 
     if (MONAD_UNLIKELY(vm.get_tracer() != nullptr)) {
         vm.get_tracer()->notify_execution_end(result);
@@ -104,13 +104,13 @@ evmc::Result baseline_execute_evmone(
     return evmc::Result{result};
 }
 
-#define MONAD_JIT
+//#define MONAD_JIT
 
 #ifdef MONAD_JIT
 namespace {
     evmc_loader_error_code ec = EVMC_LOADER_UNSPECIFIED_ERROR;
     evmc::VM vm{evmc_load_and_configure(
-            "/home/andreaslyn/Source/monad-jit/target/release/libmonad_nevm_vm.so", &ec)};
+            "/home/abhishek/work/compiler/monad-jit/target/release/libmonad_nevm_vm.so", &ec)};
     struct VMLibHandle  {
         void *handle;
         VMLibHandle() {
@@ -139,8 +139,8 @@ evmc::Result baseline_execute_monad_jit(
     evmc::Result result = vm.execute(*host, rev, msg,
         code_analysis.executable_code.data(), code_analysis.executable_code.size());
 
-    //std::cout << "execution gas used: " << (msg.gas - result.gas_left) << std::endl;
-    //std::cout << "execution gas left: " << result.gas_left << std::endl;
+    std::cout << "execution gas used: " << (msg.gas - result.gas_left) << std::endl;
+    std::cout << "execution gas left: " << result.gas_left << std::endl;
 
     return result;
 }

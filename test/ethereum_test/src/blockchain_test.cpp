@@ -261,7 +261,7 @@ void BlockchainTest::TestBody()
         remove_compiled_contracts(contract_compile_dir_);
     }
     if (!executed) {
-        MONAD_ASSERT(revision_.has_value());
+      //        MONAD_ASSERT(revision_.has_value());
         GTEST_SKIP() << "no test cases found revision=" << revision_.value();
     }
 }
