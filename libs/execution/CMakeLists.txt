@@ -21,6 +21,8 @@ add_library(
   "src/monad/chain/chain.hpp"
   "src/monad/chain/ethereum_mainnet.cpp"
   "src/monad/chain/ethereum_mainnet.hpp"
+  "src/monad/chain/monad_chain.cpp"
+  "src/monad/chain/monad_chain.hpp"
   "src/monad/chain/monad_devnet.cpp"
   "src/monad/chain/monad_devnet.hpp"
   # core
@@ -98,7 +100,6 @@ add_library(
   "src/monad/execution/genesis.hpp"
   "src/monad/execution/precompiles.cpp"
   "src/monad/execution/precompiles.hpp"
-  "src/monad/execution/replay_block_db.hpp"
   "src/monad/execution/trace/event_trace.cpp"
   "src/monad/execution/trace/event_trace.hpp"
   "src/monad/execution/transaction_gas.cpp"

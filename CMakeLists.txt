@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.20)
 
 project(monad)
 
+option(HUNTER_ENABLED OFF)
+
 option(EVMONE_TRACING
        "Enable instruction-level tracing for the evmone interpreter" OFF)
 option(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -53,15 +55,24 @@ pkg_check_modules(brotli REQUIRED IMPORTED_TARGET libbrotlienc libbrotlidec)
 # cli11
 find_package(CLI11 REQUIRED)
 
+# intx
+add_subdirectory(third_party/intx)
+
+# ethash
+set(ETHASH_TESTING NO)
+add_subdirectory("third_party/ethash")
+
 # evmone
+set(ethash_DIR "${CMAKE_CURRENT_LIST_DIR}/cmake/dummy")
+set(intx_DIR "${CMAKE_CURRENT_LIST_DIR}/cmake/dummy")
 add_subdirectory(third_party/evmone)
+unset(ethash_DIR)
+unset(intx_DIR)
+target_include_directories(evmone PUBLIC "third_party/evmone/lib")
 # always compile baseline with optimization due to stack size of dispatch_cgoto
 set_source_files_properties(
   third_party/evmone/lib/evmone/baseline.cpp TARGET_DIRECTORY evmone
   PROPERTIES COMPILE_OPTIONS -O2)
-
-# intx
-add_subdirectory(third_party/intx)
 
 # komihash
 add_library(komihash INTERFACE)
@@ -117,11 +128,23 @@ function(monad_add_test_folder target)
   endforeach()
 endfunction()
 
+function(monad_target_gdb_pretty_printer dest target printer)
+  file(REAL_PATH "${printer}" printer)
+  file(RELATIVE_PATH leaf "${CMAKE_SOURCE_DIR}" "${printer}")
+  set(asmfile "${CMAKE_BINARY_DIR}/${leaf}.S")
+  set(GDB_PRETTY_PRINTER_PATH "${printer}")
+  configure_file("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/debug_gdb_scripts.in" "${asmfile}" @ONLY)
+  add_library(${target} OBJECT "${asmfile}")
+  # The use of TARGET_OBJECTS here turns out to be critical. This was very non-obvious.
+  target_link_libraries(${dest} PUBLIC "$<TARGET_OBJECTS:${target}>")
+endfunction()
+
 # ##############################################################################
 # libs
 # ##############################################################################
 
 add_subdirectory("libs/core")
+add_subdirectory("libs/runloop")
 add_subdirectory("libs/async")
 add_subdirectory("libs/db")
 add_subdirectory("libs/execution")

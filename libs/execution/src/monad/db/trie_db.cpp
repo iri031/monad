@@ -4,6 +4,7 @@
 #include <monad/core/assert.h>
 #include <monad/core/byte_string.hpp>
 #include <monad/core/bytes.hpp>
+#include <monad/core/fmt/address_fmt.hpp> // NOLINT
 #include <monad/core/fmt/bytes_fmt.hpp> // NOLINT
 #include <monad/core/fmt/int_fmt.hpp> // NOLINT
 #include <monad/core/keccak.h>
@@ -76,9 +77,8 @@ std::optional<Account> TrieDb::read_account(Address const &addr)
     }
 
     auto encoded_account = value.value();
-    auto acct = decode_account_db(encoded_account);
+    auto const acct = decode_account_db_ignore_address(encoded_account);
     MONAD_DEBUG_ASSERT(!acct.has_error());
-    MONAD_DEBUG_ASSERT(encoded_account.empty());
     return acct.value();
 }
 
@@ -106,12 +106,9 @@ TrieDb::read_storage(Address const &addr, Incarnation, bytes32_t const &key)
     }
     STATS_STORAGE_VALUE();
     auto encoded_storage = value.value();
-    auto const storage = rlp::decode_bytes32_compact(encoded_storage);
+    auto const storage = decode_storage_db_ignore_slot(encoded_storage);
     MONAD_ASSERT(!storage.has_error());
-    MONAD_ASSERT(
-        encoded_storage.size() >= 1 &&
-        encoded_storage.size() <= sizeof(bytes32_t) + 1);
-    return storage.value();
+    return to_bytes(storage.value());
 };
 
 std::pair<bytes32_t, bytes32_t>
@@ -131,7 +128,6 @@ TrieDb::read_storage_and_slot(Address const &addr, bytes32_t const &key)
     auto encoded_storage = value.value();
     auto const storage = decode_storage_db(encoded_storage);
     MONAD_ASSERT(!storage.has_error());
-    MONAD_ASSERT(encoded_storage.empty());
     return storage.value();
 };
 
@@ -181,8 +177,8 @@ void TrieDb::commit(
                             .version = static_cast<int64_t>(block_number_)}));
                 }
             }
-            value =
-                bytes_alloc_.emplace_back(encode_account_db(account.value()));
+            value = bytes_alloc_.emplace_back(
+                encode_account_db(addr, account.value()));
         }
 
         if (!storage_updates.empty() || delta.account.first != account) {
@@ -351,14 +347,17 @@ nlohmann::json TrieDb::to_json()
 
             auto acct = decode_account_db(encoded_account);
             MONAD_DEBUG_ASSERT(!acct.has_error());
-            MONAD_DEBUG_ASSERT(encoded_account.empty());
 
             auto const key = fmt::format("{}", NibblesView{path});
 
-            json[key]["balance"] = fmt::format("{}", acct.value().balance);
-            json[key]["nonce"] = fmt::format("0x{:x}", acct.value().nonce);
+            json[key]["address"] = fmt::format("{}", acct.value().first);
+            json[key]["balance"] =
+                fmt::format("{}", acct.value().second.balance);
+            json[key]["nonce"] =
+                fmt::format("0x{:x}", acct.value().second.nonce);
 
-            auto const code_analysis = db.read_code(acct.value().code_hash);
+            auto const code_analysis =
+                db.read_code(acct.value().second.code_hash);
             MONAD_ASSERT(code_analysis);
             json[key]["code"] =
                 "0x" + evmc::hex(code_analysis->executable_code);
@@ -376,7 +375,6 @@ nlohmann::json TrieDb::to_json()
 
             auto const storage = decode_storage_db(encoded_storage);
             MONAD_DEBUG_ASSERT(!storage.has_error());
-            MONAD_DEBUG_ASSERT(encoded_storage.empty());
 
             auto const acct_key = fmt::format(
                 "{}", NibblesView{path}.substr(0, KECCAK256_SIZE * 2));

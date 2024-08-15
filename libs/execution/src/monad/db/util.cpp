@@ -7,6 +7,7 @@
 #include <monad/core/likely.h>
 #include <monad/core/result.hpp>
 #include <monad/core/rlp/account_rlp.hpp>
+#include <monad/core/rlp/address_rlp.hpp>
 #include <monad/core/rlp/bytes_rlp.hpp>
 #include <monad/core/rlp/int_rlp.hpp>
 #include <monad/core/unaligned.hpp>
@@ -316,14 +317,19 @@ namespace
         {
             return Update{
                 .key = curr.substr(0, sizeof(bytes32_t)),
-                .value = bytes_alloc_.emplace_back(encode_account_db(Account{
-                    .balance = unaligned_load<uint256_t>(
-                        curr.substr(balance_offset, sizeof(uint256_t)).data()),
-                    .code_hash = unaligned_load<bytes32_t>(
-                        curr.substr(code_hash_offset, sizeof(bytes32_t))
-                            .data()),
-                    .nonce = unaligned_load<uint64_t>(
-                        curr.substr(nonce_offset, sizeof(uint64_t)).data())})),
+                .value = bytes_alloc_.emplace_back(encode_account_db(
+                    Address{}, // TODO: Update this when binary checkpoint
+                               // includes unhashed address
+                    Account{
+                        .balance = unaligned_load<uint256_t>(
+                            curr.substr(balance_offset, sizeof(uint256_t))
+                                .data()),
+                        .code_hash = unaligned_load<bytes32_t>(
+                            curr.substr(code_hash_offset, sizeof(bytes32_t))
+                                .data()),
+                        .nonce = unaligned_load<uint64_t>(
+                            curr.substr(nonce_offset, sizeof(uint64_t))
+                                .data())})),
                 .incarnation = false,
                 .next = UpdateList{},
                 .version = static_cast<int64_t>(block_id_)};
@@ -362,7 +368,7 @@ namespace
             }
 
             auto encoded_account = node.value();
-            auto const acct = decode_account_db(encoded_account);
+            auto const acct = decode_account_db_ignore_address(encoded_account);
             MONAD_ASSERT(!acct.has_error());
             MONAD_ASSERT(encoded_account.empty());
             bytes32_t storage_root = NULL_ROOT;
@@ -381,12 +387,8 @@ namespace
         {
             MONAD_ASSERT(node.has_value());
             auto encoded_storage = node.value();
-            auto const storage = rlp::decode_string(encoded_storage);
+            auto const storage = decode_storage_db_ignore_slot(encoded_storage);
             MONAD_ASSERT(!storage.has_error());
-            MONAD_ASSERT(
-                encoded_storage.size() >= 1 &&
-                encoded_storage.size() <= sizeof(bytes32_t) + 1);
-            MONAD_ASSERT(storage.value().size() <= sizeof(bytes32_t));
             return rlp::encode_string2(storage.value());
         }
     };
@@ -435,6 +437,24 @@ namespace
             return 0;
         }
     };
+
+    Result<Account> decode_account_db_helper(byte_string_view &payload)
+    {
+        Account acct;
+        BOOST_OUTCOME_TRY(
+            auto const incarnation, rlp::decode_unsigned<uint64_t>(payload));
+        acct.incarnation = Incarnation::from_int(incarnation);
+        BOOST_OUTCOME_TRY(acct.nonce, rlp::decode_unsigned<uint64_t>(payload));
+        BOOST_OUTCOME_TRY(
+            acct.balance, rlp::decode_unsigned<uint256_t>(payload));
+        if (!payload.empty()) {
+            BOOST_OUTCOME_TRY(acct.code_hash, rlp::decode_bytes32(payload));
+        }
+        if (MONAD_UNLIKELY(!payload.empty())) {
+            return rlp::DecodeError::InputTooLong;
+        }
+        return acct;
+    }
 }
 
 mpt::Compute &MachineBase::get_compute() const
@@ -534,9 +554,10 @@ std::unique_ptr<StateMachine> OnDiskMachine::clone() const
     return std::make_unique<OnDiskMachine>(*this);
 }
 
-byte_string encode_account_db(Account const &account)
+byte_string encode_account_db(Address const &address, Account const &account)
 {
     byte_string encoded_account;
+    encoded_account += rlp::encode_address(address);
     encoded_account += rlp::encode_unsigned(account.incarnation.to_int());
     encoded_account += rlp::encode_unsigned(account.nonce);
     encoded_account += rlp::encode_unsigned(account.balance);
@@ -546,42 +567,61 @@ byte_string encode_account_db(Account const &account)
     return rlp::encode_list2(encoded_account);
 }
 
-Result<Account> decode_account_db(byte_string_view &enc)
+Result<std::pair<Address, Account>> decode_account_db(byte_string_view &enc)
+{
+    BOOST_OUTCOME_TRY(auto payload, rlp::parse_list_metadata(enc));
+    BOOST_OUTCOME_TRY(auto const address, rlp::decode_address(payload));
+    BOOST_OUTCOME_TRY(auto const acct, decode_account_db_helper(payload));
+    return {address, acct};
+}
+
+Result<Account> decode_account_db_ignore_address(byte_string_view &enc)
+{
+    BOOST_OUTCOME_TRY(auto payload, rlp::parse_list_metadata(enc));
+    BOOST_OUTCOME_TRY(
+        auto const address_byte_view, rlp::parse_string_metadata(payload));
+    if (MONAD_UNLIKELY(address_byte_view.size() != sizeof(Address))) {
+        return rlp::DecodeError::ArrayLengthUnexpected;
+    }
+    return decode_account_db_helper(payload);
+}
+
+byte_string encode_storage_db(bytes32_t const &key, bytes32_t const &val)
+{
+    byte_string encoded_storage;
+    encoded_storage += rlp::encode_bytes32_compact(key);
+    encoded_storage += rlp::encode_bytes32_compact(val);
+    return rlp::encode_list2(encoded_storage);
+}
+
+Result<std::pair<bytes32_t, bytes32_t>> decode_storage_db(byte_string_view &enc)
 {
     BOOST_OUTCOME_TRY(auto payload, rlp::parse_list_metadata(enc));
 
-    Account acct;
-    BOOST_OUTCOME_TRY(
-        auto const incarnation, rlp::decode_unsigned<uint64_t>(payload));
-    acct.incarnation = Incarnation::from_int(incarnation);
-    BOOST_OUTCOME_TRY(acct.nonce, rlp::decode_unsigned<uint64_t>(payload));
-    BOOST_OUTCOME_TRY(acct.balance, rlp::decode_unsigned<uint256_t>(payload));
-    if (!payload.empty()) {
-        BOOST_OUTCOME_TRY(acct.code_hash, rlp::decode_bytes32(payload));
-    }
+    std::pair<bytes32_t, bytes32_t> storage;
+    BOOST_OUTCOME_TRY(storage.first, rlp::decode_bytes32_compact(payload));
+    BOOST_OUTCOME_TRY(storage.second, rlp::decode_bytes32_compact(payload));
 
     if (MONAD_UNLIKELY(!payload.empty())) {
         return rlp::DecodeError::InputTooLong;
     }
 
-    return acct;
-}
-
-byte_string encode_storage_db(bytes32_t const key, bytes32_t const val)
-{
-    byte_string encoded_storage;
-    encoded_storage += rlp::encode_bytes32_compact(val);
-    encoded_storage += rlp::encode_bytes32_compact(key);
-    return encoded_storage;
-}
-
-Result<std::pair<bytes32_t, bytes32_t>> decode_storage_db(byte_string_view &enc)
-{
-    std::pair<bytes32_t, bytes32_t> storage;
-    BOOST_OUTCOME_TRY(storage.second, rlp::decode_bytes32_compact(enc));
-    BOOST_OUTCOME_TRY(storage.first, rlp::decode_bytes32_compact(enc));
     return storage;
 }
+
+Result<byte_string_view> decode_storage_db_ignore_slot(byte_string_view &enc)
+{
+    BOOST_OUTCOME_TRY(auto payload, rlp::parse_list_metadata(enc));
+
+    BOOST_OUTCOME_TRY(rlp::decode_bytes32_compact(payload));
+    BOOST_OUTCOME_TRY(auto const output, rlp::decode_string(payload));
+
+    if (MONAD_UNLIKELY(!payload.empty())) {
+        return rlp::DecodeError::InputTooLong;
+    }
+
+    return output;
+};
 
 void write_to_file(
     nlohmann::json const &j, std::filesystem::path const &root_path,
