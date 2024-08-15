@@ -32,13 +32,12 @@ static thread_local monad_fiber_t *tl_cur_fiber = nullptr;
 // monad_fiber_start_switch and _monad_fiber_finish_switch functions. These
 // run on the same thread but different stacks (the former runs on the
 // "switch_from" fiber's stack, the latter on the "switch_to" fiber's stack).
-// This state should not be changed outside of those low-level switch functions.
-static thread_local struct in_progress_switch_state {
+struct in_progress_fiber_switch {
     monad_fiber_t *switch_from;
     monad_fiber_t *switch_to;
     enum monad_fiber_state switch_from_suspend_state;
     monad_fiber_suspend_info_t switch_from_suspend_info;
-} tl_cur_switch;
+};
 
 // Manually declare functions defined in fiber_thr.c
 extern monad_fiber_t *_monad_get_thread_fiber();
@@ -67,17 +66,19 @@ _monad_fiber_finish_switch(struct monad_transfer_t xfer_from) {
     pthread_t cur_thread;
     monad_fiber_t *cur_fiber;
     monad_fiber_t *prev_fiber;
+    monad_fiber_suspend_info_t suspend_info;
+    const struct in_progress_fiber_switch *const cur_switch =
+        (struct in_progress_fiber_switch *)xfer_from.data;
 
 #if MONAD_HAVE_ASAN
     // Finish the switch initiated by the most recent call to
     // _monad_fiber_begin_switch
-    __sanitizer_finish_switch_fiber(tl_cur_switch.switch_to->fake_stack_save,
+    __sanitizer_finish_switch_fiber(cur_switch->switch_to->fake_stack_save,
                                     nullptr, nullptr);
 #endif
 
-    cur_fiber = tl_cur_fiber = tl_cur_switch.switch_to;
-    prev_fiber = tl_cur_switch.switch_from;
-    MONAD_DEBUG_ASSERT(xfer_from.data == prev_fiber);
+    cur_fiber = tl_cur_fiber = cur_switch->switch_to;
+    prev_fiber = cur_switch->switch_from;
 
     // Both fibers remain locked through the switch
     MONAD_DEBUG_ASSERT(monad_spinlock_is_owned(&cur_fiber->lock));
@@ -86,7 +87,8 @@ _monad_fiber_finish_switch(struct monad_transfer_t xfer_from) {
     // Remember where the switched-from fiber suspended, and update its state
     // from RUNNING to whatever suspension state it's entering
     prev_fiber->suspended_ctx = xfer_from.fctx;
-    prev_fiber->state = tl_cur_switch.switch_from_suspend_state;
+    prev_fiber->state = cur_switch->switch_from_suspend_state;
+    suspend_info = cur_switch->switch_from_suspend_info;
 
     if (MONAD_UNLIKELY(prev_fiber->state == MF_STATE_CAN_RUN &&
                        prev_fiber->run_queue != nullptr)) {
@@ -94,13 +96,15 @@ _monad_fiber_finish_switch(struct monad_transfer_t xfer_from) {
         // should be a yield; it also has a run queue we can just reschedule it
         // immediately; we don't need to unlock the fiber in that case, the
         // run queue expects it to be locked
-        MONAD_DEBUG_ASSERT(tl_cur_switch.switch_from_suspend_info.suspend_type
-                           == MF_SUSPEND_YIELD);
+        MONAD_DEBUG_ASSERT(suspend_info.suspend_type == MF_SUSPEND_YIELD);
         (void)monad_run_queue_try_push(prev_fiber->run_queue, prev_fiber);
     } else
         monad_spinlock_unlock(&prev_fiber->lock);
 
-    // Finish book-keeping to become the current fiber
+    // Finish book-keeping to become the current fiber; note that we cannot
+    // access `cur_switch` below this point, as it lived on the previous
+    // fiber's stack and now that the previous fiber is unlocked, it could
+    // be destroyed at any time
     cur_thread = pthread_self();
     cur_fiber->state = MF_STATE_RUNNING;
     cur_fiber->prev_fiber = prev_fiber;
@@ -112,7 +116,7 @@ _monad_fiber_finish_switch(struct monad_transfer_t xfer_from) {
     ++cur_fiber->stats.total_run;
 
     monad_spinlock_unlock(&cur_fiber->lock);
-    return tl_cur_switch.switch_from_suspend_info;
+    return suspend_info;
 }
 
 // Low-level machine-independent fiber switch function; this atomically suspends
@@ -124,6 +128,7 @@ monad_fiber_start_switch(monad_fiber_t *cur_fiber, monad_fiber_t *next_fiber,
                          enum monad_fiber_suspend_type cur_suspend_type,
                          uintptr_t eval) {
     // For ASAN:
+    struct in_progress_fiber_switch cur_switch;
     [[maybe_unused]] size_t next_stack_size;
     [[maybe_unused]] void **fake_stack;
 
@@ -132,13 +137,11 @@ monad_fiber_start_switch(monad_fiber_t *cur_fiber, monad_fiber_t *next_fiber,
 
     // XXX: assert switch is well-formed
 
-    // Assign some thread-local variables so we can track the state of the
-    // switch as we move between the two fiber stacks
-    tl_cur_switch.switch_from = cur_fiber;
-    tl_cur_switch.switch_to = next_fiber;
-    tl_cur_switch.switch_from_suspend_state = cur_suspend_state;
-    tl_cur_switch.switch_from_suspend_info.suspend_type = cur_suspend_type;
-    tl_cur_switch.switch_from_suspend_info.eval = eval;
+    cur_switch.switch_from = cur_fiber;
+    cur_switch.switch_to = next_fiber;
+    cur_switch.switch_from_suspend_state = cur_suspend_state;
+    cur_switch.switch_from_suspend_info.suspend_type = cur_suspend_type;
+    cur_switch.switch_from_suspend_info.eval = eval;
 
 #if MONAD_HAVE_ASAN
     // Tell ASAN we're going to switch to a new stack
@@ -158,11 +161,12 @@ monad_fiber_start_switch(monad_fiber_t *cur_fiber, monad_fiber_t *next_fiber,
     //
     // It returns a `struct monad_transfer_t`, with two members:
     //
-    //   data - the `monad_fiber_t*` that returned control back to us
+    //   data - the `struct in_progress_fiber_switch *` for the switch that
+    //          is returning control back to us
     //   fctx - the context pointer (effectively the suspension point) within
     //          the previously-running fiber, where it was suspended during the
     //          switch back to us
-    return monad_jump_fcontext(next_fiber->suspended_ctx, cur_fiber);
+    return monad_jump_fcontext(next_fiber->suspended_ctx, &cur_switch);
 }
 
 extern void _monad_fiber_suspend(monad_fiber_t *cur_fiber,
