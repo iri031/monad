@@ -255,6 +255,14 @@ void monad_statesync_client_handle_upsert(
     byte_string_view const k(key, key_size);
     byte_string_view const v(value, value_size);
 
+    std::cout << fmt::format(
+                     "monad_statesync_client_handle_upsert key=0x{:02x} "
+                     "value=0x{:02x} {}",
+                     fmt::join(std::as_bytes(std::span(key, key_size)), ""),
+                     fmt::join(std::as_bytes(std::span(value, value_size)), ""),
+                     code)
+              << std::endl;
+
     if (code) {
         // code is immutable once inserted
         MONAD_ASSERT(value != nullptr);
