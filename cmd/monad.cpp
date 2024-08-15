@@ -232,20 +232,22 @@ int main(int const argc, char const *argv[])
     cli.add_option("--nthreads", nthreads, "number of threads");
     cli.add_option("--nfibers", nfibers, "number of fibers");
     cli.add_flag("--no-compaction", no_compaction, "disable compaction");
-    cli.add_flag(
-        "--enable_cpu_isolation",
-        enable_cpu_isolation,
-        "running process under a cgroup cpuset controller");
-    cli.add_option(
+    auto *sq_thread_cpu_opt = cli.add_option(
         "--sq_thread_cpu",
         sq_thread_cpu,
         "sq_thread_cpu field in io_uring_params, to specify the cpu set "
         "kernel poll thread is bound to in SQPOLL mode. This parameter "
         " will be ignored if cpu isolation is enabled.");
-    cli.add_option(
+    auto *ro_sq_thread_cpu_opt = cli.add_option(
         "--ro_sq_thread_cpu",
         ro_sq_thread_cpu,
         "sq_thread_cpu for the read only db");
+    cli.add_flag(
+           "--enable_cpu_isolation",
+           enable_cpu_isolation,
+           "running process under a cgroup cpuset controller")
+        ->excludes(sq_thread_cpu_opt)
+        ->excludes(ro_sq_thread_cpu_opt);
     cli.add_option(
         "--db",
         dbname_paths,
