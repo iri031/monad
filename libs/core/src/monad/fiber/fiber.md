@@ -25,8 +25,8 @@ implementation details will require some time investment!
 
 ### "Hello, world!" using fibers
 
-The following listing shows a "Hello, World!" example that *only* uses
-the fibers themselves. There are no synchronization primitives and thus
+The following listing shows a "Hello, World!" example that only uses
+the fibers themselves -- there are no synchronization primitives and thus
 there is no scheduling. The fiber print a "Hello, World!" style message
 three times, suspending itself after each time. After the last message,
 it finishes.
@@ -48,7 +48,7 @@ it finishes.
 uintptr_t say_hello_fiber_function(uintptr_t arg)
 {
   // The fiber greets you by your name, which is passed in as the fiber
-  // function argument
+  // function's argument
   const char *const name = (const char*)arg;
 
   // Say hello, then suspend the fiber
@@ -73,7 +73,7 @@ int main(int argc, char **argv) {
   monad_fiber_t hello_fiber;
   monad_fiber_stack_t fiber_stack;
   const char *name;
-  size_t fiber_stack_size = 1UL << 17; // A 128 KiB stack
+  const size_t fiber_stack_size = 1UL << 17; // A 128 KiB stack
   
   // This application says hello to you using a fiber; it expects your name
   // as the first (and only) positional argument
@@ -183,7 +183,7 @@ task pool, run-loop, worker threads, etc.
 The intention is for the user code to solve its problem directly, creating
 complex objects only it it needs them, and using `monad_fiber` as a bare-bones
 helper module. The only point of coupling between the three parts of a fiber
-system is the priority queue  type, `monad_run_queue_t`.
+system is the priority queue, `monad_run_queue_t`.
 
 A `monad_fiber_t` keeps track of an associated `monad_run_queue_t*`, and when
 the fiber is signaled for wakeup by a synchronization primitive, the fiber
@@ -214,8 +214,8 @@ typedef uintptr_t (monad_fiber_ffunc_t)(uintptr_t);
 The fiber runs this function until the function decides to suspend itself,
 either  by yielding, returning, or going to sleep on some synchronization
 condition that is not met yet (e.g., waiting for a semaphore to signal).
-When the fiber suspends, the current thread of execution resumes the
-execution of another fiber. The original fiber may later be resumed, at
+When the fiber suspends, the current thread will beginning executing the
+code for a different fiber. The suspended fiber may later be resumed, at
 which point execution continues at the point where it left off.
 
 Most of the implementation can be understood by thinking about exactly
@@ -239,8 +239,8 @@ how and when a fiber switches. The model we follow is:
   wishes to run
 
 - The most obvious design is to use a single global priority queue
-  (the `monad_run_queue_t` object). Each worker takes the
-  next-highest-priority item and runs it until it suspends
+  (a `monad_run_queue_t` object). Each worker takes the
+  next-highest-priority fiber and runs it until it suspends
 
 Here is an example of how you might build such a worker thread (this
 is just an API example, the current implementation is more complex):
@@ -249,9 +249,9 @@ is just an API example, the current implementation is more complex):
 int rc;
 monad_fiber_t *fiber;
 monad_fiber_suspend_info_t suspend_info;
-monad_run_queue_t *run_queue = /*get a fiber priority queue somehow*/
+monad_run_queue_t *const run_queue = /* initialize a fiber priority queue*/
 
-while (!done) {
+while (!atomic_load(&done)) {
   // Poll the priority queue for the highest priority fiber that's ready
   // to run
   fiber = monad_run_queue_try_pop(run_queue);
@@ -293,12 +293,14 @@ The machine-independent part of the fiber switch is handled in two phases
 two functions in `fiber.c`:
 
 ```.h
-monad_fiber_t *monad_fiber_start_switch(monad_fiber_t *cur_fiber,
-                                        monad_fiber_t *next_fiber,
-                                        enum monad_fiber_state next_cur_state);
+struct monad_transfer_t
+monad_fiber_start_switch(monad_fiber_t *cur_fiber, monad_fiber_t *next_fiber,
+                         enum monad_fiber_state cur_suspend_state,
+                         enum monad_fiber_suspend_type cur_suspend_type,
+                         uintptr_t eval);
 
-monad_fiber_t *_monad_fiber_finish_switch(monad_fiber_t *prev_fiber,
-                                          monad_fcontext_t prev_fiber_sctx)
+extern monad_fiber_suspend_info_t
+_monad_fiber_finish_switch(struct monad_transfer_t xfer_from);
 ```
 
 `_monad_fiber_finish_switch` starts with an underscore to emphasize that it
@@ -308,14 +310,14 @@ linkage, and is only called inside `fiber.c`.
 
 The suspension points (`monad_fiber_yield`, `_monad_fiber_sleep`, and the
 fiber function return stub), instead call this slightly-higher-level wrapper,
-which will populate the suspension metadata for the current fiber and switch
-to the previously-executing fiber:
+which will switch to the previously-executing fiber, and return when our
+fiber is resumed:
 
 ```.h
-void _monad_fiber_suspend(monad_fiber_t *self,
-                          enum monad_fiber_state next_self_state,
-                          enum monad_fiber_suspend_type suspend_type,
-                          uintptr_t eval)
+extern void _monad_fiber_suspend(monad_fiber_t *cur_fiber,
+                                 enum monad_fiber_state cur_suspend_state,
+                                 enum monad_fiber_suspend_type cur_suspend_type,
+                                 uintptr_t eval);
 ```
 
 Some details of how "start_switch" and "finish_switch" work:

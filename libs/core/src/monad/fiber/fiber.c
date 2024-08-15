@@ -29,7 +29,7 @@
 static thread_local monad_fiber_t *tl_cur_fiber = nullptr;
 
 // Used to communicate information about an in-progress switch between the
-// _monad_fiber_start_switch and _monad_fiber_finish_switch functions. These
+// monad_fiber_start_switch and _monad_fiber_finish_switch functions. These
 // run on the same thread but different stacks (the former runs on the
 // "switch_from" fiber's stack, the latter on the "switch_to" fiber's stack).
 // This state should not be changed outside of those low-level switch functions.
@@ -59,6 +59,9 @@ extern void _monad_wakeup_thread_fiber(struct thread_fiber_state *tfs,
 //      monad_jump_fcontext implies we have been resumed from the suspension
 //      implied by the jump, thus the switch we are finishing is not the same
 //      one that was started by the start switch call
+//
+// This is an internal-only function but is declared "extern" so that it can be
+// shared with fiber_thr.c
 extern monad_fiber_suspend_info_t
 _monad_fiber_finish_switch(struct monad_transfer_t xfer_from) {
     pthread_t cur_thread;
@@ -76,8 +79,7 @@ _monad_fiber_finish_switch(struct monad_transfer_t xfer_from) {
     prev_fiber = tl_cur_switch.switch_from;
     MONAD_DEBUG_ASSERT(xfer_from.data == prev_fiber);
 
-    // Both fibers remain locked through the switch, and are released by the
-    // resumption point (or entrypoint)
+    // Both fibers remain locked through the switch
     MONAD_DEBUG_ASSERT(monad_spinlock_is_owned(&cur_fiber->lock));
     MONAD_DEBUG_ASSERT(monad_spinlock_is_owned(&prev_fiber->lock));
 
@@ -85,6 +87,18 @@ _monad_fiber_finish_switch(struct monad_transfer_t xfer_from) {
     // from RUNNING to whatever suspension state it's entering
     prev_fiber->suspended_ctx = xfer_from.fctx;
     prev_fiber->state = tl_cur_switch.switch_from_suspend_state;
+
+    if (MONAD_UNLIKELY(prev_fiber->state == MF_STATE_CAN_RUN &&
+                       prev_fiber->run_queue != nullptr)) {
+        // This fiber can be run immediately despite being "suspended", so it
+        // should be a yield; it also has a run queue we can just reschedule it
+        // immediately; we don't need to unlock the fiber in that case, the
+        // run queue expects it to be locked
+        MONAD_DEBUG_ASSERT(tl_cur_switch.switch_from_suspend_info.suspend_type
+                           == MF_SUSPEND_YIELD);
+        (void)monad_run_queue_try_push(prev_fiber->run_queue, prev_fiber);
+    } else
+        monad_spinlock_unlock(&prev_fiber->lock);
 
     // Finish book-keeping to become the current fiber
     cur_thread = pthread_self();
@@ -97,17 +111,6 @@ _monad_fiber_finish_switch(struct monad_transfer_t xfer_from) {
     }
     ++cur_fiber->stats.total_run;
 
-    if (MONAD_UNLIKELY(prev_fiber->state == MF_STATE_CAN_RUN &&
-                       prev_fiber->run_queue != nullptr)) {
-        // A fiber that can run immediately after being suspended should
-        // be a yield, and if there is a run queue we can just reschedule it
-        // immediately; we don't need to unlock the fiber in that case, the
-        // run queue expects it to be locked
-        MONAD_DEBUG_ASSERT(tl_cur_switch.switch_from_suspend_info.suspend_type
-                           == MF_SUSPEND_YIELD);
-        (void)monad_run_queue_try_push(prev_fiber->run_queue, prev_fiber);
-    } else
-        monad_spinlock_unlock(&prev_fiber->lock);
     monad_spinlock_unlock(&cur_fiber->lock);
     return tl_cur_switch.switch_from_suspend_info;
 }
@@ -115,9 +118,6 @@ _monad_fiber_finish_switch(struct monad_transfer_t xfer_from) {
 // Low-level machine-independent fiber switch function; this atomically suspends
 // the current fiber and switches to the next fiber; the next fiber must
 // immediately call _monad_fiber_finish_switch to complete this switch
-//
-// This is an internal-only function but is declared "extern" so that it can be
-// shared with fiber_thr.c
 static struct monad_transfer_t
 monad_fiber_start_switch(monad_fiber_t *cur_fiber, monad_fiber_t *next_fiber,
                          enum monad_fiber_state cur_suspend_state,
@@ -133,8 +133,7 @@ monad_fiber_start_switch(monad_fiber_t *cur_fiber, monad_fiber_t *next_fiber,
     // XXX: assert switch is well-formed
 
     // Assign some thread-local variables so we can track the state of the
-    // switch as we move between the two fiber contexts; these will be read
-    // in the finish_switch function
+    // switch as we move between the two fiber stacks
     tl_cur_switch.switch_from = cur_fiber;
     tl_cur_switch.switch_to = next_fiber;
     tl_cur_switch.switch_from_suspend_state = cur_suspend_state;
@@ -152,17 +151,17 @@ monad_fiber_start_switch(monad_fiber_t *cur_fiber, monad_fiber_t *next_fiber,
 #endif
 
     // Call the machine-dependent fiber switch function, monad_jump_fcontext.
-    // This atomically suspends our fiber and begins executing the next fiber.
-    // If we are resumed at some later time, it will appear as through we've
-    // returned from the function call to `monad_jump_fcontext`, and we will
-    // again be the current fiber.
+    // This atomically suspends our fiber and begins executing the next fiber
+    // at its last suspension point. If we are resumed at some later time, it
+    // will appear as through we've returned from this function call to
+    // `monad_jump_fcontext`, and we will again be the current fiber.
     //
-    // It returns a `struct monad_transfer_t` to us, with two members:
+    // It returns a `struct monad_transfer_t`, with two members:
     //
-    //   xfer_from.data - the `monad_fiber_t*` that returned control back to us
-    //   xfer_from.fctx - the context pointer (effectively the suspension
-    //                    point) within the previously-running fiber, where it
-    //                    was suspended during the switch back to us
+    //   data - the `monad_fiber_t*` that returned control back to us
+    //   fctx - the context pointer (effectively the suspension point) within
+    //          the previously-running fiber, where it was suspended during the
+    //          switch back to us
     return monad_jump_fcontext(next_fiber->suspended_ctx, cur_fiber);
 }
 
@@ -174,7 +173,8 @@ extern void _monad_fiber_suspend(monad_fiber_t *cur_fiber,
     // Our suspension and scheduling model is that, upon suspension, we jump
     // back to the fiber that originally jumped to us. That fiber is typically
     // a lightweight scheduler, which decides which fiber to run next and
-    // called `monad_fiber_run`
+    // calls `monad_fiber_run`, thus we are usually jumping back into the body
+    // of `monad_fiber_run`, which will return and report our suspension
     monad_fiber_t *const next_fiber = cur_fiber->prev_fiber;
     MONAD_DEBUG_ASSERT(monad_spinlock_is_owned(&cur_fiber->lock));
     MONAD_SPINLOCK_LOCK(&next_fiber->lock);
