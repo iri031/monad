@@ -1,6 +1,8 @@
 #include <monad/config.hpp>
 #include <monad/core/assert.h>
+#include <monad/core/basic_formatter.hpp>
 #include <monad/core/block.hpp>
+#include <monad/core/fmt/bytes_fmt.hpp>
 #include <monad/core/likely.h>
 #include <monad/db/trie_db.hpp>
 #include <monad/execution/genesis.hpp>
@@ -325,6 +327,8 @@ bool monad_statesync_client_finalize(monad_statesync_client_context *const ctx)
             ctx->db.get_latest_block_id());
         MONAD_ASSERT(code.has_value());
         if (hash != std::bit_cast<bytes32_t>(keccak256(code.value()))) {
+            std::cout << fmt::format("hash doesnt match code {}", hash)
+                      << std::endl;
             return false;
         }
     }
@@ -333,6 +337,11 @@ bool monad_statesync_client_finalize(monad_statesync_client_context *const ctx)
     }
     MONAD_ASSERT(ctx->target == ctx->db.get_latest_block_id());
     TrieDb db{ctx->db};
+    std::cout << fmt::format(
+                     "state root check {} == {}",
+                     db.state_root(),
+                     ctx->expected_root)
+              << std::endl;
     return db.state_root() == ctx->expected_root;
 }
 
