@@ -20,7 +20,7 @@
 #endif
 
 #include <monad/core/assert.h>
-#include <monad/core/dump.h>
+#include <monad/core/spinlock.h>
 #include <monad/core/tl_tid.h>
 #include <monad/fiber/fiber.h>
 #include <monad/fiber/fiber_util.h>
@@ -42,13 +42,12 @@ struct thread_fiber_state {
 
 static thread_local struct thread_fiber_state tl_state;
 
-extern monad_fiber_t*
-_monad_fiber_finish_switch(monad_fiber_t *cur_fiber, monad_fiber_t *prev_fiber,
-                           monad_fcontext_t prev_fiber_sctx);
+extern monad_fiber_suspend_info_t
+_monad_fiber_finish_switch(struct monad_transfer_t xfer_from);
 
-extern void _monad_fiber_suspend(monad_fiber_t *self,
-                                 enum monad_fiber_state next_state,
-                                 enum monad_fiber_suspend_type suspend_type,
+extern void _monad_fiber_suspend(monad_fiber_t *cur_fiber,
+                                 enum monad_fiber_state cur_suspend_state,
+                                 enum monad_fiber_suspend_type cur_suspend_type,
                                  uintptr_t eval);
 
 [[noreturn]] static void wakeup_entrypoint(struct monad_transfer_t xfer_from) {
@@ -57,30 +56,27 @@ extern void _monad_fiber_suspend(monad_fiber_t *self,
     // channel or semaphore) to signal that it's time to wake up the thread
     // fiber, then initiates the context switch back to the thread fiber
     bool swapped;
+    monad_fiber_t *thread_fiber;
     monad_fiber_t *wakeup_fiber;
     struct thread_fiber_state *tfs;
     uintptr_t wakeup_q;
     uintptr_t expected_wait_queue;
 
     // Finish the first switch that brought us here
-    monad_fiber_t *const thread_fiber =
-        _monad_fiber_finish_switch(monad_fiber_self(),
-                                   (monad_fiber_t*)xfer_from.data,
-                                   xfer_from.fctx);
-
+    (void)_monad_fiber_finish_switch(xfer_from);
+    wakeup_fiber = monad_fiber_self();
+    thread_fiber = wakeup_fiber->prev_fiber;
     tfs = thread_fiber->thread_fs;
-    wakeup_fiber = &tfs->wakeup_fiber;
 
     MONAD_DEBUG_ASSERT(monad_fiber_is_thread_fiber(thread_fiber));
-    MONAD_DEBUG_ASSERT(wakeup_fiber == monad_fiber_self());
-    monad_spinlock_unlock(&thread_fiber->lock);
-    monad_spinlock_unlock(&wakeup_fiber->lock);
+    MONAD_DEBUG_ASSERT(wakeup_fiber == &tfs->wakeup_fiber);
 
     do {
-        // The only thing the scheduling fiber does is busy-wait for the
-        // wait channel to wake us up, via _monad_wakeup_thread_fiber
+        // The only thing this wakeup fiber does is busy-wait for a
+        // synchronization primitive to wake us up, via a call to
+        // _monad_wakeup_thread_fiber
 
-        // Spin until someone wakes us up
+        // Spin until someone wakes us
         wakeup_q = atomic_load_explicit(&tfs->wakeup_q, memory_order_acquire);
         if (wakeup_q != 0)
             ++tfs->stats.immediate_wakeup;
@@ -93,9 +89,11 @@ extern void _monad_fiber_suspend(monad_fiber_t *self,
         swapped = atomic_compare_exchange_strong(&tfs->wakeup_q, &expected_wait_queue, 0);
         MONAD_ASSERT(swapped);
 
+        // This wakeup means the thread fiber's resource is ready; suspend
+        // ourselves and switch back into it
         MONAD_SPINLOCK_LOCK(&wakeup_fiber->lock);
-        _monad_fiber_suspend(wakeup_fiber, MONAD_FIBER_TW_SUSPEND,
-                             MONAD_FIBER_SUSPEND_SLEEP, 0);
+        _monad_fiber_suspend(wakeup_fiber, MF_STATE_EXEC_WAIT,
+                             MF_SUSPEND_SLEEP, 0);
     } while (true);
 }
 
@@ -115,7 +113,7 @@ static void init_wakeup_fiber(monad_fiber_t *wakeup_fiber)
     }
     monad_fiber_init(wakeup_fiber, wakeup_stack);
     wakeup_fiber->priority = MONAD_FIBER_PRIO_LOWEST;
-    wakeup_fiber->state = MONAD_FIBER_TW_SUSPEND;
+    wakeup_fiber->state = MF_STATE_EXEC_WAIT;
     wakeup_fiber->suspended_ctx =
         monad_make_fcontext(wakeup_stack.stack_top, wakeup_stack_size,
                             wakeup_entrypoint);
@@ -153,7 +151,7 @@ static void init_thread_fiber(monad_fiber_t *thread_fiber) {
 
     (void)monad_fiber_init(thread_fiber, thread_stack);
     thread_fiber->priority = MONAD_FIBER_PRIO_LOWEST;
-    thread_fiber->state = MONAD_FIBER_RUNNING;
+    thread_fiber->state = MF_STATE_RUNNING;
     thread_fiber->last_thread = pthread_self();
     thread_fiber->last_thread_id = get_tl_tid();
     snprintf(namebuf, sizeof namebuf, "THR_%d", thread_fiber->last_thread_id);
@@ -182,7 +180,7 @@ static void init_thread_fiber_state(struct thread_fiber_state *tfs) {
 }
 
 extern monad_fiber_t *_monad_get_thread_fiber() {
-    if (tl_state.thread_fiber.state == MONAD_FIBER_INIT)
+    if (MONAD_UNLIKELY(tl_state.thread_fiber.state == MF_STATE_INIT))
         init_thread_fiber_state(&tl_state);
     return &tl_state.thread_fiber;
 }
@@ -190,22 +188,4 @@ extern monad_fiber_t *_monad_get_thread_fiber() {
 extern void _monad_wakeup_thread_fiber(struct thread_fiber_state *tfs,
                                        monad_fiber_wait_queue_t *wq) {
     atomic_store_explicit(&tfs->wakeup_q, (uintptr_t)wq, memory_order_release);
-}
-
-extern void _monad_dump_thread_fiber_state(const void *arg,
-                                           monad_dump_ctx_t *tfs_ctx) {
-    const struct thread_fiber_state *tfs = (struct thread_fiber_state*)arg;
-    const float immediate_wakeup_pct = tfs->wakeup_fiber.stats.total_run > 0
-        ? (float)tfs->stats.immediate_wakeup /
-              (float)tfs->wakeup_fiber.stats.total_run : 0;
-
-    monad_dump_println(tfs_ctx, "thread_fiber:");
-    monad_fiber_dump(&tfs->thread_fiber, tfs_ctx);
-
-    monad_dump_println(tfs_ctx, "wakeup_fiber:");
-    monad_fiber_dump(&tfs->wakeup_fiber, tfs_ctx);
-
-    monad_dump_println(tfs_ctx, "wakeup_q: %lu", tfs->wakeup_q);
-    monad_dump_println(tfs_ctx, "immediate wakeup: %zu (%.2f)",
-                       tfs->stats.immediate_wakeup, immediate_wakeup_pct);
 }

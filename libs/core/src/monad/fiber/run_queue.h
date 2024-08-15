@@ -6,13 +6,14 @@
 #include <stdio.h>
 
 #include <monad/core/assert.h>
-#include <monad/core/dump.h>
 #include <monad/core/spinlock.h>
 #include <monad/fiber/fiber.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+//#define MONAD_CORE_RUN_QUEUE_NO_MIGRATE 1
 
 struct monad_run_queue_stats;
 typedef struct monad_run_queue monad_run_queue_t;
@@ -35,19 +36,14 @@ static inline int monad_run_queue_try_push(monad_run_queue_t *rq,
 /// fiber
 static inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq);
 
-/// Dump statistics about the run queue to the given stream
-void monad_run_queue_dump_stats(const monad_run_queue_t *rq,
-                                monad_dump_ctx_t *ctx);
-
 /// Scheduling statistics; some writes to these are unlocked without the use
 /// of fetch_add atomic semantics, so they are only approximate
 struct monad_run_queue_stats {
     size_t total_pop;              ///< # of times caller tried to pop a fiber
     size_t total_pop_empty;        ///< # of times there was no fiber in queue
-    size_t total_pop_lock_fail;    ///< # of times spinlock_try_lock failed
     size_t total_push;             ///< # of times caller tried to push a fiber
     size_t total_push_full;        ///< # of times fiber queue was full
-    size_t total_push_lock_fail;   ///< # of times spinlock failed initially
+    size_t total_push_not_ready;   ///< # of times pushed fiber unready
 };
 
 /// A priority queue, implemented using a min-heap; used to pick the highest
@@ -106,10 +102,7 @@ static inline int monad_run_queue_try_push(monad_run_queue_t *rq,
     unsigned heapify_iters = 0;
 
     MONAD_DEBUG_ASSERT(rq != nullptr && fiber != nullptr);
-    if (MONAD_UNLIKELY(!MONAD_SPINLOCK_TRY_LOCK(&rq->lock))) {
-        MONAD_SPINLOCK_LOCK(&rq->lock);
-        ++rq->stats.total_push_lock_fail;
-    }
+    MONAD_SPINLOCK_LOCK(&rq->lock);
     ++rq->stats.total_push;
     // Relaxed because it isn't ordered before the spinlock acquisition
     size = atomic_load_explicit(&rq->size, memory_order_relaxed);
@@ -121,8 +114,9 @@ static inline int monad_run_queue_try_push(monad_run_queue_t *rq,
 
     if (MONAD_UNLIKELY(!monad_spinlock_is_owned(&fiber->lock)))
         MONAD_SPINLOCK_LOCK(&fiber->lock);
-    if (MONAD_UNLIKELY(fiber->state != MONAD_FIBER_CAN_RUN)) {
+    if (MONAD_UNLIKELY(fiber->state != MF_STATE_CAN_RUN)) {
         monad_spinlock_unlock(&fiber->lock);
+        ++rq->stats.total_push_not_ready;
         rc = EBUSY;
         goto Finish;
     }
@@ -138,7 +132,7 @@ static inline int monad_run_queue_try_push(monad_run_queue_t *rq,
         ++heapify_iters;
     }
     fiber->run_queue = rq;
-    fiber->state = MONAD_FIBER_RUN_QUEUE;
+    fiber->state = MF_STATE_RUN_QUEUE;
     monad_spinlock_unlock(&fiber->lock);
     atomic_store_explicit(&rq->size, size, memory_order_relaxed);
 Finish:
@@ -164,7 +158,6 @@ static inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq) {
     }
     if (MONAD_UNLIKELY(!MONAD_SPINLOCK_TRY_LOCK(&rq->lock))) {
         ++rq->stats.total_pop_empty;
-        ++rq->stats.total_pop_lock_fail;
         // We failed to get the lock; the likeliest sequence of events is that
         // we had multiple pollers and only one fiber became available. By
         // failing to get the lock, we likely would fail completely (the size
@@ -182,6 +175,15 @@ static inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq) {
     }
 
     min_prio_fiber = rq->fibers[0];
+
+#if MONAD_CORE_RUN_QUEUE_NO_MIGRATE
+    if (min_prio_fiber->last_thread != 0 &&
+        min_prio_fiber->last_thread != pthread_self()) {
+        monad_spinlock_unlock(&rq->lock);
+        return nullptr;
+    }
+#endif
+
     --size;
     atomic_store_explicit(&rq->size, size, memory_order_release);
     if (MONAD_LIKELY(size > 0)) {
@@ -196,7 +198,7 @@ static inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq) {
     // Return the fiber in a locked state; the caller is almost certainly going
     // to call monad_fiber_run immediately
     MONAD_SPINLOCK_LOCK(&min_prio_fiber->lock);
-    min_prio_fiber->state = MONAD_FIBER_CAN_RUN;
+    min_prio_fiber->state = MF_STATE_CAN_RUN;
     return min_prio_fiber;
 }
 

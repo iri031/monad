@@ -15,6 +15,9 @@ endif()
 
 option(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+option(MONAD_CORE_FORCE_DEBUG_ASSERT
+        "Enable MONAD_DEBUG_ASSERT in any build mode" OFF)
+
 option(MONAD_CORE_SPINLOCK_TRACK_OWNER_INFO
        "enable source location of owner in spinlocks"
        ${_monad_spinlock_track_owner_info})
@@ -61,8 +64,6 @@ target_include_directories(openssl_sha3_asm INTERFACE "third_party/openssl")
 # ##############################################################################
 
 add_library(monad_core_c OBJECT
-  "src/monad/core/dump.h"
-  "src/monad/core/dump.c"
   "src/monad/core/spinlock.h"
   "src/monad/core/srcloc.h"
   "src/monad/fiber/fiber.h"
@@ -75,6 +76,10 @@ add_library(monad_core_c OBJECT
   "src/monad/fiber/fiber_semaphore.h"
   "src/monad/fiber/run_queue.h"
   "src/monad/fiber/run_queue.c")
+
+if (MONAD_CORE_FORCE_DEBUG_ASSERT)
+  target_compile_definitions(monad_core_c PUBLIC MONAD_CORE_FORCE_DEBUG_ASSERT)
+endif()
 
 if (MONAD_CORE_SPINLOCK_TRACK_OWNER_INFO)
   target_compile_definitions(monad_core_c
@@ -124,7 +129,6 @@ add_library(
   "src/monad/core/cpuset.c"
   "src/monad/core/cpuset.h"
   "src/monad/core/cpu_relax.h"
-  "src/monad/core/dump.hpp"
   "src/monad/core/endian.hpp"
   "src/monad/core/hash.hpp"
   "src/monad/core/hex_literal.hpp"

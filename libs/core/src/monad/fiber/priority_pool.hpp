@@ -1,6 +1,5 @@
 #pragma once
 
-#include <monad/core/dump.h>
 #include <monad/core/spinlock.h>
 #include <monad/fiber/config.hpp>
 #include <monad/fiber/fiber.h>
@@ -39,13 +38,8 @@ class PriorityPool final
     std::deque<monad_fiber_t> fibers_{};
     std::atomic<bool> done_{false};
 
-    struct ChannelItemStats {
-        size_t total_tasks; ///< # of times we called submit
-    };
-
     alignas(64) monad_spinlock_t channel_items_lock_;
     std::list<TaskChannelItem> channel_items_;
-    ChannelItemStats channel_items_stats_{};
 
 public:
     PriorityPool(unsigned n_threads, unsigned n_fibers);
@@ -64,8 +58,6 @@ public:
         channel_items_.erase(finished); // Reclaim the memory
         monad_spinlock_unlock(&channel_items_lock_);
     }
-
-    void print_stats(monad_dump_ctx_t *ctx, bool dump_fibers);
 };
 
 MONAD_FIBER_NAMESPACE_END

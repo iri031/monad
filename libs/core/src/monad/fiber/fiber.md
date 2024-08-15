@@ -13,24 +13,145 @@ A fiber library generally consists of three parts:
    is ready, so the fiber(s) waiting for it can wake up
 
 This code makes an effort to be much simpler than a typical fiber library,
-which is often a full-fledged "frameworks." In this lightweight library,
+which is often a full-fledged "framework." In this lightweight library,
 the coupling between the three parts is minimal, and occurs in only a few
 lines of code. Thus the design can be changed quickly to whatever our
 internal needs are, rather than being a general purpose library.
 
-The implementation is also meant to be clear, such that a programmer can
+The implementation is also meant to be clear;  ideally a programmer can
 understand it fully without much trouble. Take this with a grain of salt
 though: context-switching code can be tricky, so understanding all the
-implementation details will require *some* time investment!
+implementation details will require some time investment!
+
+### "Hello, world!" using fibers
+
+The following listing shows a "Hello, World!" example that *only* uses
+the fibers themselves. There are no synchronization primitives and thus
+there is no scheduling. The fiber print a "Hello, World!" style message
+three times, suspending itself after each time. After the last message,
+it finishes.
+
+```.c
+#include <assert.h>
+#include <err.h>
+#include <errno.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <sysexits.h>
+
+#include <monad/fiber/fiber.h>
+#include <monad/fiber/fiber_util.h>
+
+// This is the function that will run on the fiber
+uintptr_t say_hello_fiber_function(uintptr_t arg)
+{
+  // The fiber greets you by your name, which is passed in as the fiber
+  // function argument
+  const char *const name = (const char*)arg;
+
+  // Say hello, then suspend the fiber
+  printf("Hello, %s!\n", name);
+  monad_fiber_yield(0);
+
+  // When we reach here, we've been run again; we resume from the
+  // suspension point of the yield immediately above. We'll say hello
+  // again, then suspend again
+  printf("Welcome back, %s!\n", name);
+  monad_fiber_yield(0);
+
+  // Resumed for the final time; say goodbye, then return. Returning from
+  // the fiber function suspends the fiber until it is given a new function
+  // to run
+  print("Farewell, %s!\n", name);
+  return 0;
+}
+
+int main(int argc, char **argv) {
+  int rc;
+  monad_fiber_t hello_fiber;
+  monad_fiber_stack_t fiber_stack;
+  const char *name;
+  size_t fiber_stack_size = 1UL << 17; // A 128 KiB stack
+  
+  // This application says hello to you using a fiber; it expects your name
+  // as the first (and only) positional argument
+  if (argc != 2)
+    errx(EX_USAGE, "usage: %s <your-name>", argv[0]);
+  name = argv[1];
+
+  // We start by allocating a stack for the fiber. You can do this manually,
+  // but in this example we'll use a helper function (from fiber_util.h)
+  // to call mmap(2) and set up some stack overflow guard pages
+  rc = monad_fiber_alloc_stack(&fiber_stack_size, &fiber_stack);
+  if (rc != 0)
+    errc(1, rc, "monad_fiber_alloc_stack failed: %s", strerror(rc));
+
+  // Initialize the fiber, passing in our stack
+  monad_fiber_init(&hello_fiber, fiber_stack);
+
+  // Tell the fiber what function to run; the second argument is
+  // the scheduling priority, which doesn't matter in this example;
+  // the last parameter is passed into the fiber function, as the
+  // argument. We pass a pointer to our name
+  monad_fiber_set_function(&hello_fiber, MONAD_FIBER_PRIO_HIGHEST,
+                           say_hello_fiber_function, (uintptr_t)name);
+
+  // Run the fiber until the first suspension point; this will print
+  // "Hello, <name>!", suspend the fiber function, and then our call to
+  // monad_fiber_run will return. If nothing goes wrong, the return code
+  // will be 0. The second parameter (which is nullptr here) allows us to
+  // obtain information about why the fiber suspended; in this example we
+  // don't care, so we pass nullptr
+  rc = monad_fiber_run(&hello_fiber, nullptr);
+  ASSERT(rc == 0);
+  
+  // Run the fiber again, until it yields again; this will print
+  // "Welcome back, <name>!" and then yield back to us once more
+  rc = monad_fiber_run(&hello_fiber, nullptr);
+  ASSERT(rc == 0);
+  
+  // Run the fiber a final time. This will print "Farewell, <name>!" and then
+  // the fiber function will return. The return won't look much different to us
+  // than the yields above: the fiber will suspend and monad_fiber_run will
+  // return 0 to us, as before. The difference is, we can't run the fiber again.
+  // If, instead of passing nullptr as the second argument, we instead passed
+  // a pointer to a `monad_fiber_suspend_info_t`, we could get more information
+  // about the suspension. Namely, that it was a return and not a yield, and we
+  // could also read the return code. However, we don't care in this example.
+  rc = monad_fiber_run(&hello_fiber, nullptr);
+  ASSERT(rc == 0); 
+
+  // Try to run the fiber one more time; we can't do it since the fiber
+  // function returned, so this will fail and return the errno-domain error
+  // code ENXIO
+  rc = monad_fiber_run(&hello_fiber, nullptr);
+  ASSERT(rc == ENXIO);
+
+  // At this point, we could reuse the fiber's resources to run the function
+  // a second time. To prepare for a second run, we would reset the function: 
+  monad_fiber_set_function(&hello_fiber, MONAD_FIBER_PRIO_HIGHEST,
+                           say_hello_fiber_function, (uintptr_t)name);
+
+  // However, that's enough for today. Nothing special needs to be done to
+  // destroy the fiber itself, as there is no dynamic memory allocation.
+  // The fiber stack though, was allocated via mmap(2) and needs to be
+  // freed.
+  monad_fiber_free_stack(fiber_stack);
+  
+  return 0;
+}
+```
 
 ## Where is the code?
 
 1. For the fibers themselves:
    - `fiber.h` - defines the interface for fibers, i.e., the public
-     functions and the central `struct monad_fiber` object
-   - `fiber.c` - most of the fiber implementation of `fiber.h`
+     functions and the central `monad_fiber_t` structure
+   - `fiber.c` - most of the fiber implementation
    - `fiber_thr.c` - an implementation file, related to the "thread fiber"
-      feature (see the **Thread Fibers** section later on)
+      feature (see the **Thread fibers** section later on)
    - `fiber_util.h` - debugging and helper utilities for fibers
    - `fiber_util.c` - implementation file for `fiber_util.h`
 
@@ -42,11 +163,11 @@ implementation details will require *some* time investment!
      primitive for fibers
    - `fiber_sync.h` - a "wait queue" utility that is shared by the
      channel and semaphore implementation
-   - `future.hpp` - defines the `simple_future<T>` and `simple_promise<T>`
-     C++ types that are similar to (but less fully-featured than) those
-     found in C++11 `<future>`; these are implemented in terms of
-     `monad_fiber_channel_t` (for `simple_promise<T>`) and
-     `monad_sempaphore_t` (for the `simple_promose<void>` specialization)
+   - `future.hpp` - defines the C++ types `simple_future<T>` and
+     `simple_promise<T>`; these are similar to (but less fully-featured than)
+     those found in C++11 `<future>`; `simple_promise<T>` is implemented
+     usingterms of `monad_fiber_channel_t`, whereas the
+     `simple_promise<void>` specialization uses `monad_sempaphore_t`
 
 3. The "scheduler"
    - `monad_run_queue.h` - defines the interface for a simple thread-safe
@@ -60,24 +181,24 @@ not have a full-fledged scheduler, or any higher-level abstractions such as a
 task pool, run-loop, worker threads, etc.
 
 The intention is for the user code to solve its problem directly, creating
-these things as (and only if!) it needs them, and using `monad_fiber` as a
-bare-bones helper module. The only point of coupling between the three parts of
-a fiber system is the priority queue  type, `monad_run_queue_t`.
+complex objects only it it needs them, and using `monad_fiber` as a bare-bones
+helper module. The only point of coupling between the three parts of a fiber
+system is the priority queue  type, `monad_run_queue_t`.
 
 A `monad_fiber_t` keeps track of an associated `monad_run_queue_t*`, and when
-the fiber is signaled for wakeup by a synchronization primitive, it
-"wakes up" by re-enqueueing the fiber back on this associated priority queue.
+the fiber is signaled for wakeup by a synchronization primitive, the fiber
+"wakes up" by re-enqueueing itself back on this associated priority queue.
 
 The library does not run anything by itself. Instead it offers a single
 function (`monad_fiber_run`) to start or resume a fiber, which runs the fiber's
-function until the function reaches a suspension point -- at which point
+function until that function reaches a suspension point -- at which point
 `monad_fiber_run` just returns. The library does little beyond that.
 
 The only other "automatic" thing it does is re-enqueue the fiber on a priority
 queue if a synchronization primitive wakes the fiber. The user of the library
 must create their own concepts like worker threads, pools, etc. to
-enqueue/dequeue fibers from a `monad_run_queue_t`, and use this library to run
-them. The exact topology and way of doing this is not specified by the library.
+enqueue/dequeue fibers from a `monad_run_queue_t`. The exact topology and way
+of doing this is not specified by the library.
 
 ## `monad_fiber_t` basic design
 
@@ -93,22 +214,22 @@ typedef uintptr_t (monad_fiber_ffunc_t)(uintptr_t);
 The fiber runs this function until the function decides to suspend itself,
 either  by yielding, returning, or going to sleep on some synchronization
 condition that is not met yet (e.g., waiting for a semaphore to signal).
-When the fiber suspends, the current thread of execution begins executing
-something else. It may later be resumed, at which point execution continues
-at the point where it left off.
+When the fiber suspends, the current thread of execution resumes the
+execution of another fiber. The original fiber may later be resumed, at
+which point execution continues at the point where it left off.
 
 Most of the implementation can be understood by thinking about exactly
-how and when a fiber switches. Here is the model we follow:
+how and when a fiber switches. The model we follow is:
 
 - A fiber is started or resumed by calling the `monad_fiber_run`
   function, passing in the `monad_fiber_t*` that the user wants to run;
   that is, the context that _calls_ `monad_fiber_run` will switch into the
-  given fiber and begin (or resume) running it
+  given fiber and begin (or resume) running its associated function
 
 - In general, when a fiber suspends for any reason (yield, sleeping,
   returning, etc.), it jumps back to the context that was executing
-  previously. This is the context that was running the implementation
-  of `monad_fiber_run` in the first place, so the suspension of a fiber
+  previously. This is the context that was running the code for
+  `monad_fiber_run` in the first place, so the suspension of a fiber
   appears to the caller of `monad_fiber_run` as the `monad_fiber_run`
   function returning back to them
 
@@ -118,13 +239,36 @@ how and when a fiber switches. Here is the model we follow:
   wishes to run
 
 - The most obvious design is to use a single global priority queue
-  (the `monad_run_queue_t` utility). Each worker takes the
+  (the `monad_run_queue_t` object). Each worker takes the
   next-highest-priority item and runs it until it suspends
 
-Here is an example
+Here is an example of how you might build such a worker thread (this
+is just an API example, the current implementation is more complex):
 
 ```c
-XXX;
+int rc;
+monad_fiber_t *fiber;
+monad_fiber_suspend_info_t suspend_info;
+monad_run_queue_t *run_queue = /*get a fiber priority queue somehow*/
+
+while (!done) {
+  // Poll the priority queue for the highest priority fiber that's ready
+  // to run
+  fiber = monad_run_queue_try_pop(run_queue);
+
+  if (fiber == nullptr)
+    continue; // Nothing is ready to run, poll again
+
+  // Run the fiber until it suspends
+  rc = monad_fiber_run(fiber, &suspend_info);
+
+  if (rc != 0) {
+      /* something went wrong */
+  }
+  if (suspend_info.suspend_type == MONAD_FIBER_SUSPEND_RETURN) {
+      /* fiber function returned; can't run it anymore */
+  }
+}
 ```
 
 ### Implementation notes for `monad_fiber_t`
@@ -133,14 +277,14 @@ The fiber implementation has two layers:
 
 1. **Machine-independent layer** - this is shared by all architectures
    and addresses how the fibers transfer control between each other; most
-   of this code is in `fiber.c`, but some details are in `fiber_thr.c`
+   of this code is in `fiber.c`, with some details in `fiber_thr.c`
 
 2. **Machine-dependent layer** - this consists of only two functions, 
    `monad_make_fcontext` and `monad_jump_fcontext` which were imported
    from the Boost.Context third-party library. These are the original
-   names of the functions, except with the `monad_` prefix added. They
-   are the low-level context switch functions implemented in assembly
-   language for a particular architecture, calling convention, and ABI.
+   names of the functions, but with the `monad_` prefix added. They are
+   the low-level context switch functions implemented in assembly
+   language for a particular CPU architecture, calling convention, and ABI.
 
 #### Machine independent switching
 
@@ -150,10 +294,10 @@ two functions in `fiber.c`:
 
 ```.h
 monad_fiber_t *monad_fiber_start_switch(monad_fiber_t *cur_fiber,
-                                        monad_fiber_t *next_fiber);
+                                        monad_fiber_t *next_fiber,
+                                        enum monad_fiber_state next_cur_state);
 
-monad_fiber_t* _monad_fiber_finish_switch(monad_fiber_t *cur_fiber,
-                                          monad_fiber_t *prev_fiber,
+monad_fiber_t *_monad_fiber_finish_switch(monad_fiber_t *prev_fiber,
                                           monad_fcontext_t prev_fiber_sctx)
 ```
 
@@ -162,14 +306,14 @@ is intended to be an internal function, even though it has external linkage
 so that `fiber_thr.c` can call it. `monad_fiber_start_switch` has internal
 linkage, and is only called inside `fiber.c`.
 
-The suspension points (`monad_fiber_yield`, the synchronization primitive
-sleep functions, and the fiber function return stub), call this
-slightly-higher-level wrapper, which will suspend the current fiber and
-switch to another one:
+The suspension points (`monad_fiber_yield`, `_monad_fiber_sleep`, and the
+fiber function return stub), instead call this slightly-higher-level wrapper,
+which will populate the suspension metadata for the current fiber and switch
+to the previously-executing fiber:
 
 ```.h
 void _monad_fiber_suspend(monad_fiber_t *self,
-                          enum monad_fiber_state next_state,
+                          enum monad_fiber_state next_self_state,
                           enum monad_fiber_suspend_type suspend_type,
                           uintptr_t eval)
 ```
@@ -180,20 +324,18 @@ Some details of how "start_switch" and "finish_switch" work:
   will be *switched from* and thus suspended) and a next fiber
   (which will be *switched to*, and thus resumed)
 
-- Before the switch starts, and after the switch finishes, the
-  current thread must own the spinlocks of both fibers; they
-  remain locked throughout both halves of the switching process, and
-  are released only when the switch completes; once the switch completes,
-  the current `monad_fiber_t` object remains unlocked as it is running
+- There are two functions because during "start switch", we're still running
+  on the "switched from" stack, and during "finish switch" we're running
+  on the "switched to" stack
 
 - When `monad_fiber_start_switch` is called, we are running on the stack
   of the current fiber; this function performs some book-keeping and calls
   the machine-dependent switch function, which causes the switch to happen
-  at the hardware level
+  at the CPU level
 
-- Immediately after the hardware-level switch happens, we are running on
-  the stack of the resumed (or newly-started) fiber, and the previously
-  running fiber is now suspended; this resumption site must immediately call
+- Immediately after the CPU-level switch happens, we are running on the
+  stack of the resumed (or newly-started) fiber, and the previously running
+  fiber is now suspended; this resumption site must immediately call
   `_monad_fiber_finish_switch` to complete the switch; we also have access
   to the `monad_fiber_t*` of the suspended fiber we just switched from (as
   the `prev_fiber` variable) and the machine-dependent context pointer of
@@ -202,7 +344,7 @@ Some details of how "start_switch" and "finish_switch" work:
 
 - The resumption can only happen at well-defined locations: namely the start
   of the fiber, or immediately after the suspension "returns" (see the next
-  point). This is the point where we must call `_monad_fiber_finish_switch`
+  point). This is the place where we must call `_monad_fiber_finish_switch`
 
 - The tricky part of understanding how this works is becoming familiar with
   the following interesting pattern: when we perform a `monad_jump_fcontext`,
@@ -215,7 +357,39 @@ Some details of how "start_switch" and "finish_switch" work:
   we've been resumed and are on the original stack, but are potentially on a
   different host thread than when we were suspended on (!)
 
-## Thread fibers (or "what is `fiber_thr.c`?")
+- Keep in mind that although we typically jump back to the previously
+  executing fiber, that does not mean that two fibers are forever linked
+  together in a pair. Typically a task fiber will *migrate* between
+  threads, as each worker thread selects the highest priority fiber that
+  is ready to run
+
+To understand this last point (which is the cause of most bugs), please
+read the section on "thread fibers", and then consider this example with
+three fibers:
+
+1. `monad_fiber_t *the_task` - fiber running a task we care about
+2. `monad_fiber_t *thr_1` - thread fiber of "fiber pool" worker thread
+3. `monad_fiber_t *thr_2` - thread fiber of a different fiber pool worker
+    thread
+
+When our task originally starts running, it is because `monad_fiber_run`
+was called from `thr_1`. When the `the_task` suspends, control is returned
+to `thr_1`. Suppose the suspension occurs because of some complex
+synchronization condition that will be unblocked far in the future.
+
+When `the_task` is ready to be woken up, it is re-added to a
+`monad_run_queue_t`. Suppose that `thr_1` is busy when this happens, so it
+ends up being the `thr_2` worker that pops the `the_task` from the priority
+queue.
+
+In this case `the_task` will be restarted at the suspension point,
+but when returning from `_monad_fiber_suspend`, the `prev_fiber` will not be
+the same as it originally was (originally, it was `thr_1`, now it is
+`thr_2`). This is also why both `monad_fiber_start_switch` and
+`_monad_fiber_finish_switch` return the previous fiber. It is a
+convenience to caller, who must unlock it.
+
+## Thread fibers / what is `fiber_thr.c`?
 
 Most fibers are user-created, but in the current db implementation, an
 ordinary thread of execution is sometimes treated as though it is running on
@@ -225,10 +399,9 @@ existing db code grew to rely on it.
 For this to work, we need to make an ordinary thread context pretend that it
 is a fiber. This is called a "thread fiber" in the code. To simplify
 `fiber.c`, most of the code for thread fiber support lives in a different
-file, `fiber_thr.c`.
-
-This is because thread fibers are special in several ways, thus they are
-easy to separate out and not complicate the main implementation file.
+file, `fiber_thr.c`.  This is because thread fibers are special in several
+ways, thus they are easy to separate out and not complicate the core
+implementation file.
 
 There are two parts of thread fiber support:
 
@@ -240,3 +413,23 @@ There are two parts of thread fiber support:
    it goes to sleep on a wait channel. For performance reasons, the wakeup
    fiber spins until it is woken up
 
+### Thread fibers improve code quality
+
+Although thread fibers were created to avoid rewriting legacy database
+code, they clean up the implementation significantly. Even if there were
+no legacy database code that needed thread fibers, it might still make
+good engineering sense to add them, given that they make the implementation
+easier to understand.
+
+By modeling the regular thread execution context as a "fake" fiber, we
+create a nice symmetry in code: both the previous execution context and
+the next execution context are explicitly modeled as fibers, i.e., there
+is a `monad_fiber_t` object describing both of them. This makes the core
+implementation (in `fiber.c`) indifferent to the true nature of whether
+an execution context is "native thread context" or a "real fiber context".
+The details that make the illusion work are moved out of the way, into
+`fiber_thr.c`.
+
+In practice, it is always thread fibers that run lightweight scheduling
+algorithms and call `monad_fiber_run`. You could build more complex chains
+of fibers that call each other, but currently we do not.

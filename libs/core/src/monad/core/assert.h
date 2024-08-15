@@ -18,7 +18,7 @@ void __attribute__((noreturn)) monad_assertion_failed(
             #expr, __extension__ __PRETTY_FUNCTION__, __FILE__, __LINE__);     \
     }
 
-#ifdef NDEBUG
+#if defined(NDEBUG) && !MONAD_CORE_FORCE_DEBUG_ASSERT
     #define MONAD_DEBUG_ASSERT(x)                                              \
         do {                                                                   \
             (void)sizeof(x);                                                   \

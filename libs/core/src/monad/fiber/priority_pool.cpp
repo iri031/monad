@@ -2,7 +2,6 @@
 
 #include <sys/mman.h>
 #include <monad/core/assert.h>
-#include <monad/core/dump.hpp>
 #include <monad/core/srcloc.hpp>
 #include <monad/fiber/config.hpp>
 #include <monad/fiber/fiber.h>
@@ -21,7 +20,7 @@
 
 namespace {
 
-constexpr size_t FIBER_STACK_SIZE = (1 << 21); // 2 MiB
+constexpr size_t FIBER_STACK_SIZE = (1 << 20); // 1 MiB
 
 // The work-stealing function run by all the fibers. It pulls TaskChannelItem
 // instances from the task fiber channel and runs their PriorityTasks
@@ -126,7 +125,6 @@ PriorityPool::~PriorityPool()
 void PriorityPool::submit(monad_fiber_prio_t priority,
                           std::function<void()> task) {
     monad_spinlock_lock(&channel_items_lock_);
-    ++channel_items_stats_.total_tasks;
     TaskChannelItem &channel_item =
         channel_items_.emplace_back(monad_fiber_vbuf_t{}, this,
                                     PriorityTask{priority, std::move(task)});
@@ -135,26 +133,6 @@ void PriorityPool::submit(monad_fiber_prio_t priority,
     const iovec iov = {std::addressof(channel_item), sizeof channel_item};
     monad_fiber_vbuf_init(&channel_item.vbuf, &iov);
     monad_fiber_channel_push(&task_channel_, &channel_item.vbuf);
-}
-
-void PriorityPool::print_stats(monad_dump_ctx_t *pool_ctx, bool dump_fibers) {
-    monad_dump_println(pool_ctx, "priority pool %p statistics:", this);
-    monad_dump_println(pool_ctx, "channel tasks submitted: %zu",
-                       channel_items_stats_.total_tasks);
-
-    {
-        const raii_dump_ctx rctx{pool_ctx, "monad_run_queue %p stats:",
-                                 run_queue_};
-        monad_run_queue_dump_stats(run_queue_, rctx.get());
-    }
-
-    if (dump_fibers) {
-        monad_dump_println(pool_ctx, "stats for %zu fibers:", fibers_.size());
-        for (unsigned i = 0; const monad_fiber_t &fiber : fibers_) {
-            const raii_dump_ctx rctx{pool_ctx, "* FIBER %u", i++};
-            monad_fiber_dump(&fiber, rctx.get());
-        }
-    }
 }
 
 MONAD_FIBER_NAMESPACE_END

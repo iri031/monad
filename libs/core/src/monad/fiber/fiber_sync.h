@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/queue.h>
+#include <monad/core/assert.h>
 #include <monad/core/spinlock.h>
 #include <monad/core/srcloc.h>
 #include <monad/fiber/fiber.h>
@@ -42,7 +43,8 @@ static inline void monad_wait_queue_try_wakeup(monad_fiber_wait_queue_t *wq) {
     if (!TAILQ_EMPTY(&wq->waiting_fibers)) {
         // There is at least one fiber waiting for a value; try to wake it up
         waiter = TAILQ_FIRST(&wq->waiting_fibers);
-        (void)_monad_fiber_try_wakeup(waiter, wq);
+        const bool woke_up = _monad_fiber_try_wakeup(waiter, wq);
+        MONAD_ASSERT(woke_up);
     } else
         monad_spinlock_unlock(wq->lock);
 }
