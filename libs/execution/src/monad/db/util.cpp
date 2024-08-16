@@ -48,6 +48,8 @@
 #include <string>
 #include <utility>
 
+#include <iostream>
+
 MONAD_NAMESPACE_BEGIN
 
 using namespace monad::mpt;
@@ -496,6 +498,7 @@ Result<Account> decode_account_db_ignore_address(byte_string_view &enc)
     BOOST_OUTCOME_TRY(
         auto const address_byte_view, rlp::parse_string_metadata(payload));
     if (MONAD_UNLIKELY(address_byte_view.size() != sizeof(Address))) {
+        std::cerr << address_byte_view.size() << std::endl;
         return rlp::DecodeError::ArrayLengthUnexpected;
     }
     return decode_account_db_helper(payload);

@@ -393,6 +393,10 @@ int main(int const argc, char const *argv[])
 
     uint64_t const start_block_num = init_block_num + 1;
 
+    if (nblocks == 0) {
+        return EXIT_SUCCESS;
+    }
+
     LOG_INFO(
         "Running with block_db = {}, start block number = {}, "
         "number blocks = {}",

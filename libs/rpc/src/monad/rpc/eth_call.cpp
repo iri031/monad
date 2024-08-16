@@ -23,54 +23,54 @@
 #include <filesystem>
 #include <vector>
 
+#include <iostream>
+#include <iomanip>
+
 using namespace monad;
 
-namespace
+Result<evmc::Result> eth_call_impl(
+    Transaction const &txn, BlockHeader const &header,
+    uint64_t const block_number, Address const &sender,
+    BlockHashBuffer const &buffer,
+    std::vector<std::filesystem::path> const &dbname_paths)
 {
-    Result<evmc::Result> eth_call_impl(
-        Transaction const &txn, BlockHeader const &header,
-        uint64_t const block_number, Address const &sender,
-        BlockHashBuffer const &buffer,
-        std::vector<std::filesystem::path> const &dbname_paths)
-    {
-        constexpr evmc_revision rev = EVMC_SHANGHAI; // TODO
-        MonadDevnet chain;
-        MONAD_ASSERT(rev == chain.get_revision(header));
+    constexpr evmc_revision rev = EVMC_SHANGHAI; // TODO
+    MonadDevnet chain;
+    MONAD_ASSERT(rev == chain.get_revision(header));
 
-        Transaction enriched_txn{txn};
+    Transaction enriched_txn{txn};
 
-        // SignatureAndChain validation hacks
-        enriched_txn.sc.chain_id = chain.get_chain_id();
-        enriched_txn.sc.r = 1;
-        enriched_txn.sc.s = 1;
+    // SignatureAndChain validation hacks
+    enriched_txn.sc.chain_id = chain.get_chain_id();
+    enriched_txn.sc.r = 1;
+    enriched_txn.sc.s = 1;
 
-        BOOST_OUTCOME_TRY(static_validate_transaction<rev>(
-            enriched_txn, header.base_fee_per_gas, chain.get_chain_id()))
+    BOOST_OUTCOME_TRY(static_validate_transaction<rev>(
+        enriched_txn, header.base_fee_per_gas, chain.get_chain_id()))
 
-        mpt::Db db{mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = dbname_paths}};
-        TrieDb ro{db};
-        ro.set_block_number(block_number);
-        BlockState block_state{ro};
-        Incarnation incarnation{block_number, Incarnation::LAST_TX};
-        State state{block_state, incarnation};
+    mpt::Db db{mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = dbname_paths}};
+    TrieDb ro{db};
+    ro.set_block_number(block_number);
+    BlockState block_state{ro};
+    Incarnation incarnation{block_number, Incarnation::LAST_TX};
+    State state{block_state, incarnation};
 
-        // nonce validation hack
-        auto const acct = ro.read_account(sender);
-        enriched_txn.nonce = acct.has_value() ? acct.value().nonce : 0;
+    // nonce validation hack
+    auto const acct = ro.read_account(sender);
+    enriched_txn.nonce = acct.has_value() ? acct.value().nonce : 0;
 
-        BOOST_OUTCOME_TRY(validate_transaction(enriched_txn, acct));
-        auto const tx_context = get_tx_context<rev>(
-            enriched_txn, sender, header, chain.get_chain_id());
-        EvmcHost<rev> host{tx_context, buffer, state};
-        return execute_impl_no_validation<rev>(
-            state,
-            host,
-            enriched_txn,
-            sender,
-            header.base_fee_per_gas.value_or(0),
-            header.beneficiary);
-    }
+    BOOST_OUTCOME_TRY(validate_transaction(enriched_txn, acct));
 
+    auto const tx_context =
+        get_tx_context<rev>(enriched_txn, sender, header, chain.get_chain_id());
+    EvmcHost<rev> host{tx_context, buffer, state};
+    return execute_impl_no_validation<rev>(
+        state,
+        host,
+        enriched_txn,
+        sender,
+        header.base_fee_per_gas.value_or(0),
+        header.beneficiary);
 }
 
 namespace monad
