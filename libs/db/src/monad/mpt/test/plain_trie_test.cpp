@@ -3,14 +3,12 @@
 
 #include <monad/core/byte_string.hpp>
 #include <monad/core/hex_literal.hpp>
-#include <monad/mpt/detail/boost_fiber_workarounds.hpp>
+#include <monad/fiber/future.hpp>
 #include <monad/mpt/node.hpp>
 #include <monad/mpt/trie.hpp>
 #include <monad/mpt/update.hpp>
 
 #include <monad/test/gtest_signal_stacktrace_printer.hpp> // NOLINT
-
-#include <boost/fiber/future/future_status.hpp>
 
 #include <chrono>
 #include <utility>
@@ -400,13 +398,12 @@ TYPED_TEST(PlainTrieTest, large_values)
 
     same_upsert_to_clear_nodes_outside_cache_level();
     {
-        monad::threadsafe_boost_fibers_promise<find_result_type> p;
+        monad::fiber::simple_promise<find_result_type> p;
         auto fut = p.get_future();
         inflight_map_t inflights;
         fiber_find_request_t const req{&p, *this->root, key1};
         find_notify_fiber_future(this->aux, inflights, req);
-        while (fut.wait_for(std::chrono::seconds(0)) !=
-               ::boost::fibers::future_status::ready) {
+        while (!fut.poll()) {
             this->aux.io->wait_until_done();
         }
         auto [leaf_it, res] = fut.get();
@@ -419,13 +416,12 @@ TYPED_TEST(PlainTrieTest, large_values)
 
     same_upsert_to_clear_nodes_outside_cache_level();
     {
-        monad::threadsafe_boost_fibers_promise<find_result_type> p;
+        monad::fiber::simple_promise<find_result_type> p;
         auto fut = p.get_future();
         inflight_map_t inflights;
         fiber_find_request_t const req{&p, *this->root, key2};
         find_notify_fiber_future(this->aux, inflights, req);
-        while (fut.wait_for(std::chrono::seconds(0)) !=
-               ::boost::fibers::future_status::ready) {
+        while (!fut.poll()) {
             this->aux.io->wait_until_done();
         }
         auto [leaf_it, res] = fut.get();
