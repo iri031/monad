@@ -32,6 +32,7 @@ public:
 
     bool valid() const noexcept;
     void wait();
+    bool poll() noexcept;
 
     simple_future& operator=(const simple_future&) = delete;
     simple_future& operator=(simple_future&&) noexcept;
@@ -118,6 +119,7 @@ public:
 
     bool valid() const noexcept;
     void wait();
+    bool poll() noexcept;
 
     simple_future& operator=(const simple_future&) = delete;
     simple_future& operator=(simple_future&&) noexcept;
@@ -194,6 +196,12 @@ void simple_future<T>::wait() {
     vbuf_ = monad_fiber_channel_pop(channel_, MONAD_FIBER_PRIO_NO_CHANGE);
 }
 
+template <typename T>
+bool simple_future<T>::poll() noexcept {
+    vbuf_ = monad_fiber_channel_try_pop(channel_);
+    return valid();
+}
+
 inline simple_future<void>::simple_future() noexcept
     : sem_{nullptr}, has_token_{false} {}
 
@@ -222,6 +230,11 @@ inline void simple_future<void>::wait() {
     if (has_token_)
         throw std::future_error{std::future_errc::future_already_retrieved};
     monad_fiber_semaphore_wait(sem_, MONAD_FIBER_PRIO_NO_CHANGE);
+}
+
+inline bool simple_future<void>::poll() noexcept {
+    has_token_ = monad_fiber_semaphore_try_consume(sem_);
+    return valid();
 }
 
 template <typename T>
