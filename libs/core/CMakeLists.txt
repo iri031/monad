@@ -7,8 +7,25 @@ project(monad_core LANGUAGES C CXX ASM)
 
 option(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+  set(_monad_spinlock_track_owner_info ON)
+  set(_monad_spinlock_track_stats ON)
+else()
+  set(_monad_spinlock_track_owner_info OFF)
+  set(_monad_spinlock_track_stats OFF)
+endif()
+
 option(MONAD_CORE_FORCE_DEBUG_ASSERT
-        "Enable MONAD_DEBUG_ASSERT in any build mode" OFF)
+       "Enable MONAD_DEBUG_ASSERT in any build mode" OFF)
+
+option(MONAD_CORE_SPINLOCK_TRACK_OWNER_INFO
+       "enable source location of owner in spinlocks"
+       ${_monad_spinlock_track_owner_info})
+option(MONAD_CORE_SPINLOCK_TRACK_STATS
+       "enable contention statistics tracking of spinlocks"
+       ${_monad_spinlock_track_stats})
+option(MONAD_CORE_SPINLOCK_TRACK_STATS_ATOMIC
+       "use fetch_add on atomics statistics tracking" OFF)
 
 # ##############################################################################
 # deps
@@ -123,6 +140,8 @@ add_library(
   "src/monad/core/size_of.hpp"
   "src/monad/core/small_prng.hpp"
   "src/monad/core/spinlock.h"
+  "src/monad/core/srcloc.h"
+  "src/monad/core/srcloc.hpp"
   "src/monad/core/thread.h"
   "src/monad/core/thread.c"
   "src/monad/core/unaligned.hpp"
