@@ -30,3 +30,11 @@ monad_add_test(unordered_map_test "unordered_map.cpp")
 # C++ dependencies
 add_executable(check_c_only check_c_only.c)
 target_link_libraries(check_c_only PRIVATE monad_core_c monad_core_crt)
+
+# Ensure the API demo described in fiber-api.md compiles
+if (0) # Still for exposition only, compiles but does not link
+add_executable(fiber-hello fiber-hello.c)
+target_compile_features(fiber-hello PRIVATE c_std_23)
+target_compile_options(fiber-hello PRIVATE -Wall -Werror -Wextra)
+target_link_libraries(fiber-hello PRIVATE monad_core_c)
+endif()

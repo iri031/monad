@@ -92,6 +92,10 @@ add_library(monad_core_c OBJECT
   "src/monad/core/assert.c"
   "src/monad/core/assert.h"
   "src/monad/core/c_result.h"
+  # fiber
+  "src/monad/fiber/fiber.h"
+  "src/monad/fiber/fiber.c"
+  "src/monad/fiber/fiber_util.h"
   # util
   "src/monad/util/parse_util.h"
   "src/monad/util/parse_util.c")
