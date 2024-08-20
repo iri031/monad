@@ -16,6 +16,12 @@ monad_add_test(io_buffers_test "io_buffers.cpp")
 monad_add_test(literal_test "literal_test.cpp")
 monad_add_test(priority_pool_test "priority_pool_test.cpp")
 set_target_properties(priority_pool_test PROPERTIES RUN_SERIAL ON)
+monad_add_test(spinlock_test "spinlock.cpp")
+monad_add_test(spinlock_all_options_test "spinlock.cpp")
+target_compile_definitions(spinlock_all_options_test PRIVATE
+    MONAD_SPINLOCK_TRACK_OWNER_INFO=1
+    MONAD_SPINLOCK_TRACK_STATS=1
+    MONAD_SPINLOCK_TRACK_STATS_ATOMIC=1)
 monad_add_test(unordered_map_test "unordered_map.cpp")
 
 # This target checks that we can compile a C program without any (direct) C++

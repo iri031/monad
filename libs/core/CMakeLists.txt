@@ -10,6 +10,23 @@ option(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(MONAD_CORE_FORCE_DEBUG_ASSERT
        "Enable MONAD_DEBUG_ASSERT in any build mode" OFF)
 
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+  set(_monad_spinlock_track_owner_info ON)
+  set(_monad_spinlock_track_stats ON)
+else()
+  set(_monad_spinlock_track_owner_info OFF)
+  set(_monad_spinlock_track_stats OFF)
+endif()
+
+option(MONAD_CORE_SPINLOCK_TRACK_OWNER_INFO
+       "enable source location of owner in spinlocks"
+       ${_monad_spinlock_track_owner_info})
+option(MONAD_CORE_SPINLOCK_TRACK_STATS
+       "enable contention statistics tracking of spinlocks"
+       ${_monad_spinlock_track_stats})
+option(MONAD_CORE_SPINLOCK_TRACK_STATS_ATOMIC
+       "use fetch_add on atomics statistics tracking" OFF)
+
 # ##############################################################################
 # deps
 # ##############################################################################
@@ -108,7 +125,6 @@ add_library(
   "src/monad/core/cmemory.hpp"
   "src/monad/core/cleanup.h"
   "src/monad/core/cleanup.c"
-  "src/monad/core/cpu_relax.h"
   "src/monad/core/c_result_impl.cpp"
   "src/monad/core/endian.hpp"
   "src/monad/core/hash.hpp"
@@ -124,6 +140,9 @@ add_library(
   "src/monad/core/size_of.hpp"
   "src/monad/core/small_prng.hpp"
   "src/monad/core/spinlock.h"
+  "src/monad/core/spinloop.h"
+  "src/monad/core/srcloc.h"
+  "src/monad/core/srcloc.hpp"
   "src/monad/core/thread.h"
   "src/monad/core/unaligned.hpp"
   "src/monad/core/unordered_map.hpp"
@@ -177,6 +196,26 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
     "src/monad/procfs/statm.h")
 elseif(APPLE)
   target_sources(monad_core PRIVATE "src/monad/core/thread-darwin.c")
+endif()
+
+if (MONAD_CORE_FORCE_DEBUG_ASSERT)
+  target_compile_definitions(monad_core
+          PUBLIC MONAD_CORE_FORCE_DEBUG_ASSERT=1)
+endif()
+
+if (MONAD_CORE_SPINLOCK_TRACK_OWNER_INFO)
+  target_compile_definitions(monad_core
+          PUBLIC MONAD_SPINLOCK_TRACK_OWNER_INFO=1)
+endif()
+
+if (MONAD_CORE_SPINLOCK_TRACK_STATS)
+  target_compile_definitions(monad_core
+          PUBLIC MONAD_SPINLOCK_TRACK_STATS=1)
+endif()
+
+if (MONAD_CORE_SPINLOCK_TRACK_STATS_ATOMIC)
+  target_compile_definitions(monad_core
+          PUBLIC MONAD_SPINLOCK_TRACK_STATS_ATOMIC=1)
 endif()
 
 target_include_directories(monad_core PUBLIC "src")
