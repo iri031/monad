@@ -149,7 +149,7 @@ static void init_thread_fiber(monad_fiber_t *thread_fiber) {
     thread_stack.stack_top =
         (uint8_t*)thread_stack.stack_bottom + thread_stack_size;
 
-    (void)monad_fiber_init(thread_fiber, thread_stack);
+    monad_fiber_init(thread_fiber, thread_stack);
     thread_fiber->priority = MONAD_FIBER_PRIO_LOWEST;
     thread_fiber->state = MF_STATE_RUNNING;
     thread_fiber->last_thread = pthread_self();

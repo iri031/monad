@@ -1,6 +1,6 @@
-# Design and implementation notes
+# `monad_fiber` design and implementation notes
 
-## Lightweight fiber library overview
+## Goals and overview
 
 A fiber library generally consists of three parts:
 
@@ -25,11 +25,11 @@ implementation details will require some time investment!
 
 ### "Hello, world!" using fibers
 
-The following listing shows a "Hello, World!" example that only uses
-the fibers themselves -- there are no synchronization primitives and thus
-there is no scheduling. The fiber print a "Hello, World!" style message
-three times, suspending itself after each time. After the last message,
-it finishes.
+The following listing shows a "Hello, World!" example written in C that
+only uses  the fibers themselves -- there are no synchronization primitives
+and thus there is no scheduling. The fiber print a "Hello, World!" style
+message three times, suspending itself after each time. After the last
+message, it finishes.
 
 ```.c
 #include <assert.h>
@@ -166,8 +166,8 @@ int main(int argc, char **argv) {
    - `future.hpp` - defines the C++ types `simple_future<T>` and
      `simple_promise<T>`; these are similar to (but less fully-featured than)
      those found in C++11 `<future>`; `simple_promise<T>` is implemented
-     usingterms of `monad_fiber_channel_t`, whereas the
-     `simple_promise<void>` specialization uses `monad_sempaphore_t`
+     using `monad_fiber_channel_t`, whereas the `simple_promise<void>`
+     specialization uses `monad_sempaphore_t`
 
 3. The "scheduler"
    - `monad_run_queue.h` - defines the interface for a simple thread-safe
@@ -181,7 +181,7 @@ not have a full-fledged scheduler, or any higher-level abstractions such as a
 task pool, run-loop, worker threads, etc.
 
 The intention is for the user code to solve its problem directly, creating
-complex objects only it it needs them, and using `monad_fiber` as a bare-bones
+complex objects only if it needs them, and using `monad_fiber` as a bare-bones
 helper module. The only point of coupling between the three parts of a fiber
 system is the priority queue, `monad_run_queue_t`.
 
@@ -339,10 +339,9 @@ Some details of how "start_switch" and "finish_switch" work:
   stack of the resumed (or newly-started) fiber, and the previously running
   fiber is now suspended; this resumption site must immediately call
   `_monad_fiber_finish_switch` to complete the switch; we also have access
-  to the `monad_fiber_t*` of the suspended fiber we just switched from (as
-  the `prev_fiber` variable) and the machine-dependent context pointer of
-  its suspension point (`prev_fiber_sctx`, where `sctx` means "suspended
-  context")
+  to the `struct in_progress_fiber_switch` of the suspended fiber we just
+  switched from and the machine-dependent context pointer of its suspension
+  point via the `struct monad_transfer_t` object
 
 - The resumption can only happen at well-defined locations: namely the start
   of the fiber, or immediately after the suspension "returns" (see the next
@@ -387,9 +386,17 @@ queue.
 In this case `the_task` will be restarted at the suspension point,
 but when returning from `_monad_fiber_suspend`, the `prev_fiber` will not be
 the same as it originally was (originally, it was `thr_1`, now it is
-`thr_2`). This is also why both `monad_fiber_start_switch` and
-`_monad_fiber_finish_switch` return the previous fiber. It is a
-convenience to caller, who must unlock it.
+`thr_2`).
+
+An in-progress switch is described by the internal structure
+`struct in_progress_fiber_switch`, which is passed between the start
+and finish halves of the fiber context switch. When we *start* a fiber
+switch, the `struct in_progress_fiber_switch` represents the switch we
+are initiating -- our fiber is the `monad_fiber_t *switch_from` member.
+When `monad_jump_fcontext` *returns*, the return value contains the
+`struct in_progress_fiber_switch *` describing our resumption, initiated
+from somewhere else (possibly a different worker thread). Now our fiber
+is the `monad_fiber_t *switch_to` member.
 
 ## Thread fibers / what is `fiber_thr.c`?
 
@@ -427,10 +434,13 @@ By modeling the regular thread execution context as a "fake" fiber, we
 create a nice symmetry in code: both the previous execution context and
 the next execution context are explicitly modeled as fibers, i.e., there
 is a `monad_fiber_t` object describing both of them. This makes the core
-implementation (in `fiber.c`) indifferent to the true nature of whether
-an execution context is "native thread context" or a "real fiber context".
-The details that make the illusion work are moved out of the way, into
-`fiber_thr.c`.
+implementation (in `fiber.c`) indifferent to whether an execution context
+is a "native thread" context or a "real fiber" context. The details that
+make the illusion work are moved out of the way, into `fiber_thr.c`.
+This allows the low-level switching machinery, e.g. `struct
+in_progress_fiber_switch` and the functions that use it, to represent both
+halves of the switch as just two `monad_fiber_t*` instances, even though
+they are usually different kinds of contexts.
 
 In practice, it is always thread fibers that run lightweight scheduling
 algorithms and call `monad_fiber_run`. You could build more complex chains

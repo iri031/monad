@@ -268,7 +268,7 @@ int monad_fiber_run(monad_fiber_t *next_fiber,
     monad_fiber_t *const cur_fiber = monad_fiber_self();
 
     // The fiber is usually already locked, since fibers remain locked when
-    // returned from the run queue. However you can also run a fiber directly,
+    // returned from the run queue. However, you can also run a fiber directly
     // e.g., in the test suite. Acquire the lock if we don't have it
     if (MONAD_UNLIKELY(!monad_spinlock_is_owned(&next_fiber->lock)))
         MONAD_SPINLOCK_LOCK(&next_fiber->lock);
@@ -300,8 +300,8 @@ int monad_fiber_run(monad_fiber_t *next_fiber,
 int monad_fiber_set_name(monad_fiber_t *fiber, const char *name) {
     if (name == nullptr)
         return EFAULT;
-    // XXX: not thread, do we care enough to lock here? we also need a get_name
-    // if we want to force them to use get/set functions
+    // XXX: not thread-safe, do we care enough to lock here? we also need a
+    // get_name if we want to force them to use get/set functions
     (void)strncpy(fiber->name, name, MONAD_FIBER_NAME_LEN);
     return strlen(name) > MONAD_FIBER_NAME_LEN ? ENAMETOOLONG : 0;
 }
@@ -347,6 +347,11 @@ bool _monad_fiber_try_wakeup(monad_fiber_t *fiber,
         // Thread fiber "scheduling" always succeeds: it just signals the
         // sleeping thread's wakeup fiber
         _monad_wakeup_thread_fiber(fiber->thread_fs, wq);
+        return true;
+    }
+    if (MONAD_UNLIKELY(fiber->run_queue == nullptr)) {
+        // XXX: only for the test suite?
+        monad_spinlock_unlock(&fiber->lock);
         return true;
     }
     if ((rc = monad_run_queue_try_push(fiber->run_queue, fiber)) == 0)

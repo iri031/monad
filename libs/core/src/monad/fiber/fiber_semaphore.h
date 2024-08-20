@@ -24,6 +24,8 @@ static inline void monad_fiber_semaphore_init(monad_fiber_semaphore_t *sem,
 static inline void monad_fiber_semaphore_wait(monad_fiber_semaphore_t *sem,
                                               monad_fiber_prio_t wakeup_prio);
 
+static inline bool monad_fiber_semaphore_try_consume(monad_fiber_semaphore_t *sem);
+
 static inline void monad_fiber_semaphore_signal(monad_fiber_semaphore_t *sem);
 
 static inline int monad_fiber_semaphore_set_name(monad_fiber_semaphore_t *sem,
@@ -58,6 +60,17 @@ TryAgain:
     _monad_fiber_sleep(&sem->wait_queue, wakeup_prio);
     MONAD_DEBUG_ASSERT(monad_spinlock_is_owned(&sem->lock));
     goto TryAgain;
+}
+
+bool monad_fiber_semaphore_try_consume(monad_fiber_semaphore_t *sem) {
+    bool has_token = false;
+    MONAD_SPINLOCK_LOCK(&sem->lock);
+    if (sem->tokens > 0) [[likely]] {
+        --sem->tokens;
+        has_token = true;
+    }
+    monad_spinlock_unlock(&sem->lock);
+    return has_token;
 }
 
 void monad_fiber_semaphore_signal(monad_fiber_semaphore_t *sem) {

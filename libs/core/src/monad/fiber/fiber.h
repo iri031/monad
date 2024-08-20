@@ -90,6 +90,11 @@ int monad_fiber_set_name(monad_fiber_t *fiber, const char *name);
 /// explanation of thread fibers
 static inline bool monad_fiber_is_thread_fiber(const monad_fiber_t *fiber);
 
+/// Returns true if the given fiber would execute immediately if monad_fiber_run
+/// is called; be aware that this has a TOCTOU race in multithreaded code,
+/// e.g., this could change asynchronously because of another thread
+static inline bool monad_fiber_is_runnable(const monad_fiber_t *fiber);
+
 struct monad_fiber_stack {
     void *stack_base;    ///< Lowest addr, incl. unusable memory (guard pages)
     void *stack_bottom;  ///< Bottom of usable stack
@@ -163,7 +168,14 @@ enum monad_fiber_state : unsigned {
 };
 
 static inline bool monad_fiber_is_thread_fiber(const monad_fiber_t *fiber) {
+    MONAD_DEBUG_ASSERT(fiber != nullptr);
     return fiber->ffunc == nullptr && fiber->thread_fs != nullptr;
+}
+
+static inline bool monad_fiber_is_runnable(const monad_fiber_t *fiber) {
+    MONAD_DEBUG_ASSERT(fiber != nullptr);
+    return __atomic_load_n(&fiber->state, __ATOMIC_SEQ_CST) ==
+        MF_STATE_CAN_RUN;
 }
 
 #if __cplusplus

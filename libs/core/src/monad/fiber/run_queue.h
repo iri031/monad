@@ -36,6 +36,11 @@ static inline int monad_run_queue_try_push(monad_run_queue_t *rq,
 /// fiber
 static inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq);
 
+/// Returns true if the run queue is currently empty;be aware that this has
+/// a TOCTOU race in multithreaded code, e.g., this could change asynchronously
+/// because of another thread
+static inline bool monad_run_queue_is_empty(const monad_run_queue_t *rq);
+
 /// Scheduling statistics; some writes to these are unlocked without the use
 /// of fetch_add atomic semantics, so they are only approximate
 struct monad_run_queue_stats {
@@ -205,6 +210,10 @@ static inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq) {
 #undef PQ_PARENT_IDX
 #undef PQ_LEFT_CHILD_IDX
 #undef PQ_RIGHT_CHILD_IDX
+
+static inline bool monad_run_queue_is_empty(const monad_run_queue_t *rq) {
+    return atomic_load_explicit(&rq->size, memory_order_relaxed) == 0;
+}
 
 #ifdef __cplusplus
 } // extern "C"

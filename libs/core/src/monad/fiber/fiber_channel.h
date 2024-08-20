@@ -34,6 +34,9 @@ static inline void monad_fiber_channel_push(monad_fiber_channel_t *channel,
                                             monad_fiber_vbuf_t *vbuf);
 
 static inline monad_fiber_vbuf_t*
+monad_fiber_channel_try_pop(monad_fiber_channel_t *channel);
+
+static inline monad_fiber_vbuf_t*
 monad_fiber_channel_pop(monad_fiber_channel_t *channel,
                         monad_fiber_prio_t wakeup_prio);
 
@@ -83,6 +86,18 @@ void monad_fiber_channel_push(monad_fiber_channel_t *channel,
     MONAD_SPINLOCK_LOCK(&channel->lock);
     TAILQ_INSERT_TAIL(&channel->ready_vbufs, vbuf, link);
     monad_wait_queue_try_wakeup(&channel->wait_queue);
+}
+
+monad_fiber_vbuf_t* monad_fiber_channel_try_pop(monad_fiber_channel_t *channel)
+{
+    monad_fiber_vbuf_t *vbuf = nullptr;
+    MONAD_SPINLOCK_LOCK(&channel->lock);
+    if (!TAILQ_EMPTY(&channel->ready_vbufs)) [[likely]] {
+        vbuf = TAILQ_FIRST(&channel->ready_vbufs);
+        TAILQ_REMOVE(&channel->ready_vbufs, vbuf, link);
+    }
+    monad_spinlock_unlock(&channel->lock);
+    return vbuf;
 }
 
 monad_fiber_vbuf_t *monad_fiber_channel_pop(monad_fiber_channel_t *channel,
