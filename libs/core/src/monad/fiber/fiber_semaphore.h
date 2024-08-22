@@ -13,39 +13,44 @@
 #include <monad/fiber/fiber_sync.h>
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 typedef struct monad_fiber_semaphore monad_fiber_semaphore_t;
 
-static inline void monad_fiber_semaphore_init(monad_fiber_semaphore_t *sem,
-                                              monad_source_location_t srcloc);
+static inline void monad_fiber_semaphore_init(
+    monad_fiber_semaphore_t *sem, monad_source_location_t srcloc);
 
-static inline void monad_fiber_semaphore_wait(monad_fiber_semaphore_t *sem,
-                                              monad_fiber_prio_t wakeup_prio);
+static inline void monad_fiber_semaphore_wait(
+    monad_fiber_semaphore_t *sem, monad_fiber_prio_t wakeup_prio);
 
-static inline bool monad_fiber_semaphore_try_consume(monad_fiber_semaphore_t *sem);
+static inline bool
+monad_fiber_semaphore_try_consume(monad_fiber_semaphore_t *sem);
 
 static inline void monad_fiber_semaphore_signal(monad_fiber_semaphore_t *sem);
 
-static inline int monad_fiber_semaphore_set_name(monad_fiber_semaphore_t *sem,
-                                                 const char *name);
+static inline int
+monad_fiber_semaphore_set_name(monad_fiber_semaphore_t *sem, char const *name);
 
-struct monad_fiber_semaphore {
-    alignas(64) monad_spinlock_t lock;     ///< Protects all members
-    unsigned tokens;                       ///< Immediate wakeup tokens
-    monad_fiber_wait_queue_t wait_queue;   ///< List of waiting fibers
+struct monad_fiber_semaphore
+{
+    alignas(64) monad_spinlock_t lock; ///< Protects all members
+    unsigned tokens; ///< Immediate wakeup tokens
+    monad_fiber_wait_queue_t wait_queue; ///< List of waiting fibers
 };
 
-static inline void monad_fiber_semaphore_init(monad_fiber_semaphore_t *sem,
-                                              monad_source_location_t srcloc) {
+static inline void monad_fiber_semaphore_init(
+    monad_fiber_semaphore_t *sem, monad_source_location_t srcloc)
+{
     monad_spinlock_init(&sem->lock);
     sem->tokens = 0;
     monad_fiber_wait_queue_init(&sem->wait_queue, &sem->lock, srcloc);
 }
 
-void monad_fiber_semaphore_wait(monad_fiber_semaphore_t *sem,
-                                monad_fiber_prio_t wakeup_prio) {
+void monad_fiber_semaphore_wait(
+    monad_fiber_semaphore_t *sem, monad_fiber_prio_t wakeup_prio)
+{
     MONAD_SPINLOCK_LOCK(&sem->lock);
 TryAgain:
     if (sem->tokens > 0) {
@@ -62,7 +67,8 @@ TryAgain:
     goto TryAgain;
 }
 
-bool monad_fiber_semaphore_try_consume(monad_fiber_semaphore_t *sem) {
+bool monad_fiber_semaphore_try_consume(monad_fiber_semaphore_t *sem)
+{
     bool has_token = false;
     MONAD_SPINLOCK_LOCK(&sem->lock);
     if (sem->tokens > 0) [[likely]] {
@@ -73,14 +79,16 @@ bool monad_fiber_semaphore_try_consume(monad_fiber_semaphore_t *sem) {
     return has_token;
 }
 
-void monad_fiber_semaphore_signal(monad_fiber_semaphore_t *sem) {
+void monad_fiber_semaphore_signal(monad_fiber_semaphore_t *sem)
+{
     MONAD_SPINLOCK_LOCK(&sem->lock);
     ++sem->tokens;
     monad_wait_queue_try_wakeup(&sem->wait_queue);
 }
 
-static inline int monad_fiber_semaphore_set_name(monad_fiber_semaphore_t *sem,
-                                                 const char *name) {
+static inline int
+monad_fiber_semaphore_set_name(monad_fiber_semaphore_t *sem, char const *name)
+{
     return monad_fiber_wait_queue_set_name(&sem->wait_queue, name);
 }
 

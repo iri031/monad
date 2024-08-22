@@ -1,6 +1,5 @@
 #include <monad/fiber/priority_pool.hpp>
 
-#include <sys/mman.h>
 #include <monad/core/assert.h>
 #include <monad/core/srcloc.hpp>
 #include <monad/fiber/config.hpp>
@@ -8,6 +7,7 @@
 #include <monad/fiber/fiber_channel.h>
 #include <monad/fiber/fiber_util.h>
 #include <monad/fiber/run_queue.h>
+#include <sys/mman.h>
 
 #include <bit>
 #include <cstdio>
@@ -18,33 +18,37 @@
 
 #include <pthread.h>
 
-namespace {
+namespace
+{
 
-constexpr size_t FIBER_STACK_SIZE = (1 << 20); // 1 MiB
+    constexpr size_t FIBER_STACK_SIZE = (1 << 20); // 1 MiB
 
-// The work-stealing function run by all the fibers. It pulls TaskChannelItem
-// instances from the task fiber channel and runs their PriorityTasks
-[[noreturn]] uintptr_t fiber_main(uintptr_t fiber_arg) {
-    auto *const task_channel = std::bit_cast<monad_fiber_channel_t*>(fiber_arg);
-    while (true) {
-        // Pop a value buffer from the fiber channel. This buffer contains
-        // a TaskChannelItem
-        monad_fiber_vbuf_t *const vbuf =
-            monad_fiber_channel_pop(task_channel, MONAD_FIBER_PRIO_LOWEST);
-        const iovec iov = monad_fiber_vbuf_data(vbuf);
-        MONAD_ASSERT(iov.iov_len == sizeof(monad::fiber::TaskChannelItem));
-        auto *const tci =
-            static_cast<monad::fiber::TaskChannelItem*>(iov.iov_base);
+    // The work-stealing function run by all the fibers. It pulls
+    // TaskChannelItem instances from the task fiber channel and runs their
+    // PriorityTasks
+    [[noreturn]] uintptr_t fiber_main(uintptr_t fiber_arg)
+    {
+        auto *const task_channel =
+            std::bit_cast<monad_fiber_channel_t *>(fiber_arg);
+        while (true) {
+            // Pop a value buffer from the fiber channel. This buffer contains
+            // a TaskChannelItem
+            monad_fiber_vbuf_t *const vbuf =
+                monad_fiber_channel_pop(task_channel, MONAD_FIBER_PRIO_LOWEST);
+            iovec const iov = monad_fiber_vbuf_data(vbuf);
+            MONAD_ASSERT(iov.iov_len == sizeof(monad::fiber::TaskChannelItem));
+            auto *const tci =
+                static_cast<monad::fiber::TaskChannelItem *>(iov.iov_base);
 
-        // Set our fiber priority to whatever the task tells us it's supposed
-        // to be, then run the task
-        monad_fiber_self()->priority = tci->prio_task.priority;
-        tci->prio_task.task();
+            // Set our fiber priority to whatever the task tells us it's
+            // supposed to be, then run the task
+            monad_fiber_self()->priority = tci->prio_task.priority;
+            tci->prio_task.task();
 
-        // Tell the pool we're done with the task
-        tci->pool->finish(tci->self);
+            // Tell the pool we're done with the task
+            tci->pool->finish(tci->self);
+        }
     }
-}
 
 } // anonymous namespace
 
@@ -57,8 +61,8 @@ PriorityPool::PriorityPool(unsigned const n_threads, unsigned const n_fibers)
 
     threads_.reserve(n_threads);
     monad_run_queue_create(n_fibers, &run_queue_); // XXX: check return code
-    monad_fiber_channel_init(&task_channel_,
-                             make_srcloc(std::source_location::current()));
+    monad_fiber_channel_init(
+        &task_channel_, make_srcloc(std::source_location::current()));
     monad_fiber_channel_set_name(&task_channel_, "task_chan");
     monad_spinlock_init(&channel_items_lock_);
 
@@ -69,18 +73,23 @@ PriorityPool::PriorityPool(unsigned const n_threads, unsigned const n_fibers)
         monad_fiber_stack_t fiber_stack;
         size_t fiber_stack_size = FIBER_STACK_SIZE;
         if (int rc = monad_fiber_alloc_stack(&fiber_stack_size, &fiber_stack)) {
-            throw std::system_error{rc, std::generic_category(),
-                    "unable to allocate fiber stack memory region"};
+            throw std::system_error{
+                rc,
+                std::generic_category(),
+                "unable to allocate fiber stack memory region"};
         }
 
         monad_fiber_t &fiber = fibers_.emplace_back();
         monad_fiber_init(&fiber, fiber_stack);
-        monad_fiber_set_function(&fiber, MONAD_FIBER_PRIO_LOWEST, fiber_main,
-                                 std::bit_cast<uintptr_t>(&task_channel_));
+        monad_fiber_set_function(
+            &fiber,
+            MONAD_FIBER_PRIO_LOWEST,
+            fiber_main,
+            std::bit_cast<uintptr_t>(&task_channel_));
         snprintf(namebuf, sizeof namebuf, "F%03d", i);
         (void)monad_fiber_set_name(&fiber, namebuf);
         monad_fiber_debug_add(&fiber);
-        const int rc = monad_run_queue_try_push(run_queue_, &fiber);
+        int const rc = monad_run_queue_try_push(run_queue_, &fiber);
         MONAD_ASSERT(rc == 0); // Run queue should always be big enough
     }
 
@@ -93,9 +102,11 @@ PriorityPool::PriorityPool(unsigned const n_threads, unsigned const n_fibers)
             pthread_setname_np(pthread_self(), name);
             while (!done_.load(std::memory_order_acquire)) {
                 // Get the highest priority fiber ready to run
-                monad_fiber_t *const fiber = monad_run_queue_try_pop(run_queue_);
-                if (fiber == nullptr)
+                monad_fiber_t *const fiber =
+                    monad_run_queue_try_pop(run_queue_);
+                if (fiber == nullptr) {
                     continue; // Nothing is ready to run
+                }
 
                 // Run the fiber until it suspends; the work-stealing fibers
                 // never return
@@ -122,15 +133,15 @@ PriorityPool::~PriorityPool()
     }
 }
 
-void PriorityPool::submit(monad_fiber_prio_t priority,
-                          std::function<void()> task) {
+void PriorityPool::submit(
+    monad_fiber_prio_t priority, std::function<void()> task)
+{
     monad_spinlock_lock(&channel_items_lock_);
-    TaskChannelItem &channel_item =
-        channel_items_.emplace_back(monad_fiber_vbuf_t{}, this,
-                                    PriorityTask{priority, std::move(task)});
+    TaskChannelItem &channel_item = channel_items_.emplace_back(
+        monad_fiber_vbuf_t{}, this, PriorityTask{priority, std::move(task)});
     channel_item.self = --channel_items_.end();
     monad_spinlock_unlock(&channel_items_lock_);
-    const iovec iov = {std::addressof(channel_item), sizeof channel_item};
+    iovec const iov = {std::addressof(channel_item), sizeof channel_item};
     monad_fiber_vbuf_init(&channel_item.vbuf, &iov);
     monad_fiber_channel_push(&task_channel_, &channel_item.vbuf);
 }

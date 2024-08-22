@@ -22,11 +22,12 @@ class simple_promise;
 /// Stripped-down future class that is used with simple_promise; see the
 /// simple_promise documentation for details
 template <typename T>
-class simple_future {
+class simple_future
+{
 public:
     simple_future() noexcept;
-    simple_future(const simple_future& other) = delete;
-    simple_future(simple_future&&) noexcept;
+    simple_future(simple_future const &other) = delete;
+    simple_future(simple_future &&) noexcept;
 
     T get();
 
@@ -34,12 +35,12 @@ public:
     void wait();
     bool poll() noexcept;
 
-    simple_future& operator=(const simple_future&) = delete;
-    simple_future& operator=(simple_future&&) noexcept;
+    simple_future &operator=(simple_future const &) = delete;
+    simple_future &operator=(simple_future &&) noexcept;
 
 private:
     friend class simple_promise<T>;
-    simple_future(monad_fiber_channel_t*);
+    simple_future(monad_fiber_channel_t *);
 
     monad_fiber_channel_t *channel_;
     monad_fiber_vbuf_t *vbuf_;
@@ -71,28 +72,29 @@ template <typename T>
 class simple_promise
 {
 public:
-    simple_promise(const std::source_location& =
-                       std::source_location::current());
-    simple_promise(const simple_promise&) = delete;
-    simple_promise(simple_promise&&) noexcept;
+    simple_promise(
+        std::source_location const & = std::source_location::current());
+    simple_promise(simple_promise const &) = delete;
+    simple_promise(simple_promise &&) noexcept;
     ~simple_promise() = default;
 
     simple_future<T> get_future();
 
-    void set_value(const T&);
+    void set_value(T const &);
 
-    void set_value(T&&);
+    void set_value(T &&);
 
     std::errc set_debug_name(std::string_view);
 
-    simple_promise& operator=(const simple_promise&) = delete;
-    simple_promise& operator=(simple_promise&&) noexcept;
+    simple_promise &operator=(simple_promise const &) = delete;
+    simple_promise &operator=(simple_promise &&) noexcept;
 
 private:
-    constexpr bool static using_vbuf_inplace =
+    static constexpr bool using_vbuf_inplace =
         sizeof(T) <= MONAD_FIBER_VBUF_MAX_INTERNAL;
 
-    bool contains_value() const {
+    bool contains_value() const
+    {
         return false; // XXX: solve the TOCTOU somehow
     }
 
@@ -100,8 +102,8 @@ private:
 
     monad_fiber_channel_t channel_;
     monad_fiber_vbuf_t vbuf_;
-    [[no_unique_address]] alignas(T) std::byte
-        buffer_[using_vbuf_inplace ? 0 : sizeof(T)];
+    [[no_unique_address]] alignas(
+        T) std::byte buffer_[using_vbuf_inplace ? 0 : sizeof(T)];
 };
 
 /*
@@ -109,11 +111,12 @@ private:
  */
 
 template <>
-class simple_future<void> {
+class simple_future<void>
+{
 public:
     simple_future() noexcept;
-    simple_future(const simple_future& other) = delete;
-    simple_future(simple_future&&) noexcept;
+    simple_future(simple_future const &other) = delete;
+    simple_future(simple_future &&) noexcept;
 
     void get();
 
@@ -121,24 +124,25 @@ public:
     void wait();
     bool poll() noexcept;
 
-    simple_future& operator=(const simple_future&) = delete;
-    simple_future& operator=(simple_future&&) noexcept;
+    simple_future &operator=(simple_future const &) = delete;
+    simple_future &operator=(simple_future &&) noexcept;
 
 private:
     friend class simple_promise<void>;
-    simple_future(monad_fiber_semaphore_t*);
+    simple_future(monad_fiber_semaphore_t *);
 
     monad_fiber_semaphore_t *sem_;
     bool has_token_;
 };
 
 template <>
-class simple_promise<void> {
+class simple_promise<void>
+{
 public:
-    simple_promise(const std::source_location& =
-                       std::source_location::current());
-    simple_promise(const simple_promise&) = delete;
-    simple_promise(simple_promise&&) noexcept;
+    simple_promise(
+        std::source_location const & = std::source_location::current());
+    simple_promise(simple_promise const &) = delete;
+    simple_promise(simple_promise &&) noexcept;
     ~simple_promise() = default;
 
     simple_future<void> get_future();
@@ -147,8 +151,8 @@ public:
 
     std::errc set_debug_name(std::string_view);
 
-    simple_promise& operator=(const simple_promise&) = delete;
-    simple_promise& operator=(simple_promise&&) noexcept;
+    simple_promise &operator=(simple_promise const &) = delete;
+    simple_promise &operator=(simple_promise &&) noexcept;
 
 private:
     bool contains_value() const;
@@ -161,85 +165,115 @@ private:
  */
 
 template <typename T>
-simple_future<T>::simple_future() noexcept : simple_future{nullptr} {}
+simple_future<T>::simple_future() noexcept
+    : simple_future{nullptr}
+{
+}
 
 template <typename T>
-simple_future<T>::simple_future(simple_future &&other) noexcept : simple_future{} {
+simple_future<T>::simple_future(simple_future &&other) noexcept
+    : simple_future{}
+{
     std::swap(channel_, other.channel_);
     std::swap(vbuf_, other.vbuf_);
 }
 
 template <typename T>
 simple_future<T>::simple_future(monad_fiber_channel_t *channel)
-    : channel_{channel}, vbuf_{nullptr} {}
+    : channel_{channel}
+    , vbuf_{nullptr}
+{
+}
 
 template <typename T>
-T simple_future<T>::get() {
-    if (vbuf_ == nullptr)
+T simple_future<T>::get()
+{
+    if (vbuf_ == nullptr) {
         wait();
-    T *const t = std::bit_cast<T*>(monad_fiber_vbuf_data(vbuf_).iov_base);
+    }
+    T *const t = std::bit_cast<T *>(monad_fiber_vbuf_data(vbuf_).iov_base);
     vbuf_ = nullptr; // Don't allow it to be used again
     return std::move(*t);
 }
 
 template <typename T>
-bool simple_future<T>::valid() const noexcept {
+bool simple_future<T>::valid() const noexcept
+{
     return vbuf_ != nullptr;
 }
 
 template <typename T>
-void simple_future<T>::wait() {
-    if (channel_ == nullptr)
+void simple_future<T>::wait()
+{
+    if (channel_ == nullptr) {
         throw std::future_error{std::future_errc::no_state};
-    if (vbuf_ != nullptr)
+    }
+    if (vbuf_ != nullptr) {
         throw std::future_error{std::future_errc::future_already_retrieved};
+    }
     vbuf_ = monad_fiber_channel_pop(channel_, MONAD_FIBER_PRIO_NO_CHANGE);
 }
 
 template <typename T>
-bool simple_future<T>::poll() noexcept {
+bool simple_future<T>::poll() noexcept
+{
     vbuf_ = monad_fiber_channel_try_pop(channel_);
     return valid();
 }
 
 inline simple_future<void>::simple_future() noexcept
-    : sem_{nullptr}, has_token_{false} {}
+    : sem_{nullptr}
+    , has_token_{false}
+{
+}
 
 inline simple_future<void>::simple_future(simple_future &&other) noexcept
-    : simple_future{} {
+    : simple_future{}
+{
     std::swap(sem_, other.sem_);
     std::swap(has_token_, other.has_token_);
 }
 
 inline simple_future<void>::simple_future(monad_fiber_semaphore_t *sem)
-    : sem_{sem}, has_token_{false} {}
+    : sem_{sem}
+    , has_token_{false}
+{
+}
 
-inline void simple_future<void>::get() {
-    if (!has_token_)
+inline void simple_future<void>::get()
+{
+    if (!has_token_) {
         wait();
+    }
     has_token_ = false;
 }
 
-inline bool simple_future<void>::valid() const noexcept {
+inline bool simple_future<void>::valid() const noexcept
+{
     return has_token_;
 }
 
-inline void simple_future<void>::wait() {
-    if (sem_ == nullptr)
+inline void simple_future<void>::wait()
+{
+    if (sem_ == nullptr) {
         throw std::future_error{std::future_errc::no_state};
-    if (has_token_)
+    }
+    if (has_token_) {
         throw std::future_error{std::future_errc::future_already_retrieved};
+    }
     monad_fiber_semaphore_wait(sem_, MONAD_FIBER_PRIO_NO_CHANGE);
 }
 
-inline bool simple_future<void>::poll() noexcept {
+inline bool simple_future<void>::poll() noexcept
+{
     has_token_ = monad_fiber_semaphore_try_consume(sem_);
     return valid();
 }
 
 template <typename T>
-simple_promise<T>::simple_promise(const std::source_location &s) {
-    iovec ext_buf = {.iov_base = buffer_, .iov_len = sizeof buffer_ };
+simple_promise<T>::simple_promise(std::source_location const &s)
+{
+    iovec ext_buf = {.iov_base = buffer_, .iov_len = sizeof buffer_};
     monad_fiber_channel_init(&channel_, make_srcloc(s));
     monad_fiber_vbuf_init(&vbuf_, using_vbuf_inplace ? nullptr : &ext_buf);
 }
@@ -259,58 +293,71 @@ simple_promise<T>::simple_promise(simple_promise &&other) noexcept
 
     // It may not be enough to copy the vbuf bits, we may need to run a
     // move constructor
-    if constexpr (using_vbuf_inplace &&
-                  !std::is_trivially_move_constructible_v<T>)
-        new(get_value_buffer()) T{std::move(*other.get_value_buffer())};
+    if constexpr (
+        using_vbuf_inplace && !std::is_trivially_move_constructible_v<T>) {
+        new (get_value_buffer()) T{std::move(*other.get_value_buffer())};
+    }
 
     // Steal the old list of waiting fibers
-    TAILQ_CONCAT(&channel_.wait_queue.waiting_fibers,
-                 &other.channel_.wait_queue.waiting_fibers, wait_link);
+    TAILQ_CONCAT(
+        &channel_.wait_queue.waiting_fibers,
+        &other.channel_.wait_queue.waiting_fibers,
+        wait_link);
     monad_spinlock_unlock(&other.channel_.lock);
 }
 
 template <typename T>
-simple_future<T> simple_promise<T>::get_future() {
+simple_future<T> simple_promise<T>::get_future()
+{
     return simple_future<T>{&channel_};
 }
 
 template <typename T>
-void simple_promise<T>::set_value(const T& value) {
-    if (contains_value())
+void simple_promise<T>::set_value(T const &value)
+{
+    if (contains_value()) {
         throw std::future_error{std::future_errc::promise_already_satisfied};
-    new(get_value_buffer()) T{value};
+    }
+    new (get_value_buffer()) T{value};
     monad_fiber_channel_push(&channel_, &vbuf_);
 }
 
 template <typename T>
-void simple_promise<T>::set_value(T&& value) {
-    if (contains_value())
+void simple_promise<T>::set_value(T &&value)
+{
+    if (contains_value()) {
         throw std::future_error{std::future_errc::promise_already_satisfied};
-    new(get_value_buffer()) T{std::move(value)};
+    }
+    new (get_value_buffer()) T{std::move(value)};
     monad_fiber_channel_push(&channel_, &vbuf_);
 }
 
 template <typename T>
-std::errc simple_promise<T>::set_debug_name(std::string_view sv) {
+std::errc simple_promise<T>::set_debug_name(std::string_view sv)
+{
     return static_cast<std::errc>(
         monad_fiber_channel_set_name(&channel_, sv.data()));
 }
 
 template <typename T>
-simple_promise<T>&
-simple_promise<T>::operator=(simple_promise&& other) noexcept {
-    return *new(this) simple_promise{std::move(other)};
+simple_promise<T> &simple_promise<T>::operator=(simple_promise &&other) noexcept
+{
+    return *new (this) simple_promise{std::move(other)};
 }
 
 template <typename T>
-T *simple_promise<T>::get_value_buffer() const {
-    if constexpr (using_vbuf_inplace)
-        return std::bit_cast<T*>(&vbuf_.in_place[0]);
-    else
-        return std::bit_cast<T*>(buffer_);
+T *simple_promise<T>::get_value_buffer() const
+{
+    if constexpr (using_vbuf_inplace) {
+        return std::bit_cast<T *>(&vbuf_.in_place[0]);
+    }
+    else {
+        return std::bit_cast<T *>(buffer_);
+    }
 }
 
-inline simple_promise<void>::simple_promise(const std::source_location &s) {
+inline simple_promise<void>::simple_promise(std::source_location const &s)
+{
     monad_fiber_semaphore_init(&sem_, make_srcloc(s));
 }
 
@@ -319,30 +366,37 @@ inline simple_promise<void>::simple_promise(simple_promise &&other) noexcept
 {
     MONAD_SPINLOCK_LOCK(&other.sem_.lock);
     sem_.tokens = other.sem_.tokens;
-    TAILQ_CONCAT(&sem_.wait_queue.waiting_fibers,
-                 &other.sem_.wait_queue.waiting_fibers, wait_link);
+    TAILQ_CONCAT(
+        &sem_.wait_queue.waiting_fibers,
+        &other.sem_.wait_queue.waiting_fibers,
+        wait_link);
     monad_spinlock_unlock(&other.sem_.lock);
 }
 
-inline simple_future<void> simple_promise<void>::get_future() {
+inline simple_future<void> simple_promise<void>::get_future()
+{
     return simple_future<void>{&sem_};
 }
 
-inline void simple_promise<void>::set_value() {
-    const std::atomic_ref<unsigned> atomic_tokens{sem_.tokens};
-    if (atomic_tokens > 0)
+inline void simple_promise<void>::set_value()
+{
+    std::atomic_ref<unsigned> const atomic_tokens{sem_.tokens};
+    if (atomic_tokens > 0) {
         throw std::future_error{std::future_errc::promise_already_satisfied};
+    }
     monad_fiber_semaphore_signal(&sem_);
 }
 
-inline std::errc simple_promise<void>::set_debug_name(std::string_view sv) {
+inline std::errc simple_promise<void>::set_debug_name(std::string_view sv)
+{
     return static_cast<std::errc>(
         monad_fiber_semaphore_set_name(&sem_, sv.data()));
 }
 
-inline simple_promise<void>&
-simple_promise<void>::operator=(simple_promise&& other) noexcept {
-    return *new(this) simple_promise{std::move(other)};
+inline simple_promise<void> &
+simple_promise<void>::operator=(simple_promise &&other) noexcept
+{
+    return *new (this) simple_promise{std::move(other)};
 }
 
 MONAD_FIBER_NAMESPACE_END

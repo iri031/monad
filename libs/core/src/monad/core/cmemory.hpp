@@ -10,7 +10,7 @@ MONAD_NAMESPACE_BEGIN
 //! \brief A constexpr-capable `memcpy`
 template <class T>
     requires(sizeof(T) == 1 && std::is_trivially_copyable_v<T>)
-constexpr inline T *cmemcpy(T *const dst, const T *const src, const size_t num)
+inline constexpr T *cmemcpy(T *const dst, T const *const src, size_t const num)
 {
 #if __cpp_lib_is_constant_evaluated >= 201811
     if (std::is_constant_evaluated()) {
@@ -30,8 +30,8 @@ constexpr inline T *cmemcpy(T *const dst, const T *const src, const size_t num)
 //! \brief A constexpr-capable `memcmp`
 template <class T>
     requires(sizeof(T) == 1 && std::is_trivially_copyable_v<T>)
-constexpr inline int
-cmemcmp(const T *const a, const T *const b, const size_t num)
+inline constexpr int
+cmemcmp(T const *const a, T const *const b, size_t const num)
 {
 #if __cpp_lib_is_constant_evaluated >= 201811
     if (std::is_constant_evaluated()) {
@@ -56,7 +56,7 @@ cmemcmp(const T *const a, const T *const b, const size_t num)
 //! \brief A constexpr-capable `memset`
 template <class T>
     requires(sizeof(T) == 1 && std::is_trivially_copyable_v<T>)
-constexpr inline T *cmemset(T *const dst, const T value, const size_t num)
+inline constexpr T *cmemset(T *const dst, T const value, size_t const num)
 {
 #if __cpp_lib_is_constant_evaluated >= 201811
     if (std::is_constant_evaluated()) {

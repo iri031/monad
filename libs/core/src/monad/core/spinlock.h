@@ -6,7 +6,7 @@
 #include <monad/core/tl_tid.h>
 
 #if MONAD_SPINLOCK_TRACK_OWNER_INFO
-#include <monad/core/srcloc.h>
+    #include <monad/core/srcloc.h>
 #endif
 
 #include <assert.h>
@@ -22,32 +22,34 @@ typedef struct monad_spinlock monad_spinlock_t;
 
 #if MONAD_SPINLOCK_TRACK_STATS_ATOMIC
 typedef atomic_ulong monad_spinstat_t;
-#define MONAD_SPINSTAT_INC(X) atomic_fetch_add(&(X), 1)
+    #define MONAD_SPINSTAT_INC(X) atomic_fetch_add(&(X), 1)
 #else
 typedef unsigned long monad_spinstat_t;
-#define MONAD_SPINSTAT_INC(X) ++(X)
+    #define MONAD_SPINSTAT_INC(X) ++(X)
 #endif
 
 constexpr size_t MONAD_SPINLOCK_HIST_BUCKETS = 15;
 
 /// Lock statistics; these may not be 100% accurate, since we may not
 /// atomically fetch_add them so some data could be lost
-struct monad_spinlock_stats {
-    monad_spinstat_t total_try_locks;      ///< # times try_lock is called
-    monad_spinstat_t total_try_lock_fail;  ///< # times try_locked failed
-    monad_spinstat_t total_locks;          ///< # times lock is called
+struct monad_spinlock_stats
+{
+    monad_spinstat_t total_try_locks; ///< # times try_lock is called
+    monad_spinstat_t total_try_lock_fail; ///< # times try_locked failed
+    monad_spinstat_t total_locks; ///< # times lock is called
     monad_spinstat_t total_lock_init_fail; ///< # times lock needed > 1 try
     monad_spinstat_t
         tries_histogram[MONAD_SPINLOCK_HIST_BUCKETS + 1]; /// lock tries histo
 };
 
-struct monad_spinlock {
-    atomic_int owner_tid;              ///< System ID of thread that owns lock
+struct monad_spinlock
+{
+    atomic_int owner_tid; ///< System ID of thread that owns lock
 #if MONAD_SPINLOCK_TRACK_STATS
     struct monad_spinlock_stats stats; ///< Lock contention stats
 #endif
 #if MONAD_SPINLOCK_TRACK_OWNER_INFO
-    monad_source_location_t srcloc;    ///< Location in code where lock taken
+    monad_source_location_t srcloc; ///< Location in code where lock taken
 #endif
 };
 
@@ -58,11 +60,11 @@ static inline void monad_spinlock_init(monad_spinlock_t *const lock)
     memset(&lock->srcloc, 0, sizeof lock->srcloc);
 #endif
 #if MONAD_SPINLOCK_TRACK_STATS
-#ifdef __cplusplus
-    new(&lock->stats) monad_spinlock_stats{};
-#else
+    #ifdef __cplusplus
+    new (&lock->stats) monad_spinlock_stats{};
+    #else
     memset(&lock->stats, 0, sizeof lock->stats);
-#endif
+    #endif
 #endif
 }
 
@@ -70,13 +72,17 @@ static inline bool monad_spinlock_try_lock(monad_spinlock_t *const lock)
 {
     int expected = 0;
     int const desired = get_tl_tid();
-    const bool is_locked = atomic_compare_exchange_weak_explicit(
-        &lock->owner_tid, &expected, desired, memory_order_acquire,
+    bool const is_locked = atomic_compare_exchange_weak_explicit(
+        &lock->owner_tid,
+        &expected,
+        desired,
+        memory_order_acquire,
         memory_order_relaxed);
 #if MONAD_SPINLOCK_TRACK_STATS
     MONAD_SPINSTAT_INC(lock->stats.total_try_locks);
-    if (MONAD_UNLIKELY(!is_locked))
+    if (MONAD_UNLIKELY(!is_locked)) {
         MONAD_SPINSTAT_INC(lock->stats.total_try_lock_fail);
+    }
 #endif
     return is_locked;
 }
@@ -95,11 +101,10 @@ static inline void monad_spinlock_lock(monad_spinlock_t *const lock)
          * - if weak cmpxch fails, spin again or cpu relax?
          * - compare intel vs arm
          * - benchmark with real use cases
-        */
+         */
         unsigned retries = 0;
-        while (
-            MONAD_UNLIKELY(atomic_load_explicit(&lock->owner_tid,
-                                                memory_order_relaxed))) {
+        while (MONAD_UNLIKELY(
+            atomic_load_explicit(&lock->owner_tid, memory_order_relaxed))) {
             if (MONAD_LIKELY(retries < 128)) {
                 ++retries;
             }
@@ -112,25 +117,29 @@ static inline void monad_spinlock_lock(monad_spinlock_t *const lock)
         ++tries;
 #endif
         owned = atomic_compare_exchange_weak_explicit(
-                &lock->owner_tid,
-                &expected,
-                desired,
-                memory_order_acquire,
-                memory_order_relaxed);
-    } while (MONAD_UNLIKELY(!owned));
+            &lock->owner_tid,
+            &expected,
+            desired,
+            memory_order_acquire,
+            memory_order_relaxed);
+    }
+    while (MONAD_UNLIKELY(!owned));
 
 #if MONAD_SPINLOCK_TRACK_STATS
     MONAD_SPINSTAT_INC(lock->stats.total_locks);
-    if (MONAD_LIKELY(tries > 1))
+    if (MONAD_LIKELY(tries > 1)) {
         MONAD_SPINSTAT_INC(lock->stats.total_lock_init_fail);
+    }
     histo_bucket = stdc_bit_width(tries);
-    if (MONAD_UNLIKELY(histo_bucket >= MONAD_SPINLOCK_HIST_BUCKETS))
+    if (MONAD_UNLIKELY(histo_bucket >= MONAD_SPINLOCK_HIST_BUCKETS)) {
         histo_bucket = MONAD_SPINLOCK_HIST_BUCKETS;
+    }
     MONAD_SPINSTAT_INC(lock->stats.tries_histogram[histo_bucket]);
 #endif
 }
 
-static inline bool monad_spinlock_is_owned(monad_spinlock_t *const lock) {
+static inline bool monad_spinlock_is_owned(monad_spinlock_t *const lock)
+{
     return atomic_load_explicit(&lock->owner_tid, memory_order_acquire) ==
            get_tl_tid();
 }
@@ -142,32 +151,37 @@ static inline void monad_spinlock_unlock(monad_spinlock_t *const lock)
 }
 
 #if MONAD_SPINLOCK_TRACK_OWNER_INFO
-static inline bool
-monad_spinlock_try_lock_with_srcloc(monad_spinlock_t *const lock,
-                                    monad_source_location_t srcloc) {
-    const bool have_lock = monad_spinlock_try_lock(lock);
-    if (have_lock)
+static inline bool monad_spinlock_try_lock_with_srcloc(
+    monad_spinlock_t *const lock, monad_source_location_t srcloc)
+{
+    bool const have_lock = monad_spinlock_try_lock(lock);
+    if (have_lock) {
         lock->srcloc = srcloc;
+    }
     return have_lock;
 }
 
-static inline void
-monad_spinlock_lock_with_srcloc(monad_spinlock_t *const lock,
-                                monad_source_location_t srcloc) {
+static inline void monad_spinlock_lock_with_srcloc(
+    monad_spinlock_t *const lock, monad_source_location_t srcloc)
+{
     monad_spinlock_lock(lock);
     lock->srcloc = srcloc;
 }
 
-#define MONAD_SPINLOCK_TRY_LOCK(LCK) \
-  monad_spinlock_try_lock_with_srcloc((LCK), \
-     (monad_source_location_t){__PRETTY_FUNCTION__, __FILE__, __LINE__, 0})
+    #define MONAD_SPINLOCK_TRY_LOCK(LCK)                                       \
+        monad_spinlock_try_lock_with_srcloc(                                   \
+            (LCK),                                                             \
+            (monad_source_location_t){                                         \
+                __PRETTY_FUNCTION__, __FILE__, __LINE__, 0})
 
-#define MONAD_SPINLOCK_LOCK(LCK) \
-  monad_spinlock_lock_with_srcloc((LCK), \
-    (monad_source_location_t){__PRETTY_FUNCTION__, __FILE__, __LINE__, 0})
+    #define MONAD_SPINLOCK_LOCK(LCK)                                           \
+        monad_spinlock_lock_with_srcloc(                                       \
+            (LCK),                                                             \
+            (monad_source_location_t){                                         \
+                __PRETTY_FUNCTION__, __FILE__, __LINE__, 0})
 #else
 
-#define MONAD_SPINLOCK_TRY_LOCK(LCK) monad_spinlock_try_lock((LCK))
-#define MONAD_SPINLOCK_LOCK(LCK) monad_spinlock_lock((LCK))
+    #define MONAD_SPINLOCK_TRY_LOCK(LCK) monad_spinlock_try_lock((LCK))
+    #define MONAD_SPINLOCK_LOCK(LCK) monad_spinlock_lock((LCK))
 
 #endif

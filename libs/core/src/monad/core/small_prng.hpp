@@ -32,10 +32,12 @@ public:
 
     // To make this directly usable with `std::shuffle()`
     using result_type = uint32_t;
+
     static constexpr result_type min()
     {
         return 0;
     }
+
     static constexpr result_type max()
     {
         return UINT32_MAX;

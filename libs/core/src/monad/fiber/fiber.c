@@ -13,7 +13,7 @@
 #include <string.h>
 
 #if MONAD_HAVE_ASAN
-#include <sanitizer/asan_interface.h>
+    #include <sanitizer/asan_interface.h>
 #endif
 
 #include <monad/core/assert.h>
@@ -32,7 +32,8 @@ static thread_local monad_fiber_t *tl_cur_fiber = nullptr;
 // monad_fiber_start_switch and _monad_fiber_finish_switch functions. These
 // run on the same thread but different stacks (the former runs on the
 // "switch_from" fiber's stack, the latter on the "switch_to" fiber's stack).
-struct in_progress_fiber_switch {
+struct in_progress_fiber_switch
+{
     monad_fiber_t *switch_from;
     monad_fiber_t *switch_to;
     enum monad_fiber_state switch_from_suspend_state;
@@ -41,8 +42,8 @@ struct in_progress_fiber_switch {
 
 // Manually declare functions defined in fiber_thr.c
 extern monad_fiber_t *_monad_get_thread_fiber();
-extern void _monad_wakeup_thread_fiber(struct thread_fiber_state *tfs,
-                                       monad_fiber_wait_queue_t *wq);
+extern void _monad_wakeup_thread_fiber(
+    struct thread_fiber_state *tfs, monad_fiber_wait_queue_t *wq);
 
 // When a fiber is first executed or is resumed after having been suspended,
 // this function must be called to finish the switch.
@@ -62,7 +63,8 @@ extern void _monad_wakeup_thread_fiber(struct thread_fiber_state *tfs,
 // This is an internal-only function but is declared "extern" so that it can be
 // shared with fiber_thr.c
 extern monad_fiber_suspend_info_t
-_monad_fiber_finish_switch(struct monad_transfer_t xfer_from) {
+_monad_fiber_finish_switch(struct monad_transfer_t xfer_from)
+{
     pthread_t cur_thread;
     monad_fiber_t *cur_fiber;
     monad_fiber_t *prev_fiber;
@@ -73,8 +75,8 @@ _monad_fiber_finish_switch(struct monad_transfer_t xfer_from) {
 #if MONAD_HAVE_ASAN
     // Finish the switch initiated by the most recent call to
     // _monad_fiber_begin_switch
-    __sanitizer_finish_switch_fiber(cur_switch->switch_to->fake_stack_save,
-                                    nullptr, nullptr);
+    __sanitizer_finish_switch_fiber(
+        cur_switch->switch_to->fake_stack_save, nullptr, nullptr);
 #endif
 
     cur_fiber = tl_cur_fiber = cur_switch->switch_to;
@@ -90,16 +92,19 @@ _monad_fiber_finish_switch(struct monad_transfer_t xfer_from) {
     prev_fiber->state = cur_switch->switch_from_suspend_state;
     suspend_info = cur_switch->switch_from_suspend_info;
 
-    if (MONAD_UNLIKELY(prev_fiber->state == MF_STATE_CAN_RUN &&
-                       prev_fiber->run_queue != nullptr)) {
+    if (MONAD_UNLIKELY(
+            prev_fiber->state == MF_STATE_CAN_RUN &&
+            prev_fiber->run_queue != nullptr)) {
         // This fiber can be run immediately despite being "suspended", so it
         // should be a yield; it also has a run queue we can just reschedule it
         // immediately; we don't need to unlock the fiber in that case, the
         // run queue expects it to be locked
         MONAD_DEBUG_ASSERT(suspend_info.suspend_type == MF_SUSPEND_YIELD);
         (void)monad_run_queue_try_push(prev_fiber->run_queue, prev_fiber);
-    } else
+    }
+    else {
         monad_spinlock_unlock(&prev_fiber->lock);
+    }
 
     // Finish book-keeping to become the current fiber; note that we cannot
     // access `cur_switch` below this point, as it lived on the previous
@@ -122,11 +127,11 @@ _monad_fiber_finish_switch(struct monad_transfer_t xfer_from) {
 // Low-level machine-independent fiber switch function; this atomically suspends
 // the current fiber and switches to the next fiber; the next fiber must
 // immediately call _monad_fiber_finish_switch to complete this switch
-static struct monad_transfer_t
-monad_fiber_start_switch(monad_fiber_t *cur_fiber, monad_fiber_t *next_fiber,
-                         enum monad_fiber_state cur_suspend_state,
-                         enum monad_fiber_suspend_type cur_suspend_type,
-                         uintptr_t eval) {
+static struct monad_transfer_t monad_fiber_start_switch(
+    monad_fiber_t *cur_fiber, monad_fiber_t *next_fiber,
+    enum monad_fiber_state cur_suspend_state,
+    enum monad_fiber_suspend_type cur_suspend_type, uintptr_t eval)
+{
     // For ASAN:
     struct in_progress_fiber_switch cur_switch;
     [[maybe_unused]] size_t next_stack_size;
@@ -148,9 +153,10 @@ monad_fiber_start_switch(monad_fiber_t *cur_fiber, monad_fiber_t *next_fiber,
     fake_stack = cur_suspend_state == MONAD_FIBER_FINISHED
                      ? nullptr
                      : &cur_fiber->fake_stack_save;
-    next_stack_size = next_fiber->stack.stack_top - next_fiber->stack.stack_bottom;
-    __sanitizer_start_switch_fiber(fake_stack, next_fiber->stack.stack_bottom,
-                                   next_stack_size);
+    next_stack_size =
+        next_fiber->stack.stack_top - next_fiber->stack.stack_bottom;
+    __sanitizer_start_switch_fiber(
+        fake_stack, next_fiber->stack.stack_bottom, next_stack_size);
 #endif
 
     // Call the machine-dependent fiber switch function, monad_jump_fcontext.
@@ -169,10 +175,9 @@ monad_fiber_start_switch(monad_fiber_t *cur_fiber, monad_fiber_t *next_fiber,
     return monad_jump_fcontext(next_fiber->suspended_ctx, &cur_switch);
 }
 
-extern void _monad_fiber_suspend(monad_fiber_t *cur_fiber,
-                                 enum monad_fiber_state cur_suspend_state,
-                                 enum monad_fiber_suspend_type cur_suspend_type,
-                                 uintptr_t eval)
+extern void _monad_fiber_suspend(
+    monad_fiber_t *cur_fiber, enum monad_fiber_state cur_suspend_state,
+    enum monad_fiber_suspend_type cur_suspend_type, uintptr_t eval)
 {
     // Our suspension and scheduling model is that, upon suspension, we jump
     // back to the fiber that originally jumped to us. That fiber is typically
@@ -182,14 +187,14 @@ extern void _monad_fiber_suspend(monad_fiber_t *cur_fiber,
     monad_fiber_t *const next_fiber = cur_fiber->prev_fiber;
     MONAD_DEBUG_ASSERT(monad_spinlock_is_owned(&cur_fiber->lock));
     MONAD_SPINLOCK_LOCK(&next_fiber->lock);
-    const struct monad_transfer_t xfer_from =
-        monad_fiber_start_switch(cur_fiber, next_fiber, cur_suspend_state,
-                                 cur_suspend_type, eval);
-    asm volatile ("" ::: "memory");
+    const struct monad_transfer_t xfer_from = monad_fiber_start_switch(
+        cur_fiber, next_fiber, cur_suspend_state, cur_suspend_type, eval);
+    asm volatile("" ::: "memory");
     (void)_monad_fiber_finish_switch(xfer_from);
 }
 
-[[noreturn]] static void fiber_entrypoint(struct monad_transfer_t xfer_from) {
+[[noreturn]] static void fiber_entrypoint(struct monad_transfer_t xfer_from)
+{
     // Entry point of a "user" fiber. When this function is called, we're
     // running on the fiber's stack for the first time (after the most recent
     // call to monad_fiber_set_function). We cannot directly return from this
@@ -218,14 +223,17 @@ extern void _monad_fiber_suspend(monad_fiber_t *cur_fiber,
     abort();
 }
 
-void monad_fiber_init(monad_fiber_t *fiber, monad_fiber_stack_t stack) {
+void monad_fiber_init(monad_fiber_t *fiber, monad_fiber_stack_t stack)
+{
     memset(fiber, 0, sizeof *fiber);
     monad_spinlock_init(&fiber->lock);
     fiber->stack = stack;
 }
 
-int monad_fiber_set_function(monad_fiber_t *fiber, monad_fiber_prio_t priority,
-                             monad_fiber_ffunc_t *ffunc, uintptr_t fdata) {
+int monad_fiber_set_function(
+    monad_fiber_t *fiber, monad_fiber_prio_t priority,
+    monad_fiber_ffunc_t *ffunc, uintptr_t fdata)
+{
     size_t stack_size;
 
     MONAD_SPINLOCK_LOCK(&fiber->lock);
@@ -246,9 +254,8 @@ int monad_fiber_set_function(monad_fiber_t *fiber, monad_fiber_prio_t priority,
     stack_size = fiber->stack.stack_top - fiber->stack.stack_bottom;
     fiber->state = MF_STATE_CAN_RUN;
     fiber->priority = priority;
-    fiber->suspended_ctx =
-        monad_make_fcontext(fiber->stack.stack_top, stack_size,
-                            fiber_entrypoint);
+    fiber->suspended_ctx = monad_make_fcontext(
+        fiber->stack.stack_top, stack_size, fiber_entrypoint);
     fiber->ffunc = ffunc;
     fiber->fdata = fdata;
     ++fiber->stats.total_reset;
@@ -256,12 +263,14 @@ int monad_fiber_set_function(monad_fiber_t *fiber, monad_fiber_prio_t priority,
     return 0;
 }
 
-monad_fiber_t *monad_fiber_self() {
+monad_fiber_t *monad_fiber_self()
+{
     return tl_cur_fiber != nullptr ? tl_cur_fiber : _monad_get_thread_fiber();
 }
 
-int monad_fiber_run(monad_fiber_t *next_fiber,
-                    monad_fiber_suspend_info_t *suspend_info) {
+int monad_fiber_run(
+    monad_fiber_t *next_fiber, monad_fiber_suspend_info_t *suspend_info)
+{
     int err;
     struct monad_transfer_t resume_xfer;
     monad_fiber_suspend_info_t next_fiber_suspend_info;
@@ -270,8 +279,9 @@ int monad_fiber_run(monad_fiber_t *next_fiber,
     // The fiber is usually already locked, since fibers remain locked when
     // returned from the run queue. However, you can also run a fiber directly
     // e.g., in the test suite. Acquire the lock if we don't have it
-    if (MONAD_UNLIKELY(!monad_spinlock_is_owned(&next_fiber->lock)))
+    if (MONAD_UNLIKELY(!monad_spinlock_is_owned(&next_fiber->lock))) {
         MONAD_SPINLOCK_LOCK(&next_fiber->lock);
+    }
 
     if (next_fiber->state != MF_STATE_CAN_RUN) {
         // The user tried to resume a fiber that is not in a run state that
@@ -288,48 +298,56 @@ int monad_fiber_run(monad_fiber_t *next_fiber,
 
     // Switch into next_fiber
     resume_xfer = monad_fiber_start_switch(
-        cur_fiber, next_fiber, MF_STATE_EXEC_WAIT, MF_SUSPEND_SLEEP,
+        cur_fiber,
+        next_fiber,
+        MF_STATE_EXEC_WAIT,
+        MF_SUSPEND_SLEEP,
         (uintptr_t)next_fiber);
-    asm volatile ("" ::: "memory");
+    asm volatile("" ::: "memory");
     next_fiber_suspend_info = _monad_fiber_finish_switch(resume_xfer);
-    if (suspend_info != nullptr)
+    if (suspend_info != nullptr) {
         memcpy(suspend_info, &next_fiber_suspend_info, sizeof *suspend_info);
+    }
     return 0;
 }
 
-int monad_fiber_set_name(monad_fiber_t *fiber, const char *name) {
-    if (name == nullptr)
+int monad_fiber_set_name(monad_fiber_t *fiber, char const *name)
+{
+    if (name == nullptr) {
         return EFAULT;
+    }
     // XXX: not thread-safe, do we care enough to lock here? we also need a
     // get_name if we want to force them to use get/set functions
     (void)strncpy(fiber->name, name, MONAD_FIBER_NAME_LEN);
     return strlen(name) > MONAD_FIBER_NAME_LEN ? ENAMETOOLONG : 0;
 }
 
-void monad_fiber_yield(uintptr_t eval) {
+void monad_fiber_yield(uintptr_t eval)
+{
     monad_fiber_t *const self = monad_fiber_self();
     MONAD_DEBUG_ASSERT(!monad_fiber_is_thread_fiber(self));
     MONAD_SPINLOCK_LOCK(&self->lock);
     _monad_fiber_suspend(self, MF_STATE_CAN_RUN, MF_SUSPEND_YIELD, eval);
 }
 
-void _monad_fiber_sleep(monad_fiber_wait_queue_t *wq,
-                        monad_fiber_prio_t wakeup_prio) {
+void _monad_fiber_sleep(
+    monad_fiber_wait_queue_t *wq, monad_fiber_prio_t wakeup_prio)
+{
     monad_fiber_t *const self = monad_fiber_self();
     MONAD_DEBUG_ASSERT(monad_spinlock_is_owned(wq->lock));
     MONAD_SPINLOCK_LOCK(&self->lock);
     TAILQ_INSERT_TAIL(&wq->waiting_fibers, self, wait_link);
     self->wait_queue = wq;
     monad_spinlock_unlock(wq->lock);
-    if (wakeup_prio != MONAD_FIBER_PRIO_NO_CHANGE)
+    if (wakeup_prio != MONAD_FIBER_PRIO_NO_CHANGE) {
         self->priority = wakeup_prio;
+    }
     ++self->stats.total_sleep;
     _monad_fiber_suspend(self, MF_STATE_WAIT_QUEUE, MF_SUSPEND_SLEEP, 0);
     MONAD_SPINLOCK_LOCK(wq->lock);
 }
 
-bool _monad_fiber_try_wakeup(monad_fiber_t *fiber,
-                             monad_fiber_wait_queue_t *wq)
+bool _monad_fiber_try_wakeup(monad_fiber_t *fiber, monad_fiber_wait_queue_t *wq)
 {
     int rc;
 
@@ -354,8 +372,9 @@ bool _monad_fiber_try_wakeup(monad_fiber_t *fiber,
         monad_spinlock_unlock(&fiber->lock);
         return true;
     }
-    if ((rc = monad_run_queue_try_push(fiber->run_queue, fiber)) == 0)
+    if ((rc = monad_run_queue_try_push(fiber->run_queue, fiber)) == 0) {
         return true;
+    }
     MONAD_ASSERT(rc != EBUSY);
 
     // Schedule failed because the run queue was too small; link us back

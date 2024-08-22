@@ -10,10 +10,11 @@
 #include <monad/fiber/fiber.h>
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
-//#define MONAD_CORE_RUN_QUEUE_NO_MIGRATE 1
+// #define MONAD_CORE_RUN_QUEUE_NO_MIGRATE 1
 
 struct monad_run_queue_stats;
 typedef struct monad_run_queue monad_run_queue_t;
@@ -28,8 +29,8 @@ void monad_run_queue_destroy(monad_run_queue_t *rq);
 
 /// Try to push a fiber onto the priority queue; this is non-blocking and
 /// returns ENOBUFS immediately is there is insufficient space in the queue
-static inline int monad_run_queue_try_push(monad_run_queue_t *rq,
-                                           monad_fiber_t *fiber);
+static inline int
+monad_run_queue_try_push(monad_run_queue_t *rq, monad_fiber_t *fiber);
 
 /// Try to pop the highest priority fiber from the queue; this is non-blocking
 /// and returns nullptr if the queue is empty, otherwise it returns a locked
@@ -39,22 +40,24 @@ static inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq);
 /// Returns true if the run queue is currently empty;be aware that this has
 /// a TOCTOU race in multithreaded code, e.g., this could change asynchronously
 /// because of another thread
-static inline bool monad_run_queue_is_empty(const monad_run_queue_t *rq);
+static inline bool monad_run_queue_is_empty(monad_run_queue_t const *rq);
 
 /// Scheduling statistics; some writes to these are unlocked without the use
 /// of fetch_add atomic semantics, so they are only approximate
-struct monad_run_queue_stats {
-    size_t total_pop;              ///< # of times caller tried to pop a fiber
-    size_t total_pop_empty;        ///< # of times there was no fiber in queue
-    size_t total_push;             ///< # of times caller tried to push a fiber
-    size_t total_push_full;        ///< # of times fiber queue was full
-    size_t total_push_not_ready;   ///< # of times pushed fiber unready
+struct monad_run_queue_stats
+{
+    size_t total_pop; ///< # of times caller tried to pop a fiber
+    size_t total_pop_empty; ///< # of times there was no fiber in queue
+    size_t total_push; ///< # of times caller tried to push a fiber
+    size_t total_push_full; ///< # of times fiber queue was full
+    size_t total_push_not_ready; ///< # of times pushed fiber unready
 };
 
 /// A priority queue, implemented using a min-heap; used to pick the highest
 /// priority fiber to schedule next. For reference, see
 /// [CLRS 6.5: Priority Queues]
-struct monad_run_queue {
+struct monad_run_queue
+{
     alignas(64) monad_spinlock_t lock;
     monad_fiber_t **fibers;
     size_t capacity;
@@ -63,19 +66,20 @@ struct monad_run_queue {
 };
 
 #define PQ_PARENT_IDX(i) ((i - 1) / 2)
-#define PQ_LEFT_CHILD_IDX(i) (2*i + 1)
-#define PQ_RIGHT_CHILD_IDX(i) (2*i + 2)
+#define PQ_LEFT_CHILD_IDX(i) (2 * i + 1)
+#define PQ_RIGHT_CHILD_IDX(i) (2 * i + 2)
 
-static inline void _monad_fiber_ptr_swap(const monad_fiber_t **p1,
-                                         const monad_fiber_t **p2) {
-    const monad_fiber_t *const t = *p2;
+static inline void
+_monad_fiber_ptr_swap(monad_fiber_t const **p1, monad_fiber_t const **p2)
+{
+    monad_fiber_t const *const t = *p2;
     *p2 = *p1;
     *p1 = t;
 }
 
-static inline unsigned prio_queue_min_heapify(const monad_fiber_t **fibers,
-                                              size_t queue_size,
-                                              size_t parent_idx) {
+static inline unsigned prio_queue_min_heapify(
+    monad_fiber_t const **fibers, size_t queue_size, size_t parent_idx)
+{
     unsigned iters = 1;
 HeapifyNextLevel:
     size_t smallest_idx = parent_idx;
@@ -83,15 +87,18 @@ HeapifyNextLevel:
     size_t right_idx = PQ_RIGHT_CHILD_IDX(parent_idx);
 
     if (left_idx < queue_size &&
-        fibers[left_idx]->priority < fibers[smallest_idx]->priority)
+        fibers[left_idx]->priority < fibers[smallest_idx]->priority) {
         smallest_idx = left_idx;
+    }
 
     if (right_idx < queue_size &&
-        fibers[right_idx]->priority < fibers[smallest_idx]->priority)
+        fibers[right_idx]->priority < fibers[smallest_idx]->priority) {
         smallest_idx = right_idx;
+    }
 
-    if (smallest_idx == parent_idx)
+    if (smallest_idx == parent_idx) {
         return iters;
+    }
 
     _monad_fiber_ptr_swap(&fibers[parent_idx], &fibers[smallest_idx]);
     parent_idx = smallest_idx;
@@ -99,8 +106,9 @@ HeapifyNextLevel:
     goto HeapifyNextLevel;
 }
 
-static inline int monad_run_queue_try_push(monad_run_queue_t *rq,
-                                           monad_fiber_t *fiber) {
+static inline int
+monad_run_queue_try_push(monad_run_queue_t *rq, monad_fiber_t *fiber)
+{
     size_t idx;
     size_t size;
     int rc = 0;
@@ -117,8 +125,9 @@ static inline int monad_run_queue_try_push(monad_run_queue_t *rq,
         goto Finish;
     }
 
-    if (MONAD_UNLIKELY(!monad_spinlock_is_owned(&fiber->lock)))
+    if (MONAD_UNLIKELY(!monad_spinlock_is_owned(&fiber->lock))) {
         MONAD_SPINLOCK_LOCK(&fiber->lock);
+    }
     if (MONAD_UNLIKELY(fiber->state != MF_STATE_CAN_RUN)) {
         monad_spinlock_unlock(&fiber->lock);
         ++rq->stats.total_push_not_ready;
@@ -128,11 +137,11 @@ static inline int monad_run_queue_try_push(monad_run_queue_t *rq,
 
     idx = size++;
     rq->fibers[idx] = fiber;
-    while (idx != 0 &&
-           rq->fibers[idx]->priority < rq->fibers[PQ_PARENT_IDX(idx)]->priority)
-    {
-        _monad_fiber_ptr_swap((const monad_fiber_t**)&rq->fibers[idx],
-                              (const monad_fiber_t**)&rq->fibers[PQ_PARENT_IDX(idx)]);
+    while (idx != 0 && rq->fibers[idx]->priority <
+                           rq->fibers[PQ_PARENT_IDX(idx)]->priority) {
+        _monad_fiber_ptr_swap(
+            (monad_fiber_t const **)&rq->fibers[idx],
+            (monad_fiber_t const **)&rq->fibers[PQ_PARENT_IDX(idx)]);
         idx = PQ_PARENT_IDX(idx);
         ++heapify_iters;
     }
@@ -146,7 +155,8 @@ Finish:
     return rc;
 }
 
-static inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq) {
+static inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq)
+{
     monad_fiber_t *min_prio_fiber;
     size_t size;
     unsigned heapify_iter;
@@ -192,10 +202,11 @@ static inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq) {
     --size;
     atomic_store_explicit(&rq->size, size, memory_order_release);
     if (MONAD_LIKELY(size > 0)) {
-        _monad_fiber_ptr_swap((const monad_fiber_t**)&rq->fibers[0],
-                              (const monad_fiber_t**)&rq->fibers[size]);
-        heapify_iter = prio_queue_min_heapify((const monad_fiber_t**)rq->fibers,
-                                              size, 0);
+        _monad_fiber_ptr_swap(
+            (monad_fiber_t const **)&rq->fibers[0],
+            (monad_fiber_t const **)&rq->fibers[size]);
+        heapify_iter =
+            prio_queue_min_heapify((monad_fiber_t const **)rq->fibers, size, 0);
     }
     monad_spinlock_unlock(&rq->lock);
     (void)heapify_iter; // XXX: make a histogram of iter count?
@@ -211,7 +222,8 @@ static inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq) {
 #undef PQ_LEFT_CHILD_IDX
 #undef PQ_RIGHT_CHILD_IDX
 
-static inline bool monad_run_queue_is_empty(const monad_run_queue_t *rq) {
+static inline bool monad_run_queue_is_empty(monad_run_queue_t const *rq)
+{
     return atomic_load_explicit(&rq->size, memory_order_relaxed) == 0;
 }
 

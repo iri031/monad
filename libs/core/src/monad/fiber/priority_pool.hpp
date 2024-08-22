@@ -4,16 +4,16 @@
 #include <monad/fiber/config.hpp>
 #include <monad/fiber/fiber.h>
 #include <monad/fiber/fiber_channel.h>
-#include <monad/fiber/run_queue.h>
 #include <monad/fiber/priority_task.hpp>
+#include <monad/fiber/run_queue.h>
 
 #include <atomic>
 #include <deque>
 #include <functional>
 #include <list>
 #include <thread>
-#include <vector>
 #include <utility>
+#include <vector>
 
 MONAD_FIBER_NAMESPACE_BEGIN
 
@@ -21,13 +21,14 @@ class PriorityPool;
 
 // A PriorityTask, plus additional book-keeping fields to help manage its memory
 // and allow it to be linked onto a fiber channel
-struct TaskChannelItem {
+struct TaskChannelItem
+{
     using token_t = std::list<TaskChannelItem>::const_iterator;
 
     monad_fiber_vbuf_t vbuf; ///< vbuf header to link us onto a channel
-    PriorityPool *pool;      ///< Pool we live in
-    PriorityTask prio_task;  ///< The task itself
-    token_t self;            ///< Reference to ourselves, from pool perspective
+    PriorityPool *pool; ///< Pool we live in
+    PriorityTask prio_task; ///< The task itself
+    token_t self; ///< Reference to ourselves, from pool perspective
 };
 
 class PriorityPool final
@@ -53,7 +54,8 @@ public:
     void submit(monad_fiber_prio_t priority, std::function<void()> task);
 
     // Called by the fiber to mark that the task is finished
-    void finish(TaskChannelItem::token_t finished) {
+    void finish(TaskChannelItem::token_t finished)
+    {
         monad_spinlock_lock(&channel_items_lock_);
         channel_items_.erase(finished); // Reclaim the memory
         monad_spinlock_unlock(&channel_items_lock_);
