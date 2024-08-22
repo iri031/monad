@@ -6,8 +6,6 @@ find_package(GTest REQUIRED)
 find_program(BINDGEN_PROGRAM bindgen)
 find_program(RUSTC_PROGRAM rustc)
 
-add_subdirectory("third_party/monad-boost-context")
-
 set(monad_context_INCLUDES
   "src/monad/context/context_switcher.h"
 )
