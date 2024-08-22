@@ -1,3 +1,6 @@
+#include "monad/context/context_switcher.h"
+#include "monad/mem/allocators.hpp"
+#include <atomic>
 #include <monad/fiber/priority_pool.hpp>
 
 #include <monad/core/assert.h>
@@ -5,8 +8,8 @@
 #include <monad/fiber/config.hpp>
 #include <monad/fiber/fiber.h>
 #include <monad/fiber/fiber_channel.h>
-#include <monad/fiber/fiber_util.h>
 #include <monad/fiber/run_queue.h>
+#include <stdatomic.h>
 #include <sys/mman.h>
 
 #include <bit>
@@ -65,22 +68,17 @@ PriorityPool::PriorityPool(unsigned const n_threads, unsigned const n_fibers)
         &task_channel_, make_srcloc(std::source_location::current()));
     monad_fiber_channel_set_name(&task_channel_, "task_chan");
     monad_spinlock_init(&channel_items_lock_);
+    switcher_ = context::make_context_switcher(MONAD_FIBER_CONTEXT_SWITCHER);
 
     // Initialize our pool of fibers: set them to run the work-stealing
     // algorithm, and add them to the run queue
     char namebuf[MONAD_FIBER_NAME_LEN + 1];
+    fibers_ = allocators::owning_span<monad_fiber_t>(n_fibers);
     for (unsigned i = 0; i < n_fibers; ++i) {
-        monad_fiber_stack_t fiber_stack;
-        size_t fiber_stack_size = FIBER_STACK_SIZE;
-        if (int rc = monad_fiber_alloc_stack(&fiber_stack_size, &fiber_stack)) {
-            throw std::system_error{
-                rc,
-                std::generic_category(),
-                "unable to allocate fiber stack memory region"};
-        }
+        struct monad_fiber_attr_t attr = {{.stack_size = FIBER_STACK_SIZE}};
 
-        monad_fiber_t &fiber = fibers_.emplace_back();
-        monad_fiber_init(&fiber, fiber_stack);
+        monad_fiber_t &fiber = fibers_[i];
+        monad_fiber_init(&fiber, switcher_.get(), &attr);
         monad_fiber_set_function(
             &fiber,
             MONAD_FIBER_PRIO_LOWEST,
@@ -88,7 +86,6 @@ PriorityPool::PriorityPool(unsigned const n_threads, unsigned const n_fibers)
             std::bit_cast<uintptr_t>(&task_channel_));
         snprintf(namebuf, sizeof namebuf, "F%03d", i);
         (void)monad_fiber_set_name(&fiber, namebuf);
-        monad_fiber_debug_add(&fiber);
         int const rc = monad_run_queue_try_push(run_queue_, &fiber);
         MONAD_ASSERT(rc == 0); // Run queue should always be big enough
     }
@@ -100,6 +97,9 @@ PriorityPool::PriorityPool(unsigned const n_threads, unsigned const n_fibers)
             int rc;
             std::snprintf(name, sizeof name, "worker_%02u", i);
             pthread_setname_np(pthread_self(), name);
+            monad_context_switcher this_switcher = atomic_load_explicit(
+                &monad_fiber_self()->suspended_ctx->switcher,
+                memory_order_acquire);
             while (!done_.load(std::memory_order_acquire)) {
                 // Get the highest priority fiber ready to run
                 monad_fiber_t *const fiber =
@@ -110,27 +110,25 @@ PriorityPool::PriorityPool(unsigned const n_threads, unsigned const n_fibers)
 
                 // Run the fiber until it suspends; the work-stealing fibers
                 // never return
-                rc = monad_fiber_run(fiber, nullptr);
+                rc = monad_fiber_run(fiber, this_switcher, nullptr);
                 MONAD_ASSERT(rc == 0);
             }
         });
-        threads_.push_back(std::move(thread));
+        threads_.emplace_back(std::move(thread));
     }
 }
 
 PriorityPool::~PriorityPool()
 {
     done_ = true;
-    while (threads_.size()) {
-        auto &thread = threads_.back();
+    for (auto &thread : threads_) {
         thread.join();
-        threads_.pop_back();
     }
     monad_run_queue_destroy(run_queue_);
     for (monad_fiber_t &fiber : fibers_) {
-        monad_fiber_debug_remove(&fiber);
-        monad_fiber_free_stack(fiber.stack);
+        monad_fiber_destroy(&fiber);
     }
+    threads_.clear();
 }
 
 void PriorityPool::submit(

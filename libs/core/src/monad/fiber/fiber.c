@@ -5,16 +5,15 @@
  * fiber.md for the architectural documentation and implementation notes
  */
 
+#include "monad/context/config.h"
+#include "monad/context/context_switcher.h"
 #include <errno.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-
-#if MONAD_HAVE_ASAN
-    #include <sanitizer/asan_interface.h>
-#endif
 
 #include <monad/core/assert.h>
 #include <monad/core/likely.h>
@@ -23,8 +22,6 @@
 #include <monad/fiber/fiber.h>
 #include <monad/fiber/fiber_sync.h>
 #include <monad/fiber/run_queue.h>
-
-#include <monad-boost/context/fcontext.h>
 
 static thread_local monad_fiber_t *tl_cur_fiber = nullptr;
 
@@ -63,21 +60,14 @@ extern void _monad_wakeup_thread_fiber(
 // This is an internal-only function but is declared "extern" so that it can be
 // shared with fiber_thr.c
 extern monad_fiber_suspend_info_t
-_monad_fiber_finish_switch(struct monad_transfer_t xfer_from)
+_monad_fiber_finish_switch(monad_context_task task)
 {
     pthread_t cur_thread;
     monad_fiber_t *cur_fiber;
     monad_fiber_t *prev_fiber;
     monad_fiber_suspend_info_t suspend_info;
     const struct in_progress_fiber_switch *const cur_switch =
-        (struct in_progress_fiber_switch *)xfer_from.data;
-
-#if MONAD_HAVE_ASAN
-    // Finish the switch initiated by the most recent call to
-    // _monad_fiber_begin_switch
-    __sanitizer_finish_switch_fiber(
-        cur_switch->switch_to->fake_stack_save, nullptr, nullptr);
-#endif
+        (struct in_progress_fiber_switch *)task->user_ptr;
 
     cur_fiber = tl_cur_fiber = cur_switch->switch_to;
     prev_fiber = cur_switch->switch_from;
@@ -88,7 +78,6 @@ _monad_fiber_finish_switch(struct monad_transfer_t xfer_from)
 
     // Remember where the switched-from fiber suspended, and update its state
     // from RUNNING to whatever suspension state it's entering
-    prev_fiber->suspended_ctx = xfer_from.fctx;
     prev_fiber->state = cur_switch->switch_from_suspend_state;
     suspend_info = cur_switch->switch_from_suspend_info;
 
@@ -127,15 +116,13 @@ _monad_fiber_finish_switch(struct monad_transfer_t xfer_from)
 // Low-level machine-independent fiber switch function; this atomically suspends
 // the current fiber and switches to the next fiber; the next fiber must
 // immediately call _monad_fiber_finish_switch to complete this switch
-static struct monad_transfer_t monad_fiber_start_switch(
+static void monad_fiber_start_switch(
     monad_fiber_t *cur_fiber, monad_fiber_t *next_fiber,
     enum monad_fiber_state cur_suspend_state,
     enum monad_fiber_suspend_type cur_suspend_type, uintptr_t eval)
 {
     // For ASAN:
     struct in_progress_fiber_switch cur_switch;
-    [[maybe_unused]] size_t next_stack_size;
-    [[maybe_unused]] void **fake_stack;
 
     MONAD_DEBUG_ASSERT(monad_spinlock_is_owned(&cur_fiber->lock));
     MONAD_DEBUG_ASSERT(monad_spinlock_is_owned(&next_fiber->lock));
@@ -148,31 +135,11 @@ static struct monad_transfer_t monad_fiber_start_switch(
     cur_switch.switch_from_suspend_info.suspend_type = cur_suspend_type;
     cur_switch.switch_from_suspend_info.eval = eval;
 
-#if MONAD_HAVE_ASAN
-    // Tell ASAN we're going to switch to a new stack
-    fake_stack = cur_suspend_state == MONAD_FIBER_FINISHED
-                     ? nullptr
-                     : &cur_fiber->fake_stack_save;
-    next_stack_size =
-        next_fiber->stack.stack_top - next_fiber->stack.stack_bottom;
-    __sanitizer_start_switch_fiber(
-        fake_stack, next_fiber->stack.stack_bottom, next_stack_size);
-#endif
-
-    // Call the machine-dependent fiber switch function, monad_jump_fcontext.
-    // This atomically suspends our fiber and begins executing the next fiber
-    // at its last suspension point. If we are resumed at some later time, it
-    // will appear as through we've returned from this function call to
-    // `monad_jump_fcontext`, and we will again be the current fiber.
-    //
-    // It returns a `struct monad_transfer_t`, with two members:
-    //
-    //   data - the `struct in_progress_fiber_switch *` for the switch that
-    //          is returning control back to us
-    //   fctx - the context pointer (effectively the suspension point) within
-    //          the previously-running fiber, where it was suspended during the
-    //          switch back to us
-    return monad_jump_fcontext(next_fiber->suspended_ctx, &cur_switch);
+    monad_context_switcher switcher = atomic_load_explicit(
+        &cur_fiber->suspended_ctx->switcher, memory_order_acquire);
+    next_fiber->head.user_ptr = &cur_switch;
+    switcher->suspend_and_call_resume(
+        cur_fiber->suspended_ctx, next_fiber->suspended_ctx);
 }
 
 extern void _monad_fiber_suspend(
@@ -187,13 +154,12 @@ extern void _monad_fiber_suspend(
     monad_fiber_t *const next_fiber = cur_fiber->prev_fiber;
     MONAD_DEBUG_ASSERT(monad_spinlock_is_owned(&cur_fiber->lock));
     MONAD_SPINLOCK_LOCK(&next_fiber->lock);
-    const struct monad_transfer_t xfer_from = monad_fiber_start_switch(
+    monad_fiber_start_switch(
         cur_fiber, next_fiber, cur_suspend_state, cur_suspend_type, eval);
-    asm volatile("" ::: "memory");
-    (void)_monad_fiber_finish_switch(xfer_from);
+    (void)_monad_fiber_finish_switch(&cur_fiber->head);
 }
 
-[[noreturn]] static void fiber_entrypoint(struct monad_transfer_t xfer_from)
+[[noreturn]] static void fiber_entrypoint(monad_context_task task)
 {
     // Entry point of a "user" fiber. When this function is called, we're
     // running on the fiber's stack for the first time (after the most recent
@@ -207,7 +173,7 @@ extern void _monad_fiber_suspend(
     monad_fiber_t *self;
 
     // Finish the switch, then get our fiber
-    (void)_monad_fiber_finish_switch(xfer_from);
+    (void)_monad_fiber_finish_switch(task);
     self = monad_fiber_self();
 
     // Enter the user fiber function
@@ -221,21 +187,40 @@ extern void _monad_fiber_suspend(
     // This should be unreachable (monad_fiber_run should not resume us after
     // a "return" suspension)
     abort();
+
+    // TODO FIXME Stop destroying and creating contexts, which can be expensive
+    // Instead recycle them
 }
 
-void monad_fiber_init(monad_fiber_t *fiber, monad_fiber_stack_t stack)
+static monad_c_result monad_fiber_entrypoint_trampoline(monad_context_task task)
+{
+    fiber_entrypoint(task);
+}
+
+static void monad_fiber_detach(monad_context_task) {}
+
+void monad_fiber_init(
+    monad_fiber_t *fiber, monad_context_switcher switcher,
+    const struct monad_fiber_attr_t *attr)
 {
     memset(fiber, 0, sizeof *fiber);
     monad_spinlock_init(&fiber->lock);
-    fiber->stack = stack;
+    if (switcher != nullptr || attr != nullptr) {
+        monad_c_result r = switcher->create(
+            &fiber->suspended_ctx, switcher, &fiber->head, &attr->derived);
+        MONAD_CONTEXT_CHECK_RESULT(r); // should propagate instead
+    }
+    // FIXME: If this library goes into runloop, this stops being const
+    memcpy(
+        (void *)&fiber->head.detach,
+        monad_fiber_detach,
+        sizeof(fiber->head.detach));
 }
 
 int monad_fiber_set_function(
     monad_fiber_t *fiber, monad_fiber_prio_t priority,
     monad_fiber_ffunc_t *ffunc, uintptr_t fdata)
 {
-    size_t stack_size;
-
     MONAD_SPINLOCK_LOCK(&fiber->lock);
     switch (fiber->state) {
     case MF_STATE_INIT:
@@ -251,11 +236,9 @@ int monad_fiber_set_function(
         monad_spinlock_unlock(&fiber->lock);
         return EBUSY;
     }
-    stack_size = fiber->stack.stack_top - fiber->stack.stack_bottom;
     fiber->state = MF_STATE_CAN_RUN;
     fiber->priority = priority;
-    fiber->suspended_ctx = monad_make_fcontext(
-        fiber->stack.stack_top, stack_size, fiber_entrypoint);
+    fiber->head.user_code = monad_fiber_entrypoint_trampoline;
     fiber->ffunc = ffunc;
     fiber->fdata = fdata;
     ++fiber->stats.total_reset;
@@ -268,11 +251,40 @@ monad_fiber_t *monad_fiber_self()
     return tl_cur_fiber != nullptr ? tl_cur_fiber : _monad_get_thread_fiber();
 }
 
+struct monad_fiber_run_impl_state_t
+{
+    monad_fiber_t *cur_fiber, *next_fiber;
+    monad_context old_context;
+};
+
+static monad_c_result monad_fiber_run_impl(
+    void *user_ptr, monad_context current_context_to_use_when_resuming)
+{
+    struct monad_fiber_run_impl_state_t *state =
+        (struct monad_fiber_run_impl_state_t *)user_ptr;
+    if (state->old_context != nullptr) {
+        state->cur_fiber->suspended_ctx = state->old_context;
+        return monad_c_make_success(0);
+    }
+    state->old_context = state->cur_fiber->suspended_ctx;
+    state->cur_fiber->suspended_ctx = current_context_to_use_when_resuming;
+    // Switch into next_fiber
+    monad_fiber_start_switch(
+        state->cur_fiber,
+        state->next_fiber,
+        MF_STATE_EXEC_WAIT,
+        MF_SUSPEND_SLEEP,
+        (uintptr_t)state->next_fiber);
+    // Could return from here, or by reentry above
+    state->cur_fiber->suspended_ctx = state->old_context;
+    return monad_c_make_success(0);
+}
+
 int monad_fiber_run(
-    monad_fiber_t *next_fiber, monad_fiber_suspend_info_t *suspend_info)
+    monad_fiber_t *next_fiber, monad_context_switcher switcher,
+    monad_fiber_suspend_info_t *suspend_info)
 {
     int err;
-    struct monad_transfer_t resume_xfer;
     monad_fiber_suspend_info_t next_fiber_suspend_info;
     monad_fiber_t *const cur_fiber = monad_fiber_self();
 
@@ -296,15 +308,32 @@ int monad_fiber_run(
         return EDEADLOCK; // XXX: wrong return code?
     }
 
-    // Switch into next_fiber
-    resume_xfer = monad_fiber_start_switch(
-        cur_fiber,
-        next_fiber,
-        MF_STATE_EXEC_WAIT,
-        MF_SUSPEND_SLEEP,
-        (uintptr_t)next_fiber);
-    asm volatile("" ::: "memory");
-    next_fiber_suspend_info = _monad_fiber_finish_switch(resume_xfer);
+    // Reparent next_fiber if requested
+    monad_context_switcher oldswitcher = nullptr;
+    if (switcher != nullptr &&
+        switcher !=
+            atomic_load_explicit(
+                &next_fiber->suspended_ctx->switcher, memory_order_acquire)) {
+        oldswitcher = atomic_load_explicit(
+            &next_fiber->suspended_ctx->switcher, memory_order_acquire);
+        monad_context_reparent_switcher(next_fiber->suspended_ctx, switcher);
+    }
+
+    struct monad_fiber_run_impl_state_t state = {
+        .cur_fiber = cur_fiber, .next_fiber = next_fiber};
+    if (monad_fiber_is_thread_fiber(cur_fiber)) {
+        MONAD_CONTEXT_CHECK_RESULT(
+            switcher->resume_many(switcher, monad_fiber_run_impl, &state));
+    }
+    else {
+        MONAD_CONTEXT_CHECK_RESULT(
+            monad_fiber_run_impl(&state, cur_fiber->suspended_ctx));
+    }
+
+    if (oldswitcher != nullptr) {
+        monad_context_reparent_switcher(next_fiber->suspended_ctx, oldswitcher);
+    }
+    next_fiber_suspend_info = _monad_fiber_finish_switch(&cur_fiber->head);
     if (suspend_info != nullptr) {
         memcpy(suspend_info, &next_fiber_suspend_info, sizeof *suspend_info);
     }

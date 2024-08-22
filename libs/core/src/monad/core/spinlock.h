@@ -28,7 +28,7 @@ typedef unsigned long monad_spinstat_t;
     #define MONAD_SPINSTAT_INC(X) ++(X)
 #endif
 
-constexpr size_t MONAD_SPINLOCK_HIST_BUCKETS = 15;
+#define MONAD_SPINLOCK_HIST_BUCKETS (15)
 
 /// Lock statistics; these may not be 100% accurate, since we may not
 /// atomically fetch_add them so some data could be lost

@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <threads.h>
 
+#include <unistd.h>
+
 monad_context_switcher_impl const monad_context_switcher_none = {
     .create = monad_context_switcher_none_create};
 

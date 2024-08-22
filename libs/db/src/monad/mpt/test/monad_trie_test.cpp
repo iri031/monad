@@ -16,7 +16,6 @@
 #include <monad/core/small_prng.hpp>
 #include <monad/core/unordered_map.hpp>
 #include <monad/fiber/fiber.h>
-#include <monad/fiber/fiber_util.h>
 #include <monad/fiber/future.hpp>
 #include <monad/fiber/run_queue.h>
 #include <monad/io/buffers.hpp>
@@ -100,6 +99,9 @@ namespace
     auto const state_nibbles = concat(state_nibble);
     constexpr auto prefix_len = 1;
     constexpr std::size_t test_stack_size = 1 << 17; // 128 KiB
+
+    static auto switcher =
+        monad::context::make_context_switcher(monad_context_switcher_fcontext);
 }
 
 /*  Commit one batch of updates
@@ -269,7 +271,8 @@ void prepare_keccak(
     }
 }
 
-struct FindArgsBase {
+struct FindArgsBase
+{
     unsigned n_slices;
     UpdateAuxImpl *aux;
     NodeCursor state_start;
@@ -277,50 +280,46 @@ struct FindArgsBase {
 };
 
 // STMF - single thread running multiple fibers test
-struct FindArgsSTMF : FindArgsBase {
+struct FindArgsSTMF : FindArgsBase
+{
     inflight_map_t *inflights;
     bool *signal_done;
     uint64_t *ops;
 };
 
 // MTSF - multiple threads running a single fiber test
-struct FindArgsMTSF : FindArgsBase {
+struct FindArgsMTSF : FindArgsBase
+{
     std::atomic<int> *signal_done;
     std::atomic<uint64_t> *ops;
     concurrent_queue<fiber_find_request_t> *req_queue;
 };
 
-void init_find_fiber(monad_fiber_t *fiber, monad_fiber_prio_t prio,
-        FindArgsBase *find_args, monad_fiber_ffunc_t *find) {
-    monad_fiber_stack_t stack;
-    std::size_t stack_size = test_stack_size;
-    if (const int rc = monad_fiber_alloc_stack(&stack_size, &stack)) {
-        throw std::system_error{rc, std::generic_category(),
-            "monad_fiber_alloc_stack failed"};
-    }
-    monad_fiber_init(fiber, stack);
-    (void)monad_fiber_set_function(fiber, prio, find,
-        std::bit_cast<uintptr_t>(find_args));
+void init_find_fiber(
+    monad_fiber_t *fiber, monad_fiber_prio_t prio, FindArgsBase *find_args,
+    monad_fiber_ffunc_t *find)
+{
+    monad_fiber_attr_t attr = {{.stack_size = test_stack_size}};
+    monad_fiber_init(fiber, switcher.get(), &attr);
+    (void)monad_fiber_set_function(
+        fiber, prio, find, std::bit_cast<uintptr_t>(find_args));
 }
 
-uintptr_t find_single_thread_multi_fiber(uintptr_t arg0) {
-    auto *const find_args = std::bit_cast<FindArgsSTMF*>(arg0);
+uintptr_t find_single_thread_multi_fiber(uintptr_t arg0)
+{
+    auto *const find_args = std::bit_cast<FindArgsSTMF *>(arg0);
     monad::small_prng rand(find_args->n);
     monad::byte_string key;
     key.resize(32);
     while (!*find_args->signal_done) {
         size_t key_src = (rand() % (find_args->n_slices * SLICE_LEN));
-        keccak256(
-            (unsigned char const *)&key_src, 8, key.data());
+        keccak256((unsigned char const *)&key_src, 8, key.data());
         monad::fiber::simple_promise<find_result_type> promise;
         fiber_find_request_t const request{
-            .promise = &promise,
-            .start = find_args->state_start,
-            .key = key};
-        find_notify_fiber_future(*find_args->aux, *find_args->inflights,
-            request);
-        auto const [node_cursor, errc] =
-            request.promise->get_future().get();
+            .promise = &promise, .start = find_args->state_start, .key = key};
+        find_notify_fiber_future(
+            *find_args->aux, *find_args->inflights, request);
+        auto const [node_cursor, errc] = request.promise->get_future().get();
         MONAD_ASSERT(node_cursor.is_valid());
         MONAD_ASSERT(errc == monad::mpt::find_result::success);
         MONAD_ASSERT(node_cursor.node->has_value());
@@ -329,23 +328,20 @@ uintptr_t find_single_thread_multi_fiber(uintptr_t arg0) {
     return 0;
 }
 
-uintptr_t find_multi_thread_single_fiber(uintptr_t arg0) {
-    auto *const find_args = std::bit_cast<FindArgsMTSF*>(arg0);
+uintptr_t find_multi_thread_single_fiber(uintptr_t arg0)
+{
+    auto *const find_args = std::bit_cast<FindArgsMTSF *>(arg0);
     monad::small_prng rand(find_args->n);
     monad::byte_string key;
     key.resize(32);
     while (0 == find_args->signal_done->load(std::memory_order_relaxed)) {
         monad::fiber::simple_promise<find_result_type> promise;
         size_t key_src = (rand() % (find_args->n_slices * SLICE_LEN));
-        keccak256(
-            (unsigned char const *)&key_src, 8, key.data());
+        keccak256((unsigned char const *)&key_src, 8, key.data());
         fiber_find_request_t const request{
-            .promise = &promise,
-            .start = find_args->state_start,
-            .key = key};
+            .promise = &promise, .start = find_args->state_start, .key = key};
         find_args->req_queue->enqueue(request);
-        auto const [node_cursor, errc] =
-            request.promise->get_future().get();
+        auto const [node_cursor, errc] = request.promise->get_future().get();
         MONAD_ASSERT(node_cursor.is_valid());
         MONAD_ASSERT(errc == monad::mpt::find_result::success);
         MONAD_ASSERT(node_cursor.node->has_value());
@@ -355,9 +351,11 @@ uintptr_t find_multi_thread_single_fiber(uintptr_t arg0) {
     return 0;
 }
 
-uintptr_t find_multi_thread_single_fiber_receiver(uintptr_t arg0) {
-    auto *const find_args = std::bit_cast<FindArgsMTSF*>(arg0);
+uintptr_t find_multi_thread_single_fiber_receiver(uintptr_t arg0)
+{
+    auto *const find_args = std::bit_cast<FindArgsMTSF *>(arg0);
     monad::small_prng rand(find_args->n);
+
     struct receiver_t
     {
         UpdateAuxImpl &aux;
@@ -367,8 +365,8 @@ uintptr_t find_multi_thread_single_fiber_receiver(uintptr_t arg0) {
         inflight_map_t &inflights;
 
         explicit receiver_t(UpdateAuxImpl &aux_, inflight_map_t &inflights_)
-        : aux(aux_)
-        , inflights(inflights_)
+            : aux(aux_)
+            , inflights(inflights_)
         {
             key.resize(32);
         }
@@ -377,12 +375,13 @@ uintptr_t find_multi_thread_single_fiber_receiver(uintptr_t arg0) {
         {
             p.~simple_promise();
             new (&p) monad::fiber::simple_promise<find_result_type>{};
-            request = fiber_find_request_t{.promise = &p, .start = state_start,
-                .key = key};
+            request = fiber_find_request_t{
+                .promise = &p, .start = state_start, .key = key};
         }
 
-        void set_value(MONAD_ASYNC_NAMESPACE::erased_connected_operation *,
-        MONAD_ASYNC_NAMESPACE::threadsafe_sender::result_type res)
+        void set_value(
+            MONAD_ASYNC_NAMESPACE::erased_connected_operation *,
+            MONAD_ASYNC_NAMESPACE::threadsafe_sender::result_type res)
         {
             MONAD_ASSERT(res);
             // We are now on the triedb thread
@@ -391,14 +390,17 @@ uintptr_t find_multi_thread_single_fiber_receiver(uintptr_t arg0) {
     };
 
     inflight_map_t inflights;
-    using connected_state_type = decltype(connect(*find_args->aux->io,
-    MONAD_ASYNC_NAMESPACE::threadsafe_sender{},
-    receiver_t{*find_args->aux, inflights}));
+    using connected_state_type = decltype(connect(
+        *find_args->aux->io,
+        MONAD_ASYNC_NAMESPACE::threadsafe_sender{},
+        receiver_t{*find_args->aux, inflights}));
     auto states = ::monad::make_array<connected_state_type, 4>(
-    std::piecewise_construct, *find_args->aux->io,
-    std::piecewise_construct, std::tuple{},
-    std::tuple<UpdateAuxImpl &, inflight_map_t &>{
-        *find_args->aux, inflights});
+        std::piecewise_construct,
+        *find_args->aux->io,
+        std::piecewise_construct,
+        std::tuple{},
+        std::tuple<UpdateAuxImpl &, inflight_map_t &>{
+            *find_args->aux, inflights});
     auto *state_it = states.begin();
     while (0 == find_args->signal_done->load(std::memory_order_relaxed)) {
         auto &state = *state_it++;
@@ -406,13 +408,12 @@ uintptr_t find_multi_thread_single_fiber_receiver(uintptr_t arg0) {
             state_it = states.begin();
         }
         size_t key_src = (rand() % (find_args->n_slices * SLICE_LEN));
-        keccak256((unsigned char const *)&key_src, 8,
-            state.receiver().key.data());
+        keccak256(
+            (unsigned char const *)&key_src, 8, state.receiver().key.data());
 
         state.reset(std::tuple{}, std::tuple{find_args->state_start});
         state.initiate();
-        auto const [node_cursor, errc] =
-            state.receiver().p.get_future().get();
+        auto const [node_cursor, errc] = state.receiver().p.get_future().get();
         MONAD_ASSERT(node_cursor.is_valid());
         MONAD_ASSERT(errc == monad::mpt::find_result::success);
         MONAD_ASSERT(node_cursor.node->has_value());
@@ -943,23 +944,32 @@ int main(int argc, char *argv[])
                 std::deque<monad_fiber_t> fibers;
                 std::deque<FindArgsSTMF> find_args;
 
-                if (const int rc =
-                        monad_run_queue_create(random_read_benchmark_threads,
-                                               &run_queue)) {
-                    throw std::system_error{rc, std::generic_category(),
-                                            "monad_run_queue_create failed"};
+                if (int const rc = monad_run_queue_create(
+                        random_read_benchmark_threads, &run_queue)) {
+                    throw std::system_error{
+                        rc,
+                        std::generic_category(),
+                        "monad_run_queue_create failed"};
                 }
 
                 for (unsigned n = 0; n < random_read_benchmark_threads; n++) {
                     monad_fiber_t &fiber = fibers.emplace_back();
-                    auto &args = find_args.emplace_back(FindArgsSTMF{{n_slices, &aux,
-                        state_start, n}, &inflights, &signal_done, &ops});
-                    init_find_fiber(&fiber, MONAD_FIBER_PRIO_HIGHEST + n, &args,
+                    auto &args = find_args.emplace_back(FindArgsSTMF{
+                        {n_slices, &aux, state_start, n},
+                        &inflights,
+                        &signal_done,
+                        &ops});
+                    init_find_fiber(
+                        &fiber,
+                        MONAD_FIBER_PRIO_HIGHEST + n,
+                        &args,
                         find_single_thread_multi_fiber);
-                    if (const int rc =
-                        monad_run_queue_try_push(run_queue, &fiber)) {
-                        throw std::system_error{rc, std::generic_category(),
-                        "monad_run_queue_try_push failed"};
+                    if (int const rc =
+                            monad_run_queue_try_push(run_queue, &fiber)) {
+                        throw std::system_error{
+                            rc,
+                            std::generic_category(),
+                            "monad_run_queue_try_push failed"};
                     }
                 }
                 auto begin = std::chrono::steady_clock::now();
@@ -968,8 +978,10 @@ int main(int argc, char *argv[])
                     do {
                         aux.io->poll_nonblocking(1);
                         next_fiber = monad_run_queue_try_pop(run_queue);
-                    } while (next_fiber == nullptr);
-                    const int rc = monad_fiber_run(next_fiber, nullptr);
+                    }
+                    while (next_fiber == nullptr);
+                    int const rc =
+                        monad_fiber_run(next_fiber, nullptr, nullptr);
                     MONAD_ASSERT(rc == 0);
                 }
                 while (std::chrono::steady_clock::now() - begin <
@@ -994,12 +1006,14 @@ int main(int argc, char *argv[])
                         io.poll_nonblocking(1);
                         next_fiber = monad_run_queue_try_pop(run_queue);
                     }
-                    monad_fiber_run(next_fiber, &suspend_info);
-                    if (suspend_info.suspend_type == MF_SUSPEND_RETURN)
+                    monad_fiber_run(next_fiber, nullptr, &suspend_info);
+                    if (suspend_info.suspend_type == MF_SUSPEND_RETURN) {
                         ++finished_fibers;
+                    }
                 }
-                for (monad_fiber_t &fiber : fibers)
-                    monad_fiber_free_stack(fiber.stack);
+                for (monad_fiber_t &fiber : fibers) {
+                    monad_fiber_destroy(&fiber);
+                }
             }
 
             {
@@ -1024,16 +1038,28 @@ int main(int argc, char *argv[])
                     auto thread_fn = [](FindArgsMTSF find_args) {
                         monad_fiber_t fiber;
                         monad_fiber_suspend_info_t suspend_info;
-                        init_find_fiber(&fiber, MONAD_FIBER_PRIO_HIGHEST,
-                            &find_args, find_multi_thread_single_fiber);
+                        init_find_fiber(
+                            &fiber,
+                            MONAD_FIBER_PRIO_HIGHEST,
+                            &find_args,
+                            find_multi_thread_single_fiber);
+                        auto threadswitcher =
+                            monad::context::make_context_switcher(
+                                monad_context_switcher_fcontext);
                         do {
-                            (void)monad_fiber_run(&fiber, &suspend_info);
-                        } while (suspend_info.suspend_type != MF_SUSPEND_RETURN);
-                        monad_fiber_free_stack(fiber.stack);
+                            (void)monad_fiber_run(
+                                &fiber, threadswitcher.get(), &suspend_info);
+                        }
+                        while (suspend_info.suspend_type != MF_SUSPEND_RETURN);
+                        monad_fiber_destroy(&fiber);
                     };
-                    threads.emplace_back(thread_fn, FindArgsMTSF{
-                        {n_slices, &aux, state_start, n},
-                        &signal_done, &ops, &req});
+                    threads.emplace_back(
+                        thread_fn,
+                        FindArgsMTSF{
+                            {n_slices, &aux, state_start, n},
+                            &signal_done,
+                            &ops,
+                            &req});
                 }
                 auto begin = std::chrono::steady_clock::now();
                 inflight_map_t inflights;
@@ -1090,16 +1116,28 @@ int main(int argc, char *argv[])
                     auto thread_fn = [](FindArgsMTSF find_args) {
                         monad_fiber_t fiber;
                         monad_fiber_suspend_info_t suspend_info;
-                        init_find_fiber(&fiber, MONAD_FIBER_PRIO_HIGHEST,
-                            &find_args, find_multi_thread_single_fiber_receiver);
+                        init_find_fiber(
+                            &fiber,
+                            MONAD_FIBER_PRIO_HIGHEST,
+                            &find_args,
+                            find_multi_thread_single_fiber_receiver);
+                        auto threadswitcher =
+                            monad::context::make_context_switcher(
+                                monad_context_switcher_fcontext);
                         do {
-                            (void)monad_fiber_run(&fiber, &suspend_info);
-                        } while (suspend_info.suspend_type != MF_SUSPEND_RETURN);
-                        monad_fiber_free_stack(fiber.stack);
+                            (void)monad_fiber_run(
+                                &fiber, threadswitcher.get(), &suspend_info);
+                        }
+                        while (suspend_info.suspend_type != MF_SUSPEND_RETURN);
+                        monad_fiber_destroy(&fiber);
                     };
-                    threads.emplace_back(thread_fn, FindArgsMTSF{
-                        {n_slices, &aux, state_start, n},
-                        &signal_done, &ops, nullptr});
+                    threads.emplace_back(
+                        thread_fn,
+                        FindArgsMTSF{
+                            {n_slices, &aux, state_start, n},
+                            &signal_done,
+                            &ops,
+                            nullptr});
                 }
                 auto begin = std::chrono::steady_clock::now();
                 while (std::chrono::steady_clock::now() - begin <

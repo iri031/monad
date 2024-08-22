@@ -69,8 +69,6 @@ add_library(monad_core_c OBJECT
   "src/monad/fiber/fiber.h"
   "src/monad/fiber/fiber.c"
   "src/monad/fiber/fiber_thr.c"
-  "src/monad/fiber/fiber_util.h"
-  "src/monad/fiber/fiber_util.c"
   "src/monad/fiber/fiber_sync.h"
   "src/monad/fiber/fiber_channel.h"
   "src/monad/fiber/fiber_semaphore.h"
@@ -101,7 +99,7 @@ target_compile_options(monad_core_c PRIVATE -Wall -Werror -Wextra)
 
 target_include_directories(monad_core_c
         PUBLIC "${PROJECT_SOURCE_DIR}/src")
-target_link_libraries(monad_core_c PRIVATE monad_boost_context)
+target_link_libraries(monad_core_c PUBLIC monad_context_c)
 
 # XXX fix this later
 target_include_directories(monad_core_c PRIVATE /usr/include/libunwind)
@@ -200,7 +198,7 @@ target_link_libraries(monad_core PUBLIC cgroup openssl_sha3_asm uring TBB::tbb)
 target_link_libraries(monad_core PUBLIC komihash)
 target_link_libraries(monad_core PUBLIC ethash::keccak)
 target_link_libraries(monad_core PUBLIC evmc)
-target_link_libraries(monad_core PRIVATE monad_core_c)
+target_link_libraries(monad_core PUBLIC monad_core_c)
 
 add_library(
   monad_core_disas STATIC

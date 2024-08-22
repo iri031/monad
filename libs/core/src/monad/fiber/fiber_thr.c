@@ -15,19 +15,13 @@
 #include <string.h>
 #include <unistd.h>
 
-#if MONAD_HAVE_ASAN
-    #include <sanitizer/asan_interface.h>
-#endif
-
-#include <monad-boost/context/fcontext.h>
 #include <monad/core/assert.h>
 #include <monad/core/spinlock.h>
 #include <monad/core/tl_tid.h>
 #include <monad/fiber/fiber.h>
-#include <monad/fiber/fiber_util.h>
 
 // The wakeup fiber runs almost no code, thus requires only a few stack pages
-constexpr size_t WAKEUP_STACK_PAGES = 8;
+static size_t const WAKEUP_STACK_PAGES = 8;
 
 struct thread_fiber_stats
 {
@@ -45,13 +39,13 @@ struct thread_fiber_state
 static thread_local struct thread_fiber_state tl_state;
 
 extern monad_fiber_suspend_info_t
-_monad_fiber_finish_switch(struct monad_transfer_t xfer_from);
+_monad_fiber_finish_switch(monad_context_task task);
 
 extern void _monad_fiber_suspend(
     monad_fiber_t *cur_fiber, enum monad_fiber_state cur_suspend_state,
     enum monad_fiber_suspend_type cur_suspend_type, uintptr_t eval);
 
-[[noreturn]] static void wakeup_entrypoint(struct monad_transfer_t xfer_from)
+[[noreturn]] static monad_c_result wakeup_entrypoint(monad_context_task task)
 {
     // Entry point of the wakeup fiber. This pretends to be the jump origin of
     // the thread fiber. It waits for a synchronization primitive (e.g., a
@@ -65,7 +59,7 @@ extern void _monad_fiber_suspend(
     uintptr_t expected_wait_queue;
 
     // Finish the first switch that brought us here
-    (void)_monad_fiber_finish_switch(xfer_from);
+    (void)_monad_fiber_finish_switch(task);
     wakeup_fiber = monad_fiber_self();
     thread_fiber = wakeup_fiber->prev_fiber;
     tfs = thread_fiber->thread_fs;
@@ -106,66 +100,45 @@ extern void _monad_fiber_suspend(
     while (true);
 }
 
+static monad_context_switcher get_thread_local_context_switcher()
+{
+    // I'd personally put this function into C++ so thread locals get
+    // destructed properly
+    static thread_local monad_context_switcher switcher;
+    if (switcher == nullptr) {
+        MONAD_CONTEXT_CHECK_RESULT(
+            MONAD_FIBER_CONTEXT_SWITCHER.create(&switcher));
+    }
+    return switcher;
+}
+
 static void init_wakeup_fiber(monad_fiber_t *wakeup_fiber)
 {
-    int rc;
-    monad_fiber_stack_t wakeup_stack;
-    size_t wakeup_stack_size;
     char namebuf[MONAD_FIBER_NAME_LEN + 1];
+    struct monad_fiber_attr_t attr = {
+        {.stack_size = WAKEUP_STACK_PAGES * getpagesize()}};
 
-    // The `+ 1` factor is for the guard page
-    wakeup_stack_size = (WAKEUP_STACK_PAGES + 1) * getpagesize();
-    rc = monad_fiber_alloc_stack(&wakeup_stack_size, &wakeup_stack);
-    if (rc != 0) {
-        fprintf(stderr, "allocation of wakeup fiber stack failed: %d\n", rc);
-        abort();
-    }
-    monad_fiber_init(wakeup_fiber, wakeup_stack);
+    monad_fiber_init(wakeup_fiber, get_thread_local_context_switcher(), &attr);
     wakeup_fiber->priority = MONAD_FIBER_PRIO_LOWEST;
     wakeup_fiber->state = MF_STATE_EXEC_WAIT;
-    wakeup_fiber->suspended_ctx = monad_make_fcontext(
-        wakeup_stack.stack_top, wakeup_stack_size, wakeup_entrypoint);
+    wakeup_fiber->head.user_code = wakeup_entrypoint;
     wakeup_fiber->last_thread = pthread_self();
     wakeup_fiber->last_thread_id = get_tl_tid();
     snprintf(namebuf, sizeof namebuf, "WUF_%d", wakeup_fiber->last_thread_id);
     (void)monad_fiber_set_name(wakeup_fiber, namebuf);
-    monad_fiber_debug_add(wakeup_fiber);
 }
 
 static void init_thread_fiber(monad_fiber_t *thread_fiber)
 {
-    int rc;
-    pthread_attr_t thread_attrs;
-    monad_fiber_stack_t thread_stack;
-    size_t thread_stack_size;
     char namebuf[MONAD_FIBER_NAME_LEN + 1];
 
-    // Get the thread's stack area
-    // TODO(ken): this is Linux-specific, and it's also potentially wrong if
-    //  mapped with MAP_GROWSDOWN (its size could increase, and we won't know)
-    rc = pthread_getattr_np(pthread_self(), &thread_attrs);
-    if (rc != 0) {
-        fprintf(stderr, "fatal: pthread_getattr_np(3): %d\n", rc);
-        abort();
-    }
-    rc = pthread_attr_getstack(
-        &thread_attrs, &thread_stack.stack_bottom, &thread_stack_size);
-    if (rc != 0) {
-        fprintf(stderr, "fatal: pthread_attr_getstack(3): %d\n", rc);
-        abort();
-    }
-    thread_stack.stack_base = thread_stack.stack_bottom;
-    thread_stack.stack_top =
-        (uint8_t *)thread_stack.stack_bottom + thread_stack_size;
-
-    monad_fiber_init(thread_fiber, thread_stack);
+    monad_fiber_init(thread_fiber, nullptr, nullptr);
     thread_fiber->priority = MONAD_FIBER_PRIO_LOWEST;
     thread_fiber->state = MF_STATE_RUNNING;
     thread_fiber->last_thread = pthread_self();
     thread_fiber->last_thread_id = get_tl_tid();
     snprintf(namebuf, sizeof namebuf, "THR_%d", thread_fiber->last_thread_id);
     (void)monad_fiber_set_name(thread_fiber, namebuf);
-    monad_fiber_debug_add(thread_fiber);
 }
 
 static void init_thread_fiber_state(struct thread_fiber_state *tfs)

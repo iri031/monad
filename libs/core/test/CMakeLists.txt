@@ -17,4 +17,17 @@ monad_add_test(io_buffers_test "io_buffers.cpp")
 monad_add_test(literal_test "literal_test.cpp")
 monad_add_test(priority_pool_test "priority_pool_test.cpp")
 set_target_properties(priority_pool_test PROPERTIES RUN_SERIAL ON)
+target_link_libraries(priority_pool_test monad_context_c)
+#monad_add_test(spinlock_test "spinlock.cpp")
+#monad_add_test(spinlock_all_options_test "spinlock.cpp")
+#target_compile_definitions(spinlock_all_options_test PRIVATE
+#    MONAD_SPINLOCK_TRACK_OWNER_INFO=1
+#    MONAD_SPINLOCK_TRACK_STATS=1
+#    MONAD_SPINLOCK_TRACK_STATS_ATOMIC=1)
 monad_add_test(unordered_map_test "unordered_map.cpp")
+
+# Ensure the API demo described in fiber-api.md compiles
+add_executable(fiber-hello fiber-hello.c)
+target_compile_features(fiber-hello PRIVATE c_std_23)
+target_compile_options(fiber-hello PRIVATE -Wall -Werror -Wextra)
+target_link_libraries(fiber-hello PRIVATE monad_core_c monad_core)

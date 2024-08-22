@@ -1,5 +1,7 @@
 #pragma once
 
+#include "monad/context/context_switcher.h"
+#include "monad/mem/allocators.hpp"
 #include <monad/core/spinlock.h>
 #include <monad/fiber/config.hpp>
 #include <monad/fiber/fiber.h>
@@ -35,8 +37,11 @@ class PriorityPool final
 {
     monad_run_queue_t *run_queue_{};
     monad_fiber_channel_t task_channel_{};
+    std::unique_ptr<
+        struct monad_context_switcher_head, context::context_switcher_deleter>
+        switcher_{};
     std::vector<std::thread> threads_{};
-    std::deque<monad_fiber_t> fibers_{};
+    allocators::owning_span<monad_fiber_t> fibers_{};
     std::atomic<bool> done_{false};
 
     alignas(64) monad_spinlock_t channel_items_lock_;
