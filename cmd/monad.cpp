@@ -46,6 +46,8 @@
 
 #include <sys/sysinfo.h>
 
+#include <monad/core/fmt/bytes_fmt.hpp>
+
 MONAD_NAMESPACE_BEGIN
 
 quill::Logger *event_tracer = nullptr;
@@ -348,6 +350,7 @@ int main(int const argc, char const *argv[])
             LOG_INFO("loading from genesis {}", genesis);
             TrieDb tdb{db};
             read_genesis(genesis, tdb);
+            LOG_INFO("Genesis state root is: {}", tdb.state_root());
         }
         return db.get_latest_block_id();
     }();
