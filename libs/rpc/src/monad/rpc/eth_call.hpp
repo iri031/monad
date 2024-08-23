@@ -37,7 +37,7 @@ struct monad_state_override_set
 
     std::map<bytes, monad_state_override_object> override_sets;
 
-    monad_state_override_set() = default;
+    monad_state_override_set() {}
 
     void add_override_address(bytes const &address);
 
