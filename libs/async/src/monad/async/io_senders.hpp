@@ -264,22 +264,14 @@ public:
 
 private:
     chunk_offset_t offset_;
-    buffer_type buffer_;
+    buffer_type &buffer_;
     std::byte *append_;
 
 public:
     constexpr write_single_buffer_sender(
-        chunk_offset_t offset, size_t bytes_to_write)
+        chunk_offset_t offset, buffer_type &buffer)
         : offset_(offset)
-        , buffer_(bytes_to_write)
-        , append_(const_cast<std::byte *>(buffer_.data()))
-    {
-    }
-
-    constexpr write_single_buffer_sender(
-        chunk_offset_t offset, buffer_type buffer)
-        : offset_(offset)
-        , buffer_(std::move(buffer))
+        , buffer_(buffer)
         , append_(const_cast<std::byte *>(buffer.data()))
     {
     }
@@ -299,24 +291,13 @@ public:
         return std::move(buffer_);
     }
 
-    void reset(chunk_offset_t offset, size_t bytes_to_write)
-    {
-        offset_ = offset;
-        buffer_ = buffer_type(bytes_to_write);
-        append_ = const_cast<std::byte *>(buffer_.data());
-    }
-
-    void reset(chunk_offset_t offset, buffer_type buffer)
-    {
-        offset_ = offset;
-        buffer_ = std::move(buffer);
-        append_ = const_cast<std::byte *>(buffer_.data());
-    }
-
     result<void> operator()(erased_connected_operation *io_state) noexcept
     {
         MONAD_DEBUG_ASSERT(!!buffer_);
-        buffer_.set_bytes_transferred(size_t(append_ - buffer_.data()));
+        auto const bytes_transferred = size_t(append_ - buffer_.data());
+        MONAD_ASSERT((offset_.offset & ((1ul << 9) - 1)) == 0);
+        MONAD_ASSERT((bytes_transferred & ((1ul << 9) - 1)) == 0);
+        buffer_.set_bytes_transferred(bytes_transferred);
         io_state->executor()->submit_write_request(buffer_, offset_, io_state);
         return success();
     }
@@ -365,7 +346,7 @@ public:
     }
 };
 
-static_assert(sizeof(write_single_buffer_sender) == 48);
+static_assert(sizeof(write_single_buffer_sender) == 24);
 static_assert(alignof(write_single_buffer_sender) == 8);
 static_assert(sender<write_single_buffer_sender>);
 

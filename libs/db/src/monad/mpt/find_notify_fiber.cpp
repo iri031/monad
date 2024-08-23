@@ -141,6 +141,11 @@ void find_recursive(
         auto const next_key =
             key.substr(static_cast<unsigned char>(prefix_index) + 1u);
         auto const child_index = node->to_child_index(branch);
+        if (node->next(child_index) == nullptr) {
+            node->set_next(
+                child_index,
+                aux.read_node_from_buffers(node->fnext(child_index)).release());
+        }
         if (node->next(child_index) != nullptr) {
             find_recursive(
                 aux, inflights, promise, *node->next(child_index), next_key);

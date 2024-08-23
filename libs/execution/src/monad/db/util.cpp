@@ -363,7 +363,9 @@ namespace
         BOOST_OUTCOME_TRY(
             acct.balance, rlp::decode_unsigned<uint256_t>(payload));
         if (!payload.empty()) {
-            BOOST_OUTCOME_TRY(acct.code_hash, rlp::decode_bytes32(payload));
+            auto res = rlp::decode_bytes32(payload);
+            MONAD_ASSERT(res.has_value());
+            acct.code_hash = res.value();
         }
         if (MONAD_UNLIKELY(!payload.empty())) {
             return rlp::DecodeError::InputTooLong;

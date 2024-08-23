@@ -523,14 +523,8 @@ private:
             connected_type,
             io_connected_operation_unique_ptr_deleter>(
             new (mem) connected_type(connect()));
-        // Did you accidentally pass in a foreign buffer to use?
-        // Can't do that, must use buffer returned.
-        MONAD_DEBUG_ASSERT(ret->sender().buffer().data() == nullptr);
         if constexpr (is_write) {
             MONAD_DEBUG_ASSERT(rwbuf_.get_write_size() >= WRITE_BUFFER_SIZE);
-            auto buffer = std::move(ret->sender()).buffer();
-            buffer.set_write_buffer(get_write_buffer());
-            ret->sender().reset(ret->sender().offset(), std::move(buffer));
         }
         else {
             MONAD_DEBUG_ASSERT(rwbuf_.get_read_size() >= READ_BUFFER_SIZE);

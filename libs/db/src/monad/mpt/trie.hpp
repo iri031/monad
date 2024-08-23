@@ -26,6 +26,7 @@
 #endif
 
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <vector>
 
@@ -44,21 +45,19 @@ class Node;
 
 struct write_operation_io_receiver
 {
-    // Node *parent{nullptr};
+    UpdateAuxImpl *aux;
+    bool is_fast;
+    chunk_offset_t offset_to_remove_until{INVALID_OFFSET};
+
+    write_operation_io_receiver(UpdateAuxImpl &aux, bool const is_fast)
+        : aux(&aux)
+        , is_fast(is_fast)
+    {
+    }
+
     void set_value(
         MONAD_ASYNC_NAMESPACE::erased_connected_operation *,
-        MONAD_ASYNC_NAMESPACE::write_single_buffer_sender::result_type res)
-    {
-        MONAD_ASSERT(res);
-        res.assume_value()
-            .get()
-            .reset(); // release i/o buffer before initiating other work
-        // TODO: when adding upsert_sender
-        // if (parent->current_process_updates_sender_ != nullptr) {
-        //     parent->current_process_updates_sender_
-        //         ->notify_write_operation_completed_(rawstate);
-        // }
-    }
+        MONAD_ASYNC_NAMESPACE::write_single_buffer_sender::result_type res);
 
     void reset() {}
 };
@@ -150,8 +149,7 @@ class UpdateAuxImpl
 
     void advance_compact_offsets(uint64_t version_to_erase);
 
-    std::pair<uint32_t, uint32_t>
-    min_offsets_of_version(uint64_t version) const;
+    std::pair<uint32_t, uint32_t> min_offsets_of_version(uint64_t version);
 
     void free_compacted_chunks();
 
@@ -331,6 +329,68 @@ public:
     compact_virtual_chunk_offset_t compact_offset_slow{
         MIN_COMPACT_VIRTUAL_OFFSET};
 
+    struct BufferedWriteInfo
+    {
+        chunk_offset_t offset;
+        async::filled_write_buffer buffer;
+
+        constexpr size_t size() const
+        {
+            return buffer.size();
+        }
+
+        constexpr bool contains(chunk_offset_t const o) const
+        {
+            return offset.id == o.id && o.offset >= offset.offset &&
+                   o.offset < offset.offset + size();
+        }
+    };
+
+    struct BufferedWriteQueue
+    {
+        UpdateAuxImpl *parent{nullptr};
+        file_offset_t virtual_offset_begin{file_offset_t(-1)};
+        size_t bytes{0};
+        std::deque<BufferedWriteInfo> items{};
+
+        void pop()
+        {
+            auto &to_pop = items.front();
+            bytes -= to_pop.size();
+            virtual_offset_begin += to_pop.size();
+            items.pop_front(); // buffer will be released
+        }
+
+        void push(BufferedWriteInfo &&item)
+        {
+            if (bytes == 0) {
+                MONAD_ASSERT(items.empty());
+                virtual_offset_begin =
+                    parent->physical_to_virtual(item.offset).raw();
+            }
+            bytes += item.size();
+            items.push_back(std::move(item));
+        }
+
+        file_offset_t virtual_offset_end() const
+        {
+            return virtual_offset_begin + bytes;
+        }
+
+        bool contains(virtual_chunk_offset_t const virtual_offset) const
+        {
+            return virtual_offset.raw() >= virtual_offset_begin &&
+                   virtual_offset.raw() < virtual_offset_end();
+        }
+    };
+
+    BufferedWriteQueue write_back_buffer_fast;
+    BufferedWriteQueue write_back_buffer_slow;
+
+    Node::UniquePtr read_node_from_buffers(chunk_offset_t) const;
+    node_writer_unique_ptr_type
+    make_connected_writer(bool is_fast, chunk_offset_t, size_t bytes_to_write);
+
     // On disk stuff
     MONAD_ASYNC_NAMESPACE::AsyncIO *io{nullptr};
     node_writer_unique_ptr_type node_writer_fast{};
@@ -346,6 +406,8 @@ public:
         uint64_t const history_len = MAX_HISTORY_LEN)
     {
         if (io_) {
+            write_back_buffer_fast = BufferedWriteQueue{this};
+            write_back_buffer_slow = BufferedWriteQueue{this};
             set_io(io_, history_len);
             // reset offsets
             auto const &db_offsets = db_metadata()->db_offsets;
@@ -655,7 +717,7 @@ public:
 };
 
 static_assert(
-    sizeof(UpdateAuxImpl) == 120 + sizeof(detail::TrieUpdateCollectedStats));
+    sizeof(UpdateAuxImpl) == 328 + sizeof(detail::TrieUpdateCollectedStats));
 static_assert(alignof(UpdateAuxImpl) == 8);
 
 template <lockable_or_void LockType = void>
@@ -802,6 +864,14 @@ template <receiver Receiver>
         Receiver::lifetime_managed_internally)
 void async_read(UpdateAuxImpl &aux, Receiver &&receiver)
 {
+    auto const virtual_offset = aux.physical_to_virtual(receiver.rd_offset);
+    MONAD_DEBUG_ASSERT(
+        (virtual_offset.in_fast_list() &&
+         virtual_offset.raw() <
+             aux.write_back_buffer_fast.virtual_offset_begin) ||
+        (!virtual_offset.in_fast_list() &&
+         virtual_offset.raw() <
+             aux.write_back_buffer_slow.virtual_offset_begin));
     [[likely]] if (
         receiver.bytes_to_read <=
         MONAD_ASYNC_NAMESPACE::AsyncIO::READ_BUFFER_SIZE) {

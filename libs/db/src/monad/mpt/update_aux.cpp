@@ -3,6 +3,7 @@
 #include <monad/core/assert.h>
 #include <monad/core/byte_string.hpp>
 #include <monad/core/small_prng.hpp>
+#include <monad/core/unaligned.hpp>
 #include <monad/mpt/config.hpp>
 #include <monad/mpt/detail/unsigned_20.hpp>
 #include <monad/mpt/state_machine.hpp>
@@ -32,6 +33,27 @@
 MONAD_MPT_NAMESPACE_BEGIN
 
 using namespace MONAD_ASYNC_NAMESPACE;
+
+void write_operation_io_receiver::set_value(
+    MONAD_ASYNC_NAMESPACE::erased_connected_operation *,
+    MONAD_ASYNC_NAMESPACE::write_single_buffer_sender::result_type res)
+{
+    MONAD_ASSERT(res);
+    if (this->offset_to_remove_until == INVALID_OFFSET) {
+        // nothing to release
+        return;
+    }
+    auto &buffered_writes =
+        is_fast ? aux->write_back_buffer_fast : aux->write_back_buffer_slow;
+
+    while (buffered_writes.items.front().offset !=
+           this->offset_to_remove_until) {
+        buffered_writes.pop();
+    }
+    MONAD_ASSERT(!buffered_writes.items.empty());
+    auto const &first_item = buffered_writes.items.front();
+    MONAD_DEBUG_ASSERT(first_item.offset == this->offset_to_remove_until);
+}
 
 // Define to avoid randomisation of free list chunks on pool creation
 // This can be useful to discover bugs in code which assume chunks are
@@ -521,28 +543,119 @@ void UpdateAuxImpl::unset_io()
     io = nullptr;
 }
 
+Node::UniquePtr
+UpdateAuxImpl::read_node_from_buffers(chunk_offset_t const offset) const
+{
+    auto const &write_back_buffer = db_metadata()->at(offset.id)->in_fast_list
+                                        ? write_back_buffer_fast
+                                        : write_back_buffer_slow;
+    auto const virtual_offset = physical_to_virtual(offset);
+    if (write_back_buffer.contains(virtual_offset)) {
+        auto curr_offset = write_back_buffer.virtual_offset_begin;
+        auto it = write_back_buffer.items.begin();
+        for (; it != write_back_buffer.items.end(); ++it) {
+            if (it->contains(offset)) { // found it
+                break;
+            }
+            curr_offset += it->size();
+        }
+        MONAD_ASSERT(curr_offset <= virtual_offset.raw());
+        auto buffer_off =
+            static_cast<unsigned>(virtual_offset.raw() - curr_offset);
+        // sometimes it takes multiple buffers to deserialize
+        // First get the disk size
+        // Then allocate the node, loop through buffer until finish
+        // copying all bytes
+        MONAD_ASSERT(it->size() > buffer_off);
+        auto const disk_size = unaligned_load<uint32_t>(
+            (unsigned char *)it->buffer.data() + buffer_off);
+        MONAD_ASSERT(disk_size > 0);
+        buffer_off += Node::disk_size_bytes;
+        auto const mask = unaligned_load<uint16_t>(
+            (unsigned char *)it->buffer.data() + buffer_off);
+        // TODO: THIS ASSERTION does not necessarily have to be true
+        MONAD_ASSERT((unsigned)it->size() - buffer_off >= disk_size);
+        auto const number_of_children =
+            static_cast<unsigned>(std::popcount(mask));
+        auto const alloc_size = static_cast<uint32_t>(
+            disk_size + number_of_children * sizeof(Node *) -
+            Node::disk_size_bytes);
+        auto node = Node::make(alloc_size);
+        // continue load disk size and mask from next buffer
+        // loop through buffers to copy all remaining bytes
+        auto node_remaining_bytes = disk_size - Node::disk_size_bytes;
+        unsigned offset_in_node = 0;
+        while (node_remaining_bytes > 0) {
+            unsigned const bytes_to_copy = std::min(
+                node_remaining_bytes, (unsigned)it->size() - buffer_off);
+            if (bytes_to_copy < node_remaining_bytes) {
+                std::cout << "need to continue reading from next buffer"
+                          << std::endl;
+            }
+            std::copy_n(
+                (unsigned char *)it->buffer.data() + buffer_off,
+                bytes_to_copy,
+                (unsigned char *)node.get() + offset_in_node);
+            node_remaining_bytes -= bytes_to_copy;
+            MONAD_ASSERT(node_remaining_bytes == 0);
+            offset_in_node += bytes_to_copy;
+            // // update to next buffer
+            // if (buffer_off + bytes_to_copy == it->size()) {
+            //     MONAD_ASSERT(false);
+            //     buffer_off = 0;
+            //     ++it;
+            //     MONAD_ASSERT(it != write_back_buffer.items.end());
+            // }
+        }
+        std::memset(node->next_data(), 0, number_of_children * sizeof(Node *));
+        MONAD_ASSERT(node->get_mem_size() == alloc_size);
+        return node;
+    }
+    return {};
+}
+
 void UpdateAuxImpl::reset_node_writers()
 {
-    auto init_node_writer = [&](chunk_offset_t const node_writer_offset)
-        -> node_writer_unique_ptr_type {
+    auto init_node_writer =
+        [&](chunk_offset_t const node_writer_offset,
+            bool const is_fast) -> node_writer_unique_ptr_type {
         auto chunk =
             io->storage_pool().chunk(storage_pool::seq, node_writer_offset.id);
         MONAD_ASSERT(chunk->size() >= node_writer_offset.offset);
-        return io ? io->make_connected(
-                        write_single_buffer_sender{
-                            node_writer_offset,
-                            std::min(
-                                AsyncIO::WRITE_BUFFER_SIZE,
-                                size_t(
-                                    chunk->capacity() -
-                                    node_writer_offset.offset))},
-                        write_operation_io_receiver{})
+        return io ? make_connected_writer(
+                        is_fast,
+                        node_writer_offset,
+                        std::min(
+                            AsyncIO::WRITE_BUFFER_SIZE,
+                            size_t(
+                                chunk->capacity() - node_writer_offset.offset)))
                   : node_writer_unique_ptr_type{};
     };
-    node_writer_fast =
-        init_node_writer(db_metadata()->db_offsets.start_of_wip_offset_fast);
-    node_writer_slow =
-        init_node_writer(db_metadata()->db_offsets.start_of_wip_offset_slow);
+    node_writer_fast = init_node_writer(
+        db_metadata()->db_offsets.start_of_wip_offset_fast, true);
+    node_writer_slow = init_node_writer(
+        db_metadata()->db_offsets.start_of_wip_offset_slow, false);
+}
+
+node_writer_unique_ptr_type UpdateAuxImpl::make_connected_writer(
+    bool const is_fast, chunk_offset_t const writer_offset,
+    size_t const bytes_to_write)
+{
+    MONAD_ASSERT(io != nullptr);
+    // append that writer to buffered writes
+    filled_write_buffer sender_buffer{bytes_to_write};
+    sender_buffer.set_write_buffer(io->get_write_buffer());
+    MONAD_ASSERT(sender_buffer.size() == bytes_to_write);
+    auto &write_back_buffer =
+        is_fast ? write_back_buffer_fast : write_back_buffer_slow;
+    // write back buffer owns it
+    write_back_buffer.push(BufferedWriteInfo{
+        .offset = writer_offset, .buffer = std::move(sender_buffer)});
+    // sender doesn't own it
+    return io->make_connected(
+        write_single_buffer_sender{
+            writer_offset, write_back_buffer.items.back().buffer},
+        write_operation_io_receiver{*this, is_fast});
 }
 
 /* upsert() supports both on disk and in memory db updates. User should
@@ -624,12 +737,17 @@ void UpdateAuxImpl::move_trie_version_forward(
 }
 
 std::pair<uint32_t, uint32_t>
-UpdateAuxImpl::min_offsets_of_version(uint64_t const version) const
+UpdateAuxImpl::min_offsets_of_version(uint64_t const version)
 {
     // TODO: can save a blocking read if we store the min_offset_fast/slow to
     // the version ring buffer in metadata
-    auto root_to_erase = Node::UniquePtr{read_node_blocking(
-        io->storage_pool(), get_root_offset_at_version(version))};
+    auto const erase_root_offset = get_root_offset_at_version(version);
+    Node::UniquePtr root_to_erase = read_node_from_buffers(erase_root_offset);
+    if (!root_to_erase) {
+        root_to_erase.reset(
+            read_node_blocking(io->storage_pool(), erase_root_offset));
+    }
+
     auto [min_offset_fast, min_offset_slow] = calc_min_offsets(*root_to_erase);
     if (min_offset_fast == INVALID_COMPACT_VIRTUAL_OFFSET) {
         min_offset_fast = MIN_COMPACT_VIRTUAL_OFFSET;
@@ -642,6 +760,7 @@ UpdateAuxImpl::min_offsets_of_version(uint64_t const version) const
 
 uint32_t divide_and_round(uint32_t const dividend, uint64_t const divisor)
 {
+    MONAD_ASSERT(divisor != 0);
     double const result = dividend / static_cast<double>(divisor);
     auto const result_floor = static_cast<uint32_t>(std::floor(result));
     double const fractional = result - result_floor;
@@ -673,10 +792,18 @@ void UpdateAuxImpl::advance_compact_offsets(uint64_t version_to_erase)
     */
     MONAD_ASSERT(is_on_disk());
     // update disk growth speed trackers
+    auto fast_offset = node_writer_fast->sender().offset();
+    fast_offset.offset = (fast_offset.offset +
+                          node_writer_fast->sender().written_buffer_bytes()) &
+                         chunk_offset_t::max_offset;
     compact_virtual_chunk_offset_t const curr_fast_writer_offset{
-        physical_to_virtual(node_writer_fast->sender().offset())};
+        physical_to_virtual(fast_offset)};
+    auto slow_offset = node_writer_slow->sender().offset();
+    slow_offset.offset = (slow_offset.offset +
+                          node_writer_slow->sender().written_buffer_bytes()) &
+                         chunk_offset_t::max_offset;
     compact_virtual_chunk_offset_t const curr_slow_writer_offset{
-        physical_to_virtual(node_writer_slow->sender().offset())};
+        physical_to_virtual(slow_offset)};
     last_block_disk_growth_fast_ =
         last_block_end_offset_fast_ == 0
             ? MIN_COMPACT_VIRTUAL_OFFSET
@@ -711,6 +838,7 @@ void UpdateAuxImpl::advance_compact_offsets(uint64_t version_to_erase)
         MONAD_ASSERT(version_history_length() > 1);
         auto const compacted_erased_root_offset =
             compact_virtual_chunk_offset_t{virtual_root_offset};
+        MONAD_ASSERT(curr_fast_writer_offset >= compacted_erased_root_offset);
         compact_offset_range_fast_.set_value(divide_and_round(
             curr_fast_writer_offset - compacted_erased_root_offset,
             max_version - version_to_erase));
