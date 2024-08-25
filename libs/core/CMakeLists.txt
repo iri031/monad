@@ -164,6 +164,12 @@ add_library(
   "src/monad/io/buffer_pool.hpp"
   "src/monad/io/config.hpp"
   # mem
+  "src/monad/mem/cma/cma_alloc.h"
+  "src/monad/mem/cma/cma_alloc.c"
+  "src/monad/mem/cma/cma_bump_alloc.h"
+  "src/monad/mem/cma/cma_bump_alloc.c"
+  "src/monad/mem/cma/cma_fallback.h"
+  "src/monad/mem/cma/cma_fallback.c"
   "src/monad/mem/cpool.h"
   "src/monad/mem/dynamic_allocator.hpp"
   "src/monad/mem/huge_mem.h"
