@@ -95,6 +95,14 @@ add_library(monad_core_c OBJECT
   "src/monad/core/assert.c"
   "src/monad/core/assert.h"
   "src/monad/core/c_result.h"
+  # mem
+  "src/monad/mem/align.h"
+  "src/monad/mem/cma/cma_alloc.h"
+  "src/monad/mem/cma/cma_alloc.c"
+  "src/monad/mem/cma/cma_bump_alloc.h"
+  "src/monad/mem/cma/cma_bump_alloc.c"
+  "src/monad/mem/cma/cma_fallback.h"
+  "src/monad/mem/cma/cma_fallback.c"
   # util
   "src/monad/util/parse_util.h"
   "src/monad/util/parse_util.c")
