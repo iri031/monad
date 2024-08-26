@@ -11,6 +11,8 @@
 #include <stack>
 #include <vector>
 
+#include <fstream>
+
 MONAD_NAMESPACE_BEGIN
 
 struct CallFrame;
@@ -37,6 +39,7 @@ struct NoopCallTracer final : public CallTracerBase
 
 class CallTracer final : public CallTracerBase
 {
+public:
     std::vector<CallFrame> frames_;
     std::stack<size_t> last_;
     uint64_t depth_;
@@ -56,6 +59,12 @@ public:
     virtual std::span<CallFrame const> get_frames() const override;
 
     nlohmann::json to_json() const;
+
+    void to_file()
+    {
+        std::ofstream ofile("call_trace.txt", std::ios::app);
+        ofile << to_json().dump() << std::endl;
+    }
 };
 
 MONAD_NAMESPACE_END

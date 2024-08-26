@@ -177,6 +177,10 @@ Result<std::vector<ExecutionResult>> execute_block(
                 results[i].value().assume_error().message().c_str());
         }
         BOOST_OUTCOME_TRY(auto retval, std::move(results[i].value()));
+
+        CallTracer call_tracer{block.transactions[i]};
+        call_tracer.frames_ = retval.call_frames;
+        call_tracer.to_file();
         retvals.push_back(std::move(retval));
     }
 
