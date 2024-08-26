@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
+#include <iostream>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -226,6 +227,7 @@ validate_header(std::vector<Receipt> const &receipts, BlockHeader const &hdr)
 
     // YP eq. 170
     if (!receipts.empty() && receipts.back().gas_used != hdr.gas_used) {
+      std::cout<< "gas mismatch: "<< receipts.back().gas_used << " vs. " << hdr.gas_used << std::endl;
         return BlockError::InvalidGasUsed;
     }
 

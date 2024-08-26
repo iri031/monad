@@ -44,10 +44,16 @@ evmc::Result baseline_execute_evmone(
     evmc_message const &msg, evmc_revision const rev, evmc::Host *const host,
     CodeAnalysis const &code_analysis)
 {
+    std::cout << "STARTi baseline_execute address ";
+    for (auto b : msg.code_address.bytes)
+        printf("%02X", (int)b);
+    std::cout << std::endl;
+  
     if (code_analysis.executable_code.empty()) {
         return evmc::Result{EVMC_SUCCESS, msg.gas};
     }
 
+    
 #ifdef EVMONE_TRACING
     std::ostringstream trace_ostream;
     vm.add_tracer(evmone::create_instruction_tracer(trace_ostream));
@@ -90,12 +96,18 @@ evmc::Result baseline_execute_evmone(
             : nullptr,
         execution_state->output_size);
 
-    std::cout << "execution gas used: " << (msg.gas - gas_left) << std::endl;
-    std::cout << "execution gas left: " << gas_left << std::endl;
+    std::cout << "baseline execution gas used: " << (msg.gas - gas_left) << std::endl;
+    std::cout << "baseline execution gas left: " << gas_left << std::endl;
+    std::cout << "baseline execution gas refund: " << result.gas_refund << std::endl;
+    std::cout << "baseline execution return status: " << result.status_code << std::endl;
 
     if (MONAD_UNLIKELY(vm.get_tracer() != nullptr)) {
         vm.get_tracer()->notify_execution_end(result);
     }
+    std::cout << "ENDi baseline_execute address ";
+    for (auto b : msg.code_address.bytes)
+        printf("%02X", (int)b);
+    std::cout << std::endl;
 
 #ifdef EVMONE_TRACING
     LOG_TRACE_L1("{}", trace_ostream.str());
@@ -128,6 +140,11 @@ evmc::Result baseline_execute_monad_jit(
     evmc_message const &msg, evmc_revision const rev, evmc::Host *const host,
     CodeAnalysis const &code_analysis)
 {
+    std::cout << "STARTi baseline_execute address ";
+    for (auto b : msg.code_address.bytes)
+        printf("%02X", (int)b);
+    std::cout << std::endl;
+    
     if (code_analysis.executable_code.empty()) {
         return evmc::Result{EVMC_SUCCESS, msg.gas};
     }
@@ -139,8 +156,15 @@ evmc::Result baseline_execute_monad_jit(
     evmc::Result result = vm.execute(*host, rev, msg,
         code_analysis.executable_code.data(), code_analysis.executable_code.size());
 
-    std::cout << "execution gas used: " << (msg.gas - result.gas_left) << std::endl;
-    std::cout << "execution gas left: " << result.gas_left << std::endl;
+    std::cout << "baseline execution gas used: " << (msg.gas - result.gas_left) << std::endl;
+    std::cout << "baseline execution gas left: " << result.gas_left << std::endl;
+    std::cout << "baseline execution gas refund: " << result.gas_refund << std::endl;
+    std::cout << "baseline execution return status: " << result.status_code << std::endl;
+    
+    std::cout << "ENDi baseline_execute address ";
+    for (auto b : msg.code_address.bytes)
+        printf("%02X", (int)b);
+    std::cout << std::endl;
 
     return result;
 }
@@ -150,14 +174,13 @@ evmc::Result baseline_execute(
     evmc_message const &msg, evmc_revision const rev, evmc::Host *const host,
     CodeAnalysis const &code_analysis)
 {
-    /*
+    
     std::cout << "START baseline_execute address ";
     for (auto b : msg.code_address.bytes)
         printf("%02X", (int)b);
     std::cout << std::endl;
 
     auto start_time = std::chrono::high_resolution_clock::now();
-    */
 
 #ifdef MONAD_JIT
     auto result = baseline_execute_monad_jit(msg, rev, host, code_analysis);
@@ -165,14 +188,13 @@ evmc::Result baseline_execute(
     auto result = baseline_execute_evmone(msg, rev, host, code_analysis);
 #endif
 
-    /*
+    
     auto end_time = std::chrono::high_resolution_clock::now();
 
     std::cout << "END baseline_execute address ";
     for (auto b : msg.code_address.bytes)
         printf("%02X", (int)b);
     std::cout << '\n' << "TIME: " << (end_time - start_time) << std::endl;
-    */
 
     return result;
 }
