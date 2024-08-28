@@ -9,8 +9,10 @@
 #include <monad/mpt/detail/unsigned_20.hpp>
 #include <monad/mpt/util.hpp>
 #include <monad/rlp/encode.hpp>
+#include <monad/synchronization/spin_lock.hpp>
 
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <span>
 
@@ -106,6 +108,7 @@ class Node
     };
 
 public:
+    using Mutex = SpinLock;
     static constexpr size_t max_size_for_boost_pools = 66544;
     static constexpr size_t max_number_of_children = 16;
     static constexpr uint8_t max_data_len = (1U << 6) - 1;
@@ -120,6 +123,10 @@ public:
         std::allocator<Node>, BytesAllocator>
     pool();
     static size_t get_deallocate_count(Node *);
+
+    static Mutex mem_mutex;
+    static uint64_t num_nodes_in_mem;
+    static uint64_t triedb_node_ram;
 
     using Deleter = allocators::unique_ptr_aliasing_allocator_deleter<
         std::allocator<Node>, BytesAllocator, &Node::pool,
@@ -186,6 +193,11 @@ public:
     static UniquePtr make(size_t bytes, Args &&...args)
     {
         MONAD_DEBUG_ASSERT(bytes <= Node::max_size);
+        {
+            std::unique_lock l(Node::mem_mutex);
+            Node::num_nodes_in_mem++;
+            Node::triedb_node_ram += bytes;
+        }
         return allocators::allocate_aliasing_unique<
             std::allocator<Node>,
             BytesAllocator,
@@ -286,6 +298,10 @@ public:
 static_assert(std::is_standard_layout_v<Node>, "required by offsetof");
 static_assert(sizeof(Node) == 16);
 static_assert(alignof(Node) == 8);
+
+inline uint64_t Node::num_nodes_in_mem = 0;
+inline uint64_t Node::triedb_node_ram = 0;
+inline Node::Mutex Node::mem_mutex;
 
 // ChildData is for temporarily holding a child's info, including child ptr,
 // file offset and hash data, in the update recursion.

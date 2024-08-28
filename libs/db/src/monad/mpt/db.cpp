@@ -758,6 +758,16 @@ Db::find(NodeCursor root, NibblesView const key, uint64_t const block_id) const
     }
     MONAD_DEBUG_ASSERT(it.node != nullptr);
     MONAD_DEBUG_ASSERT(it.node->has_value());
+    {
+        std::unique_lock l(mpt::Node::mem_mutex);
+        std::cout << "RODb mem usage "
+            << mpt::Node::num_nodes_in_mem
+            << " nodes in ram, "
+            << "RAM usage: " << std::fixed << std::setprecision(2)
+            << (double)mpt::Node::triedb_node_ram /
+                    (1024 * 1024)
+            << "MB" << std::endl;
+    }
     return it;
 }
 

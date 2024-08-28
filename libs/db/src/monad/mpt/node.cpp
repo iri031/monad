@@ -24,6 +24,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <unistd.h>
@@ -86,6 +87,11 @@ Node::~Node()
             (void)_;
         }
         set_next(index, nullptr);
+    }
+    {
+        std::unique_lock l(mem_mutex);
+        num_nodes_in_mem--;
+        triedb_node_ram -= get_mem_size();
     }
 }
 
