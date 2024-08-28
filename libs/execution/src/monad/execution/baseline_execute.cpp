@@ -116,7 +116,7 @@ evmc::Result baseline_execute_evmone(
     return evmc::Result{result};
 }
 
-//#define MONAD_JIT
+#define MONAD_JIT
 
 #ifdef MONAD_JIT
 namespace {
@@ -140,7 +140,7 @@ evmc::Result baseline_execute_monad_jit(
     evmc_message const &msg, evmc_revision const rev, evmc::Host *const host,
     CodeAnalysis const &code_analysis)
 {
-    std::cout << "STARTi baseline_execute address ";
+    std::cout << "STARTj baseline_execute address ";
     for (auto b : msg.code_address.bytes)
         printf("%02X", (int)b);
     std::cout << std::endl;
@@ -161,7 +161,7 @@ evmc::Result baseline_execute_monad_jit(
     std::cout << "baseline execution gas refund: " << result.gas_refund << std::endl;
     std::cout << "baseline execution return status: " << result.status_code << std::endl;
     
-    std::cout << "ENDi baseline_execute address ";
+    std::cout << "ENDj baseline_execute address ";
     for (auto b : msg.code_address.bytes)
         printf("%02X", (int)b);
     std::cout << std::endl;
