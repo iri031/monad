@@ -91,7 +91,9 @@ Node::~Node()
     {
         std::unique_lock l(mem_mutex);
         num_nodes_in_mem--;
-        triedb_node_ram -= get_mem_size();
+        auto const node_mem_footprint = static_cast<uint64_t>(get_mem_size());
+        max_node_size = std::max(max_node_size, node_mem_footprint);
+        triedb_node_ram -= node_mem_footprint;
     }
 }
 

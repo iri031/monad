@@ -127,6 +127,7 @@ public:
     static Mutex mem_mutex;
     static uint64_t num_nodes_in_mem;
     static uint64_t triedb_node_ram;
+    static uint64_t max_node_size;
 
     using Deleter = allocators::unique_ptr_aliasing_allocator_deleter<
         std::allocator<Node>, BytesAllocator, &Node::pool,
@@ -301,6 +302,7 @@ static_assert(alignof(Node) == 8);
 
 inline uint64_t Node::num_nodes_in_mem = 0;
 inline uint64_t Node::triedb_node_ram = 0;
+inline uint64_t Node::max_node_size = 0;
 inline Node::Mutex Node::mem_mutex;
 
 // ChildData is for temporarily holding a child's info, including child ptr,
