@@ -374,7 +374,7 @@ namespace
 
 mpt::Compute &MachineBase::get_compute() const
 {
-    static EmptyCompute empty_compute;
+    static EmptyCompute empty_compute; // used for CallFrame
 
     static AccountMerkleCompute account_compute;
     static AccountRootMerkleCompute account_root_compute;
@@ -417,9 +417,9 @@ void MachineBase::down(unsigned char const nibble)
     MONAD_ASSERT(depth <= MAX_DEPTH);
     MONAD_ASSERT(
         (nibble == STATE_NIBBLE || nibble == CODE_NIBBLE ||
-         nibble == RECEIPT_NIBBLE || nibble == TRANSACTION_NIBBLE ||
-         nibble == BLOCKHEADER_NIBBLE || nibble == WITHDRAWAL_NIBBLE ||
-         nibble == OMMER_NIBBLE) ||
+         nibble == RECEIPT_NIBBLE || nibble == CALL_FRAME_NIBBLE ||
+         nibble == TRANSACTION_NIBBLE || nibble == BLOCKHEADER_NIBBLE ||
+         nibble == WITHDRAWAL_NIBBLE || nibble == OMMER_NIBBLE) ||
         depth != PREFIX_LEN);
     if (MONAD_UNLIKELY(depth == PREFIX_LEN)) {
         MONAD_ASSERT(trie_section == TrieType::Prefix);
@@ -428,6 +428,9 @@ void MachineBase::down(unsigned char const nibble)
         }
         else if (nibble == RECEIPT_NIBBLE) {
             trie_section = TrieType::Receipt;
+        }
+        else if (nibble == CALL_FRAME_NIBBLE) {
+            trie_section = TrieType::CallFrame;
         }
         else if (nibble == TRANSACTION_NIBBLE) {
             trie_section = TrieType::Transaction;

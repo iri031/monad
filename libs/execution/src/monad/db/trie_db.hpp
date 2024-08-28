@@ -9,6 +9,7 @@
 #include <monad/db/db.hpp>
 #include <monad/db/util.hpp>
 #include <monad/execution/code_analysis.hpp>
+#include <monad/execution/trace/call_tracer.hpp>
 #include <monad/mpt/compute.hpp>
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/ondisk_db_config.hpp>
@@ -21,6 +22,7 @@
 #include <memory>
 #include <optional>
 #include <utility>
+#include <vector>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -43,7 +45,7 @@ public:
     virtual void increment_block_number() override;
     virtual void commit(
         StateDeltas const &, Code const &, BlockHeader const &,
-        std::vector<Receipt> const & = {},
+        std::vector<Receipt> const & = {}, BlockCallFrames const & = {},
         std::vector<Transaction> const & = {},
         std::vector<BlockHeader> const &ommers = {},
         std::optional<std::vector<Withdrawal>> const & = {
@@ -64,6 +66,9 @@ public:
     read_storage_and_slot(Address const &, bytes32_t const &key);
 
     void set_block_number(uint64_t);
+
+    // for testing only
+    TxnCallFrames read_call_frame(uint64_t const idx) const;
 
 private:
     /// STATS

@@ -53,6 +53,7 @@ struct monad_statesync_server_context final : public monad::Db
         monad::StateDeltas const &state_deltas, monad::Code const &code,
         monad::BlockHeader const &,
         std::vector<monad::Receipt> const &receipts = {},
+        monad::BlockCallFrames const & = {},
         std::vector<monad::Transaction> const &transactions = {},
         std::vector<monad::BlockHeader> const &ommers = {},
         std::optional<std::vector<monad::Withdrawal>> const & = {}) override;
