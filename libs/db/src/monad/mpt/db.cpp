@@ -586,10 +586,14 @@ struct Db::RWOnDisk final : public Db::Impl
                        : Node::UniquePtr{};
         }())
     {
+        std::cout << "Db history length " << aux_.version_history_length()
+                  << " " << aux_.db_history_max_version() << std::endl;
         if (aux_.db_history_max_version() == INVALID_BLOCK_ID) {
             // set history length on empty db
             aux_.update_history_length_metadata(options.history_length);
         }
+        std::cout << "Db history length " << aux_.version_history_length()
+                  << std::endl;
     }
 
     ~RWOnDisk()

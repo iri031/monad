@@ -185,6 +185,7 @@ void UpdateAuxImpl::update_history_length_metadata(
     uint64_t const history_len) noexcept
 {
     MONAD_ASSERT(is_on_disk());
+    std::cout << "update history len to " << history_len << std::endl;
     auto do_ = [&](detail::db_metadata *m) {
         m->set_history_length_(history_len);
     };
