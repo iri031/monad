@@ -198,6 +198,7 @@ public:
             std::unique_lock l(Node::mem_mutex);
             Node::num_nodes_in_mem++;
             Node::triedb_node_ram += bytes;
+            Node::max_node_size = std::max(max_node_size, bytes);
         }
         return allocators::allocate_aliasing_unique<
             std::allocator<Node>,
