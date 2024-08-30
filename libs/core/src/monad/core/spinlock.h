@@ -136,7 +136,7 @@ static inline void monad_spinlock_lock(monad_spinlock_t *const lock)
     if (MONAD_LIKELY(tries > 1)) {
         MONAD_SPINSTAT_INC(lock->stats.total_lock_init_fail);
     }
-    histo_bucket = stdc_bit_width(tries);
+    histo_bucket = stdc_bit_width(tries - 1);
     if (MONAD_UNLIKELY(histo_bucket >= MONAD_SPINLOCK_HIST_BUCKETS)) {
         histo_bucket = MONAD_SPINLOCK_HIST_BUCKETS;
     }

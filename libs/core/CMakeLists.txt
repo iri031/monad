@@ -200,6 +200,26 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
     "src/monad/procfs/statm.h")
 endif()
 
+if (MONAD_CORE_FORCE_DEBUG_ASSERT)
+  target_compile_definitions(monad_core
+          PUBLIC MONAD_CORE_FORCE_DEBUG_ASSERT=1)
+endif()
+
+if (MONAD_CORE_SPINLOCK_TRACK_OWNER_INFO)
+  target_compile_definitions(monad_core
+          PUBLIC MONAD_SPINLOCK_TRACK_OWNER_INFO=1)
+endif()
+
+if (MONAD_CORE_SPINLOCK_TRACK_STATS)
+  target_compile_definitions(monad_core
+          PUBLIC MONAD_SPINLOCK_TRACK_STATS=1)
+endif()
+
+if (MONAD_CORE_SPINLOCK_TRACK_STATS_ATOMIC)
+  target_compile_definitions(monad_core
+          PUBLIC MONAD_SPINLOCK_TRACK_STATS_ATOMIC=1)
+endif()
+
 target_include_directories(monad_core PUBLIC "src")
 monad_compile_options(monad_core)
 
