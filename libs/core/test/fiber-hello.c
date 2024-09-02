@@ -8,7 +8,6 @@
 #include <sysexits.h>
 
 #include <monad/fiber/fiber.h>
-#include <monad/fiber/fiber_util.h>
 
 // This is the function that will run on the fiber
 uintptr_t say_hello_fiber_function(uintptr_t arg)
@@ -37,10 +36,13 @@ uintptr_t say_hello_fiber_function(uintptr_t arg)
 int main(int argc, char **argv)
 {
     int rc;
-    monad_fiber_t hello_fiber;
-    monad_fiber_stack_t fiber_stack;
+    monad_fiber_t *hello_fiber;
+    monad_thread_executor_t *thr_exec;
     char const *name;
-    size_t fiber_stack_size = 1UL << 17; // A 128 KiB stack
+    const monad_fiber_attr_t fiber_attr = {
+        .stack_size = 1UL << 17, // 128 KiB stack
+        .alloc = nullptr // Use the default allocator
+    };
 
     // This application says hello to you using a fiber; it expects your name
     // as the first (and only) positional argument
@@ -49,24 +51,30 @@ int main(int argc, char **argv)
     }
     name = argv[1];
 
-    // We start by allocating a stack for the fiber. You can do this manually,
-    // but in this example we'll use a helper function (from fiber_util.h)
-    // to call mmap(2) and set up some stack overflow guard pages
-    rc = monad_fiber_alloc_stack(&fiber_stack_size, &fiber_stack);
+    // We start by creating a thread executor. A "fiber" is a lightweight
+    // execution context that runs on a thread. The thread that hosts the fiber
+    // is explicitly represented as a "thread executor" object. It is inherently
+    // bound to the thread that makes the create call, and cannot be shared
+    // with other threads.
+    rc = monad_thread_executor_create(&thr_exec);
     if (rc != 0) {
         errno = rc;
-        err(1, "monad_fiber_alloc_stack failed");
+        err(1, "monad_thread_executor_create failed");
     }
 
-    // Initialize the fiber, passing in our stack
-    monad_fiber_init(&hello_fiber, fiber_stack);
+    // Create the fiber, passing in our creation attributes
+    rc = monad_fiber_create(&fiber_attr, &hello_fiber);
+    if (rc != 0) {
+        errno = rc;
+        err(1, "monad_fiber_create failed");
+    }
 
     // Tell the fiber what function to run; the second argument is
     // the scheduling priority, which doesn't matter in this example;
     // the last parameter is passed into the fiber function, as the
     // argument. We pass a pointer to our name
     monad_fiber_set_function(
-        &hello_fiber,
+        hello_fiber,
         MONAD_FIBER_PRIO_HIGHEST,
         say_hello_fiber_function,
         (uintptr_t)name);
@@ -77,12 +85,12 @@ int main(int argc, char **argv)
     // will be 0. The second parameter (which is nullptr here) allows us to
     // obtain information about why the fiber suspended; in this example we
     // don't care, so we pass nullptr
-    rc = monad_fiber_run(&hello_fiber, nullptr);
+    rc = monad_fiber_run(hello_fiber, thr_exec, nullptr);
     assert(rc == 0);
 
     // Run the fiber again, until it yields again; this will print
     // "Welcome back, <name>!" and then yield back to us once more
-    rc = monad_fiber_run(&hello_fiber, nullptr);
+    rc = monad_fiber_run(hello_fiber, thr_exec, nullptr);
     assert(rc == 0);
 
     // Run the fiber a final time. This will print "Farewell, <name>!" and then
@@ -94,28 +102,26 @@ int main(int argc, char **argv)
     // information about the suspension. Namely, that it was a return and not a
     // yield, and we could also read the return code. However, we don't care in
     // this example.
-    rc = monad_fiber_run(&hello_fiber, nullptr);
+    rc = monad_fiber_run(hello_fiber, thr_exec, nullptr);
     assert(rc == 0);
 
     // Try to run the fiber one more time; we can't do it since the fiber
     // function returned, so this will fail and return the errno-domain error
     // code ENXIO
-    rc = monad_fiber_run(&hello_fiber, nullptr);
+    rc = monad_fiber_run(hello_fiber, thr_exec, nullptr);
     assert(rc == ENXIO);
 
     // At this point, we could reuse the fiber's resources to run the function
     // a second time. To prepare for a second run, we would reset the function:
     monad_fiber_set_function(
-        &hello_fiber,
+        hello_fiber,
         MONAD_FIBER_PRIO_HIGHEST,
         say_hello_fiber_function,
         (uintptr_t)name);
 
-    // However, that's enough for today. Nothing special needs to be done to
-    // destroy the fiber itself, as there is no dynamic memory allocation.
-    // The fiber stack though, was allocated via mmap(2) and needs to be
-    // freed.
-    monad_fiber_free_stack(fiber_stack);
-
+    // However, that's enough for today; destroy the fiber, the thread executor,
+    // and exit.
+    monad_fiber_destroy(hello_fiber);
+    monad_thread_executor_destroy(thr_exec);
     return 0;
 }

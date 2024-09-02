@@ -95,7 +95,6 @@ add_library(monad_core_c OBJECT
   # fiber
   "src/monad/fiber/fiber.h"
   "src/monad/fiber/fiber.c"
-  "src/monad/fiber/fiber_util.h"
   # util
   "src/monad/util/parse_util.h"
   "src/monad/util/parse_util.c")
