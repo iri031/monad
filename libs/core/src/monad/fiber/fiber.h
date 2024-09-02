@@ -19,7 +19,6 @@ extern "C"
 typedef struct monad_fiber monad_fiber_t;
 typedef struct monad_fiber_attr monad_fiber_attr_t;
 typedef struct monad_fiber_suspend_info monad_fiber_suspend_info_t;
-typedef struct monad_thread_executor monad_thread_executor_t;
 
 typedef uintptr_t (monad_fiber_ffunc_t)(uintptr_t);
 typedef int64_t monad_fiber_prio_t;
@@ -56,15 +55,6 @@ struct monad_fiber_attr
  * Public interface: functions that are called by users of the library
  */
 
-/// Creates a thread executor; in much the same way as a CPU is an execution
-/// resource that can run threads, a "thread executor" is the resource that
-/// allows a thread to run fibers
-int monad_thread_executor_create(monad_thread_executor_t **);
-
-/// Destroy a thread executor previously created with
-/// monad_thread_executor_create
-void monad_thread_executor_destroy(monad_thread_executor_t *thr_exec);
-
 /// Create a fiber, given a description of its attributes (if nullptr is passed,
 /// the default attributes will be used)
 int monad_fiber_create(
@@ -79,7 +69,8 @@ int monad_fiber_set_function(
     monad_fiber_t *fiber, monad_fiber_prio_t priority,
     monad_fiber_ffunc_t *ffunc, uintptr_t fdata);
 
-/// Returns the structure representing the currently executing fiber
+/// Returns the structure representing the currently executing fiber; returns
+/// nullptr if the current execution context is not a fiber
 monad_fiber_t *monad_fiber_self();
 
 /// Begin running a fiber's function (or resume that function at the suspension
@@ -87,8 +78,7 @@ monad_fiber_t *monad_fiber_self();
 /// time the function suspends, and populates @ref suspend_info with info about
 /// that suspension
 int monad_fiber_run(
-    monad_fiber_t *next_fiber, monad_thread_executor_t *thr_exec,
-    monad_fiber_suspend_info_t *suspend_info);
+    monad_fiber_t *next_fiber, monad_fiber_suspend_info_t *suspend_info);
 
 /// Similar to sched_yield(2) or pthread_yield_np(3), but for fibers: yields
 /// from the currently-running fiber back to the previously-running fiber
