@@ -20,8 +20,24 @@ target_compile_features(monad_context_c PUBLIC c_std_23 cxx_std_20)
 target_compile_options(monad_context_c PRIVATE -Wall -Wextra -Wconversion -Wpedantic -Werror)
 target_compile_definitions(monad_context_c PRIVATE _GNU_SOURCE=1 MONAD_CONTEXT_SOURCE=1)
 target_include_directories(monad_context_c PUBLIC "src")
-target_link_libraries(monad_context_c PUBLIC monad_boost_context)
+target_link_libraries(monad_context_c PRIVATE monad_boost_context)
 monad_target_gdb_pretty_printer(monad_context_c monad_context_c_pretty_printer "src/monad/context/gdb_pretty_printers.py")
+
+# This MUST be a shared library called libthread_db.so for GDB to load it
+add_library(monad_context_c_libthread_db SHARED
+  "src/monad/context/thread_db.c"
+)
+target_compile_features(monad_context_c_libthread_db PRIVATE c_std_23 cxx_std_20)
+target_compile_options(monad_context_c_libthread_db PRIVATE -Wall -Wextra -Wconversion -Werror)
+target_compile_options(monad_context_c_libthread_db PRIVATE -fvisibility=hidden)
+set_target_properties(monad_context_c_libthread_db PROPERTIES
+  POSITION_INDEPENDENT_CODE ON
+  OUTPUT_NAME "thread_db"
+)
+# We need to inhibit all dependencies on anything else to prevent clashing with GDB's runtime
+# when loaded in as a plugin
+#target_link_options(monad_context_c_libthread_db PRIVATE -static)
+
 
 set(monad_async_INCLUDES
   "src/monad/async/executor.h"
