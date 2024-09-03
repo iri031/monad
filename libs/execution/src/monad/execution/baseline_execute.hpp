@@ -13,7 +13,7 @@ class MonadJitCompiler;
 
 evmc::Result baseline_execute(
     evmc_message const &, evmc_revision, evmc::Host *,
-    std::shared_ptr<CodeAnalysis>, MonadJitCompiler &);
+    std::shared_ptr<CodeAnalysis>, bytes32_t const&, MonadJitCompiler &);
 
 evmc::Result baseline_execute_evmone(
     evmc_message const &, evmc_revision, evmc::Host *,
@@ -21,6 +21,6 @@ evmc::Result baseline_execute_evmone(
 
 evmc::Result baseline_execute_monad_jit(
     bool *, evmc_message const &, evmc_revision, evmc::Host *,
-    std::shared_ptr<CodeAnalysis>, MonadJitCompiler &);
+    std::shared_ptr<CodeAnalysis>, bytes32_t const&, MonadJitCompiler &);
 
 MONAD_NAMESPACE_END

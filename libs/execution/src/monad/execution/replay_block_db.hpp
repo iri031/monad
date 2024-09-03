@@ -140,6 +140,7 @@ public:
                     block_state,
                     block_hash_buffer,
                     priority_pool));
+            //LOG_INFO("EXIT EARLY"); return BlockError::WrongStateRoot;
             BOOST_OUTCOME_TRY(validate_header(receipts, block.header));
             block_state.log_debug();
             block_state.commit(receipts);

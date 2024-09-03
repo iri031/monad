@@ -33,7 +33,7 @@ CodeAnalysis::~CodeAnalysis()
 }
 
 void CodeAnalysis::load_native_contract_code(
-        char const *jit_dir, evmc_address const &a)
+        char const *jit_dir, bytes32_t const &a)
 {
     // Invariant: bytecode at address a = analysis.executable_code
     if (is_native_contract_code_loaded_.test_and_set(std::memory_order_acq_rel))

@@ -416,6 +416,23 @@ public:
         return block_state_.read_code(code_hash);
     }
 
+    std::pair<std::shared_ptr<CodeAnalysis>, bytes32_t const&>
+    get_code_and_hash(Address const &address)
+    {
+        auto const &account = recent_account(address);
+        if (MONAD_UNLIKELY(!account.has_value())) {
+            return {std::make_shared<CodeAnalysis>(analyze({})), NULL_HASH};
+        }
+        bytes32_t const &code_hash = account.value().code_hash;
+        {
+            auto const it = code_.find(code_hash);
+            if (it != code_.end()) {
+                return {it->second, code_hash};
+            }
+        }
+        return {block_state_.read_code(code_hash), code_hash};
+    }
+
     size_t get_code_size(Address const &address)
     {
         auto const &account = recent_account(address);

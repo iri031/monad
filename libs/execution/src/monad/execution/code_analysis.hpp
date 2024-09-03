@@ -3,6 +3,7 @@
 #include <monad/config.hpp>
 
 #include <monad/core/byte_string.hpp>
+#include <monad/core/bytes.hpp>
 
 #include <atomic>
 
@@ -29,7 +30,7 @@ public:
     {
         return is_native_contract_code_loaded_.test(std::memory_order_acquire);
     }
-    void load_native_contract_code(char const *jit_dir, evmc_address const &);
+    void load_native_contract_code(char const *jit_dir, bytes32_t const &);
     void *native_contract_main() const
     {
         return native_contract_main_.load(std::memory_order_acquire);

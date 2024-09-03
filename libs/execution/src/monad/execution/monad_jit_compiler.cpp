@@ -15,12 +15,12 @@ namespace fs = std::filesystem;
 MONAD_NAMESPACE_BEGIN
 #ifdef MONAD_JIT
 
-size_t MonadJitCompiler::EvmcAddressHashCompare::hash(evmc_address const &x) const
+size_t MonadJitCompiler::EvmcAddressHashCompare::hash(bytes32_t const &x) const
 {
     return boost::hash_range(x.bytes, x.bytes + sizeof x.bytes);
 }
 bool MonadJitCompiler::EvmcAddressHashCompare::equal(
-    evmc_address const& x, evmc_address const& y) const
+    bytes32_t const& x, bytes32_t const& y) const
 {
     return std::memcmp(x.bytes, y.bytes, sizeof x.bytes) == 0;
 }
@@ -29,7 +29,7 @@ MonadJitCompiler::MonadJitCompiler()
     : jit_directory_{std::getenv("MONAD_VM_COMPILE_DIR")}
     , compile_job_lock_{compile_job_mutex_}
 {
-    MONAD_ASSERT(fs::is_directory(jit_directory_));
+    MONAD_ASSERT(jit_directory_ != nullptr && fs::is_directory(jit_directory_));
 
     vmhandle_ = dlopen("libmonad_nevm_vm.so", RTLD_NOW);
     MONAD_ASSERT(vmhandle_ != nullptr);
@@ -83,7 +83,7 @@ void MonadJitCompiler::restart_compiler(bool remove_contracts)
     start_compiler();
 }
 
-void MonadJitCompiler::debug_wait_for(evmc_address const& a)
+void MonadJitCompiler::debug_wait_for(bytes32_t const& a)
 {
     while (compile_job_map_.count(a))
         std::this_thread::sleep_for(std::chrono::microseconds(100));
@@ -120,7 +120,7 @@ void MonadJitCompiler::run_compile_loop()
 
 void MonadJitCompiler::dispense_compile_jobs()
 {
-    evmc_address a;
+    bytes32_t a;
     while (compile_job_queue_.try_pop(a)
             && !stop_flag_.load(std::memory_order_acquire)) {
         bool ok;
@@ -136,7 +136,7 @@ void MonadJitCompiler::dispense_compile_jobs()
     }
 }
 
-void MonadJitCompiler::compile(evmc_address const &a, CodeAnalysis &code_analysis)
+void MonadJitCompiler::compile(bytes32_t const &a, CodeAnalysis &code_analysis)
 {
     code_analysis.load_native_contract_code(jit_directory_, a);
 

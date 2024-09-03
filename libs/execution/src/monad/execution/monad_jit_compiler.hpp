@@ -15,7 +15,7 @@
 #include <iostream>
 #include <format>
 
-#define MONAD_JIT
+//#define MONAD_JIT
 
 MONAD_NAMESPACE_BEGIN
 
@@ -34,23 +34,23 @@ class MonadJitCompiler
     );
 
     using MonadJitCompileFn = bool (*)(
-            evmc_address const *, uint8_t const* code, size_t code_size);
+            bytes32_t const *, uint8_t const* code, size_t code_size);
 
     struct EvmcAddressHashCompare
     {
-        size_t hash(evmc_address const &x) const;
-        bool equal(evmc_address const& x, evmc_address const& y) const;
+        size_t hash(bytes32_t const &x) const;
+        bool equal(bytes32_t const& x, bytes32_t const& y) const;
     };
 
     using CompileJobMap =
         tbb::concurrent_hash_map<
-            evmc_address,
+            bytes32_t,
             std::shared_ptr<CodeAnalysis>,
             EvmcAddressHashCompare>;
 
     using CompileJobAccessor = CompileJobMap::accessor;
 
-    using CompileJobQueue = tbb::concurrent_queue<evmc_address>;
+    using CompileJobQueue = tbb::concurrent_queue<bytes32_t>;
 
     char const *jit_directory_;
 
@@ -83,16 +83,18 @@ public:
     }
 
     void add_compile_job(
-        evmc_address const &a,
+        bytes32_t const &a,
         std::shared_ptr<CodeAnalysis> const &code_analysis)
     {
         if (!compile_job_map_.insert({a, code_analysis}))
             return;
+        /*
         std::cout << "compile: ";
         for (unsigned b : a.bytes) {
             std::cout << std::format("{:02x}", b);
         }
         std::cout << std::endl;
+        */
         compile_job_queue_.push(a);
         compile_job_cv_.notify_one();
     }
@@ -116,12 +118,12 @@ public:
 
     void enable_remove_compiled_contracts();
 
-    void debug_wait_for(evmc_address const& a);
+    void debug_wait_for(bytes32_t const& a);
 
 private:
     void run_compile_loop();
     void dispense_compile_jobs();
-    void compile(evmc_address const &, CodeAnalysis &);
+    void compile(bytes32_t const &, CodeAnalysis &);
     void remove_compiled_contracts();
     void stop_compiler();
     void start_compiler();
