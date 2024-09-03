@@ -59,6 +59,17 @@ struct monad_spinlock
 #endif
 };
 
+static inline bool monad_spinlock_is_owned(monad_spinlock_t *const lock)
+{
+    return atomic_load_explicit(&lock->owner_tid, memory_order_acquire) ==
+           monad_thread_get_id();
+}
+
+static inline bool monad_spinlock_is_unowned(monad_spinlock_t *const lock)
+{
+    return atomic_load_explicit(&lock->owner_tid, memory_order_acquire) == 0;
+}
+
 static inline void monad_spinlock_init(monad_spinlock_t *const lock)
 {
     atomic_init(&lock->owner_tid, 0);
@@ -101,6 +112,7 @@ static inline void monad_spinlock_lock(monad_spinlock_t *const lock)
     [[maybe_unused]] unsigned histo_bucket;
     bool owned;
 
+    MONAD_DEBUG_ASSERT(!monad_spinlock_is_owned(lock));
     do {
         /**
          * TODO further analysis of retry logic
@@ -142,17 +154,6 @@ static inline void monad_spinlock_lock(monad_spinlock_t *const lock)
     }
     MONAD_SPINSTAT_INC(lock->stats.tries_histogram[histo_bucket]);
 #endif
-}
-
-static inline bool monad_spinlock_is_owned(monad_spinlock_t *const lock)
-{
-    return atomic_load_explicit(&lock->owner_tid, memory_order_acquire) ==
-           monad_thread_get_id();
-}
-
-static inline bool monad_spinlock_is_unowned(monad_spinlock_t *const lock)
-{
-    return atomic_load_explicit(&lock->owner_tid, memory_order_acquire) == 0;
 }
 
 static inline void monad_spinlock_unlock(monad_spinlock_t *const lock)
