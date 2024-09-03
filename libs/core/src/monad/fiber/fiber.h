@@ -8,6 +8,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/queue.h>
 
 #include <monad/core/spinlock.h>
 #include <monad/mem/cma/cma_alloc.h>
@@ -32,11 +33,13 @@ extern "C"
 typedef void *monad_fcontext_t;
 typedef struct monad_run_queue monad_run_queue_t;
 typedef struct monad_thread_executor monad_thread_executor_t;
+typedef struct monad_fiber_wait_queue monad_fiber_wait_queue_t;
 
 /*
  * Types defined by fiber.h
  */
 
+struct monad_exec_context;
 typedef struct monad_fiber monad_fiber_t;
 typedef struct monad_fiber_attr monad_fiber_attr_t;
 typedef struct monad_fiber_suspend_info monad_fiber_suspend_info_t;
@@ -154,13 +157,16 @@ enum monad_exec_context_type : unsigned
 /// switching machinery used by both the fibers and the threads that run fibers
 struct monad_exec_context
 {
-    enum monad_exec_context_type type;    ///< Ctx for fiber or regular thread?
-    enum monad_exec_state state;          ///< Run state context is in
-    monad_fcontext_t md_suspended_ctx;    ///< Suspended context pointer
-    struct monad_exec_context *prev_exec; ///< Previously running exec context
-    monad_thread_executor_t *thr_exec;    ///< For debug: last thread we ran on
-    struct monad_exec_stack stack;        ///< Stack descriptor
-    struct monad_exec_stats *stats;       ///< Statistics about this context
+    enum monad_exec_context_type type;     ///< Ctx for fiber or regular thread?
+    enum monad_exec_state state;           ///< Run state context is in
+    monad_fcontext_t md_suspended_ctx;     ///< Suspended context pointer
+    monad_fiber_wait_queue_t *wait_queue;  ///< Wait queue we're linked on
+    TAILQ_ENTRY(monad_exec_context) wait_link; ///< Linkage for wait_queue
+    monad_fiber_wait_queue_t *prev_wq;     ///< For debug, our last waitq
+    struct monad_exec_context *prev_exec;  ///< Previously running exec context
+    monad_thread_executor_t *thr_exec;     ///< For debug: last thread we ran on
+    struct monad_exec_stack stack;         ///< Stack descriptor
+    struct monad_exec_stats *stats;        ///< Statistics about this context
 #if MONAD_HAS_ASAN
     void *fake_stack_save; ///< For ASAN fiber stack support
 #endif
@@ -188,12 +194,13 @@ struct monad_fiber
 
 enum monad_exec_state : unsigned
 {
-    MF_STATE_INIT,      ///< Fiber function not run yet
-    MF_STATE_CAN_RUN,   ///< Not running but able to run
-    MF_STATE_RUN_QUEUE, ///< Scheduled on a run queue
-    MF_STATE_RUNNING,   ///< Fiber or thread is running
-    MF_STATE_EXEC_WAIT, ///< Suspended to execute another fiber
-    MF_STATE_FINISHED   ///< Suspended by function return; fiber is finished
+    MF_STATE_INIT,       ///< Fiber function not run yet
+    MF_STATE_CAN_RUN,    ///< Not running but able to run
+    MF_STATE_WAIT_QUEUE, ///< Asleep on a wait queue
+    MF_STATE_RUN_QUEUE,  ///< Scheduled on a run queue
+    MF_STATE_RUNNING,    ///< Fiber or thread is running
+    MF_STATE_EXEC_WAIT,  ///< Suspended to execute another fiber
+    MF_STATE_FINISHED    ///< Suspended by function return; fiber is finished
 };
 
 inline bool monad_fiber_is_runnable(monad_fiber_t const *fiber)

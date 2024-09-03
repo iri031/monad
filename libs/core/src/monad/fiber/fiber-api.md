@@ -194,7 +194,13 @@ int main(int argc, char **argv)
      state for the `monad_thread_executor_t` objects
 
 2. For the synchronization primitives:
-   - To be added in a subsequent commit
+   - `fiber_channel.h` - implements a "channel" synchronization primitive
+     for fiber objects; for a description of channels see
+     [here](https://en.wikipedia.org/wiki/Channel_(programming))
+   - `fiber_semaphore.h` - implements a semaphore synchronization
+     primitive for fibers
+   - `fiber_sync.h` - a "wait queue" utility that is shared by the
+     channel and semaphore implementation
 
 3. The "scheduler"
    - `monad_run_queue.h` - defines the interface for a simple thread-safe
@@ -299,3 +305,89 @@ while (!atomic_load(&done)) {
     }
 }
 ```
+
+## Synchronization primitives
+
+The primary synchronization primitives offered are *channels*
+(`monad_fiber_channel_t`) and *semaphores* (`monad_fiber_semaphore_t`).
+Although semaphores can be implemented in terms of channels, they simplify
+memory management for the end user if the full power of a channel is not
+needed.
+
+### Channel memory management (or "what is `monad_fiber_msghdr_t`?)
+
+At any given time, a `monad_fiber_channel_t` is in one of three states:
+
+   1. Completely empty: no available messages and no waiting fibers
+   2. Has no available messages, but has one or more fibers waiting for
+      a message to be be published
+   3. Has no waiting fibers, but has enqueued messages waiting for a
+      fiber to dequeue them
+
+Conceptually, a fiber channel is just two FIFO queues. At least one queue
+is always empty, and potentially both are empty. If one of the queues is
+*not* empty, it is potentially arbitrarily long: the API imposes no
+limit on the number of messages that can be enqueued, or the number of
+fibers that can be waiting.
+
+Fiber channel performance is important, so we do not want the channel
+itself to dynamically allocate memory during the `push` or `pop`
+operations. There is an easy, zero-overhead solution for the queue of
+waiting fibers: because a `monad_fiber_t` can only wait on one
+synchronization primitive at a time, the `monad_fiber_t` structure itself
+contains a linkage object for an intrusive list of all fibers waiting
+on a condition. This is the `TAILQ_ENTRY(monad_fiber) wait_link` field.
+When a fiber needs to wait on a condition, it links itself to the end
+of an intrusive list representing the wait queue, requiring no additional
+memory.
+
+The situation for messages is different, since there is not already an
+existing object representing the message to store the list linkage inside of.
+
+The API solution is to offer such an object, and let the client decide how
+to manage the memory for it. There are two different blocks of memory that
+need to be managed for a channel message:
+
+   - The memory that stores the message payload itself
+
+   - The memory for a structure called `monad_fiber_msghdr_t`. This "message
+     header" object has two fields: the location of the message payload
+     buffer mentioned above (stored in a `struct iovec`) and a linkage object
+     so it can be linked into an intrusive list of all waiting messages on the
+     same wait queue
+
+A typical approach it to create a message structure like this, where the
+message header and the payload buffer are part of a single object:
+
+```c
+struct my_message
+{
+    monad_fiber_msghdr_t hdr;
+    char payload[256];
+};
+```
+
+A convenience method called `monad_fiber_msghdr_init_trailing` can be used
+to initialize the payload buffer to a fixed size occurring after the header
+member, e.g.,
+
+```c
+my_message msg;
+
+monad_fiber_msghdr_init_trailing(&msg.hdr, sizeof msg.payload);
+assert(msg.msg_buf.iov_base == msg.my_buf);
+```
+
+Using the `msghdr` object, messages can be enqueued on a
+`moand_fiber_channel_t` without any dynamic memory allocation. The memory
+management for the message objects themselves is an issue left entirely to
+the user.
+
+### Why are semaphores offered as a primitive?
+
+A semaphore is like a channel whose message is empty, and serves only
+as a "wakeup ticket," i.e., a dummy message whose meaning is that one
+fiber should wake up. Since the messages have no content, there is no
+need for any of the complex external memory management that exists with
+channels. If a semaphore can be used instead of a channel, it is a
+significant win for the end user.

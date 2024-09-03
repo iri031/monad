@@ -7,6 +7,7 @@
 #endif
 
 #include <errno.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <sys/queue.h>
 #include <threads.h>
@@ -72,11 +73,13 @@ struct monad_thread_executor
 {
     struct monad_exec_context thread_ctx; ///< Save thread's ctx when suspended
     monad_fiber_t *cur_fiber; ///< Fiber this thread is running (or nullptr)
+    atomic_uintptr_t wakeup_queue; ///< Addr of wq; spin until non-zero
     struct monad_in_progress_context_switch
         cur_switch; ///< Describes current ctx switch happening on this thread
-    thrd_t thread; ///< Opaque system handle for the thread
-    monad_tid_t thread_id; ///< Public ID for the thread, for debugging
+    thrd_t thread;                 ///< Opaque system handle for the thread
+    monad_tid_t thread_id;         ///< Public ID for the thread, for debugging
     struct monad_exec_stats stats; ///< Statistics about this context
+    size_t stat_immediate_wakeup;  ///< Immediate wake statistics
     SLIST_ENTRY(monad_thread_executor) next; ///< Linkage for all thread_locals
 };
 

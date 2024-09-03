@@ -44,6 +44,7 @@ void _monad_init_thread_executor(monad_thread_executor_t *thr_exec)
     size_t thread_stack_size;
 
     memset(thr_exec, 0, sizeof *thr_exec);
+    atomic_init(&thr_exec->wakeup_queue, 0);
     thr_exec->thread = thrd_current();
     thr_exec->thread_id = monad_thread_get_id();
 
@@ -84,6 +85,35 @@ void _monad_init_thread_executor(monad_thread_executor_t *thr_exec)
         err(1, "pthread_setspecific(3) failed");
     }
     MONAD_SPINLOCK_UNLOCK(&g_thr_execs.lock);
+}
+
+void _monad_thread_executor_busy_wait(
+    monad_thread_executor_t *thr_exec, monad_fiber_wait_queue_t *wq)
+{
+    uintptr_t expected_wakeup_queue;
+    bool swapped;
+
+    // Spin until the wakeup side writes the expected value
+    do {
+        expected_wakeup_queue = (uintptr_t)wq;
+        swapped = atomic_compare_exchange_weak_explicit(
+            &thr_exec->wakeup_queue,
+            &expected_wakeup_queue,
+            0,
+            memory_order_acq_rel,
+            memory_order_relaxed);
+    }
+    while (!swapped);
+
+    thr_exec->thread_ctx.prev_wq = wq;
+}
+
+bool _monad_thread_executor_wakeup(
+    monad_thread_executor_t *thr_exec, monad_fiber_wait_queue_t *wq)
+{
+    atomic_store_explicit(
+        &thr_exec->wakeup_queue, (uintptr_t)wq, memory_order_release);
+    return true;
 }
 
 static void __attribute((constructor)) init_thread_executor_list()
