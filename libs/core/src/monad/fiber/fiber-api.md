@@ -201,6 +201,11 @@ int main(int argc, char **argv)
      primitive for fibers
    - `fiber_sync.h` - a "wait queue" utility that is shared by the
      channel and semaphore implementation
+   - `future.hpp` - defines the C++ types `simple_future<T>` and
+     `simple_promise<T>`; these are similar to (but less fully-featured than)
+     those found in C++11 `<future>`; `simple_promise<T>` is implemented
+     using `monad_fiber_channel_t`, whereas the `simple_promise<void>`
+     specialization uses `monad_sempaphore_t`
 
 3. The "scheduler"
    - `monad_run_queue.h` - defines the interface for a simple thread-safe
@@ -390,4 +395,6 @@ as a "wakeup ticket," i.e., a dummy message whose meaning is that one
 fiber should wake up. Since the messages have no content, there is no
 need for any of the complex external memory management that exists with
 channels. If a semaphore can be used instead of a channel, it is a
-significant win for the end user.
+significant win for the end user. The `monad::fiber::simple_promise<void>`
+and `monad::fiber::simple_future<void>` specializations are implemented
+using a semaphore whereas the main template uses a channel.
