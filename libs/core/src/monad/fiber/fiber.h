@@ -153,14 +153,13 @@ enum monad_exec_context_type : unsigned
 /// switching machinery used by both the fibers and the threads that run fibers
 struct monad_exec_context
 {
-    alignas(64) monad_spinlock_t lock;    ///< Protects most fields
     enum monad_exec_context_type type;    ///< Ctx for fiber or regular thread?
     enum monad_exec_state state;          ///< Run state context is in
     monad_fcontext_t md_suspended_ctx;    ///< Suspended context pointer
     struct monad_exec_context *prev_exec; ///< Previously running exec context
     monad_thread_executor_t *thr_exec;    ///< For debug: last thread we ran on
-    struct monad_exec_stats stats;        ///< Statistics about this context
     struct monad_exec_stack stack;        ///< Stack descriptor
+    struct monad_exec_stats *stats;       ///< Statistics about this context
 #if MONAD_HAS_ASAN
     void *fake_stack_save; ///< For ASAN fiber stack support
 #endif
@@ -172,11 +171,13 @@ struct monad_exec_context
 struct monad_fiber
 {
     struct monad_exec_context exec_ctx;  ///< Our context switching state
+    alignas(64) monad_spinlock_t lock;   ///< Protects most fields
     monad_fiber_prio_t priority;         ///< Scheduling priority
     monad_fiber_ffunc_t *ffunc;          ///< Fiber function to run
     uintptr_t fdata;                     ///< Opaque user data passed to ffunc
     monad_fiber_attr_t create_attr;      ///< Attributes we were created with
     monad_memblk_t self_memblk;          ///< Dynamic memory block we live in
+    struct monad_exec_stats stats;       ///< Statistics about this context
     char name[MONAD_FIBER_NAME_LEN + 1]; ///< Context name, for debugging
 };
 

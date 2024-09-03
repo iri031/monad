@@ -33,6 +33,32 @@ static monad_fiber_attr_t g_default_fiber_attr = {
     .alloc = nullptr       // Default allocator
 };
 
+static inline monad_fiber_t *
+exec_context_to_fiber(struct monad_exec_context *exec_ctx)
+{
+    return exec_ctx->type == MF_EXEC_FIBER ? (monad_fiber_t *)exec_ctx
+                                           : nullptr;
+}
+
+// This is only called from inside MONAD_DEBUG_ASSERT, thus why it is marked
+// [[maybe_unused]]. It checks that a context is locked if it is a fiber; this
+// prevents the run state from being altered during a switch
+[[maybe_unused]] static inline bool
+exec_context_is_safe(struct monad_exec_context *exec_ctx)
+{
+    monad_fiber_t *const fiber = exec_context_to_fiber(exec_ctx);
+    return !fiber || monad_spinlock_is_owned(&fiber->lock);
+}
+
+#define RELEASE_EXEC_CONTEXT(CTX)                                              \
+    do {                                                                       \
+        monad_fiber_t *const fiber = exec_context_to_fiber(CTX);               \
+        if (fiber != nullptr) {                                                \
+            MONAD_SPINLOCK_UNLOCK(&fiber->lock);                               \
+        }                                                                      \
+    }                                                                          \
+    while (0)
+
 static int alloc_fiber_stack(struct monad_exec_stack *stack, size_t *stack_size)
 {
     int const stack_protection = PROT_READ | PROT_WRITE;
@@ -104,32 +130,31 @@ finish_context_switch(struct monad_transfer_t xfer_from)
     cur_exec = cur_switch->switch_to;
     prev_exec = cur_switch->switch_from;
 
-    // If the context we're switching is a fiber, mark it as the current one
-    // for this thread so that `monad_fiber_self()` will work.
-    thr_exec->cur_fiber =
-        cur_exec->type == MF_EXEC_FIBER ? (monad_fiber_t *)cur_exec : nullptr;
+    // Mark this execution context as the current fiber so that
+    // `monad_fiber_self` will work; cur_fiber will be nullptr if this isn't a
+    // fiber context
+    thr_exec->cur_fiber = exec_context_to_fiber(cur_exec);
 
-    // Both context objects remain locked through the switch
-    MONAD_DEBUG_ASSERT(monad_spinlock_is_owned(&cur_exec->lock));
-    MONAD_DEBUG_ASSERT(monad_spinlock_is_owned(&prev_exec->lock));
+    MONAD_DEBUG_ASSERT(exec_context_is_safe(cur_exec));
+    MONAD_DEBUG_ASSERT(exec_context_is_safe(prev_exec));
 
     // Remember where the switched-from context suspended, and update its state
     // from RUNNING to whatever suspension state it's entering
     prev_exec->md_suspended_ctx = xfer_from.fctx;
     prev_exec->state = cur_switch->switch_from_suspend_state;
     suspend_info = cur_switch->switch_from_suspend_info;
-    MONAD_SPINLOCK_UNLOCK(&prev_exec->lock);
+    RELEASE_EXEC_CONTEXT(prev_exec);
 
     // Finish book-keeping to become the new running context
     cur_exec->state = MF_STATE_RUNNING;
     cur_exec->prev_exec = prev_exec;
     if (MONAD_UNLIKELY(cur_exec->thr_exec != thr_exec)) {
         cur_exec->thr_exec = thr_exec;
-        ++cur_exec->stats.total_migrate;
+        ++cur_exec->stats->total_migrate;
     }
-    ++cur_exec->stats.total_run;
+    ++cur_exec->stats->total_run;
 
-    MONAD_SPINLOCK_UNLOCK(&cur_exec->lock);
+    RELEASE_EXEC_CONTEXT(cur_exec);
     return suspend_info;
 }
 
@@ -148,8 +173,8 @@ static struct monad_transfer_t start_context_switch(
     monad_thread_executor_t *const thr_exec = cur_exec->thr_exec;
     struct in_progress_context_switch *cur_switch = &thr_exec->cur_switch;
 
-    MONAD_DEBUG_ASSERT(monad_spinlock_is_owned(&cur_exec->lock));
-    MONAD_DEBUG_ASSERT(monad_spinlock_is_owned(&next_exec->lock));
+    MONAD_DEBUG_ASSERT(exec_context_is_safe(cur_exec));
+    MONAD_DEBUG_ASSERT(exec_context_is_safe(next_exec));
 
     // XXX: assert switch is well-formed
 
@@ -192,8 +217,7 @@ static struct monad_transfer_t start_context_switch(
 }
 
 static void suspend_fiber(
-    struct monad_exec_context *cur_exec,
-    enum monad_exec_state cur_suspend_state,
+    monad_fiber_t *self, enum monad_exec_state cur_suspend_state,
     enum monad_fiber_suspend_type cur_suspend_type, uintptr_t eval)
 {
     // Our suspension and scheduling model is that, upon suspension, we jump
@@ -202,13 +226,15 @@ static void suspend_fiber(
     // run next and calls `monad_fiber_run`, thus we are usually jumping back
     // into the body of `monad_fiber_run`, which will return and report our
     // suspension
-    struct monad_exec_context *const next_exec = cur_exec->prev_exec;
-    MONAD_DEBUG_ASSERT(
-        monad_spinlock_is_owned(&cur_exec->lock) &&
-        cur_exec->type == MF_EXEC_FIBER);
-    MONAD_SPINLOCK_LOCK(&next_exec->lock);
+    monad_fiber_t *next_fiber;
+    struct monad_exec_context *const next_exec = self->exec_ctx.prev_exec;
+    MONAD_DEBUG_ASSERT(monad_spinlock_is_owned(&self->lock));
+    next_fiber = exec_context_to_fiber(next_exec);
+    if (MONAD_UNLIKELY(next_fiber != nullptr)) {
+        MONAD_SPINLOCK_LOCK(&next_fiber->lock);
+    }
     const struct monad_transfer_t xfer_from = start_context_switch(
-        cur_exec, next_exec, cur_suspend_state, cur_suspend_type, eval);
+        &self->exec_ctx, next_exec, cur_suspend_state, cur_suspend_type, eval);
     asm volatile("" ::: "memory");
     (void)finish_context_switch(xfer_from);
 }
@@ -236,8 +262,8 @@ static void suspend_fiber(
 
     // The fiber function returned, which appears as a kind of suspension to
     // the caller
-    MONAD_SPINLOCK_LOCK(&self->exec_ctx.lock);
-    suspend_fiber(&self->exec_ctx, MF_STATE_FINISHED, MF_SUSPEND_RETURN, rc);
+    MONAD_SPINLOCK_LOCK(&self->lock);
+    suspend_fiber(self, MF_STATE_FINISHED, MF_SUSPEND_RETURN, rc);
 
     // This should be unreachable (monad_fiber_run should not resume us after
     // a "return" suspension)
@@ -264,15 +290,15 @@ int monad_fiber_create(monad_fiber_attr_t const *attr, monad_fiber_t **fiber)
     if (rc != 0) {
         return rc;
     }
-    rc =
-        monad_cma_alloc(attr->alloc, sizeof **fiber, alignof * *fiber, &memblk);
+    rc = monad_cma_alloc(
+        attr->alloc, sizeof **fiber, alignof(monad_fiber_t), &memblk);
     if (rc != 0) {
         dealloc_fiber_stack(fiber_stack);
         return rc;
     }
     *fiber = f = memblk.ptr;
     memset(f, 0, sizeof *f);
-    monad_spinlock_init(&f->exec_ctx.lock);
+    monad_spinlock_init(&f->lock);
     f->exec_ctx.type = MF_EXEC_FIBER;
     f->exec_ctx.state = MF_STATE_INIT;
     f->exec_ctx.stack = fiber_stack;
@@ -295,7 +321,7 @@ int monad_fiber_set_function(
 {
     size_t stack_size;
 
-    MONAD_SPINLOCK_LOCK(&fiber->exec_ctx.lock);
+    MONAD_SPINLOCK_LOCK(&fiber->lock);
     switch (fiber->exec_ctx.state) {
     case MF_STATE_INIT:
         [[fallthrough]];
@@ -307,7 +333,7 @@ int monad_fiber_set_function(
 
     default:
         // It is not legal to modify the fiber in these states
-        MONAD_SPINLOCK_UNLOCK(&fiber->exec_ctx.lock);
+        MONAD_SPINLOCK_UNLOCK(&fiber->lock);
         return EBUSY;
     }
     stack_size =
@@ -315,11 +341,12 @@ int monad_fiber_set_function(
     fiber->exec_ctx.state = MF_STATE_CAN_RUN;
     fiber->exec_ctx.md_suspended_ctx = monad_make_fcontext(
         fiber->exec_ctx.stack.stack_top, stack_size, fiber_entrypoint);
+    fiber->exec_ctx.stats = &fiber->stats;
     fiber->priority = priority;
     fiber->ffunc = ffunc;
     fiber->fdata = fdata;
-    ++fiber->exec_ctx.stats.total_reset;
-    MONAD_SPINLOCK_UNLOCK(&fiber->exec_ctx.lock);
+    ++fiber->stats.total_reset;
+    MONAD_SPINLOCK_UNLOCK(&fiber->lock);
     return 0;
 }
 
@@ -334,6 +361,7 @@ int monad_fiber_run(
 {
     int err;
     struct monad_transfer_t resume_xfer;
+    monad_fiber_t *cur_fiber;
     monad_fiber_suspend_info_t next_fiber_suspend_info;
     monad_thread_executor_t *thr_exec;
     struct monad_exec_context *cur_exec;
@@ -347,8 +375,8 @@ int monad_fiber_run(
     // The fiber is usually already locked, since fibers remain locked when
     // returned from the run queue. However, you can also run a fiber directly
     // e.g., in the test suite. Acquire the lock if we don't have it
-    if (MONAD_UNLIKELY(!monad_spinlock_is_owned(&next_exec->lock))) {
-        MONAD_SPINLOCK_LOCK(&next_exec->lock);
+    if (MONAD_UNLIKELY(!monad_spinlock_is_owned(&next_fiber->lock))) {
+        MONAD_SPINLOCK_LOCK(&next_fiber->lock);
     }
 
     if (next_exec->state != MF_STATE_CAN_RUN) {
@@ -364,12 +392,14 @@ int monad_fiber_run(
             err = EBUSY;
             break;
         }
-        MONAD_SPINLOCK_UNLOCK(&next_exec->lock);
+        MONAD_SPINLOCK_UNLOCK(&next_fiber->lock);
         return err;
     }
 
-    MONAD_DEBUG_ASSERT(monad_spinlock_is_unowned(&cur_exec->lock));
-    MONAD_SPINLOCK_LOCK(&cur_exec->lock);
+    cur_fiber = exec_context_to_fiber(cur_exec);
+    if (cur_fiber != nullptr) {
+        MONAD_SPINLOCK_LOCK(&cur_fiber->lock);
+    }
 
     // Switch into next_fiber
     resume_xfer = start_context_switch(
@@ -392,9 +422,9 @@ int monad_fiber_get_name(monad_fiber_t *fiber, char *name, size_t size)
     if (name == nullptr) {
         return EFAULT;
     }
-    MONAD_SPINLOCK_LOCK(&fiber->exec_ctx.lock);
+    MONAD_SPINLOCK_LOCK(&fiber->lock);
     rc = strlcpy(name, fiber->name, size) >= size ? ERANGE : 0;
-    MONAD_SPINLOCK_UNLOCK(&fiber->exec_ctx.lock);
+    MONAD_SPINLOCK_UNLOCK(&fiber->lock);
     return rc;
 }
 
@@ -404,19 +434,18 @@ int monad_fiber_set_name(monad_fiber_t *fiber, char const *name)
     if (name == nullptr) {
         return EFAULT;
     }
-    MONAD_SPINLOCK_LOCK(&fiber->exec_ctx.lock);
+    MONAD_SPINLOCK_LOCK(&fiber->lock);
     rc = strlcpy(fiber->name, name, sizeof fiber->name) > MONAD_FIBER_NAME_LEN
              ? ERANGE
              : 0;
-    MONAD_SPINLOCK_UNLOCK(&fiber->exec_ctx.lock);
+    MONAD_SPINLOCK_UNLOCK(&fiber->lock);
     return rc;
 }
 
 void monad_fiber_yield(uintptr_t eval)
 {
-    monad_thread_executor_t *const thr_exec = _monad_current_thread_executor();
-    monad_fiber_t *const self = thr_exec->cur_fiber;
+    monad_fiber_t *const self = monad_fiber_self();
     MONAD_DEBUG_ASSERT(self != nullptr);
-    MONAD_SPINLOCK_LOCK(&self->exec_ctx.lock);
-    suspend_fiber(&self->exec_ctx, MF_STATE_CAN_RUN, MF_SUSPEND_YIELD, eval);
+    MONAD_SPINLOCK_LOCK(&self->lock);
+    suspend_fiber(self, MF_STATE_CAN_RUN, MF_SUSPEND_YIELD, eval);
 }

@@ -31,6 +31,7 @@ struct monad_thread_executor
         cur_switch; ///< Describes current ctx switch happening on this thread
     thrd_t thread;  ///< Opaque system handle for the thread
     int thread_id;  ///< Public ID for the thread, for debugging
+    struct monad_exec_stats stats;           ///< Statistics about this context
     SLIST_ENTRY(monad_thread_executor) next; ///< Linkage for all thread_locals
 };
 
