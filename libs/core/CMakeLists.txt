@@ -92,9 +92,22 @@ add_library(monad_core_c OBJECT
   "src/monad/core/assert.c"
   "src/monad/core/assert.h"
   "src/monad/core/c_result.h"
+  "src/monad/core/spinlock.h"
+  "src/monad/core/srcloc.h"
+  "src/monad/core/thread.h"
+  "src/monad/core/thread.c"
   # fiber
   "src/monad/fiber/fiber.h"
   "src/monad/fiber/fiber.c"
+  "src/monad/fiber/fiber_impl.h"
+  "src/monad/fiber/fiber_thr.c"
+  # mem
+  "src/monad/mem/cma/cma_alloc.h"
+  "src/monad/mem/cma/cma_alloc.c"
+  "src/monad/mem/cma/cma_bump_alloc.h"
+  "src/monad/mem/cma/cma_bump_alloc.c"
+  "src/monad/mem/cma/cma_fallback.h"
+  "src/monad/mem/cma/cma_fallback.c"
   # util
   "src/monad/util/parse_util.h"
   "src/monad/util/parse_util.c")
@@ -104,11 +117,27 @@ if (MONAD_CORE_FORCE_DEBUG_ASSERT)
           PUBLIC MONAD_CORE_FORCE_DEBUG_ASSERT=1)
 endif()
 
+if (MONAD_CORE_SPINLOCK_TRACK_OWNER_INFO)
+  target_compile_definitions(monad_core_c
+          PUBLIC MONAD_SPINLOCK_TRACK_OWNER_INFO=1)
+endif()
+
+if (MONAD_CORE_SPINLOCK_TRACK_STATS)
+  target_compile_definitions(monad_core_c
+          PUBLIC MONAD_SPINLOCK_TRACK_STATS=1)
+endif()
+
+if (MONAD_CORE_SPINLOCK_TRACK_STATS_ATOMIC)
+  target_compile_definitions(monad_core_c
+          PUBLIC MONAD_SPINLOCK_TRACK_STATS_ATOMIC=1)
+endif()
+
 target_compile_features(monad_core_c PUBLIC c_std_23)
 target_compile_definitions(monad_core_c PUBLIC _GNU_SOURCE)
 target_compile_options(monad_core_c PRIVATE -Wall -Werror -Wextra)
 target_include_directories(monad_core_c
         PUBLIC "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(monad_core_c PRIVATE monad_boost_context)
 
 add_library(
   monad_core STATIC
@@ -142,11 +171,7 @@ add_library(
   "src/monad/core/result.hpp"
   "src/monad/core/size_of.hpp"
   "src/monad/core/small_prng.hpp"
-  "src/monad/core/spinlock.h"
-  "src/monad/core/srcloc.h"
   "src/monad/core/srcloc.hpp"
-  "src/monad/core/thread.h"
-  "src/monad/core/thread.c"
   "src/monad/core/unaligned.hpp"
   "src/monad/lru/lru_cache.hpp"
   "src/monad/lru/static_lru_cache.hpp"
@@ -167,12 +192,6 @@ add_library(
   "src/monad/io/buffer_pool.hpp"
   "src/monad/io/config.hpp"
   # mem
-  "src/monad/mem/cma/cma_alloc.h"
-  "src/monad/mem/cma/cma_alloc.c"
-  "src/monad/mem/cma/cma_bump_alloc.h"
-  "src/monad/mem/cma/cma_bump_alloc.c"
-  "src/monad/mem/cma/cma_fallback.h"
-  "src/monad/mem/cma/cma_fallback.c"
   "src/monad/mem/cpool.h"
   "src/monad/mem/dynamic_allocator.hpp"
   "src/monad/mem/huge_mem.h"
@@ -207,26 +226,6 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
     # procfs
     "src/monad/procfs/statm.c"
     "src/monad/procfs/statm.h")
-endif()
-
-if (MONAD_CORE_FORCE_DEBUG_ASSERT)
-  target_compile_definitions(monad_core
-          PUBLIC MONAD_CORE_FORCE_DEBUG_ASSERT=1)
-endif()
-
-if (MONAD_CORE_SPINLOCK_TRACK_OWNER_INFO)
-  target_compile_definitions(monad_core
-          PUBLIC MONAD_SPINLOCK_TRACK_OWNER_INFO=1)
-endif()
-
-if (MONAD_CORE_SPINLOCK_TRACK_STATS)
-  target_compile_definitions(monad_core
-          PUBLIC MONAD_SPINLOCK_TRACK_STATS=1)
-endif()
-
-if (MONAD_CORE_SPINLOCK_TRACK_STATS_ATOMIC)
-  target_compile_definitions(monad_core
-          PUBLIC MONAD_SPINLOCK_TRACK_STATS_ATOMIC=1)
 endif()
 
 target_include_directories(monad_core PUBLIC "src")

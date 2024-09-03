@@ -181,6 +181,23 @@ int main(int argc, char **argv)
 }
 ```
 
+## Where is the code?
+
+1. For the fibers themselves:
+   - `fiber.h` - defines the interface for fibers, i.e., the public
+     functions and the central `monad_fiber_t` structure
+   - `fiber.c` - most of the fiber implementation
+   - `fiber_impl.h` - declares structures and functions which are shared
+      between the `fiber.c` and `fiber_thr.c` files
+   - `fiber_thr.c` - an implementation file which contains the `thread_local`
+     state for the `monad_thread_executor_t` objects
+
+2. For the synchronization primitives:
+   - To be added in a subsequent commit
+
+3. The scheduler
+   - To be added in a subsequent commit
+
 ## `monad_fiber_t` basic design
 
 ### How to use `monad_fiber_t`
