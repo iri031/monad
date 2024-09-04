@@ -4,10 +4,9 @@
 #include <monad/core/address.hpp>
 #include <monad/core/int.hpp>
 #include <monad/core/result.hpp>
+#include <monad/fiber/future.hpp>
 
 #include <evmc/evmc.h>
-
-#include <boost/fiber/future/promise.hpp>
 
 #include <cstdint>
 
@@ -34,11 +33,11 @@ template <evmc_revision rev>
 Result<Receipt> execute_impl(
     Chain const &, uint64_t i, Transaction const &, Address const &sender,
     BlockHeader const &, BlockHashBuffer const &, BlockState &,
-    boost::fibers::promise<void> &prev);
+    fiber::simple_promise<void> &prev);
 
 template <evmc_revision rev>
 Result<Receipt> execute(
     Chain const &, uint64_t i, Transaction const &, BlockHeader const &,
-    BlockHashBuffer const &, BlockState &, boost::fibers::promise<void> &prev);
+    BlockHashBuffer const &, BlockState &, fiber::simple_promise<void> &prev);
 
 MONAD_NAMESPACE_END

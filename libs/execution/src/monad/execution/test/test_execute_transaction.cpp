@@ -8,6 +8,7 @@
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/tx_context.hpp>
 #include <monad/execution/validate_transaction.hpp>
+#include <monad/fiber/future.hpp>
 #include <monad/state2/block_state.hpp>
 #include <monad/state3/state.hpp>
 
@@ -15,8 +16,6 @@
 #include <evmc/evmc.hpp>
 
 #include <intx/intx.hpp>
-
-#include <boost/fiber/future/promise.hpp>
 
 #include <gtest/gtest.h>
 
@@ -61,7 +60,7 @@ TEST(TransactionProcessor, irrevocable_gas_and_refund_new_contract)
     BlockHeader const header{.beneficiary = bene};
     BlockHashBuffer const block_hash_buffer;
 
-    boost::fibers::promise<void> prev{};
+    fiber::simple_promise<void> prev{};
     prev.set_value();
 
     auto const result = execute_impl<EVMC_SHANGHAI>(

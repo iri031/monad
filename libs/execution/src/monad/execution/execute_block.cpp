@@ -17,6 +17,8 @@
 #include <monad/execution/switch_evmc_revision.hpp>
 #include <monad/execution/trace/event_trace.hpp>
 #include <monad/execution/validate_block.hpp>
+#include <monad/fiber/fiber.h>
+#include <monad/fiber/future.hpp>
 #include <monad/fiber/priority_pool.hpp>
 #include <monad/state2/block_state.hpp>
 #include <monad/state3/state.hpp>
@@ -25,11 +27,11 @@
 
 #include <intx/intx.hpp>
 
-#include <boost/fiber/future/promise.hpp>
 #include <boost/outcome/try.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -83,8 +85,8 @@ Result<std::vector<Receipt>> execute_block(
     std::shared_ptr<std::optional<Result<Receipt>>[]> const results{
         new std::optional<Result<Receipt>>[block.transactions.size()]};
 
-    std::shared_ptr<boost::fibers::promise<void>[]> const promises{
-        new boost::fibers::promise<void>[block.transactions.size() + 1]};
+    std::shared_ptr<fiber::simple_promise<void>[]> const promises{
+        new fiber::simple_promise<void>[block.transactions.size() + 1]};
     promises[0].set_value();
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
@@ -98,6 +100,23 @@ Result<std::vector<Receipt>> execute_block(
              &header = block.header,
              &block_hash_buffer = block_hash_buffer,
              &block_state] {
+                // While we're running this task, change the name of the fiber
+                // hosting it to include the suffix " [B:<block-no> T:<i>]"
+                char namebuf[MONAD_FIBER_NAME_LEN + 1];
+                monad_fiber_t *const fiber = monad_fiber_self();
+                (void)monad_fiber_get_name(fiber, namebuf, sizeof namebuf);
+                size_t const prefix_len = std::strlen(namebuf);
+                (void)snprintf(
+                    namebuf + prefix_len,
+                    sizeof namebuf - prefix_len,
+                    " [B:%lu T:%u]",
+                    header.number,
+                    i);
+                (void)monad_fiber_set_name(fiber, namebuf);
+
+                // Set the debug name of promise[i] "txn_wb_<i>", the
+                // transaction wait barrier for transaction i
+                promises[i].set_debug_name(fmt::format("txn_wb_{}", i));
                 results[i] = execute<rev>(
                     chain,
                     i,
@@ -107,6 +126,10 @@ Result<std::vector<Receipt>> execute_block(
                     block_state,
                     promises[i]);
                 promises[i + 1].set_value();
+
+                // We're done, chop the block:txn suffix off the fiber name
+                namebuf[prefix_len] = '\0';
+                (void)monad_fiber_set_name(fiber, namebuf);
             });
     }
 

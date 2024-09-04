@@ -199,7 +199,7 @@ Result<Receipt> execute_impl(
     Chain const &chain, uint64_t const i, Transaction const &tx,
     Address const &sender, BlockHeader const &hdr,
     BlockHashBuffer const &block_hash_buffer, BlockState &block_state,
-    boost::fibers::promise<void> &prev)
+    fiber::simple_promise<void> &prev)
 {
     BOOST_OUTCOME_TRY(static_validate_transaction<rev>(
         tx, hdr.base_fee_per_gas, chain.get_chain_id()));
@@ -264,7 +264,7 @@ template <evmc_revision rev>
 Result<Receipt> execute(
     Chain const &chain, uint64_t const i, Transaction const &tx,
     BlockHeader const &hdr, BlockHashBuffer const &block_hash_buffer,
-    BlockState &block_state, boost::fibers::promise<void> &prev)
+    BlockState &block_state, fiber::simple_promise<void> &prev)
 {
     TRACE_TXN_EVENT(StartTxn);
 
