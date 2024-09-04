@@ -76,6 +76,11 @@ RUN ./scripts/build.sh
 # security=insecure for tests which use io_uring
 RUN --security=insecure CC=gcc-13 CXX=g++-13 CMAKE_BUILD_TYPE=RelWithDebInfo ./scripts/test.sh
 
+RUN apt install -y binutils && strip \
+    /src/build/libs/db/monad_mpt \
+    /src/build/cmd/monad_cli \
+    /src/build/cmd/monad
+
 FROM base as runner
 COPY --from=build /src/build/libs/db/monad_mpt /usr/local/bin/
 COPY --from=build /src/build/cmd/monad_cli /usr/local/bin/
