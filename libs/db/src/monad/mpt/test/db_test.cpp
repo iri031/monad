@@ -10,6 +10,8 @@
 #include <monad/core/hex_literal.hpp>
 #include <monad/core/result.hpp>
 #include <monad/core/small_prng.hpp>
+#include <monad/fiber/fiber.h>
+#include <monad/fiber/run_queue.h>
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/db_error.hpp>
 #include <monad/mpt/nibbles_view.hpp>
@@ -23,10 +25,8 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/fiber/fiber.hpp>
-#include <boost/fiber/operations.hpp>
-
 #include <atomic>
+#include <bit>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -36,6 +36,7 @@
 #include <initializer_list>
 #include <iostream>
 #include <iterator>
+#include <random>
 #include <stdexcept>
 #include <thread>
 #include <type_traits>
@@ -1314,9 +1315,60 @@ TEST(DbTest, move_trie_causes_discontinuous_history)
     EXPECT_EQ(ro_db.get_earliest_block_id(), far_dest_block_id);
 }
 
+struct db_get_fiber_state
+{
+    std::atomic<bool> *done;
+    std::vector<monad::byte_string> *keys;
+    Db *db;
+    std::atomic<std::uint32_t> *ops;
+};
+
+static constexpr size_t COUNT = 1000000;
+static constexpr uint64_t BLOCK_ID = 0x123;
+
+static std::uintptr_t db_get_fiber_fn(std::uintptr_t arg0)
+{
+    auto *const s = std::bit_cast<db_get_fiber_state *>(arg0);
+    monad::small_prng rand{std::random_device{}()};
+    bool const get_will_yield = s->db->is_on_disk() && !s->db->is_read_only();
+
+    monad_fiber_yield(0); // So that they all reach this point
+    auto start_second = std::chrono::system_clock::now();
+    while (!s->done->load(std::memory_order_relaxed)) {
+        size_t const idx = rand() % COUNT;
+        auto r = s->db->get((*s->keys)[idx], BLOCK_ID);
+        MONAD_ASSERT(r);
+        s->ops->fetch_add(1, std::memory_order_relaxed);
+        if (!get_will_yield) {
+            // The db backend implementation does not naturally suspend the
+            // fiber we're (e.g., if we're entirely in memory). In this case
+            // we must manually yield the fiber's thread back to the caller
+            // occasionally (here we do it once a second) so it can decide when
+            // to terminate the test.
+            auto const now = std::chrono::system_clock::now();
+            if (now - start_second >= std::chrono::seconds(1)) {
+                start_second = now;
+                monad_fiber_yield(0);
+            }
+        }
+    }
+    return 0;
+}
+
+static void init_db_get_fiber(monad_fiber_t **fiber, db_get_fiber_state *state)
+{
+    ASSERT_EQ(0, monad_fiber_create(nullptr, fiber));
+    ASSERT_EQ(
+        0,
+        monad_fiber_set_function(
+            *fiber,
+            MONAD_FIBER_PRIO_HIGHEST,
+            db_get_fiber_fn,
+            std::bit_cast<uintptr_t>(state)));
+}
+
 TYPED_TEST(DbTest, scalability)
 {
-    static constexpr size_t COUNT = 1000000;
     static constexpr size_t MAX_CONCURRENCY = 32;
     static constexpr uint64_t BLOCK_ID = 0x123;
     std::vector<monad::byte_string> keys;
@@ -1340,7 +1392,7 @@ TYPED_TEST(DbTest, scalability)
         this->db.upsert(std::move(ul), BLOCK_ID);
     }
     std::vector<std::thread> threads;
-    std::vector<::boost::fibers::fiber> fibers;
+    std::vector<monad_fiber_t *> fibers;
     threads.reserve(MAX_CONCURRENCY);
     fibers.reserve(MAX_CONCURRENCY);
     for (size_t n = 1; n <= MAX_CONCURRENCY; n <<= 1) {
@@ -1356,25 +1408,24 @@ TYPED_TEST(DbTest, scalability)
                     monad::small_prng rand{uint32_t(myid)};
                     latch++;
                     while (latch != 0) {
-                        ::boost::this_fiber::yield();
+                        std::this_thread::yield();
                     }
                     while (latch.load(std::memory_order_relaxed) == 0) {
                         size_t const idx = rand() % COUNT;
                         auto r = this->db.get(keys[idx], BLOCK_ID);
                         MONAD_ASSERT(r);
                         ops.fetch_add(1, std::memory_order_relaxed);
-                        ::boost::this_fiber::yield();
                     }
                     latch++;
                 },
                 i);
         }
         while (latch < n) {
-            ::boost::this_fiber::yield();
+            std::this_thread::yield();
         }
         auto begin = std::chrono::steady_clock::now();
         latch = 0;
-        ::boost::this_fiber::sleep_for(std::chrono::seconds(5));
+        std::this_thread::sleep_for(std::chrono::seconds(5));
         latch = 1;
         auto end = std::chrono::steady_clock::now();
         std::cout << "      Did "
@@ -1386,7 +1437,7 @@ TYPED_TEST(DbTest, scalability)
                   << " ops/sec." << std::endl;
         std::cout << "      Awaiting threads to exit ..." << std::endl;
         while (latch < n + 1) {
-            ::boost::this_fiber::yield();
+            std::this_thread::yield();
         }
         std::cout << "      Joining ..." << std::endl;
         for (auto &i : threads) {
@@ -1398,33 +1449,30 @@ TYPED_TEST(DbTest, scalability)
         fibers.clear();
         latch = 0;
         ops = 0;
+        std::atomic<bool> done = false;
+        monad_run_queue *run_queue;
+        db_get_fiber_state shared_fiber_state = {
+            .done = &done, .keys = &keys, .db = &this->db, .ops = &ops};
+        ASSERT_EQ(0, monad_run_queue_create(nullptr, n, &run_queue));
+        monad_fiber_suspend_info_t suspend_info;
         for (size_t i = 0; i < n; i++) {
-            fibers.emplace_back(
-                [&](size_t myid) {
-                    monad::small_prng rand{uint32_t(myid)};
-                    latch++;
-                    while (latch != 0) {
-                        ::boost::this_fiber::yield();
-                    }
-                    while (latch.load(std::memory_order_relaxed) == 0) {
-                        size_t const idx = rand() % COUNT;
-                        auto r = this->db.get(keys[idx], BLOCK_ID);
-                        MONAD_ASSERT(r);
-                        ops.fetch_add(1, std::memory_order_relaxed);
-                        ::boost::this_fiber::yield();
-                    }
-                    latch++;
-                },
-                i);
-        }
-        while (latch < n) {
-            ::boost::this_fiber::yield();
+            monad_fiber_t *&fiber = fibers.emplace_back();
+            init_db_get_fiber(&fiber, &shared_fiber_state);
+            // Run to the initial yield point to fault everything in
+            ASSERT_EQ(0, monad_fiber_run(fiber, &suspend_info));
+            ASSERT_EQ(MF_SUSPEND_YIELD, suspend_info.suspend_type);
+            ASSERT_EQ(0, monad_run_queue_try_push(run_queue, fiber));
         }
         begin = std::chrono::steady_clock::now();
-        latch = 0;
-        ::boost::this_fiber::sleep_for(std::chrono::seconds(5));
-        latch = 1;
-        end = std::chrono::steady_clock::now();
+        do {
+            monad_fiber_t *fiber = nullptr;
+            while (fiber == nullptr) {
+                fiber = monad_run_queue_try_pop(run_queue);
+            }
+            ASSERT_EQ(0, monad_fiber_run(fiber, nullptr));
+            end = std::chrono::steady_clock::now();
+        }
+        while (end - begin < std::chrono::seconds(5));
         std::cout << "      Did "
                   << (1000000.0 * ops /
                       double(
@@ -1433,13 +1481,22 @@ TYPED_TEST(DbTest, scalability)
                               .count()))
                   << " ops/sec." << std::endl;
         std::cout << "      Awaiting fibers to exit ..." << std::endl;
-        while (latch < n + 1) {
-            ::boost::this_fiber::yield();
+        done.store(true);
+        unsigned exited_fibers = 0;
+        while (exited_fibers < n) {
+            monad_fiber_t *fiber = nullptr;
+            while (fiber == nullptr) {
+                fiber = monad_run_queue_try_pop(run_queue);
+            }
+            ASSERT_EQ(0, monad_fiber_run(fiber, &suspend_info));
+            if (suspend_info.suspend_type == MF_SUSPEND_RETURN) {
+                ++exited_fibers;
+            }
         }
         std::cout << "      Joining ..." << std::endl;
-        for (auto &i : fibers) {
-            ::boost::this_fiber::yield();
-            i.join();
+        for (auto *fiber : fibers) {
+            monad_fiber_destroy(fiber);
         }
+        monad_run_queue_destroy(run_queue);
     }
 }
