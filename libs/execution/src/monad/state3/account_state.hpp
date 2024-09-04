@@ -60,12 +60,6 @@ public:
         return account_.has_value();
     }
 
-    constexpr bool is_empty() const
-    {
-        MONAD_ASSERT(account_);
-        return ::monad::is_empty(*account_);
-    }
-
     constexpr bool is_dead() const
     {
         return ::monad::is_dead(account_);
