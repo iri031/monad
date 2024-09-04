@@ -1,18 +1,42 @@
 #include <err.h>
 #include <errno.h>
 #include <pthread.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/queue.h>
 #include <threads.h>
 
+#include <monad/core/spinlock.h>
 #include <monad/core/thread.h>
 
 #define MONAD_FIBER_INTERNAL
 #include "fiber_impl.h"
 
-static SLIST_HEAD(, monad_thread_executor) g_thr_exec_head;
+// This structure keeps track of a global list of all active
+// monad_thread_executor objects that exist in the process; this is used for
+// debugging
+static struct thr_exec_global_state
+{
+    monad_spinlock_t lock;
+    pthread_key_t key;
+    SLIST_HEAD(, monad_thread_executor) head;
+    size_t count;
+} g_thr_execs;
+
 thread_local struct monad_thread_executor _tl_thr_exec;
+
+static void monad_thread_executor_dtor(void *arg)
+{
+    monad_thread_executor_t *const thr_exec = arg;
+    MONAD_SPINLOCK_LOCK(&g_thr_execs.lock);
+    SLIST_REMOVE(&g_thr_execs.head, thr_exec, monad_thread_executor, next);
+    --g_thr_execs.count;
+    MONAD_SPINLOCK_UNLOCK(&g_thr_execs.lock);
+
+    // XXX: add any final cleanup here
+    (void)thr_exec;
+}
 
 void _monad_init_thread_executor(monad_thread_executor_t *thr_exec)
 {
@@ -53,24 +77,34 @@ void _monad_init_thread_executor(monad_thread_executor_t *thr_exec)
     thread_stack->stack_top =
         (uint8_t *)thread_stack->stack_bottom + thread_stack_size;
 
-    SLIST_INSERT_HEAD(&g_thr_exec_head, thr_exec, next);
-}
-
-static void cleanup_thread_executor(monad_thread_executor_t *thr_exec)
-{
-    (void)thr_exec;
+    MONAD_SPINLOCK_LOCK(&g_thr_execs.lock);
+    SLIST_INSERT_HEAD(&g_thr_execs.head, thr_exec, next);
+    ++g_thr_execs.count;
+    rc = pthread_setspecific(g_thr_execs.key, thr_exec);
+    if (rc != 0) {
+        errno = rc;
+        err(1, "pthread_setspecific(3) failed");
+    }
+    MONAD_SPINLOCK_UNLOCK(&g_thr_execs.lock);
 }
 
 static void __attribute((constructor)) init_thread_executor_list()
 {
-    SLIST_INIT(&g_thr_exec_head);
+    int rc;
+
+    monad_spinlock_init(&g_thr_execs.lock);
+    rc = pthread_key_create(&g_thr_execs.key, monad_thread_executor_dtor);
+    if (rc != 0) {
+        errno = rc;
+        err(1, "pthread_key_create(3) failed");
+    }
+    SLIST_INIT(&g_thr_execs.head);
 }
 
 static void __attribute__((destructor)) cleanup_thread_executor_list()
 {
-    monad_thread_executor_t *thr_exec;
-    SLIST_FOREACH(thr_exec, &g_thr_exec_head, next)
-    {
-        cleanup_thread_executor(thr_exec);
+    while (!SLIST_EMPTY(&g_thr_execs.head)) {
+        monad_thread_executor_dtor(SLIST_FIRST(&g_thr_execs.head));
     }
+    (void)pthread_key_delete(g_thr_execs.key);
 }
