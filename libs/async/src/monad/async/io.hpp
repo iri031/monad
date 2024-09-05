@@ -508,7 +508,7 @@ public:
 private:
     unsigned char *poll_uring_while_no_io_buffers_(bool is_write);
 
-    template <bool is_write, class F>
+    template <bool is_write, bool own_write_buffer = false, class F>
     auto make_connected_impl_(F &&connect)
     {
         using connected_type = decltype(connect());
@@ -525,8 +525,19 @@ private:
             new (mem) connected_type(connect()));
         if constexpr (is_write) {
             MONAD_DEBUG_ASSERT(rwbuf_.get_write_size() >= WRITE_BUFFER_SIZE);
+            if (own_write_buffer) {
+                // Did you accidentally pass in a foreign buffer to use?
+                // Can't do that, must use buffer returned.
+                MONAD_DEBUG_ASSERT(ret->sender().buffer().data() == nullptr);
+                auto buffer = std::move(ret->sender()).buffer();
+                buffer.set_write_buffer(get_write_buffer());
+                ret->sender().reset(ret->sender().offset(), std::move(buffer));
+            }
         }
         else {
+            // Did you accidentally pass in a foreign buffer to use?
+            // Can't do that, must use buffer returned.
+            MONAD_DEBUG_ASSERT(ret->sender().buffer().data() == nullptr);
             MONAD_DEBUG_ASSERT(rwbuf_.get_read_size() >= READ_BUFFER_SIZE);
         }
         return ret;
@@ -547,7 +558,8 @@ public:
     auto make_connected(Sender &&sender, Receiver &&receiver)
     {
         return make_connected_impl_<
-            Sender::my_operation_type == operation_type::write>([&] {
+            Sender::my_operation_type == operation_type::write,
+            Sender::own_write_buffer>([&] {
             return connect<Sender, Receiver>(
                 *this, std::move(sender), std::move(receiver));
         });

@@ -23,6 +23,7 @@ public:
     using result_type = result<std::reference_wrapper<buffer_type>>;
 
     static constexpr operation_type my_operation_type = operation_type::read;
+    static constexpr bool own_write_buffer = false;
 
 private:
     chunk_offset_t offset_;
@@ -123,6 +124,7 @@ public:
 
     static constexpr operation_type my_operation_type =
         operation_type::read_scatter;
+    static constexpr bool own_write_buffer = false;
 
 private:
     chunk_offset_t offset_;
@@ -253,6 +255,7 @@ to the speed of the SSD rather than flooding it with i/o. This especially
 matters when the SSD runs out of SLC cache and write speed drops sixfold, we
 need to substantially back off all i/o to let the SSD recover.
 */
+
 class write_single_buffer_sender
 {
 public:
@@ -261,17 +264,26 @@ public:
     using result_type = result<std::reference_wrapper<buffer_type>>;
 
     static constexpr operation_type my_operation_type = operation_type::write;
+    static constexpr bool own_write_buffer = true;
 
 private:
     chunk_offset_t offset_;
-    buffer_type &buffer_;
+    buffer_type buffer_;
     std::byte *append_;
 
 public:
     constexpr write_single_buffer_sender(
-        chunk_offset_t offset, buffer_type &buffer)
+        chunk_offset_t offset, size_t bytes_to_write)
         : offset_(offset)
-        , buffer_(buffer)
+        , buffer_(bytes_to_write)
+        , append_(const_cast<std::byte *>(buffer_.data()))
+    {
+    }
+
+    constexpr write_single_buffer_sender(
+        chunk_offset_t offset, buffer_type buffer)
+        : offset_(offset)
+        , buffer_(std::move(buffer))
         , append_(const_cast<std::byte *>(buffer.data()))
     {
     }
@@ -291,12 +303,127 @@ public:
         return std::move(buffer_);
     }
 
+    void reset(chunk_offset_t offset, size_t bytes_to_write)
+    {
+        offset_ = offset;
+        buffer_ = buffer_type(bytes_to_write);
+        append_ = const_cast<std::byte *>(buffer_.data());
+    }
+
+    void reset(chunk_offset_t offset, buffer_type buffer)
+    {
+        offset_ = offset;
+        buffer_ = std::move(buffer);
+        append_ = const_cast<std::byte *>(buffer_.data());
+    }
+
+    result<void> operator()(erased_connected_operation *io_state) noexcept
+    {
+        MONAD_DEBUG_ASSERT(!!buffer_);
+        buffer_.set_bytes_transferred(size_t(append_ - buffer_.data()));
+        io_state->executor()->submit_write_request(buffer_, offset_, io_state);
+        return success();
+    }
+
+    result_type completed(
+        erased_connected_operation *, result<size_t> bytes_transferred) noexcept
+    {
+        if (!bytes_transferred) {
+            fprintf(
+                stderr,
+                "ERROR: Write of %zu bytes to chunk %u offset %llu failed "
+                "with "
+                "error "
+                "'%s'\n",
+                buffer().size(),
+                offset().id,
+                file_offset_t(offset().offset),
+                bytes_transferred.assume_error().message().c_str());
+        }
+        BOOST_OUTCOME_TRY(auto &&count, std::move(bytes_transferred));
+        buffer_.set_bytes_transferred(count);
+        return std::ref(buffer_);
+    }
+
+    constexpr size_t written_buffer_bytes() const noexcept
+    {
+        MONAD_DEBUG_ASSERT(buffer_.data() <= append_);
+        return static_cast<size_t>(append_ - buffer_.data());
+    }
+
+    constexpr size_t remaining_buffer_bytes() const noexcept
+    {
+        auto const *end = buffer_.data() + buffer_.size();
+        MONAD_DEBUG_ASSERT(end >= append_);
+        return static_cast<size_t>(end - append_);
+    }
+
+    constexpr std::byte *advance_buffer_append(size_t bytes) noexcept
+    {
+        if (bytes > remaining_buffer_bytes()) {
+            return nullptr;
+        }
+        auto *ret = append_;
+        append_ += bytes;
+        return ret;
+    }
+};
+
+static_assert(sizeof(write_single_buffer_sender) == 48);
+static_assert(alignof(write_single_buffer_sender) == 8);
+static_assert(sender<write_single_buffer_sender>);
+
+class write_no_owning_buffer_sender
+{
+public:
+    using buffer_type = filled_write_buffer;
+    using const_buffer_type = filled_write_buffer;
+    using result_type = result<std::reference_wrapper<buffer_type>>;
+
+    static constexpr operation_type my_operation_type = operation_type::write;
+    static constexpr bool own_write_buffer = false;
+
+private:
+    chunk_offset_t offset_;
+    buffer_type &buffer_;
+    std::byte *append_;
+
+public:
+    constexpr write_no_owning_buffer_sender(
+        chunk_offset_t offset, buffer_type &buffer)
+        : offset_(offset)
+        , buffer_(buffer)
+        , append_(const_cast<std::byte *>(buffer.data()))
+    {
+        MONAD_ASSERT((offset.offset & (DISK_PAGE_SIZE - 1)) == 0);
+    }
+
+    constexpr chunk_offset_t offset() const noexcept
+    {
+        return offset_;
+    }
+
+    constexpr buffer_type const &buffer() const & noexcept
+    {
+        return buffer_;
+    }
+
+    constexpr buffer_type buffer() && noexcept
+    {
+        return std::move(buffer_);
+    }
+
+    void reset(chunk_offset_t, buffer_type)
+    {
+        MONAD_ASSERT(false);
+    }
+
     result<void> operator()(erased_connected_operation *io_state) noexcept
     {
         MONAD_DEBUG_ASSERT(!!buffer_);
         auto const bytes_transferred = size_t(append_ - buffer_.data());
-        MONAD_ASSERT((offset_.offset & ((1ul << 9) - 1)) == 0);
-        MONAD_ASSERT((bytes_transferred & ((1ul << 9) - 1)) == 0);
+        MONAD_DEBUG_ASSERT((offset_.offset & (DISK_PAGE_SIZE - 1)) == 0);
+        MONAD_DEBUG_ASSERT((bytes_transferred & (DISK_PAGE_SIZE - 1)) == 0);
         buffer_.set_bytes_transferred(bytes_transferred);
         io_state->executor()->submit_write_request(buffer_, offset_, io_state);
         return success();
@@ -346,9 +473,9 @@ public:
     }
 };
 
-static_assert(sizeof(write_single_buffer_sender) == 24);
-static_assert(alignof(write_single_buffer_sender) == 8);
-static_assert(sender<write_single_buffer_sender>);
+static_assert(sizeof(write_no_owning_buffer_sender) == 24);
+static_assert(alignof(write_no_owning_buffer_sender) == 8);
+static_assert(sender<write_no_owning_buffer_sender>);
 
 /*! \class timed_delay_sender
 \brief A Sender which completes after a delay. The delay can be measured by
@@ -397,6 +524,7 @@ public:
     using result_type = result<void>;
 
     static constexpr operation_type my_operation_type = operation_type::timeout;
+    static constexpr bool own_write_buffer = false;
 
 public:
     //! Complete after the specified delay from now. WARNING: Uses a
@@ -489,6 +617,7 @@ public:
 
     static constexpr operation_type my_operation_type =
         operation_type::threadsafeop;
+    static constexpr bool own_write_buffer = false;
 
 public:
     threadsafe_sender() = default;

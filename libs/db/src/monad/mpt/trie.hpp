@@ -57,14 +57,14 @@ struct write_operation_io_receiver
 
     void set_value(
         MONAD_ASYNC_NAMESPACE::erased_connected_operation *,
-        MONAD_ASYNC_NAMESPACE::write_single_buffer_sender::result_type res);
+        MONAD_ASYNC_NAMESPACE::write_no_owning_buffer_sender::result_type res);
 
     void reset() {}
 };
 
 using node_writer_unique_ptr_type =
     MONAD_ASYNC_NAMESPACE::AsyncIO::connected_operation_unique_ptr_type<
-        MONAD_ASYNC_NAMESPACE::write_single_buffer_sender,
+        MONAD_ASYNC_NAMESPACE::write_no_owning_buffer_sender,
         write_operation_io_receiver>;
 
 using MONAD_ASYNC_NAMESPACE::receiver;

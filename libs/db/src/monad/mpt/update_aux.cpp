@@ -36,7 +36,7 @@ using namespace MONAD_ASYNC_NAMESPACE;
 
 void write_operation_io_receiver::set_value(
     MONAD_ASYNC_NAMESPACE::erased_connected_operation *,
-    MONAD_ASYNC_NAMESPACE::write_single_buffer_sender::result_type res)
+    MONAD_ASYNC_NAMESPACE::write_no_owning_buffer_sender::result_type res)
 {
     MONAD_ASSERT(res);
     if (this->offset_to_remove_until == INVALID_OFFSET) {
@@ -653,7 +653,7 @@ node_writer_unique_ptr_type UpdateAuxImpl::make_connected_writer(
         .offset = writer_offset, .buffer = std::move(sender_buffer)});
     // sender doesn't own it
     return io->make_connected(
-        write_single_buffer_sender{
+        write_no_owning_buffer_sender{
             writer_offset, write_back_buffer.items.back().buffer},
         write_operation_io_receiver{*this, is_fast});
 }
