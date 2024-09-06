@@ -77,7 +77,10 @@ add_library(monad_core_c OBJECT
   # core
   "src/monad/core/assert.c"
   "src/monad/core/assert.h"
-  "src/monad/core/c_result.h")
+  "src/monad/core/c_result.h"
+  # util
+  "src/monad/util/parse_util.h"
+  "src/monad/util/parse_util.c")
 
 if(MONAD_CORE_FORCE_DEBUG_ASSERT)
   target_compile_definitions(monad_core_c
@@ -148,6 +151,7 @@ add_library(
   # test
   "src/monad/test/gtest_signal_stacktrace_printer.hpp"
   # util
+  "src/monad/util/parse_util_err.cpp"
   "src/monad/util/stopwatch.hpp")
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
@@ -234,7 +238,9 @@ add_library(
   # core
   "src/monad/core/backtrace.cpp"
   "src/monad/core/backtrace.hpp"
-  "src/monad/core/c_result_impl.cpp")
+  "src/monad/core/c_result_impl.cpp"
+  # util
+  "src/monad/util/parse_util_err.cpp")
 set_target_properties(monad_core_crt PROPERTIES CXX_VISIBILITY_PRESET hidden
                                                 VISIBILITY_INLINES_HIDDEN ON)
 target_include_directories(monad_core_crt PUBLIC "src")
