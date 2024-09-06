@@ -74,8 +74,10 @@ endif()
 # and contains no C++ source files; it may be linked by downstream libraries
 # which only need C and do not want the C++ runtime as a dependency
 add_library(monad_core_c OBJECT
+  # core
   "src/monad/core/assert.c"
-  "src/monad/core/assert.h")
+  "src/monad/core/assert.h"
+  "src/monad/core/c_result.h")
 
 if(MONAD_CORE_FORCE_DEBUG_ASSERT)
   target_compile_definitions(monad_core_c
@@ -97,12 +99,14 @@ add_library(
   "src/monad/core/backtrace.hpp"
   "src/monad/core/basic_formatter.hpp"
   "src/monad/core/bit_util.h"
+  "src/monad/core/boost_result.h"
   "src/monad/core/byte_string.hpp"
   "src/monad/core/bytes_hash_compare.hpp"
   "src/monad/core/cmemory.hpp"
   "src/monad/core/cleanup.h"
   "src/monad/core/cleanup.c"
   "src/monad/core/cpu_relax.h"
+  "src/monad/core/c_result_impl.cpp"
   "src/monad/core/endian.hpp"
   "src/monad/core/hash.hpp"
   "src/monad/core/hex_literal.hpp"
@@ -229,7 +233,8 @@ add_library(
   "src/monad/config.hpp"
   # core
   "src/monad/core/backtrace.cpp"
-  "src/monad/core/backtrace.hpp")
+  "src/monad/core/backtrace.hpp"
+  "src/monad/core/c_result_impl.cpp")
 set_target_properties(monad_core_crt PROPERTIES CXX_VISIBILITY_PRESET hidden
                                                 VISIBILITY_INLINES_HIDDEN ON)
 target_include_directories(monad_core_crt PUBLIC "src")
