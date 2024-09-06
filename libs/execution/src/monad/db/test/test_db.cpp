@@ -93,6 +93,7 @@ TEST(DBTest, read_only)
             StateDeltas{
                 {ADDR_A, StateDelta{.account = {acct1, acct2}, .storage = {}}}},
             Code{});
+        db.flush_writes();
 
         mpt::Db db2(mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = {name}});
         TrieDb ro{db2};
@@ -106,6 +107,7 @@ TEST(DBTest, read_only)
             StateDeltas{
                 {ADDR_A, StateDelta{.account = {acct2, acct3}, .storage = {}}}},
             Code{});
+        db.flush_writes();
 
         // Read block 0
         EXPECT_EQ(ro.read_account(ADDR_A), Account{.nonce = 1});
@@ -326,6 +328,7 @@ TYPED_TEST(DBTest, to_json)
     }();
     TrieDb tdb{db};
     load_db(tdb, 0);
+    db.flush_writes();
 
     auto const expected_payload = nlohmann::json::parse(R"(
 {

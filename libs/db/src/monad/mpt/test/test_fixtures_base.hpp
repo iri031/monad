@@ -221,7 +221,13 @@ namespace monad::test
         for (auto &it : update_vec) {
             update_ls.push_front(it);
         }
-        return upsert(aux, version, sm, std::move(old), std::move(update_ls));
+        return upsert(
+            aux,
+            version,
+            sm,
+            std::move(old),
+            std::move(update_ls),
+            true /*flush writes*/);
     }
 
     template <class... Updates>
@@ -231,7 +237,13 @@ namespace monad::test
     {
         UpdateList update_ls;
         (update_ls.push_front(updates), ...);
-        return upsert(aux, version, sm, std::move(old), std::move(update_ls));
+        return upsert(
+            aux,
+            version,
+            sm,
+            std::move(old),
+            std::move(update_ls),
+            true /*flush writes*/);
     }
 
     template <class... Updates>
@@ -564,7 +576,8 @@ namespace monad::test
                         version++,
                         sm,
                         std::move(root),
-                        std::move(update_ls));
+                        std::move(update_ls),
+                        true /*flush writes*/);
                     size_t count = 0;
                     for (auto const *ci = aux.db_metadata()->fast_list_begin();
                          ci != nullptr;

@@ -593,10 +593,6 @@ UpdateAuxImpl::read_node_from_buffers(chunk_offset_t const offset) const
         MONAD_ASSERT(curr_offset <= virtual_offset.raw());
         auto buffer_off =
             static_cast<unsigned>(virtual_offset.raw() - curr_offset);
-        // sometimes it takes multiple buffers to deserialize
-        // First get the disk size
-        // Then allocate the node, loop through buffer until finish
-        // copying all bytes
         MONAD_ASSERT(it->size() > buffer_off);
         auto const disk_size = unaligned_load<uint32_t>(
             (unsigned char *)it->buffer.data() + buffer_off);
@@ -604,8 +600,6 @@ UpdateAuxImpl::read_node_from_buffers(chunk_offset_t const offset) const
         buffer_off += Node::disk_size_bytes;
         auto const mask = unaligned_load<uint16_t>(
             (unsigned char *)it->buffer.data() + buffer_off);
-        // TODO: THIS ASSERTION does not necessarily have to be true
-        MONAD_ASSERT((unsigned)it->size() - buffer_off >= disk_size);
         auto const number_of_children =
             static_cast<unsigned>(std::popcount(mask));
         auto const alloc_size = static_cast<uint32_t>(
@@ -619,24 +613,18 @@ UpdateAuxImpl::read_node_from_buffers(chunk_offset_t const offset) const
         while (node_remaining_bytes > 0) {
             unsigned const bytes_to_copy = std::min(
                 node_remaining_bytes, (unsigned)it->size() - buffer_off);
-            if (bytes_to_copy < node_remaining_bytes) {
-                std::cout << "need to continue reading from next buffer"
-                          << std::endl;
-            }
             std::copy_n(
                 (unsigned char *)it->buffer.data() + buffer_off,
                 bytes_to_copy,
                 (unsigned char *)node.get() + offset_in_node);
             node_remaining_bytes -= bytes_to_copy;
-            MONAD_ASSERT(node_remaining_bytes == 0);
             offset_in_node += bytes_to_copy;
-            // // update to next buffer
-            // if (buffer_off + bytes_to_copy == it->size()) {
-            //     MONAD_ASSERT(false);
-            //     buffer_off = 0;
-            //     ++it;
-            //     MONAD_ASSERT(it != write_back_buffer.items.end());
-            // }
+            if (node_remaining_bytes > 0) { // node can go across buffers
+                std::cout << "continue reading from next buffer" << std::endl;
+                ++it;
+                MONAD_ASSERT(it != write_back_buffer.items.end());
+                buffer_off = 0;
+            }
         }
         std::memset(node->next_data(), 0, number_of_children * sizeof(Node *));
         MONAD_ASSERT(node->get_mem_size() == alloc_size);

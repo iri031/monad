@@ -67,7 +67,7 @@ namespace
         UpdateList ul_prefix;
         ul_prefix.push_front(u_prefix);
 
-        db.upsert(std::move(ul_prefix), block_id);
+        db.upsert(std::move(ul_prefix), block_id, true /*flush writes*/);
     };
 
     struct InMemoryDbFixture : public ::testing::Test
@@ -202,7 +202,8 @@ namespace
 
             UpdateList ul_prefix;
             ul_prefix.push_front(u_prefix);
-            this->db.upsert(std::move(ul_prefix), block_id);
+            this->db.upsert(
+                std::move(ul_prefix), block_id, true /*flush writes*/);
 
             /*
                     00
@@ -309,7 +310,8 @@ TEST_F(OnDiskDbWithFileFixture, read_only_db_single_thread)
         UpdateList ul_prefix;
         ul_prefix.push_front(u_prefix);
 
-        this->db.upsert(std::move(ul_prefix), first_block_id);
+        this->db.upsert(
+            std::move(ul_prefix), first_block_id, true /*flush writes*/);
     }
 
     // Verify RW
@@ -351,7 +353,8 @@ TEST_F(OnDiskDbWithFileFixture, read_only_db_single_thread)
         UpdateList ul_prefix;
         ul_prefix.push_front(u_prefix);
 
-        this->db.upsert(std::move(ul_prefix), second_block_id);
+        this->db.upsert(
+            std::move(ul_prefix), second_block_id, true /*flush writes*/);
     }
 
     // Verify RW database can read new data
@@ -480,7 +483,7 @@ TEST_F(OnDiskDbWithFileAsyncFixture, async_rodb_level_based_cache_works)
     for (auto &u : updates_alloc) {
         ls.push_front(u);
     }
-    db.upsert(std::move(ls), version);
+    db.upsert(std::move(ls), version, true /*flush writes*/);
 
     constexpr uint8_t test_cached_level = 3;
 
@@ -590,7 +593,7 @@ TEST(ReadOnlyDbTest, read_only_db_concurrent)
         UpdateList ul_prefix;
         ul_prefix.push_front(u_prefix);
 
-        db.upsert(std::move(ul_prefix), version);
+        db.upsert(std::move(ul_prefix), version, true /*flush writes*/);
     };
 
     auto keep_query = [&]() {
@@ -678,7 +681,7 @@ TEST(DbTest, read_only_db_traverse_concurrent)
         for (auto &u : updates_alloc) {
             ls.push_front(u);
         }
-        db.upsert(std::move(ls), version);
+        db.upsert(std::move(ls), version, true /*flush writes*/);
     };
 
     std::atomic<bool> done{false};
@@ -727,7 +730,7 @@ TEST(DBTest, benchmark_blocking_parallel_traverse)
     for (auto &u : updates_alloc) {
         ls.push_front(u);
     }
-    db.upsert(std::move(ls), 0);
+    db.upsert(std::move(ls), 0, true /*flush writes*/);
 
     // benchmark traverse
     DummyTraverseMachine traverse_machine{};
@@ -797,7 +800,7 @@ TEST(ReadOnlyDbTest, load_correct_root_upon_reopen_nonempty_db)
         ul_prefix.push_front(u_prefix);
 
         // db will have a valid root and root offset after this line
-        db.upsert(std::move(ul_prefix), block_id);
+        db.upsert(std::move(ul_prefix), block_id, true /*flush writes*/);
     }
 
     { // reopen the same db again, this time we will have a valid root loaded
@@ -836,7 +839,7 @@ TYPED_TEST(DbTest, simple_with_same_prefix)
         UpdateList ul_prefix;
         ul_prefix.push_front(u_prefix);
 
-        this->db.upsert(std::move(ul_prefix), block_id);
+        this->db.upsert(std::move(ul_prefix), block_id, true /*flush writes*/);
     }
 
     EXPECT_EQ(
@@ -862,7 +865,7 @@ TYPED_TEST(DbTest, simple_with_same_prefix)
         UpdateList ul_prefix;
         ul_prefix.push_front(u_prefix);
 
-        this->db.upsert(std::move(ul_prefix), block_id);
+        this->db.upsert(std::move(ul_prefix), block_id, true /*flush writes*/);
     }
 
     // test get with both apis
@@ -1164,7 +1167,8 @@ TEST_F(OnDiskDbFixture, rw_query_old_version)
         UpdateList ul_prefix;
         ul_prefix.push_front(u_prefix);
 
-        this->db.upsert(std::move(ul_prefix), upsert_block_id);
+        this->db.upsert(
+            std::move(ul_prefix), upsert_block_id, true /*flush writes*/);
     };
 
     // Write first block_id
@@ -1337,7 +1341,7 @@ TYPED_TEST(DbTest, scalability)
             updates.emplace_back(make_update(keys.back(), keys.back()));
             ul.push_front(updates.back());
         }
-        this->db.upsert(std::move(ul), BLOCK_ID);
+        this->db.upsert(std::move(ul), BLOCK_ID, true /*flush writes*/);
     }
     std::vector<std::thread> threads;
     std::vector<::boost::fibers::fiber> fibers;
