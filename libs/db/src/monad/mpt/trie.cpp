@@ -92,7 +92,7 @@ chunk_offset_t write_new_root_node_no_wait(UpdateAuxImpl &, Node &, uint64_t);
 
 Node::UniquePtr upsert(
     UpdateAuxImpl &aux, uint64_t const version, StateMachine &sm,
-    Node::UniquePtr old, UpdateList &&updates)
+    Node::UniquePtr old, UpdateList &&updates, bool const flush_writes)
 {
     auto impl = [&] {
         aux.reset_stats();
@@ -124,6 +124,9 @@ Node::UniquePtr upsert(
                 write_new_root_node_no_wait(aux, *root, version);
             }
             aux.print_update_stats();
+            if (flush_writes) {
+                aux.flush_all_writes();
+            }
         }
         return Node::UniquePtr{root};
     };
@@ -1343,7 +1346,7 @@ retry:
         .bytes_appended = size,
         .io_state = node_writer.get()};
     [[likely]] if (size <= remaining_bytes) { // Node can fit into current
-                                              // buffer
+                                              // buffer, implies within a chunk
         ret.offset_written_to =
             sender->offset().add_to_offset(sender->written_buffer_bytes());
         auto *where_to_serialize = sender->advance_buffer_append(size);

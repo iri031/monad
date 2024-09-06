@@ -72,8 +72,10 @@ struct Db::Impl
     virtual Node::UniquePtr &root() = 0;
     virtual UpdateAux<> &aux() = 0;
     virtual void upsert_fiber_blocking(
-        UpdateList &&, uint64_t, bool enable_compaction,
-        bool can_write_to_fast) = 0;
+        UpdateList &&, uint64_t, bool enable_compaction, bool can_write_to_fas,
+        bool flush_write) = 0;
+
+    virtual void flush_writes_fiber_blocking() {}
 
     virtual find_result_type find_fiber_blocking(
         NodeCursor const &root, NibblesView const &key, uint64_t version) = 0;
@@ -144,7 +146,7 @@ struct Db::ROOnDisk final : public Db::Impl
     }
 
     virtual void
-    upsert_fiber_blocking(UpdateList &&, uint64_t, bool, bool) override
+    upsert_fiber_blocking(UpdateList &&, uint64_t, bool, bool, bool) override
     {
         MONAD_ASSERT(false);
     }
@@ -236,7 +238,7 @@ struct Db::InMemory final : public Db::Impl
     }
 
     virtual void upsert_fiber_blocking(
-        UpdateList &&list, uint64_t block_id, bool, bool) override
+        UpdateList &&list, uint64_t block_id, bool, bool, bool) override
     {
         root_ = aux_.do_update(
             std::move(root_), machine_, std::move(list), block_id, false);
@@ -286,6 +288,7 @@ struct Db::RWOnDisk final : public Db::Impl
         uint64_t const version;
         bool const enable_compaction;
         bool const can_write_to_fast;
+        bool const flush_writes;
     };
 
     struct FiberLoadAllFromBlockRequest
@@ -310,7 +313,13 @@ struct Db::RWOnDisk final : public Db::Impl
         uint64_t dest;
     };
 
+    struct FlushWritesRequest
+    {
+        threadsafe_boost_fibers_promise<void> *promise;
+    };
+
     struct FiberLoadRootVersionRequest
+
     {
         threadsafe_boost_fibers_promise<Node::UniquePtr> *promise;
         uint64_t const version;
@@ -319,7 +328,7 @@ struct Db::RWOnDisk final : public Db::Impl
     using Comms = std::variant<
         std::monostate, fiber_find_request_t, FiberUpsertRequest,
         FiberLoadAllFromBlockRequest, FiberTraverseRequest, MoveSubtrieRequest,
-        FiberLoadRootVersionRequest>;
+        FiberLoadRootVersionRequest, FlushWritesRequest>;
 
     ::moodycamel::ConcurrentQueue<Comms> comms_;
 
@@ -404,7 +413,7 @@ struct Db::RWOnDisk final : public Db::Impl
             ::boost::container::deque<threadsafe_boost_fibers_promise<bool>>
                 traverse_promises;
             ::boost::container::deque<threadsafe_boost_fibers_promise<void>>
-                move_trie_version_promises;
+                void_promises;
             /* In case you're wondering why we use a vector for a single
             element, it's because for some odd reason the MoodyCamel concurrent
             queue only supports move only types via its iterator interface. No
@@ -440,7 +449,8 @@ struct Db::RWOnDisk final : public Db::Impl
                             std::move(req->updates),
                             req->version,
                             compaction && req->enable_compaction,
-                            req->can_write_to_fast));
+                            req->can_write_to_fast,
+                            req->flush_writes));
                     }
                     else if (auto *req = std::get_if<3>(&request.front());
                              req != nullptr) {
@@ -471,9 +481,8 @@ struct Db::RWOnDisk final : public Db::Impl
                     else if (auto *req = std::get_if<5>(&request.front());
                              req != nullptr) {
                         // Ditto to above
-                        move_trie_version_promises.emplace_back(
-                            std::move(*req->promise));
-                        req->promise = &move_trie_version_promises.back();
+                        void_promises.emplace_back(std::move(*req->promise));
+                        req->promise = &void_promises.back();
                         aux.move_trie_version_forward(req->src, req->dest);
                         req->promise->set_value();
                     }
@@ -489,6 +498,14 @@ struct Db::RWOnDisk final : public Db::Impl
                                               pool, root_offset)}
                                         : Node::UniquePtr{};
                         req->promise->set_value(std::move(root));
+                    }
+                    else if (auto *req = std::get_if<7>(&request.front());
+                             req != nullptr) {
+                        // Ditto to above
+                        void_promises.emplace_back(std::move(*req->promise));
+                        req->promise = &void_promises.back();
+                        aux.flush_all_writes();
+                        req->promise->set_value();
                     }
                     did_nothing = false;
                 }
@@ -516,14 +533,13 @@ struct Db::RWOnDisk final : public Db::Impl
                        traverse_promises.front().future_has_been_destroyed()) {
                     traverse_promises.pop_front();
                 }
-                while (!move_trie_version_promises.empty() &&
-                       move_trie_version_promises.front()
-                           .future_has_been_destroyed()) {
-                    move_trie_version_promises.pop_front();
+                while (!void_promises.empty() &&
+                       void_promises.front().future_has_been_destroyed()) {
+                    void_promises.pop_front();
                 }
                 if (!find_promises.empty() || !upsert_promises.empty() ||
                     !prefetch_promises.empty() || !traverse_promises.empty() ||
-                    !move_trie_version_promises.empty()) {
+                    !void_promises.empty()) {
                     did_nothing = false;
                 }
                 if (did_nothing) {
@@ -594,6 +610,8 @@ struct Db::RWOnDisk final : public Db::Impl
 
     ~RWOnDisk()
     {
+        flush_writes_fiber_blocking();
+
         aux_.unique_lock();
         // must be destroyed before aux is destroyed
         aux_.unset_io();
@@ -635,7 +653,8 @@ struct Db::RWOnDisk final : public Db::Impl
     // threadsafe
     virtual void upsert_fiber_blocking(
         UpdateList &&updates, uint64_t const version,
-        bool const enable_compaction, bool const can_write_to_fast) override
+        bool const enable_compaction, bool const can_write_to_fast,
+        bool const flush_writes) override
     {
         threadsafe_boost_fibers_promise<Node::UniquePtr> promise;
         auto fut = promise.get_future();
@@ -646,13 +665,27 @@ struct Db::RWOnDisk final : public Db::Impl
             .updates = std::move(updates),
             .version = version,
             .enable_compaction = enable_compaction,
-            .can_write_to_fast = can_write_to_fast});
+            .can_write_to_fast = can_write_to_fast,
+            .flush_writes = flush_writes});
         // promise is racily emptied after this point
         if (worker_->sleeping.load(std::memory_order_acquire)) {
             std::unique_lock const g(lock_);
             cond_.notify_one();
         }
         root_ = fut.get();
+    }
+
+    virtual void flush_writes_fiber_blocking() override
+    {
+        threadsafe_boost_fibers_promise<void> promise;
+        auto fut = promise.get_future();
+        comms_.enqueue(FlushWritesRequest{.promise = &promise});
+        // promise is racily emptied after this point
+        if (worker_->sleeping.load(std::memory_order_acquire)) {
+            std::unique_lock const g(lock_);
+            cond_.notify_one();
+        }
+        fut.get();
     }
 
     virtual void move_trie_version_fiber_blocking(
@@ -809,11 +842,21 @@ Db::get_data(NibblesView const key, uint64_t const block_id) const
 
 void Db::upsert(
     UpdateList list, uint64_t const block_id, bool const enable_compaction,
-    bool const can_write_to_fast)
+    bool const can_write_to_fast, bool const flush_writes)
 {
     MONAD_ASSERT(impl_);
     impl_->upsert_fiber_blocking(
-        std::move(list), block_id, enable_compaction, can_write_to_fast);
+        std::move(list),
+        block_id,
+        enable_compaction,
+        can_write_to_fast,
+        flush_writes);
+}
+
+void Db::flush_writes()
+{
+    MONAD_ASSERT(impl_);
+    impl_->flush_writes_fiber_blocking();
 }
 
 void Db::move_trie_version_forward(uint64_t const src, uint64_t const dest)

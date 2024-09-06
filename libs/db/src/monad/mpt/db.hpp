@@ -60,7 +60,8 @@ public:
 
     void upsert(
         UpdateList, uint64_t block_id, bool enable_compaction = true,
-        bool can_write_to_fast = true);
+        bool can_write_to_fast = true, bool flush_writes = false);
+    void flush_writes();
     // Traverse APIs: return value indicates if we have finished the full
     // traversal or not.
     // Parallel traversal is a single threaded out of order traverse using async

@@ -383,6 +383,14 @@ public:
             return virtual_offset.raw() >= virtual_offset_begin &&
                    virtual_offset.raw() < virtual_offset_end();
         }
+
+        void clear()
+        {
+            // TODO: can't be initiated and inflight
+            while (!items.empty()) {
+                items.pop_back();
+            }
+        }
     };
 
     BufferedWriteQueue write_back_buffer_fast;
@@ -558,10 +566,12 @@ public:
 
     void unset_io();
 
+    void flush_all_writes();
+
     Node::UniquePtr do_update(
         Node::UniquePtr prev_root, StateMachine &, UpdateList &&,
         uint64_t version, bool compaction = false,
-        bool can_write_to_fast = true);
+        bool can_write_to_fast = true, bool flush_writes = false);
 
     void move_trie_version_forward(uint64_t src, uint64_t dest);
 
@@ -896,7 +906,7 @@ void async_read(UpdateAuxImpl &aux, Receiver &&receiver)
 // batch upsert, updates can be nested
 Node::UniquePtr upsert(
     UpdateAuxImpl &, uint64_t, StateMachine &, Node::UniquePtr old,
-    UpdateList &&);
+    UpdateList &&, bool flush_writes = false);
 
 // load all nodes as far as caching policy would allow
 size_t load_all(UpdateAuxImpl &, StateMachine &, NodeCursor);

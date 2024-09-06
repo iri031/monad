@@ -255,6 +255,33 @@ void UpdateAuxImpl::rewind_to_match_offsets()
     reset_node_writers();
 }
 
+void UpdateAuxImpl::flush_all_writes()
+{
+    if (io != nullptr) {
+        MONAD_ASSERT(gettid() == io->owning_thread_id());
+        if (node_writer_fast &&
+            node_writer_fast->sender().written_buffer_bytes() != 0) {
+            auto new_fast_writer = replace_node_writer(*this, node_writer_fast);
+            node_writer_fast->receiver().offset_to_remove_until =
+                node_writer_fast->sender().offset();
+            node_writer_fast->initiate();
+            node_writer_fast.release();
+            node_writer_fast = std::move(new_fast_writer);
+        }
+
+        if (node_writer_slow &&
+            node_writer_slow->sender().written_buffer_bytes() != 0) {
+            auto new_slow_writer = replace_node_writer(*this, node_writer_slow);
+            node_writer_slow->receiver().offset_to_remove_until =
+                node_writer_slow->sender().offset();
+            node_writer_slow->initiate();
+            node_writer_slow.release();
+            node_writer_slow = std::move(new_slow_writer);
+        }
+        io->flush();
+    }
+}
+
 UpdateAuxImpl::~UpdateAuxImpl()
 {
     if (io != nullptr) {
@@ -536,6 +563,8 @@ void UpdateAuxImpl::unset_io()
 {
     node_writer_fast.reset();
     node_writer_slow.reset();
+    write_back_buffer_fast.clear();
+    write_back_buffer_slow.clear();
     auto const chunk_count = io->chunk_count();
     auto const map_size =
         sizeof(detail::db_metadata) +
@@ -676,7 +705,8 @@ the middle of a continuous history.
 */
 Node::UniquePtr UpdateAuxImpl::do_update(
     Node::UniquePtr prev_root, StateMachine &sm, UpdateList &&updates,
-    uint64_t const version, bool const compaction, bool const can_write_to_fast)
+    uint64_t const version, bool const compaction, bool const can_write_to_fast,
+    bool const flush_writes)
 {
     auto g(unique_lock());
     auto g2(set_current_upsert_tid());
@@ -713,8 +743,13 @@ Node::UniquePtr UpdateAuxImpl::do_update(
             update_root_offset(min_valid_version, INVALID_OFFSET);
         }
     }
-    auto root =
-        upsert(*this, version, sm, std::move(prev_root), std::move(updates));
+    auto root = upsert(
+        *this,
+        version,
+        sm,
+        std::move(prev_root),
+        std::move(updates),
+        flush_writes);
     MONAD_DEBUG_ASSERT(
         version - db_history_min_valid_version() + 1 <=
         version_history_length());
