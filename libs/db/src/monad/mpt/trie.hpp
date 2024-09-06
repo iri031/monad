@@ -332,6 +332,7 @@ public:
     struct BufferedWriteInfo
     {
         chunk_offset_t offset;
+        // have to own buffer otherwise finished write will release buffer
         async::filled_write_buffer buffer;
 
         constexpr size_t size() const
@@ -867,11 +868,9 @@ void async_read(UpdateAuxImpl &aux, Receiver &&receiver)
     auto const virtual_offset = aux.physical_to_virtual(receiver.rd_offset);
     MONAD_DEBUG_ASSERT(
         (virtual_offset.in_fast_list() &&
-         virtual_offset.raw() <
-             aux.write_back_buffer_fast.virtual_offset_begin) ||
+         !aux.write_back_buffer_fast.contains(virtual_offset)) ||
         (!virtual_offset.in_fast_list() &&
-         virtual_offset.raw() <
-             aux.write_back_buffer_slow.virtual_offset_begin));
+         !aux.write_back_buffer_slow.contains(virtual_offset)));
     [[likely]] if (
         receiver.bytes_to_read <=
         MONAD_ASYNC_NAMESPACE::AsyncIO::READ_BUFFER_SIZE) {

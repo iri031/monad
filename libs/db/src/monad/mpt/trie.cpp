@@ -1366,7 +1366,7 @@ retry:
         }
         // last node ends at last buffer
         node_writer->receiver().offset_to_remove_until =
-            new_node_writer->sender().offset();
+            node_writer->sender().offset();
         ret.offset_written_to = new_node_writer->sender().offset();
 
         // initiate current node writer
@@ -1398,7 +1398,7 @@ retry:
                 new_node_writer = replace_node_writer(aux, node_writer);
                 if (offset_in_on_disk_node == size) { // node ends here
                     node_writer->receiver().offset_to_remove_until =
-                        new_node_writer->sender().offset();
+                        node_writer->sender().offset();
                 }
                 if (new_node_writer) {
                     // initiate current node writer

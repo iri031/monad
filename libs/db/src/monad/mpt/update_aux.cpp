@@ -53,6 +53,8 @@ void write_operation_io_receiver::set_value(
     MONAD_ASSERT(!buffered_writes.items.empty());
     auto const &first_item = buffered_writes.items.front();
     MONAD_DEBUG_ASSERT(first_item.offset == this->offset_to_remove_until);
+    MONAD_ASSERT(first_item.buffer.data() == res.assume_value().get().data());
+    buffered_writes.pop();
 }
 
 // Define to avoid randomisation of free list chunks on pool creation
