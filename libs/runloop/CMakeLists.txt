@@ -21,6 +21,7 @@ target_compile_options(monad_context_c PRIVATE -Wall -Wextra -Wconversion -Wpeda
 target_compile_definitions(monad_context_c PRIVATE _GNU_SOURCE=1 MONAD_CONTEXT_SOURCE=1)
 target_include_directories(monad_context_c PUBLIC "src")
 target_link_libraries(monad_context_c PUBLIC monad_boost_context)
+target_link_libraries(monad_context_c PUBLIC monad_core_c)
 monad_target_gdb_pretty_printer(monad_context_c monad_context_c_pretty_printer "src/monad/context/gdb_pretty_printers.py")
 
 set(monad_async_INCLUDES
