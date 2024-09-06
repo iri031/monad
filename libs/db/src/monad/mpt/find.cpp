@@ -29,17 +29,21 @@ find_blocking(UpdateAuxImpl const &aux, NodeCursor root, NibblesView const key)
                     find_result::branch_not_exist_failure};
             }
             // go to node's matched child
-            if (!node->next(node->to_child_index(nibble))) {
+            auto child_idx = node->to_child_index(nibble);
+            if (!node->next(child_idx)) {
                 MONAD_ASSERT(aux.is_on_disk());
                 auto g2(g.upgrade());
-                if (g2.upgrade_was_atomic() ||
-                    !node->next(node->to_child_index(nibble))) {
+                if (g2.upgrade_was_atomic() || !node->next(child_idx)) {
                     // read node if not yet in mem
+                    Node *const next_node =
+                        aux.read_node_from_buffers(node->fnext(child_idx))
+                            .release();
                     node->set_next(
-                        node->to_child_index(nibble),
-                        read_node_blocking(
-                            aux.io->storage_pool(),
-                            node->fnext(node->to_child_index(nibble))));
+                        child_idx,
+                        next_node ? next_node
+                                  : read_node_blocking(
+                                        aux.io->storage_pool(),
+                                        node->fnext(child_idx)));
                 }
             }
             MONAD_ASSERT(node->next(node->to_child_index(nibble)));
