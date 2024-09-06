@@ -471,6 +471,13 @@ public:
         append_ += bytes;
         return ret;
     }
+
+    constexpr std::byte *advance_buffer_to_512_aligned() noexcept
+    {
+        auto const written = written_buffer_bytes();
+        return advance_buffer_append(
+            round_up_align<DISK_PAGE_BITS>(written) - written);
+    }
 };
 
 static_assert(sizeof(write_no_owning_buffer_sender) == 24);

@@ -1234,6 +1234,8 @@ void try_fillin_parent_with_rewritten_node(
 node_writer_unique_ptr_type replace_node_writer_to_start_at_new_chunk(
     UpdateAuxImpl &aux, node_writer_unique_ptr_type &node_writer)
 {
+    MONAD_ASSERT(
+        node_writer->sender().advance_buffer_to_512_aligned() != nullptr);
     auto *sender = &node_writer->sender();
     bool const in_fast_list =
         aux.db_metadata()->at(sender->offset().id)->in_fast_list;
@@ -1276,13 +1278,16 @@ node_writer_unique_ptr_type replace_node_writer_to_start_at_new_chunk(
 node_writer_unique_ptr_type replace_node_writer(
     UpdateAuxImpl &aux, node_writer_unique_ptr_type const &node_writer)
 {
+    MONAD_ASSERT(
+        node_writer->sender().advance_buffer_to_512_aligned() != nullptr);
     // Can't use add_to_offset(), because it asserts if we go past the
     // capacity
     auto offset_of_next_writer = node_writer->sender().offset();
     bool const in_fast_list =
         aux.db_metadata()->at(offset_of_next_writer.id)->in_fast_list;
     file_offset_t offset = offset_of_next_writer.offset;
-    offset += node_writer->sender().buffer().size();
+    // start at the next 512 aligned offset, do not have to be 8MB aligned
+    offset += node_writer->sender().written_buffer_bytes();
     offset_of_next_writer.offset = offset & chunk_offset_t::max_offset;
     auto const chunk_capacity =
         aux.io->chunk_capacity(offset_of_next_writer.id);
@@ -1301,6 +1306,7 @@ node_writer_unique_ptr_type replace_node_writer(
     // See above about handling potential reentrancy correctly
     auto *const node_writer_ptr = node_writer.get();
 
+    // buffer can't go across chunks
     auto ret = aux.make_connected_writer(
         in_fast_list,
         offset_of_next_writer,
@@ -1364,16 +1370,6 @@ retry:
         ret.offset_written_to = new_node_writer->sender().offset();
 
         // initiate current node writer
-        if (node_writer->sender().written_buffer_bytes() !=
-            node_writer->sender().buffer().size()) {
-            // advance buffer to the end
-            node_writer->sender().advance_buffer_append(
-                node_writer->sender().buffer().size() -
-                node_writer->sender().written_buffer_bytes());
-            MONAD_ASSERT(
-                node_writer->sender().written_buffer_bytes() ==
-                node_writer->sender().buffer().size());
-        }
         node_writer->initiate();
         // shall be recycled by the i/o receiver
         node_writer.release();
