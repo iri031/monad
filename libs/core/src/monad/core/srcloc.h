@@ -10,3 +10,6 @@ struct monad_source_location
     unsigned line;
     unsigned column;
 };
+
+#define MONAD_SOURCE_LOCATION_CURRENT()                                        \
+    ((monad_source_location_t){__PRETTY_FUNCTION__, __FILE__, __LINE__, 0})
