@@ -25,6 +25,9 @@ extern "C"
 {
 #endif
 
+int _monad_run_queue_try_push_global(
+    monad_run_queue_t *rq, monad_fiber_t *fiber);
+
 static inline monad_fiber_t *
 _monad_exec_context_to_fiber(struct monad_exec_context *exec_ctx)
 {
@@ -111,6 +114,7 @@ _monad_finish_context_switch(struct monad_transfer_t xfer_from)
 {
     struct monad_exec_context *cur_exec;
     struct monad_exec_context *prev_exec;
+    monad_fiber_t *prev_fiber;
     monad_fiber_suspend_info_t suspend_info;
     monad_thread_executor_t *const thr_exec =
         (monad_thread_executor_t *)xfer_from.data;
@@ -140,7 +144,29 @@ _monad_finish_context_switch(struct monad_transfer_t xfer_from)
     prev_exec->md_suspended_ctx = xfer_from.fctx;
     prev_exec->state = cur_switch->switch_from_suspend_state;
     suspend_info = cur_switch->switch_from_suspend_info;
-    RELEASE_EXEC_CONTEXT(prev_exec);
+
+    if (MONAD_UNLIKELY(prev_exec->state == MF_STATE_CAN_RUN)) {
+        // The previous context is ready to run again immediately despite the
+        // fact that we just voluntarily switched away from it. This should
+        // happen if it is a fiber that has just yielded. If the yielding fiber
+        // also has a run queue, we can just reschedule it immediately. We
+        // don't need (or want) to unlock the fiber in that case, because the
+        // run queue expects it to be locked
+        prev_fiber = _monad_exec_context_to_fiber(prev_exec);
+        MONAD_DEBUG_ASSERT(
+            prev_fiber != nullptr &&
+            suspend_info.suspend_type == MF_SUSPEND_YIELD);
+        if (MONAD_LIKELY(prev_fiber->run_queue != nullptr)) {
+            (void)_monad_run_queue_try_push_global(
+                prev_fiber->run_queue, prev_fiber);
+        }
+        else {
+            MONAD_SPINLOCK_UNLOCK(&prev_fiber->lock);
+        }
+    }
+    else {
+        RELEASE_EXEC_CONTEXT(prev_exec);
+    }
 
     // Finish book-keeping to become the new running context
     cur_exec->state = MF_STATE_RUNNING;

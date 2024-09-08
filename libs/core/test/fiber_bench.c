@@ -13,6 +13,7 @@
 
 #include <monad/core/likely.h>
 #include <monad/fiber/fiber.h>
+#include <monad/fiber/run_queue.h>
 #include <monad/util/parse_util.h>
 
 // TODO(ken): make constexpr
@@ -22,6 +23,12 @@ static uint64_t const NANOS_PER_SECOND = 1'000'000'000ULL;
 
 static size_t g_fiber_stack_size = 1UL << 17; // 128 KiB
 static time_t g_benchmark_seconds = 10;
+static size_t g_run_queue_fibers = 256;
+
+enum long_only_option
+{
+    LO_RUN_QUEUE_FIBERS
+};
 
 // clang-format: off
 // @formatter:off
@@ -29,6 +36,10 @@ static struct option longopts[] = {
     {.name = "list", .has_arg = 0, .flag = nullptr, .val = 'L'},
     {.name = "stack_shift", .has_arg = 1, .flag = nullptr, .val = 's'},
     {.name = "time", .has_arg = 1, .flag = nullptr, .val = 't'},
+    {.name = "rq-fibers",
+     .has_arg = 1,
+     .flag = nullptr,
+     .val = LO_RUN_QUEUE_FIBERS},
     {.name = "help", .has_arg = 1, .flag = nullptr, .val = 'h'},
     {}};
 // @formatter:on
@@ -38,7 +49,10 @@ extern char const *__progname;
 
 static void usage(FILE *out)
 {
-    fprintf(out, "%s: [-Lh] [-t <sec>] [-s <shift>]\n", __progname);
+    fprintf(
+        out,
+        "%s: [-Lh] [-t <sec>] [-s <shift>] [--rq-fibers <#>] [benchmark]...\n",
+        __progname);
 }
 
 static int64_t to_nanos(struct timespec ts)
@@ -91,6 +105,7 @@ static time_t elapsed_seconds(struct timespec start, struct timespec end)
 struct benchmark;
 
 static void switch_benchmark(struct benchmark const *);
+static void run_queue_benchmark(struct benchmark const *);
 
 static struct benchmark
 {
@@ -100,7 +115,10 @@ static struct benchmark
 } g_bench_table[] = {
     {.name = "switch",
      .description = "performance of fiber context switch",
-     .func = switch_benchmark}};
+     .func = switch_benchmark},
+    {.name = "rq",
+     .description = "performance of run queue",
+     .func = run_queue_benchmark}};
 
 static const struct benchmark *const g_bench_table_end =
     g_bench_table + sizeof(g_bench_table) / sizeof(struct benchmark);
@@ -136,6 +154,14 @@ int parse_options(int argc, char **argv)
             g_benchmark_seconds = mcr.value;
             break;
 
+        case LO_RUN_QUEUE_FIBERS:
+            mcr = monad_strtonum(optarg, 1, 1L << 20);
+            if (MONAD_FAILED(mcr)) {
+                monad_errc(1, mcr.error, "bad --rq-fibers value '%s'", optarg);
+            }
+            g_run_queue_fibers = mcr.value;
+            break;
+
         case 'h':
             usage(stdout);
             exit(0);
@@ -169,9 +195,7 @@ static void switch_benchmark(struct benchmark const *self)
     struct timespec start_time;
     struct timespec now;
     monad_fiber_attr_t fiber_attr = {
-        .stack_size = g_fiber_stack_size,
-        .alloc = nullptr
-    };
+        .stack_size = g_fiber_stack_size, .alloc = nullptr};
 
     CHECK_Z(monad_fiber_create(&fiber_attr, &fiber));
     CHECK_Z(monad_fiber_set_function(
@@ -206,6 +230,69 @@ static void switch_benchmark(struct benchmark const *self)
         self->name,
         context_switch_count / g_benchmark_seconds,
         nanos_per_switch);
+}
+
+static void run_queue_benchmark(struct benchmark const *self)
+{
+    monad_fiber_t **fibers;
+    monad_fiber_t *next_fiber;
+    monad_fiber_suspend_info_t suspend_info;
+    monad_run_queue_t *rq;
+    atomic_bool done;
+    struct timespec start_time;
+    struct timespec now;
+    monad_fiber_attr_t const fiber_attr = {
+        .stack_size = g_fiber_stack_size, .alloc = nullptr};
+    size_t run_count = 0;
+
+    atomic_init(&done, false);
+    CHECK_Z(monad_run_queue_create(nullptr, g_run_queue_fibers, &rq));
+    fibers = calloc(g_run_queue_fibers, sizeof *fibers);
+    for (size_t f = 0; f < g_run_queue_fibers; ++f) {
+        CHECK_Z(monad_fiber_create(&fiber_attr, &fibers[f]));
+        CHECK_Z(monad_fiber_set_function(
+            fibers[f],
+            MONAD_FIBER_PRIO_HIGHEST,
+            yield_forever,
+            (uintptr_t)&done));
+        CHECK_Z(monad_run_queue_try_push(rq, fibers[f]));
+    }
+
+    (void)clock_gettime(CLOCK_REALTIME, &start_time);
+    do {
+        next_fiber = monad_run_queue_try_pop(rq);
+        (void)monad_fiber_run(next_fiber, nullptr);
+        if ((++run_count & KIBI_MASK) == 0) {
+            // Every 1024 yields, check if it's time to exit
+            (void)clock_gettime(CLOCK_REALTIME, &now);
+            atomic_store_explicit(
+                &done,
+                now.tv_sec - start_time.tv_sec == g_benchmark_seconds,
+                memory_order_release);
+        }
+    }
+    while (!done);
+
+    while (!monad_run_queue_is_empty(rq)) {
+        next_fiber = monad_run_queue_try_pop(rq);
+        monad_fiber_run(next_fiber, &suspend_info);
+        ASSERT_EQ(MF_SUSPEND_RETURN, suspend_info.suspend_type);
+    }
+
+    monad_run_queue_destroy(rq);
+    for (size_t f = 0; f < g_run_queue_fibers; ++f) {
+        monad_fiber_destroy(fibers[f]);
+    }
+    free(fibers);
+
+    double const nanos_per_run_cycle =
+        (g_benchmark_seconds * 1'000'000'000.0) / (double)run_count;
+    fprintf(
+        stdout,
+        "%s:\tsingle core run cycle rate: %lu r/s, %.1f ns/r\n",
+        self->name,
+        run_count / g_benchmark_seconds,
+        nanos_per_run_cycle);
 }
 
 int main(int argc, char **argv)
