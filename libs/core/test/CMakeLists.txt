@@ -37,3 +37,6 @@ add_executable(fiber-hello fiber-hello.c)
 target_compile_features(fiber-hello PRIVATE c_std_23)
 target_compile_options(fiber-hello PRIVATE -Wall -Werror -Wextra)
 target_link_libraries(fiber-hello PRIVATE monad_core_c monad_core_crt)
+
+add_executable(fiber_benchmark fiber_bench.c)
+target_link_libraries(fiber_benchmark monad_core_c monad_core_crt)
