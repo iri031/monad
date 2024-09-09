@@ -98,18 +98,18 @@ int monad_fiber_set_function(
 
 /// Returns the structure representing the currently executing fiber; returns
 /// nullptr if the current execution context is not a fiber
-monad_fiber_t *monad_fiber_self();
+static monad_fiber_t *monad_fiber_self();
 
 /// Begin running a fiber's function (or resume that function at the suspension
 /// point, if it was suspended) on the given thread; this call returns the next
 /// time the function suspends, and populates @ref suspend_info with info about
 /// that suspension
-int monad_fiber_run(
+static int monad_fiber_run(
     monad_fiber_t *next_fiber, monad_fiber_suspend_info_t *suspend_info);
 
 /// Similar to sched_yield(2) or pthread_yield_np(3), but for fibers: yields
 /// from the currently-running fiber back to the previously-running fiber
-void monad_fiber_yield(uintptr_t eval);
+static void monad_fiber_yield(uintptr_t eval);
 
 /// Get the name of a fiber, for debugging and instrumentation
 int monad_fiber_get_name(monad_fiber_t *fiber, char *name, size_t size);
@@ -200,3 +200,7 @@ inline bool monad_fiber_is_runnable(monad_fiber_t const *fiber)
 #if __cplusplus
 } // extern "C"
 #endif
+
+#define MONAD_FIBER_INTERNAL
+#include "fiber_inline.h"
+#undef MONAD_FIBER_INTERNAL

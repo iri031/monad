@@ -9,9 +9,7 @@
 
 #include <monad/core/spinlock.h>
 #include <monad/core/thread.h>
-
-#define MONAD_FIBER_INTERNAL
-#include "fiber_impl.h"
+#include <monad/fiber/fiber.h>
 
 // This structure keeps track of a global list of all active
 // monad_thread_executor objects that exist in the process; this is used for
@@ -24,7 +22,7 @@ static struct thr_exec_global_state
     size_t count;
 } g_thr_execs;
 
-thread_local struct monad_thread_executor _tl_thr_exec;
+thread_local struct monad_thread_executor _monad_tl_thr_exec;
 
 static void monad_thread_executor_dtor(void *arg)
 {

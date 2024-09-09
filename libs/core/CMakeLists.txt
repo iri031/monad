@@ -99,7 +99,6 @@ add_library(monad_core_c OBJECT
   # fiber
   "src/monad/fiber/fiber.h"
   "src/monad/fiber/fiber.c"
-  "src/monad/fiber/fiber_impl.h"
   "src/monad/fiber/fiber_thr.c"
   # mem
   "src/monad/mem/cma/cma_alloc.h"
@@ -137,7 +136,7 @@ target_compile_definitions(monad_core_c PUBLIC _GNU_SOURCE)
 target_compile_options(monad_core_c PRIVATE -Wall -Werror -Wextra)
 target_include_directories(monad_core_c
         PUBLIC "${PROJECT_SOURCE_DIR}/src")
-target_link_libraries(monad_core_c PRIVATE monad_boost_context)
+target_link_libraries(monad_core_c PUBLIC monad_boost_context)
 
 add_library(
   monad_core STATIC

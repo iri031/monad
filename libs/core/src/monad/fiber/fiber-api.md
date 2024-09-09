@@ -186,9 +186,10 @@ int main(int argc, char **argv)
 1. For the fibers themselves:
    - `fiber.h` - defines the interface for fibers, i.e., the public
      functions and the central `monad_fiber_t` structure
-   - `fiber.c` - most of the fiber implementation
-   - `fiber_impl.h` - declares structures and functions which are shared
-      between the `fiber.c` and `fiber_thr.c` files
+   - `fiber_inline.h` - most of the implementation is here, so it can be
+     be inlined for performance reasons
+   - `fiber.c` - implementation file for fiber functions whose performance
+     is not critical
    - `fiber_thr.c` - an implementation file which contains the `thread_local`
      state for the `monad_thread_executor_t` objects
 
