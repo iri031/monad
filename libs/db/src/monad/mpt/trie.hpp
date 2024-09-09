@@ -48,11 +48,17 @@ struct write_operation_io_receiver
     UpdateAuxImpl *aux;
     bool is_fast;
     chunk_offset_t offset_to_remove_until{INVALID_OFFSET};
+    std::deque<uint64_t> pending_versions{};
 
-    write_operation_io_receiver(UpdateAuxImpl &aux, bool const is_fast)
+    explicit write_operation_io_receiver(UpdateAuxImpl &aux, bool const is_fast)
         : aux(&aux)
         , is_fast(is_fast)
     {
+    }
+
+    void append_root_update_callbacks(uint64_t const version)
+    {
+        pending_versions.push_back(version);
     }
 
     void set_value(
@@ -130,8 +136,10 @@ public:
     }
 };
 
-chunk_offset_t
-async_write_node_set_spare(UpdateAuxImpl &aux, Node &node, bool is_fast);
+// valid `version` indicates it is a root write
+chunk_offset_t async_write_node_set_spare(
+    UpdateAuxImpl &aux, Node &node, bool is_fast,
+    uint64_t version = INVALID_BLOCK_ID);
 
 node_writer_unique_ptr_type
 replace_node_writer(UpdateAuxImpl &, node_writer_unique_ptr_type const &);
@@ -329,6 +337,40 @@ public:
     compact_virtual_chunk_offset_t compact_offset_slow{
         MIN_COMPACT_VIRTUAL_OFFSET};
 
+    // stuff for write buffer cache lookup
+    uint64_t latest_version{INVALID_BLOCK_ID};
+    // root update depends on the current buffer being flushed to disk if it
+    // differs from the beginning values
+    chunk_offset_t fast_writer_begin{INVALID_OFFSET};
+    chunk_offset_t slow_writer_begin{INVALID_OFFSET};
+
+    constexpr void reset_mem_writer_beginning_offsets()
+    {
+        MONAD_ASSERT(io != nullptr);
+        fast_writer_begin = node_writer_fast->sender().next_offset();
+        slow_writer_begin = node_writer_slow->sender().next_offset();
+    }
+
+    void flush_writer_until_durable_version(uint64_t const version);
+
+    // append to it when finish writing a version
+    // values are not always in continuous order
+    std::deque<uint64_t> fast_buffer_pending_blocks{};
+    std::deque<uint64_t> slow_buffer_pending_blocks{};
+
+    struct root_info_t
+    {
+        uint64_t version{INVALID_BLOCK_ID};
+        chunk_offset_t root_offset{INVALID_OFFSET};
+        chunk_offset_t fast_offset{INVALID_OFFSET};
+        chunk_offset_t slow_offset{INVALID_OFFSET};
+    };
+
+    // whenever a version is done we append it here
+    // can only pop front elements that are smaller than both fast and slow
+    // buffer pending blocks front elements
+    std::deque<root_info_t> pending_root_infos{};
+
     struct BufferedWriteInfo
     {
         chunk_offset_t offset;
@@ -386,7 +428,8 @@ public:
 
         void clear()
         {
-            // TODO: can't be initiated and inflight
+            // TODO: the accosicated io can't be initiated otherwise will cause
+            // UB
             while (!items.empty()) {
                 items.pop_back();
             }
@@ -728,7 +771,7 @@ public:
 };
 
 static_assert(
-    sizeof(UpdateAuxImpl) == 328 + sizeof(detail::TrieUpdateCollectedStats));
+    sizeof(UpdateAuxImpl) == 592 + sizeof(detail::TrieUpdateCollectedStats));
 static_assert(alignof(UpdateAuxImpl) == 8);
 
 template <lockable_or_void LockType = void>

@@ -55,6 +55,70 @@ void write_operation_io_receiver::set_value(
     MONAD_DEBUG_ASSERT(first_item.offset == this->offset_to_remove_until);
     MONAD_ASSERT(first_item.buffer.data() == res.assume_value().get().data());
     buffered_writes.pop();
+
+    if (pending_versions.empty()) {
+        return;
+    }
+
+    // make the version durable on disk
+    // premise is that write always completes in issue order
+    // First, pop all pending blocks for specific fast/slow buffers
+    while (!pending_versions.empty()) {
+        auto const version = pending_versions.front();
+        pending_versions.pop_front();
+        MONAD_ASSERT(version != INVALID_BLOCK_ID);
+        if (is_fast) {
+            MONAD_ASSERT(
+                !aux->fast_buffer_pending_blocks.empty() &&
+                aux->fast_buffer_pending_blocks.front() == version);
+            aux->fast_buffer_pending_blocks.pop_front();
+        }
+        else {
+            MONAD_ASSERT(
+                !aux->slow_buffer_pending_blocks.empty() &&
+                aux->slow_buffer_pending_blocks.front() == version);
+            aux->slow_buffer_pending_blocks.pop_front();
+        }
+    }
+    auto const fast_buffer_first_pending_blocks =
+        aux->fast_buffer_pending_blocks.empty()
+            ? INVALID_BLOCK_ID
+            : aux->fast_buffer_pending_blocks.front();
+    auto const slow_buffer_first_pending_blocks =
+        aux->slow_buffer_pending_blocks.empty()
+            ? INVALID_BLOCK_ID
+            : aux->slow_buffer_pending_blocks.front();
+
+    MONAD_ASSERT(!aux->pending_root_infos.empty());
+    while (aux->pending_root_infos.front().version <
+               fast_buffer_first_pending_blocks &&
+           aux->pending_root_infos.front().version <
+               slow_buffer_first_pending_blocks) {
+        auto const &[version, root_offset, fast_offset, slow_offset] =
+            aux->pending_root_infos.front();
+        // advance fast and slow ring's latest offset in db metadata
+        aux->advance_db_offsets_to(fast_offset, slow_offset);
+        // update root offset
+        auto const last_version_in_db = aux->db_history_max_version();
+        MONAD_ASSERT(
+            last_version_in_db == INVALID_BLOCK_ID ||
+            version == last_version_in_db || version == last_version_in_db + 1);
+        if (last_version_in_db == version) {
+            aux->update_root_offset(version, root_offset);
+        }
+        else {
+            if (MONAD_UNLIKELY(version != last_version_in_db + 1)) {
+                MONAD_ASSERT(last_version_in_db == INVALID_BLOCK_ID);
+                aux->fast_forward_next_version(version);
+            }
+            aux->append_root_offset(root_offset);
+        }
+
+        aux->pending_root_infos.pop_front();
+        if (aux->pending_root_infos.empty()) {
+            break;
+        }
+    }
 }
 
 // Define to avoid randomisation of free list chunks on pool creation
@@ -549,6 +613,7 @@ void UpdateAuxImpl::set_io(AsyncIO *io_, uint64_t const history_len)
             // Reset/init node writer's offsets, destroy contents after
             // fast_offset.id chunck
             rewind_to_match_offsets();
+            latest_version = db_history_max_version();
         }
     }
     // If the pool has changed since we configured the metadata, this will
@@ -706,7 +771,7 @@ Node::UniquePtr UpdateAuxImpl::do_update(
     MONAD_ASSERT(is_on_disk());
     set_can_write_to_fast(can_write_to_fast);
 
-    auto const max_version = db_history_max_version();
+    auto const max_version = latest_version;
     MONAD_ASSERT(
         max_version == INVALID_BLOCK_ID || version == max_version ||
         version == max_version + 1);
@@ -738,9 +803,6 @@ Node::UniquePtr UpdateAuxImpl::do_update(
         std::move(prev_root),
         std::move(updates),
         flush_writes);
-    MONAD_DEBUG_ASSERT(
-        version - db_history_min_valid_version() + 1 <=
-        version_history_length());
 
     return root;
 }
@@ -761,12 +823,52 @@ void UpdateAuxImpl::move_trie_version_forward(
     append_root_offset(offset);
 }
 
+void UpdateAuxImpl::flush_writer_until_durable_version(uint64_t const version)
+{
+    if (db_history_max_version() == INVALID_BLOCK_ID ||
+        version >= db_history_max_version()) {
+        // flush writer if receiver root_infos contains version to write
+        // and then pull
+        unsigned new_issues = 0;
+        if (!node_writer_fast->receiver().pending_versions.empty() &&
+            node_writer_fast->receiver().pending_versions.front() <=
+                version + 1) {
+            auto new_writer = replace_node_writer(*this, node_writer_fast);
+            node_writer_fast->receiver().offset_to_remove_until =
+                node_writer_fast->sender().offset();
+            node_writer_fast->initiate();
+            node_writer_fast.release();
+            node_writer_fast = std::move(new_writer);
+            ++new_issues;
+        }
+        if (!node_writer_slow->receiver().pending_versions.empty() &&
+            node_writer_slow->receiver().pending_versions.front() <=
+                version + 1) {
+            auto new_writer = replace_node_writer(*this, node_writer_slow);
+            node_writer_slow->receiver().offset_to_remove_until =
+                node_writer_slow->sender().offset();
+            node_writer_slow->initiate();
+            node_writer_slow.release();
+            node_writer_slow = std::move(new_writer);
+            ++new_issues;
+        }
+        MONAD_ASSERT(new_issues > 0);
+        while (db_history_max_version() == INVALID_BLOCK_ID ||
+               version >= db_history_max_version()) {
+            io->poll_nonblocking(1);
+        }
+    }
+}
+
 std::pair<uint32_t, uint32_t>
 UpdateAuxImpl::min_offsets_of_version(uint64_t const version)
 {
+    MONAD_ASSERT(io != nullptr);
     // TODO: can save a blocking read if we store the min_offset_fast/slow to
     // the version ring buffer in metadata
+    flush_writer_until_durable_version(version);
     auto const erase_root_offset = get_root_offset_at_version(version);
+    MONAD_ASSERT(erase_root_offset != INVALID_OFFSET);
     Node::UniquePtr root_to_erase = read_node_from_buffers(erase_root_offset);
     if (!root_to_erase) {
         root_to_erase.reset(
@@ -817,16 +919,10 @@ void UpdateAuxImpl::advance_compact_offsets(uint64_t version_to_erase)
     */
     MONAD_ASSERT(is_on_disk());
     // update disk growth speed trackers
-    auto fast_offset = node_writer_fast->sender().offset();
-    fast_offset.offset = (fast_offset.offset +
-                          node_writer_fast->sender().written_buffer_bytes()) &
-                         chunk_offset_t::max_offset;
+    auto const fast_offset = node_writer_fast->sender().next_offset();
     compact_virtual_chunk_offset_t const curr_fast_writer_offset{
         physical_to_virtual(fast_offset)};
-    auto slow_offset = node_writer_slow->sender().offset();
-    slow_offset.offset = (slow_offset.offset +
-                          node_writer_slow->sender().written_buffer_bytes()) &
-                         chunk_offset_t::max_offset;
+    auto const slow_offset = node_writer_slow->sender().next_offset();
     compact_virtual_chunk_offset_t const curr_slow_writer_offset{
         physical_to_virtual(slow_offset)};
     last_block_disk_growth_fast_ =
@@ -849,10 +945,9 @@ void UpdateAuxImpl::advance_compact_offsets(uint64_t version_to_erase)
                (double)num_chunks(chunk_list::free) / (double)io->chunk_count();
     };
     /* Compact the fast ring based on average disk growth over recent blocks. */
-    auto const max_version = db_history_max_version();
-    MONAD_ASSERT(
-        version_to_erase != INVALID_BLOCK_ID &&
-        version_to_erase != db_history_max_version());
+    auto const max_version = latest_version;
+    MONAD_ASSERT(version_to_erase != INVALID_BLOCK_ID);
+    flush_writer_until_durable_version(version_to_erase);
     std::tie(
         chunks_to_remove_before_count_fast_,
         chunks_to_remove_before_count_slow_) =

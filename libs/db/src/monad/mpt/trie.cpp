@@ -95,6 +95,9 @@ Node::UniquePtr upsert(
     Node::UniquePtr old, UpdateList &&updates, bool const flush_writes)
 {
     auto impl = [&] {
+        if (aux.is_on_disk()) {
+            aux.reset_mem_writer_beginning_offsets();
+        }
         aux.reset_stats();
         auto sentinel = make_tnode(1 /*mask*/, 0 /*prefix_index*/);
         ChildData &entry = sentinel->children[0];
@@ -1285,19 +1288,15 @@ node_writer_unique_ptr_type replace_node_writer(
         node_writer->sender().advance_buffer_to_512_aligned() != nullptr);
     // Can't use add_to_offset(), because it asserts if we go past the
     // capacity
-    auto offset_of_next_writer = node_writer->sender().offset();
+    auto offset_of_next_writer = node_writer->sender().next_offset();
     bool const in_fast_list =
         aux.db_metadata()->at(offset_of_next_writer.id)->in_fast_list;
-    file_offset_t offset = offset_of_next_writer.offset;
-    // start at the next 512 aligned offset, do not have to be 8MB aligned
-    offset += node_writer->sender().written_buffer_bytes();
-    offset_of_next_writer.offset = offset & chunk_offset_t::max_offset;
     auto const chunk_capacity =
         aux.io->chunk_capacity(offset_of_next_writer.id);
-    MONAD_ASSERT(offset <= chunk_capacity);
+    MONAD_ASSERT(offset_of_next_writer.offset <= chunk_capacity);
     detail::db_metadata::chunk_info_t const *ci_ = nullptr;
     uint32_t idx;
-    if (offset == chunk_capacity) {
+    if (offset_of_next_writer.offset == chunk_capacity) {
         // If after the current write buffer we're hitting chunk capacity, we
         // replace writer to the start of next chunk.
         ci_ = aux.db_metadata()->free_list_end();
@@ -1333,9 +1332,21 @@ node_writer_unique_ptr_type replace_node_writer(
 
 // return physical offset the node is written at
 async_write_node_result async_write_node(
-    UpdateAuxImpl &aux, node_writer_unique_ptr_type &node_writer,
-    Node const &node)
+    UpdateAuxImpl &aux, bool const write_to_fast, Node const &node,
+    uint64_t const version)
 {
+    auto &node_writer =
+        write_to_fast ? aux.node_writer_fast : aux.node_writer_slow;
+    auto &other_node_writer =
+        write_to_fast ? aux.node_writer_slow : aux.node_writer_fast;
+    auto set_spare_bit = [](unsigned const node_size,
+                            chunk_offset_t &node_offset) {
+        unsigned const pages = num_pages(node_offset.offset, node_size);
+        node_offset.set_spare(
+            static_cast<uint16_t>(node_disk_pages_spare_15{pages}));
+        MONAD_ASSERT(node_offset.spare != chunk_offset_t::max_spare);
+    };
+
 retry:
     aux.io->poll_nonblocking_if_not_within_completions(1);
     auto *sender = &node_writer->sender();
@@ -1345,14 +1356,40 @@ retry:
         .offset_written_to = INVALID_OFFSET,
         .bytes_appended = size,
         .io_state = node_writer.get()};
+
+    auto push_root_write_callback = [&] {
+        aux.pending_root_infos.push_back(
+            {version,
+             ret.offset_written_to,
+             aux.node_writer_fast->sender().next_offset(),
+             aux.node_writer_slow->sender().next_offset()});
+
+        node_writer->receiver().append_root_update_callbacks(version);
+        (write_to_fast ? aux.fast_buffer_pending_blocks
+                       : aux.slow_buffer_pending_blocks)
+            .push_back(version);
+        // Update the other node_writer if it also has something written
+        if (other_node_writer->sender().next_offset() !=
+            (write_to_fast ? aux.slow_writer_begin : aux.fast_writer_begin)) {
+            other_node_writer->receiver().append_root_update_callbacks(version);
+            (write_to_fast ? aux.slow_buffer_pending_blocks
+                           : aux.fast_buffer_pending_blocks)
+                .push_back(version);
+        }
+    };
+
     [[likely]] if (size <= remaining_bytes) { // Node can fit into current
                                               // buffer, implies within a chunk
         ret.offset_written_to =
             sender->offset().add_to_offset(sender->written_buffer_bytes());
+        set_spare_bit(node.get_disk_size(), ret.offset_written_to);
         auto *where_to_serialize = sender->advance_buffer_append(size);
         MONAD_DEBUG_ASSERT(where_to_serialize != nullptr);
         serialize_node_to_buffer(
             (unsigned char *)where_to_serialize, size, node, size);
+        if (version != INVALID_BLOCK_ID) {
+            push_root_write_callback();
+        }
     }
     else {
         auto const chunk_remaining_bytes =
@@ -1371,12 +1408,14 @@ retry:
         node_writer->receiver().offset_to_remove_until =
             node_writer->sender().offset();
         ret.offset_written_to = new_node_writer->sender().offset();
+        set_spare_bit(node.get_disk_size(), ret.offset_written_to);
 
         // initiate current node writer
         node_writer->initiate();
         // shall be recycled by the i/o receiver
         node_writer.release();
         node_writer = std::move(new_node_writer);
+
         // serialize the rest of the node to buffer
         while (offset_in_on_disk_node < size) {
             auto *where_to_serialize =
@@ -1395,6 +1434,11 @@ retry:
             MONAD_ASSERT(
                 node_writer->sender().advance_buffer_append(bytes_to_append) !=
                 nullptr);
+            if (offset_in_on_disk_node == size) {
+                if (version != INVALID_BLOCK_ID) {
+                    push_root_write_callback();
+                }
+            }
             if (node_writer->sender().remaining_buffer_bytes() == 0) {
                 MONAD_ASSERT(offset_in_on_disk_node < size);
                 // replace node writer
@@ -1402,6 +1446,9 @@ retry:
                 if (offset_in_on_disk_node == size) { // node ends here
                     node_writer->receiver().offset_to_remove_until =
                         node_writer->sender().offset();
+                    if (version != INVALID_BLOCK_ID) {
+                        push_root_write_callback();
+                    }
                 }
                 if (new_node_writer) {
                     // initiate current node writer
@@ -1421,8 +1468,8 @@ retry:
 
 // Return node's physical offset the node is written at, triedb should not
 // depend on any metadata to walk the data structure.
-chunk_offset_t
-async_write_node_set_spare(UpdateAuxImpl &aux, Node &node, bool write_to_fast)
+chunk_offset_t async_write_node_set_spare(
+    UpdateAuxImpl &aux, Node &node, bool write_to_fast, uint64_t const version)
 {
     write_to_fast &= aux.can_write_to_fast();
     if (aux.alternate_slow_fast_writer()) {
@@ -1430,47 +1477,22 @@ async_write_node_set_spare(UpdateAuxImpl &aux, Node &node, bool write_to_fast)
         aux.set_can_write_to_fast(!aux.can_write_to_fast());
     }
 
-    auto off = async_write_node(
-                   aux,
-                   write_to_fast ? aux.node_writer_fast : aux.node_writer_slow,
-                   node)
-                   .offset_written_to;
+    auto off =
+        async_write_node(aux, write_to_fast, node, version).offset_written_to;
     MONAD_ASSERT(
         (write_to_fast && aux.db_metadata()->at(off.id)->in_fast_list) ||
         (!write_to_fast && aux.db_metadata()->at(off.id)->in_slow_list));
-    unsigned const pages = num_pages(off.offset, node.get_disk_size());
-    off.set_spare(static_cast<uint16_t>(node_disk_pages_spare_15{pages}));
     return off;
 }
 
 chunk_offset_t write_new_root_node_no_wait(
     UpdateAuxImpl &aux, Node &root, uint64_t const version)
 {
-    // TODO: change to a different receiver
     // callback will update root offset on disk, advance db offsets.
-    // use a flag for root or regular node write
-    auto const offset_written_to = async_write_node_set_spare(aux, root, true);
-
-    // update root offset
-    auto const last_version_in_db = aux.db_history_max_version();
-    MONAD_ASSERT(
-        last_version_in_db == INVALID_BLOCK_ID ||
-        version == last_version_in_db || version == last_version_in_db + 1);
-    if (last_version_in_db == version) {
-        aux.update_root_offset(version, offset_written_to);
-    }
-    else {
-        if (MONAD_UNLIKELY(version != last_version_in_db + 1)) {
-            MONAD_ASSERT(last_version_in_db == INVALID_BLOCK_ID);
-            aux.fast_forward_next_version(version);
-        }
-        aux.append_root_offset(offset_written_to);
-    }
-    // advance fast and slow ring's latest offset in db metadata
-    aux.advance_db_offsets_to(
-        aux.node_writer_fast->sender().offset(),
-        aux.node_writer_slow->sender().offset());
-    return offset_written_to;
+    // last argument is a flag to indicate root or regular node write
+    auto const ret = async_write_node_set_spare(aux, root, true, version);
+    aux.latest_version = version;
+    return ret;
 }
 
 MONAD_MPT_NAMESPACE_END

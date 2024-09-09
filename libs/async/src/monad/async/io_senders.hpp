@@ -293,6 +293,14 @@ public:
         return offset_;
     }
 
+    constexpr chunk_offset_t next_offset() const noexcept
+    {
+        auto ret = offset_;
+        ret.offset =
+            (ret.offset + written_buffer_bytes()) & chunk_offset_t::max_offset;
+        return ret;
+    }
+
     constexpr buffer_type const &buffer() const & noexcept
     {
         return buffer_;
@@ -401,6 +409,14 @@ public:
     constexpr chunk_offset_t offset() const noexcept
     {
         return offset_;
+    }
+
+    constexpr chunk_offset_t next_offset() const noexcept
+    {
+        auto ret = offset_;
+        ret.offset =
+            (ret.offset + written_buffer_bytes()) & chunk_offset_t::max_offset;
+        return ret;
     }
 
     constexpr buffer_type const &buffer() const & noexcept
