@@ -8,7 +8,7 @@ project(monad_core LANGUAGES C CXX ASM)
 option(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(MONAD_CORE_FORCE_DEBUG_ASSERT
-        "Enable MONAD_DEBUG_ASSERT in any build mode" OFF)
+       "Enable MONAD_DEBUG_ASSERT in any build mode" OFF)
 
 # ##############################################################################
 # deps
@@ -77,16 +77,15 @@ add_library(monad_core_c OBJECT
   "src/monad/core/assert.c"
   "src/monad/core/assert.h")
 
-if (MONAD_CORE_FORCE_DEBUG_ASSERT)
+if(MONAD_CORE_FORCE_DEBUG_ASSERT)
   target_compile_definitions(monad_core_c
-          PUBLIC MONAD_CORE_FORCE_DEBUG_ASSERT=1)
+                             PUBLIC MONAD_CORE_FORCE_DEBUG_ASSERT=1)
 endif()
 
 target_compile_features(monad_core_c PUBLIC c_std_23)
 target_compile_definitions(monad_core_c PUBLIC _GNU_SOURCE)
 target_compile_options(monad_core_c PRIVATE -Wall -Werror -Wextra)
-target_include_directories(monad_core_c
-        PUBLIC "${PROJECT_SOURCE_DIR}/src")
+target_include_directories(monad_core_c PUBLIC "${PROJECT_SOURCE_DIR}/src")
 
 add_library(
   monad_core STATIC
@@ -180,17 +179,17 @@ monad_compile_options(monad_core)
 # both `monad_core` and `monad_core_crt`
 add_library(monad_core_stacktrace_options INTERFACE)
 target_compile_definitions(monad_core_stacktrace_options
-        INTERFACE "BOOST_STACKTRACE_LINK=1")
+                           INTERFACE "BOOST_STACKTRACE_LINK=1")
 if(linux_flavour MATCHES "debian|ubuntu")
   target_compile_definitions(monad_core_stacktrace_options
-          INTERFACE "BOOST_STACKTRACE_USE_BACKTRACE=1")
+                             INTERFACE "BOOST_STACKTRACE_USE_BACKTRACE=1")
   target_link_libraries(monad_core_stacktrace_options
-          INTERFACE Boost::stacktrace_backtrace)
+                        INTERFACE Boost::stacktrace_backtrace)
 else()
   target_compile_definitions(monad_core_stacktrace_options
-          INTERFACE "BOOST_STACKTRACE_USE_ADDR2LINE=1")
+                             INTERFACE "BOOST_STACKTRACE_USE_ADDR2LINE=1")
   target_link_libraries(monad_core_stacktrace_options
-          INTERFACE Boost::stacktrace_addr2line)
+                        INTERFACE Boost::stacktrace_addr2line)
 endif()
 
 target_link_libraries(monad_core PUBLIC monad_core_c)
@@ -218,32 +217,35 @@ monad_compile_options(monad_core_disas)
 target_link_libraries(monad_core_disas PUBLIC monad_core)
 
 # Minimal "runtime" library needed to support pure C binaries. This contains
-# functions that have C linkage and follow the C ABI but are implemented in
-# C++. This is a dynamic library that statically links to the C++ runtime
-# libraries and hides all symbols except those the `monad_` prefix, so it
-# cannot relocate against any other dynamically loaded C++ runtime. All source
-# files are recompiled rather than some other kind of reuse mechanism because
-# the code generation must enable position independent code.
-add_library(monad_core_crt SHARED
+# functions that have C linkage and follow the C ABI but are implemented in C++.
+# This is a dynamic library that statically links to the C++ runtime libraries
+# and hides all symbols except those the `monad_` prefix, so it cannot relocate
+# against any other dynamically loaded C++ runtime. All source files are
+# recompiled rather than some other kind of reuse mechanism because the code
+# generation must enable position independent code.
+add_library(
+  monad_core_crt SHARED
   # config
   "src/monad/config.hpp"
   # core
   "src/monad/core/backtrace.cpp"
   "src/monad/core/backtrace.hpp")
-set_target_properties(monad_core_crt PROPERTIES
-        CXX_VISIBILITY_PRESET hidden
-        VISIBILITY_INLINES_HIDDEN ON)
+set_target_properties(monad_core_crt PROPERTIES CXX_VISIBILITY_PRESET hidden
+                                                VISIBILITY_INLINES_HIDDEN ON)
 target_include_directories(monad_core_crt PUBLIC "src")
 monad_compile_options(monad_core_crt)
 target_link_libraries(monad_core_crt PRIVATE monad_core_stacktrace_options)
-if (NOT APPLE)
-  if ("${CMAKE_CXX_FLAGS}" MATCHES ".*-fsanitize=.*" AND
-      CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+if(NOT APPLE)
+  if("${CMAKE_CXX_FLAGS}" MATCHES ".*-fsanitize=.*" AND
+     CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_compile_options(monad_core_crt PUBLIC "-fno-sanitize=function,vptr")
   endif()
   target_link_options(monad_core_crt PRIVATE -static-libstdc++)
-  target_link_options(monad_core_crt PRIVATE
-          "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/monad/core/core_crt.sym")
+  target_link_options(
+    monad_core_crt
+    PRIVATE
+    "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/monad/core/core_crt.sym"
+  )
 endif()
 
 # ##############################################################################
