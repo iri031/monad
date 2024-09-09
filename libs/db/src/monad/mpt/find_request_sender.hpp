@@ -20,6 +20,7 @@ class find_request_sender
     friend struct find_receiver;
 
     UpdateAuxImpl &aux_;
+    uint64_t version_;
     NodeCursor root_;
     NibblesView key_;
     inflight_node_t &inflights_;
@@ -43,10 +44,11 @@ public:
     using result_type = MONAD_ASYNC_NAMESPACE::result<find_bytes_result_type>;
 
     constexpr find_request_sender(
-        UpdateAuxImpl &aux, inflight_node_t &inflights, NodeCursor const root,
-        NibblesView const key, bool const return_value,
+        UpdateAuxImpl &aux, inflight_node_t &inflights, uint64_t const version,
+        NodeCursor const root, NibblesView const key, bool const return_value,
         uint8_t const cached_levels)
         : aux_(aux)
+        , version_(version)
         , root_(root)
         , key_(key)
         , inflights_(inflights)
@@ -79,7 +81,7 @@ public:
     }
 };
 
-static_assert(sizeof(find_request_sender) == 120);
+static_assert(sizeof(find_request_sender) == 128);
 static_assert(alignof(find_request_sender) == 8);
 static_assert(MONAD_ASYNC_NAMESPACE::sender<find_request_sender>);
 

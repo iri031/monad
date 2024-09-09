@@ -394,6 +394,41 @@ TEST_F(OnDiskDbWithFileFixture, read_only_db_single_thread)
         0x05a697d6698c55ee3e4d472c4907bca2184648bcfdd0e023e7ff7089dc984e7e_hex);
 }
 
+TEST_F(OnDiskDbWithFileAsyncFixture, async_rodb_single_thread_version_expire)
+{
+    auto const &kv = fixed_updates::kv;
+
+    auto const prefix = 0x00_hex;
+    constexpr uint8_t const test_cached_level = 1;
+
+    for (uint64_t i = 0; i < db.get_history_length(); ++i) {
+        upsert_updates_flat_list(
+            db,
+            prefix,
+            i,
+            make_update(kv[0].first, kv[0].second),
+            make_update(kv[1].first, kv[1].second));
+    }
+
+    ro_db.load_root_for_version(INVALID_BLOCK_ID); // root is invalid
+    async_get(
+        make_get_sender(ctx.get(), prefix + kv[0].first, 0, test_cached_level),
+        [&](result_t res) { ASSERT_TRUE(res.has_error()); });
+
+    while (ro_db.poll(true, 1) == 0) {
+    } // poll 1 async read, now we have loaded the root
+
+    // upsert another version triggers erasing the earliest version 0
+    upsert_updates_flat_list(
+        db,
+        prefix,
+        db.get_history_length(),
+        make_update(kv[0].first, kv[0].second));
+    EXPECT_GT(db.get_earliest_block_id(), 0);
+    poll_until(1);
+    ASSERT_EQ(cbs, 1);
+}
+
 TEST_F(OnDiskDbWithFileAsyncFixture, read_only_db_single_thread_async)
 {
     auto const &kv = fixed_updates::kv;

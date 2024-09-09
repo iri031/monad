@@ -49,7 +49,8 @@ TEST_F(MixedAsyncSyncLoadsTest, works)
     // Initiate an async find of a key
     monad::mpt::inflight_node_t inflights;
     auto state = monad::async::connect(
-        monad::mpt::find_request_sender(aux, inflights, *root, key, true, 5),
+        monad::mpt::find_request_sender(
+            aux, inflights, aux.db_history_max_version(), *root, key, true, 5),
         receiver_t{});
     state.initiate();
 

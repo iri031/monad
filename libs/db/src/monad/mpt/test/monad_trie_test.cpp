@@ -651,6 +651,7 @@ int main(int argc, char *argv[])
             auto io = MONAD_ASYNC_NAMESPACE::AsyncIO{pool, rwbuf};
             io.set_concurrent_read_io_limit(concurrent_read_io_limit);
 
+            auto const read_block_id = n_slices - 1;
             auto load_db = [&] {
                 auto ret = std::make_unique<
                     std::tuple<UpdateAux<>, Node::UniquePtr, NodeCursor>>();
@@ -737,6 +738,7 @@ int main(int argc, char *argv[])
                         find_request_sender{
                             aux,
                             inflights,
+                            read_block_id,
                             state_start,
                             NibblesView{},
                             true,

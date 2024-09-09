@@ -63,6 +63,12 @@ struct find_request_sender::find_receiver
     {
         MONAD_ASSERT(buffer_);
         MONAD_ASSERT(sender->root_.is_valid());
+        if (!sender->aux_.version_is_valid_ondisk(sender->version_)) {
+            sender->res_ = {
+                byte_string{}, find_result::version_no_longer_exist};
+            find_request_state->completed(success());
+        }
+
         auto const next_offset = sender->root_.node->fnext(branch_index);
         auto *node = sender->root_.node->next(branch_index);
         if (node == nullptr) {
@@ -136,6 +142,11 @@ result<void> find_request_sender::operator()(
             node->mask & (1u << branch)) {
             MONAD_DEBUG_ASSERT(
                 prefix_index < std::numeric_limits<unsigned char>::max());
+            if (!aux_.version_is_valid_ondisk(version_)) {
+                res_ = {byte_string{}, find_result::version_no_longer_exist};
+                find_request_state->completed(success());
+                return success();
+            }
             key_ = key_.substr(static_cast<unsigned char>(prefix_index) + 1u);
             auto const child_index = node->to_child_index(branch);
             ++this->curr_level_;

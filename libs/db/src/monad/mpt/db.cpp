@@ -1304,6 +1304,7 @@ namespace detail
                 find_request_sender(
                     context.aux,
                     context.inflight_nodes,
+                    block_id,
                     cur,
                     nv,
                     op_type == op_t::op_get2,
