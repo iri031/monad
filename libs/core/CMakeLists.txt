@@ -143,6 +143,7 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
     "src/monad/core/cgroup.h"
     "src/monad/core/cpuset.c"
     "src/monad/core/cpuset.h"
+    "src/monad/core/thread-linux.c"
     # io
     "src/monad/io/buffers.cpp"
     "src/monad/io/buffers.hpp"
@@ -154,6 +155,8 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
     # procfs
     "src/monad/procfs/statm.c"
     "src/monad/procfs/statm.h")
+elseif(APPLE)
+  target_sources(monad_core PRIVATE "src/monad/core/thread-darwin.c")
 endif()
 
 target_include_directories(monad_core PUBLIC "src")
