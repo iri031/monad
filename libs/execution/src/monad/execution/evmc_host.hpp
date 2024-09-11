@@ -18,6 +18,7 @@
 MONAD_NAMESPACE_BEGIN
 
 class BlockHashBuffer;
+struct CallTracerBase;
 
 class EvmcHostBase : public evmc::Host
 {
@@ -26,10 +27,12 @@ class EvmcHostBase : public evmc::Host
 
 protected:
     State &state_;
+    CallTracerBase &call_tracer_;
 
 public:
     EvmcHostBase(
-        evmc_tx_context const &, BlockHashBuffer const &, State &) noexcept;
+        CallTracerBase &, evmc_tx_context const &, BlockHashBuffer const &,
+        State &) noexcept;
 
     virtual ~EvmcHostBase() noexcept = default;
 
@@ -68,8 +71,6 @@ public:
     virtual void set_transient_storage(
         Address const &, bytes32_t const &key,
         bytes32_t const &value) noexcept override;
-
-    std::unique_ptr<CallTracer> call_tracer = nullptr;
 };
 
 template <evmc_revision rev>
@@ -88,24 +89,18 @@ struct EvmcHost final : public EvmcHostBase
     virtual bool selfdestruct(
         Address const &address, Address const &beneficiary) noexcept override
     {
-        if (call_tracer) {
-            call_tracer->on_self_destruct(address, beneficiary);
-        }
+        call_tracer_.on_self_destruct(address, beneficiary);
         return state_.selfdestruct<rev>(address, beneficiary);
     }
 
     virtual evmc::Result call(evmc_message const &msg) noexcept override
     {
-        if (call_tracer) {
-            call_tracer->on_enter<rev>(msg);
-        }
+        call_tracer_.on_enter(msg);
         auto result =
             (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2)
                 ? ::monad::create_contract_account<rev>(this, state_, msg)
                 : ::monad::call<rev>(this, state_, msg);
-        if (call_tracer) {
-            call_tracer->on_exit<rev>(result);
-        }
+        call_tracer_.on_exit(result);
         return result;
     }
 
@@ -116,14 +111,6 @@ struct EvmcHost final : public EvmcHostBase
             return EVMC_ACCESS_WARM;
         }
         return state_.access_account(address);
-    }
-
-    ////////////////////////////////////
-
-    void add_call_tracer(Transaction const &tx)
-    {
-        MONAD_ASSERT(call_tracer == nullptr);
-        call_tracer = std::make_unique<CallTracer>(tx);
     }
 };
 
