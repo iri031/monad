@@ -685,7 +685,6 @@ UpdateAuxImpl::read_node_from_buffers(chunk_offset_t const offset) const
             node_remaining_bytes -= bytes_to_copy;
             offset_in_node += bytes_to_copy;
             if (node_remaining_bytes > 0) { // node can go across buffers
-                std::cout << "continue reading from next buffer" << std::endl;
                 ++it;
                 MONAD_ASSERT(it != write_back_buffer.items.end());
                 buffer_off = 0;

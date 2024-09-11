@@ -1238,7 +1238,7 @@ void try_fillin_parent_with_rewritten_node(
 /////////////////////////////////////////////////////
 
 node_writer_unique_ptr_type replace_node_writer_to_start_at_new_chunk(
-    UpdateAuxImpl &aux, node_writer_unique_ptr_type &node_writer)
+    UpdateAuxImpl &aux, node_writer_unique_ptr_type const &node_writer)
 {
     MONAD_ASSERT(
         node_writer->sender().advance_buffer_to_512_aligned() != nullptr);
@@ -1288,7 +1288,11 @@ node_writer_unique_ptr_type replace_node_writer(
         node_writer->sender().advance_buffer_to_512_aligned() != nullptr);
     // Can't use add_to_offset(), because it asserts if we go past the
     // capacity
+    // TODO: problematic use of next_offset(), it can wrap around
     auto offset_of_next_writer = node_writer->sender().next_offset();
+    if (offset_of_next_writer.offset == 0) {
+        return replace_node_writer_to_start_at_new_chunk(aux, node_writer);
+    }
     bool const in_fast_list =
         aux.db_metadata()->at(offset_of_next_writer.id)->in_fast_list;
     auto const chunk_capacity =
@@ -1404,7 +1408,6 @@ retry:
         if (!new_node_writer) {
             goto retry;
         }
-        // last node ends at last buffer
         node_writer->receiver().offset_to_remove_until =
             node_writer->sender().offset();
         ret.offset_written_to = new_node_writer->sender().offset();
@@ -1446,9 +1449,6 @@ retry:
                 if (offset_in_on_disk_node == size) { // node ends here
                     node_writer->receiver().offset_to_remove_until =
                         node_writer->sender().offset();
-                    if (version != INVALID_BLOCK_ID) {
-                        push_root_write_callback();
-                    }
                 }
                 if (new_node_writer) {
                     // initiate current node writer

@@ -400,18 +400,24 @@ public:
         {
             auto &to_pop = items.front();
             bytes -= to_pop.size();
-            virtual_offset_begin += to_pop.size();
             items.pop_front(); // buffer will be released
+            virtual_offset_begin =
+                items.empty()
+                    ? file_offset_t(-1)
+                    : parent->physical_to_virtual(items.front().offset).raw();
         }
 
         void push(BufferedWriteInfo &&item)
         {
+            auto const item_virtual_offset =
+                parent->physical_to_virtual(item.offset).raw();
             if (bytes == 0) {
                 MONAD_ASSERT(items.empty());
-                virtual_offset_begin =
-                    parent->physical_to_virtual(item.offset).raw();
+                virtual_offset_begin = item_virtual_offset;
             }
-            bytes += item.size();
+            // Not always contiguous, some buffer start from the beginning
+            // of a new chunk without filling up the previous chunk
+            bytes = item_virtual_offset + item.size() - virtual_offset_begin;
             items.push_back(std::move(item));
         }
 
