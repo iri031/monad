@@ -62,7 +62,7 @@ TEST(CallFrame, to_json)
         "output":"0x"
     })";
 
-    EXPECT_EQ(call_frame.to_json(), nlohmann::json::parse(json_str));
+    EXPECT_EQ(to_json(call_frame), nlohmann::json::parse(json_str));
 }
 
 TEST(CallTrace, enter_and_exit)

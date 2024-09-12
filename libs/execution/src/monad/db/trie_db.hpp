@@ -9,7 +9,7 @@
 #include <monad/db/db.hpp>
 #include <monad/db/util.hpp>
 #include <monad/execution/code_analysis.hpp>
-#include <monad/execution/trace/call_tracer.hpp>
+#include <monad/execution/trace/call_frame.hpp>
 #include <monad/mpt/compute.hpp>
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/ondisk_db_config.hpp>
@@ -45,7 +45,7 @@ public:
     virtual void increment_block_number() override;
     virtual void commit(
         StateDeltas const &, Code const &, BlockHeader const &,
-        std::vector<Receipt> const & = {}, BlockCallFrames const & = {},
+        std::vector<Receipt> const & = {}, std::vector<std::vector<CallFrame>> const & = {},
         std::vector<Transaction> const & = {},
         std::vector<BlockHeader> const &ommers = {},
         std::optional<std::vector<Withdrawal>> const & = {
@@ -68,7 +68,7 @@ public:
     void set_block_number(uint64_t);
 
     // for testing only
-    TxnCallFrames read_call_frame(uint64_t const idx) const;
+    std::vector<CallFrame> read_call_frame(uint64_t const idx) const;
 
 private:
     /// STATS

@@ -369,12 +369,7 @@ TYPED_TEST(DBTest, commit_receipts_transactions)
     ASSERT_EQ(receipts.size(), transactions.size());
 
     tdb.commit(
-        StateDeltas{},
-        Code{},
-        BlockHeader{},
-        receipts,
-        BlockCallFrames{},
-        transactions);
+        StateDeltas{}, Code{}, BlockHeader{}, receipts, {}, transactions);
     EXPECT_EQ(
         tdb.receipts_root(),
         0x7ea023138ee7d80db04eeec9cf436dc35806b00cc5fe8e5f611fb7cf1b35b177_bytes32);
@@ -391,12 +386,7 @@ TYPED_TEST(DBTest, commit_receipts_transactions)
     transactions.pop_back();
     ASSERT_EQ(receipts.size(), transactions.size());
     tdb.commit(
-        StateDeltas{},
-        Code{},
-        BlockHeader{},
-        receipts,
-        BlockCallFrames{},
-        transactions);
+        StateDeltas{}, Code{}, BlockHeader{}, receipts, {}, transactions);
     EXPECT_EQ(
         tdb.receipts_root(),
         0x61f9b4707b28771a63c1ac6e220b2aa4e441dd74985be385eaf3cd7021c551e9_bytes32);
@@ -564,8 +554,8 @@ TYPED_TEST(DBTest, commit_call_frames)
     };
 
     static byte_string const encoded_txn = byte_string{0x1a, 0x1b, 0x1c};
-    TxnCallFrames const call_frame{call_frame1, call_frame2};
-    BlockCallFrames call_frames;
+    std::vector<CallFrame> const call_frame{call_frame1, call_frame2};
+    std::vector<std::vector<CallFrame>> call_frames;
     call_frames.emplace_back(call_frame);
 
     tdb.commit(
@@ -643,7 +633,7 @@ TYPED_TEST(DBTest, call_frames_stress_test)
     bs.log_debug();
 
     std::vector<Receipt> receipts;
-    BlockCallFrames call_frames;
+    std::vector<std::vector<CallFrame>> call_frames;
     for (auto &result : results.value()) {
         receipts.emplace_back(std::move(result.receipt));
         call_frames.emplace_back(std::move(result.call_frames));
@@ -735,7 +725,7 @@ TYPED_TEST(DBTest, call_frames_refund)
     bs.log_debug();
 
     std::vector<Receipt> receipts;
-    BlockCallFrames call_frames;
+    std::vector<std::vector<CallFrame>> call_frames;
     for (auto &result : results.value()) {
         receipts.emplace_back(std::move(result.receipt));
         call_frames.emplace_back(std::move(result.call_frames));

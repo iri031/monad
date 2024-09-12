@@ -39,7 +39,7 @@ public:
 
     void commit(
         BlockHeader const &, std::vector<Receipt> const &,
-        BlockCallFrames const &, std::vector<Transaction> const &,
+        std::vector<std::vector<CallFrame>> const &, std::vector<Transaction> const &,
         std::vector<BlockHeader> const &ommers,
         std::optional<std::vector<Withdrawal>> const &);
 

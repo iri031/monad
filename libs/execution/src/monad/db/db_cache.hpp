@@ -116,7 +116,7 @@ public:
     virtual void commit(
         StateDeltas const &state_deltas, Code const &code,
         BlockHeader const &header, std::vector<Receipt> const &receipts,
-        BlockCallFrames const &call_frames,
+        std::vector<std::vector<CallFrame>> const &call_frames,
         std::vector<Transaction> const &transactions,
         std::vector<BlockHeader> const &ommers,
         std::optional<std::vector<Withdrawal>> const &withdrawals) override
