@@ -15,6 +15,8 @@
 
 #include <utility>
 
+#include <monad/execution/trace/event_trace.hpp>
+
 MONAD_NAMESPACE_BEGIN
 
 class BlockHashBuffer;
@@ -91,12 +93,18 @@ struct EvmcHost final : public EvmcHostBase
 
     virtual evmc::Result call(evmc_message const &msg) noexcept override
     {
-        call_tracer_.on_enter(msg);
+        {
+            TRACE_TXN_EVENT(StartOnEnter);
+            call_tracer_.on_enter(msg);
+        }
         auto result =
             (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2)
                 ? ::monad::create_contract_account<rev>(this, state_, msg)
                 : ::monad::call<rev>(this, state_, msg);
-        call_tracer_.on_exit(result);
+        {
+            TRACE_TXN_EVENT(StartOnExit);
+            call_tracer_.on_exit(result);
+        }
         return result;
     }
 

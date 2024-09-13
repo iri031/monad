@@ -31,6 +31,8 @@
 #include <cstdint>
 #include <utility>
 
+#include <monad/execution/trace/event_trace.hpp>
+
 MONAD_NAMESPACE_BEGIN
 
 // YP Sec 6.2 "irrevocable_change"
@@ -237,9 +239,13 @@ Result<ExecutionResult> execute_impl(
                 hdr.base_fee_per_gas.value_or(0),
                 result.value(),
                 hdr.beneficiary);
-            call_tracer.on_receipt(receipt);
+            {
+                TRACE_TXN_EVENT(StartOnReceipt);
+                call_tracer.on_receipt(receipt);
+            }
             block_state.merge(state);
 
+            TRACE_TXN_EVENT(StartCopy1);
             auto const frames = call_tracer.get_frames();
             return ExecutionResult{
                 .receipt = receipt,
@@ -271,9 +277,13 @@ Result<ExecutionResult> execute_impl(
             hdr.base_fee_per_gas.value_or(0),
             result.value(),
             hdr.beneficiary);
-        call_tracer.on_receipt(receipt);
+        {
+            TRACE_TXN_EVENT(StartOnReceipt);
+            call_tracer.on_receipt(receipt);
+        }
         block_state.merge(state);
 
+        TRACE_TXN_EVENT(StartCopy1);
         auto const frames = call_tracer.get_frames();
         return ExecutionResult{
             .receipt = receipt, .call_frames = {frames.begin(), frames.end()}};

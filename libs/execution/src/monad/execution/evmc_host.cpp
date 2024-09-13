@@ -15,6 +15,8 @@
 #include <cstdint>
 #include <utility>
 
+#include <monad/execution/trace/event_trace.hpp>
+
 MONAD_NAMESPACE_BEGIN
 
 EvmcHostBase::EvmcHostBase(
@@ -68,7 +70,10 @@ size_t EvmcHostBase::copy_code(
 bool EvmcHostBase::selfdestruct(
     Address const &address, Address const &beneficiary) noexcept
 {
-    call_tracer_.on_self_destruct(address, beneficiary);
+    {
+        TRACE_TXN_EVENT(StartOnSelfDestruct);
+        call_tracer_.on_self_destruct(address, beneficiary);
+    }
     return state_.selfdestruct(address, beneficiary);
 }
 

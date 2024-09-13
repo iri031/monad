@@ -152,10 +152,13 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
 
         std::vector<Receipt> receipts(results.size());
         std::vector<std::vector<CallFrame>> call_frames(results.size());
-        for (unsigned i = 0; i < results.size(); ++i) {
-            auto &result = results[i];
-            receipts[i] = std::move(result.receipt);
-            call_frames[i] = (std::move(result.call_frames));
+        {
+            TRACE_TXN_EVENT(StartCopy2);
+            for (unsigned i = 0; i < results.size(); ++i) {
+                auto &result = results[i];
+                receipts[i] = std::move(result.receipt);
+                call_frames[i] = (std::move(result.call_frames));
+            }
         }
 
         BOOST_OUTCOME_TRY(
