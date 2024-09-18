@@ -262,10 +262,6 @@ void BlockchainTest::TestBody()
         }
         LOG_DEBUG("post_state: {}", dump.dump());
 
-#ifdef MONAD_JIT
-        if (!keep_compiler_state_)
-            monad_jit_compiler.restart_compiler(true);
-#endif
     }
     if (!executed) {
         MONAD_ASSERT(revision_.has_value());
@@ -275,7 +271,6 @@ void BlockchainTest::TestBody()
 
 void register_blockchain_tests(
         std::optional<evmc_revision> const &revision,
-        bool keep_compiler_state,
         bool enable_slow_tests)
 {
     namespace fs = std::filesystem;
@@ -309,7 +304,7 @@ void register_blockchain_tests(
                 nullptr,
                 path.string().c_str(),
                 0,
-                [=] { return new BlockchainTest(path, revision, keep_compiler_state); });
+                [=] { return new BlockchainTest(path, revision); });
         }
     }
 }

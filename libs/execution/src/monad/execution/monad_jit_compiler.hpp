@@ -15,7 +15,7 @@
 #include <iostream>
 #include <format>
 
-//#define MONAD_JIT
+#define MONAD_JIT
 
 MONAD_NAMESPACE_BEGIN
 
@@ -88,13 +88,6 @@ public:
     {
         if (!compile_job_map_.insert({a, code_analysis}))
             return;
-        /*
-        std::cout << "compile: ";
-        for (unsigned b : a.bytes) {
-            std::cout << std::format("{:02x}", b);
-        }
-        std::cout << std::endl;
-        */
         compile_job_queue_.push(a);
         compile_job_cv_.notify_one();
     }
