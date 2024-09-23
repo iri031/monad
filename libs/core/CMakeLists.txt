@@ -119,11 +119,7 @@ add_library(
   # io
   "src/monad/io/buffer_pool.cpp"
   "src/monad/io/buffer_pool.hpp"
-  "src/monad/io/buffers.cpp"
-  "src/monad/io/buffers.hpp"
   "src/monad/io/config.hpp"
-  "src/monad/io/ring.cpp"
-  "src/monad/io/ring.hpp"
   # rlp
   "src/monad/rlp/config.hpp"
   "src/monad/rlp/encode.hpp"
