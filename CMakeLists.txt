@@ -91,6 +91,21 @@ add_library(thread_safe_lru INTERFACE)
 target_include_directories(thread_safe_lru
                            INTERFACE "third_party/thread-safe-lru")
 
+set(MONAD_COMPAT_DIR
+    ""
+    CACHE STRING "Path where non-Linux compatibility library is installed")
+
+if(NOT ${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+  if(NOT IS_DIRECTORY ${MONAD_COMPAT_DIR})
+    message(
+      FATAL_ERROR
+        "non-Linux systems must set MONAD_COMPAT_DIR to point to monad_compat")
+  endif()
+  add_library(monad_compat INTERFACE IMPORTED)
+  target_include_directories(monad_compat
+                             INTERFACE "${MONAD_COMPAT_DIR}/include")
+endif()
+
 # ##############################################################################
 # unit tests
 # ##############################################################################

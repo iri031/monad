@@ -109,6 +109,10 @@ target_compile_definitions(monad_core_c PUBLIC _GNU_SOURCE)
 target_compile_options(monad_core_c PRIVATE -Wall -Werror -Wextra)
 target_include_directories(monad_core_c PUBLIC "${PROJECT_SOURCE_DIR}/src")
 
+if(NOT ${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+  target_link_libraries(monad_core_c PUBLIC monad_compat)
+endif()
+
 add_library(
   monad_core STATIC
   # config
