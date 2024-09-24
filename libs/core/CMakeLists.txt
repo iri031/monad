@@ -95,6 +95,9 @@ add_library(monad_core_c OBJECT
   "src/monad/core/assert.c"
   "src/monad/core/assert.h"
   "src/monad/core/c_result.h"
+  # fiber
+  "src/monad/fiber/fiber.h"
+  "src/monad/fiber/fiber.c"
   # mem
   "src/monad/mem/align.h"
   "src/monad/mem/cma/cma_alloc.h"
