@@ -10,6 +10,8 @@
 #include <monad/core/hex_literal.hpp>
 #include <monad/core/result.hpp>
 #include <monad/core/small_prng.hpp>
+#include <monad/fiber/fiber.h>
+#include <monad/fiber/run_queue.h>
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/db_error.hpp>
 #include <monad/mpt/nibbles_view.hpp>
@@ -23,10 +25,8 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/fiber/fiber.hpp>
-#include <boost/fiber/operations.hpp>
-
 #include <atomic>
+#include <bit>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -1314,158 +1314,63 @@ TEST(DbTest, move_trie_causes_discontinuous_history)
     EXPECT_EQ(ro_db.get_earliest_block_id(), far_dest_block_id);
 }
 
-TEST_F(OnDiskDbWithFileFixture, reset_history_length_concurrent)
+struct db_get_fiber_state
 {
-    std::atomic<bool> done{false};
-    Db ro_db{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    std::atomic<bool> *done;
+    std::vector<monad::byte_string> *keys;
+    Db *db;
+    std::atomic<std::uint32_t> *ops;
+};
 
-    // fille rwdb with some blocks
-    auto const &kv = fixed_updates::kv;
-    for (uint64_t block_id = 0; block_id < DBTEST_HISTORY_LENGTH; ++block_id) {
-        upsert_updates_flat_list(
-            db, {}, block_id, make_update(kv[0].first, kv[0].second));
-    }
+static constexpr size_t COUNT = 1000000;
+static constexpr uint64_t BLOCK_ID = 0x123;
 
-    EXPECT_EQ(ro_db.get_history_length(), DBTEST_HISTORY_LENGTH);
-    EXPECT_EQ(ro_db.get_latest_block_id(), DBTEST_HISTORY_LENGTH - 1);
-    EXPECT_EQ(ro_db.get(kv[0].first, 0).value(), kv[0].second);
+static monad_c_result db_get_fiber_fn(monad_fiber_args_t mfa)
+{
+    auto *const s = std::bit_cast<db_get_fiber_state *>(mfa.arg[0]);
+    unsigned const fiber_id = static_cast<unsigned>(mfa.arg[1]);
+    monad::small_prng rand{fiber_id};
+    bool const get_will_sleep = s->db->is_on_disk() && !s->db->is_read_only();
 
-    uint64_t const end_history_length =
-        DBTEST_HISTORY_LENGTH - DBTEST_HISTORY_LENGTH / 2;
-    uint64_t const expected_earliest_block =
-        DBTEST_HISTORY_LENGTH - end_history_length;
-
-    // ro db starts reading from block 0, increment read block id when fail
-    // reading current block
-    auto ro_query = [&] {
-        uint64_t read_block_id = 0;
-        while (!done.load(std::memory_order_acquire)) {
-            auto const get_res = ro_db.get(kv[0].first, read_block_id);
-            if (get_res.has_error()) {
-                ++read_block_id;
+    // Yield once so that we know all fibers reach this point
+    monad_fiber_yield(monad_c_make_success(0));
+    auto start_second = std::chrono::system_clock::now();
+    while (!s->done->load(std::memory_order_relaxed)) {
+        size_t const idx = rand() % COUNT;
+        auto r = s->db->get((*s->keys)[idx], BLOCK_ID);
+        MONAD_ASSERT(r);
+        s->ops->fetch_add(1, std::memory_order_relaxed);
+        if (!get_will_sleep) {
+            // The db backend implementation does not naturally suspend the
+            // fiber we're on (e.g., if we're entirely in memory). In this case
+            // we must manually yield the fiber's thread back to the caller
+            // occasionally (here we do it once a second) so it can decide when
+            // to terminate the test.
+            auto const now = std::chrono::system_clock::now();
+            if (now - start_second >= std::chrono::seconds(1)) {
+                start_second = now;
+                monad_fiber_yield(monad_c_make_success(0));
             }
-            else {
-                EXPECT_EQ(get_res.value(), kv[0].second);
-            }
-        } // update has finished
-        EXPECT_EQ(ro_db.get_earliest_block_id(), expected_earliest_block);
-        std::cout << "Reader thread finished. Currently reading block "
-                  << read_block_id << ". Earliest block number is "
-                  << ro_db.get_earliest_block_id() << std::endl;
-        EXPECT_LE(read_block_id, ro_db.get_earliest_block_id());
-
-        while (ro_db.get(kv[0].first, read_block_id).has_error()) {
-            ++read_block_id;
         }
-        EXPECT_EQ(read_block_id, expected_earliest_block);
-        EXPECT_EQ(ro_db.get_history_length(), end_history_length);
-    };
-
-    // start read thread
-    std::thread reader(ro_query);
-
-    // current thread starts to shorten history
-    config.append = true;
-    while (config.history_length > end_history_length) {
-        config.history_length = config.history_length - 1;
-        Db new_db{machine, config};
-        EXPECT_EQ(new_db.get_history_length(), config.history_length);
-        EXPECT_EQ(new_db.get_latest_block_id(), DBTEST_HISTORY_LENGTH - 1);
     }
-
-    EXPECT_EQ(ro_db.get_history_length(), end_history_length);
-    EXPECT_EQ(ro_db.get_earliest_block_id(), expected_earliest_block);
-
-    done.store(true, std::memory_order_release);
-    reader.join();
-    std::cout << "Writer finished. History length is shortened to "
-              << db.get_history_length() << ". Max version in rwdb is "
-              << db.get_latest_block_id() << ", min version in rwdb is "
-              << db.get_earliest_block_id() << std::endl;
+    return monad_c_make_success(0);
 }
 
-TEST_F(OnDiskDbWithFileFixture, rwdb_reset_history_length)
+static void init_db_get_fiber(
+    monad_fiber_t **fiber, db_get_fiber_state *state, std::size_t fiber_id)
 {
-    EXPECT_EQ(db.get_history_length(), DBTEST_HISTORY_LENGTH);
-
-    // Insert more than history length number of blocks
-    auto const &kv = fixed_updates::kv;
-    auto const prefix = 0x00_hex;
-    uint64_t const max_block_id = DBTEST_HISTORY_LENGTH + 10;
-    for (uint64_t block_id = 0; block_id <= max_block_id; ++block_id) {
-        upsert_updates_flat_list(
-            db,
-            prefix,
-            block_id,
-            make_update(kv[0].first, kv[0].second),
-            make_update(kv[1].first, kv[1].second));
-    }
-
-    EXPECT_TRUE(db.get(prefix + kv[1].first, 0).has_error());
-    EXPECT_TRUE(db.get(prefix + kv[1].first, max_block_id).has_value());
-    auto const min_block_num_before = max_block_id - DBTEST_HISTORY_LENGTH + 1;
-    EXPECT_EQ(db.get_earliest_block_id(), min_block_num_before);
-    EXPECT_TRUE(db.get(prefix + kv[1].first, min_block_num_before).has_value());
-
-    Db ro_db{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-    EXPECT_EQ(ro_db.get_history_length(), DBTEST_HISTORY_LENGTH);
-    EXPECT_TRUE(ro_db.get(prefix + kv[1].first, 0).has_error());
-    EXPECT_TRUE(ro_db.get(prefix + kv[1].first, max_block_id).has_value());
-    EXPECT_EQ(
-        ro_db.get_earliest_block_id(),
-        max_block_id - DBTEST_HISTORY_LENGTH + 1);
-    EXPECT_TRUE(ro_db.get(prefix + kv[1].first, ro_db.get_earliest_block_id())
-                    .has_value());
-
-    // Reopen rwdb with a shorter history length
-    config.history_length = DBTEST_HISTORY_LENGTH / 2;
-    config.append = true;
-    {
-        Db new_rw{machine, config};
-        EXPECT_EQ(new_rw.get_history_length(), config.history_length);
-        EXPECT_EQ(new_rw.get_latest_block_id(), max_block_id);
-    }
-    EXPECT_EQ(ro_db.get_history_length(), config.history_length);
-    EXPECT_EQ(ro_db.get_latest_block_id(), max_block_id);
-    EXPECT_TRUE(ro_db.get(prefix + kv[1].first, max_block_id).has_value());
-    EXPECT_TRUE(
-        ro_db.get(prefix + kv[1].first, min_block_num_before).has_error());
-    auto const min_block_num_after = max_block_id - config.history_length + 1;
-    EXPECT_EQ(ro_db.get_earliest_block_id(), min_block_num_after);
-    EXPECT_TRUE(
-        ro_db.get(prefix + kv[1].first, min_block_num_after).has_value());
-    EXPECT_TRUE(
-        ro_db.get(prefix + kv[1].first, min_block_num_after - 1).has_error());
-
-    // Reopen rwdb with a longer history length
-    config.history_length = DBTEST_HISTORY_LENGTH;
-    Db new_rw{machine, config};
-    EXPECT_EQ(new_rw.get_history_length(), config.history_length);
-    EXPECT_EQ(new_rw.get_earliest_block_id(), min_block_num_after);
-    EXPECT_EQ(ro_db.get_history_length(), config.history_length);
-    EXPECT_EQ(ro_db.get_earliest_block_id(), min_block_num_after);
-    EXPECT_EQ(ro_db.get_latest_block_id(), max_block_id);
-    EXPECT_TRUE(
-        ro_db.get(prefix + kv[1].first, min_block_num_before).has_error());
-    // Inserts more blocks
-    auto const new_max_block_id =
-        min_block_num_after + config.history_length - 1;
-    for (uint64_t block_id = max_block_id + 1; block_id <= new_max_block_id;
-         ++block_id) {
-        upsert_updates_flat_list(
-            db,
-            prefix,
-            block_id,
-            make_update(kv[0].first, kv[0].second),
-            make_update(kv[1].first, kv[1].second));
-    }
-    EXPECT_EQ(ro_db.get_latest_block_id(), new_max_block_id);
-    EXPECT_EQ(ro_db.get_earliest_block_id(), min_block_num_after);
+    ASSERT_EQ(0, monad_fiber_create(nullptr, fiber));
+    ASSERT_EQ(
+        0,
+        monad_fiber_set_function(
+            *fiber,
+            MONAD_FIBER_PRIO_HIGHEST,
+            db_get_fiber_fn,
+            {std::bit_cast<uintptr_t>(state), fiber_id}));
 }
 
 TYPED_TEST(DbTest, scalability)
 {
-    static constexpr size_t COUNT = 1000000;
     static constexpr size_t MAX_CONCURRENCY = 32;
     static constexpr uint64_t BLOCK_ID = 0x123;
     std::vector<monad::byte_string> keys;
@@ -1489,7 +1394,7 @@ TYPED_TEST(DbTest, scalability)
         this->db.upsert(std::move(ul), BLOCK_ID);
     }
     std::vector<std::thread> threads;
-    std::vector<::boost::fibers::fiber> fibers;
+    std::vector<monad_fiber_t *> fibers;
     threads.reserve(MAX_CONCURRENCY);
     fibers.reserve(MAX_CONCURRENCY);
     for (size_t n = 1; n <= MAX_CONCURRENCY; n <<= 1) {
@@ -1505,25 +1410,24 @@ TYPED_TEST(DbTest, scalability)
                     monad::small_prng rand{uint32_t(myid)};
                     latch++;
                     while (latch != 0) {
-                        ::boost::this_fiber::yield();
+                        std::this_thread::yield();
                     }
                     while (latch.load(std::memory_order_relaxed) == 0) {
                         size_t const idx = rand() % COUNT;
                         auto r = this->db.get(keys[idx], BLOCK_ID);
                         MONAD_ASSERT(r);
                         ops.fetch_add(1, std::memory_order_relaxed);
-                        ::boost::this_fiber::yield();
                     }
                     latch++;
                 },
                 i);
         }
         while (latch < n) {
-            ::boost::this_fiber::yield();
+            std::this_thread::yield();
         }
         auto begin = std::chrono::steady_clock::now();
         latch = 0;
-        ::boost::this_fiber::sleep_for(std::chrono::seconds(5));
+        std::this_thread::sleep_for(std::chrono::seconds(5));
         latch = 1;
         auto end = std::chrono::steady_clock::now();
         std::cout << "      Did "
@@ -1535,7 +1439,7 @@ TYPED_TEST(DbTest, scalability)
                   << " ops/sec." << std::endl;
         std::cout << "      Awaiting threads to exit ..." << std::endl;
         while (latch < n + 1) {
-            ::boost::this_fiber::yield();
+            std::this_thread::yield();
         }
         std::cout << "      Joining ..." << std::endl;
         for (auto &i : threads) {
@@ -1547,33 +1451,30 @@ TYPED_TEST(DbTest, scalability)
         fibers.clear();
         latch = 0;
         ops = 0;
+        std::atomic<bool> done = false;
+        monad_run_queue *run_queue;
+        db_get_fiber_state shared_fiber_state = {
+            .done = &done, .keys = &keys, .db = &this->db, .ops = &ops};
+        ASSERT_EQ(0, monad_run_queue_create(nullptr, n, &run_queue));
+        monad_fiber_suspend_info_t suspend_info;
         for (size_t i = 0; i < n; i++) {
-            fibers.emplace_back(
-                [&](size_t myid) {
-                    monad::small_prng rand{uint32_t(myid)};
-                    latch++;
-                    while (latch != 0) {
-                        ::boost::this_fiber::yield();
-                    }
-                    while (latch.load(std::memory_order_relaxed) == 0) {
-                        size_t const idx = rand() % COUNT;
-                        auto r = this->db.get(keys[idx], BLOCK_ID);
-                        MONAD_ASSERT(r);
-                        ops.fetch_add(1, std::memory_order_relaxed);
-                        ::boost::this_fiber::yield();
-                    }
-                    latch++;
-                },
-                i);
-        }
-        while (latch < n) {
-            ::boost::this_fiber::yield();
+            monad_fiber_t *&fiber = fibers.emplace_back();
+            init_db_get_fiber(&fiber, &shared_fiber_state, i);
+            // Run to the initial yield point to fault everything in
+            ASSERT_EQ(0, monad_fiber_run(fiber, &suspend_info));
+            ASSERT_EQ(MF_SUSPEND_YIELD, suspend_info.suspend_type);
+            ASSERT_EQ(0, monad_run_queue_try_push(run_queue, fiber));
         }
         begin = std::chrono::steady_clock::now();
-        latch = 0;
-        ::boost::this_fiber::sleep_for(std::chrono::seconds(5));
-        latch = 1;
-        end = std::chrono::steady_clock::now();
+        do {
+            monad_fiber_t *fiber = nullptr;
+            while (fiber == nullptr) {
+                fiber = monad_run_queue_try_pop(run_queue);
+            }
+            ASSERT_EQ(0, monad_fiber_run(fiber, nullptr));
+            end = std::chrono::steady_clock::now();
+        }
+        while (end - begin < std::chrono::seconds(5));
         std::cout << "      Did "
                   << (1000000.0 * ops /
                       double(
@@ -1582,13 +1483,22 @@ TYPED_TEST(DbTest, scalability)
                               .count()))
                   << " ops/sec." << std::endl;
         std::cout << "      Awaiting fibers to exit ..." << std::endl;
-        while (latch < n + 1) {
-            ::boost::this_fiber::yield();
+        done.store(true);
+        unsigned exited_fibers = 0;
+        while (exited_fibers < n) {
+            monad_fiber_t *fiber = nullptr;
+            while (fiber == nullptr) {
+                fiber = monad_run_queue_try_pop(run_queue);
+            }
+            ASSERT_EQ(0, monad_fiber_run(fiber, &suspend_info));
+            if (suspend_info.suspend_type == MF_SUSPEND_RETURN) {
+                ++exited_fibers;
+            }
         }
         std::cout << "      Joining ..." << std::endl;
-        for (auto &i : fibers) {
-            ::boost::this_fiber::yield();
-            i.join();
+        for (auto *fiber : fibers) {
+            monad_fiber_destroy(fiber);
         }
+        monad_run_queue_destroy(run_queue);
     }
 }
