@@ -109,6 +109,8 @@ add_library(monad_core_c OBJECT
   # fiber
   "src/monad/fiber/fiber.h"
   "src/monad/fiber/fiber.c"
+  "src/monad/fiber/fiber_channel.h"
+  "src/monad/fiber/fiber_semaphore.h"
   "src/monad/fiber/fiber_thr.c"
   "src/monad/fiber/run_queue.h"
   "src/monad/fiber/run_queue.c"

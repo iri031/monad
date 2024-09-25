@@ -13,6 +13,8 @@
 
 #include <monad/core/likely.h>
 #include <monad/fiber/fiber.h>
+#include <monad/fiber/fiber_channel.h>
+#include <monad/fiber/fiber_semaphore.h>
 #include <monad/fiber/run_queue.h>
 #include <monad/util/parse_util.h>
 
@@ -106,6 +108,8 @@ struct benchmark;
 
 static void switch_benchmark(struct benchmark const *);
 static void run_queue_benchmark(struct benchmark const *);
+static void channel_benchmark(struct benchmark const *);
+static void semaphore_benchmark(struct benchmark const *);
 
 static struct benchmark
 {
@@ -118,7 +122,13 @@ static struct benchmark
      .func = switch_benchmark},
     {.name = "rq",
      .description = "performance of run queue",
-     .func = run_queue_benchmark}};
+     .func = run_queue_benchmark},
+    {.name = "chan",
+     .description = "performance of fiber channels",
+     .func = channel_benchmark},
+    {.name = "sem",
+     .description = "performance of fiber semaphores",
+     .func = semaphore_benchmark}};
 
 static const struct benchmark *const g_bench_table_end =
     g_bench_table + sizeof(g_bench_table) / sizeof(struct benchmark);
@@ -185,6 +195,86 @@ static monad_c_result yield_forever(monad_fiber_args_t mfa)
         monad_fiber_yield(monad_c_make_success(y++));
     }
     return monad_c_make_success(y);
+}
+
+struct channel_test_data
+{
+    atomic_bool done;
+    monad_fiber_channel_t channel_a;
+    monad_fiber_channel_t channel_b;
+};
+
+static monad_c_result channel_a_loop(monad_fiber_args_t mfa)
+{
+    monad_fiber_msghdr_t *msghdr;
+    struct channel_test_data *const test_data =
+        (struct channel_test_data *)mfa.arg[0];
+    intptr_t count = 0;
+    do {
+        msghdr = monad_fiber_channel_pop(
+            &test_data->channel_a, MONAD_FIBER_PRIO_NO_CHANGE);
+        ++count;
+        monad_fiber_channel_push(&test_data->channel_b, msghdr);
+    }
+    while (!atomic_load_explicit(&test_data->done, memory_order_acquire));
+    return monad_c_make_success(count);
+}
+
+static monad_c_result channel_b_loop(monad_fiber_args_t mfa)
+{
+    monad_fiber_msghdr_t msghdr;
+    monad_fiber_msghdr_t *m;
+    struct channel_test_data *const test_data =
+        (struct channel_test_data *)mfa.arg[0];
+    intptr_t count = 0;
+    monad_fiber_msghdr_init(
+        &msghdr, (struct iovec){.iov_base = &count, .iov_len = sizeof count});
+    m = &msghdr;
+    do {
+        monad_fiber_channel_push(&test_data->channel_a, m);
+        ++count;
+        m = monad_fiber_channel_pop(
+            &test_data->channel_b, MONAD_FIBER_PRIO_NO_CHANGE);
+    }
+    while (!atomic_load_explicit(&test_data->done, memory_order_acquire));
+    return monad_c_make_success(count);
+}
+
+struct semaphore_test_data
+{
+    atomic_bool done;
+    monad_fiber_semaphore_t sem_a;
+    monad_fiber_semaphore_t sem_b;
+};
+
+static monad_c_result sem_a_loop(monad_fiber_args_t mfa)
+{
+    struct semaphore_test_data *const test_data =
+        (struct semaphore_test_data *)mfa.arg[0];
+    intptr_t count = 0;
+    do {
+        monad_fiber_semaphore_acquire(
+            &test_data->sem_a, MONAD_FIBER_PRIO_NO_CHANGE);
+        ++count;
+        monad_fiber_semaphore_release(&test_data->sem_b, 1);
+    }
+    while (!atomic_load_explicit(&test_data->done, memory_order_acquire));
+    return monad_c_make_success(count);
+}
+
+static monad_c_result sem_b_loop(monad_fiber_args_t mfa)
+{
+    struct semaphore_test_data *const test_data =
+        (struct semaphore_test_data *)mfa.arg[0];
+    intptr_t count = 0;
+    do {
+        monad_fiber_semaphore_release(&test_data->sem_a, 1);
+        ++count;
+        monad_fiber_semaphore_acquire(
+            &test_data->sem_b, MONAD_FIBER_PRIO_NO_CHANGE);
+    }
+    while (!atomic_load_explicit(&test_data->done, memory_order_acquire));
+    return monad_c_make_success(count);
 }
 
 static void switch_benchmark(struct benchmark const *self)
@@ -297,6 +387,136 @@ static void run_queue_benchmark(struct benchmark const *self)
         self->name,
         run_count / g_benchmark_seconds,
         nanos_per_run_cycle);
+}
+
+static void channel_benchmark(struct benchmark const *self)
+{
+    monad_fiber_t *fibers[2];
+    monad_fiber_t *next_fiber;
+    monad_fiber_suspend_info_t suspend_info;
+    monad_run_queue_t *rq;
+    struct channel_test_data test_data;
+    struct timespec start_time;
+    struct timespec now;
+    monad_fiber_attr_t const fiber_attr = {
+        .stack_size = g_fiber_stack_size, .alloc = nullptr};
+    monad_fiber_ffunc_t *const fiber_funcs[] = {channel_a_loop, channel_b_loop};
+    size_t run_count = 0;
+    size_t wakeup_count = 0;
+
+    atomic_init(&test_data.done, false);
+    monad_fiber_channel_init(&test_data.channel_a);
+    monad_fiber_channel_init(&test_data.channel_b);
+    CHECK_Z(monad_run_queue_create(nullptr, 2, &rq));
+    for (size_t f = 0; f < 2; ++f) {
+        monad_fiber_create(&fiber_attr, &fibers[f]);
+        CHECK_Z(monad_fiber_set_function(
+            fibers[f],
+            MONAD_FIBER_PRIO_HIGHEST + f,
+            fiber_funcs[f],
+            (monad_fiber_args_t){.arg=(uintptr_t)&test_data}));
+        CHECK_Z(monad_run_queue_try_push(rq, fibers[f]));
+    }
+
+    (void)clock_gettime(CLOCK_REALTIME, &start_time);
+    do {
+        next_fiber = monad_run_queue_try_pop(rq);
+        (void)monad_fiber_run(next_fiber, nullptr);
+        if ((++run_count & KIBI_MASK) == 0) {
+            // Every 1024 yields, check if it's time to exit
+            (void)clock_gettime(CLOCK_REALTIME, &now);
+            atomic_store_explicit(
+                &test_data.done,
+                now.tv_sec - start_time.tv_sec == g_benchmark_seconds,
+                memory_order_release);
+        }
+    }
+    while (!test_data.done);
+
+    while (!monad_run_queue_is_empty(rq)) {
+        next_fiber = monad_run_queue_try_pop(rq);
+        monad_fiber_run(next_fiber, &suspend_info);
+        if (suspend_info.suspend_type == MF_SUSPEND_RETURN) {
+            wakeup_count += suspend_info.eval.value;
+            monad_fiber_destroy(next_fiber);
+        }
+    }
+
+    monad_run_queue_destroy(rq);
+
+    double const nanos_per_wakeup =
+        (g_benchmark_seconds * 1'000'000'000.0) / (double)wakeup_count;
+    fprintf(
+        stdout,
+        "%s:\tsingle core channel wakeup rate: %lu w/s, %.1f ns/w\n",
+        self->name,
+        wakeup_count / g_benchmark_seconds,
+        nanos_per_wakeup);
+}
+
+static void semaphore_benchmark(struct benchmark const *self)
+{
+    monad_fiber_t *fibers[2];
+    monad_fiber_t *next_fiber;
+    monad_fiber_suspend_info_t suspend_info;
+    monad_run_queue_t *rq;
+    struct semaphore_test_data test_data;
+    struct timespec start_time;
+    struct timespec now;
+    monad_fiber_attr_t const fiber_attr = {
+        .stack_size = g_fiber_stack_size, .alloc = nullptr};
+    monad_fiber_ffunc_t *const fiber_funcs[] = {sem_a_loop, sem_b_loop};
+    size_t run_count = 0;
+    size_t wakeup_count = 0;
+
+    atomic_init(&test_data.done, false);
+    monad_fiber_semaphore_init(&test_data.sem_a);
+    monad_fiber_semaphore_init(&test_data.sem_b);
+    CHECK_Z(monad_run_queue_create(nullptr, 2, &rq));
+    for (size_t f = 0; f < 2; ++f) {
+        monad_fiber_create(&fiber_attr, &fibers[f]);
+        CHECK_Z(monad_fiber_set_function(
+            fibers[f],
+            MONAD_FIBER_PRIO_HIGHEST + f,
+            fiber_funcs[f],
+            (monad_fiber_args_t){.arg=(uintptr_t)&test_data}));
+        CHECK_Z(monad_run_queue_try_push(rq, fibers[f]));
+    }
+
+    (void)clock_gettime(CLOCK_REALTIME, &start_time);
+    do {
+        next_fiber = monad_run_queue_try_pop(rq);
+        (void)monad_fiber_run(next_fiber, nullptr);
+        if ((++run_count & KIBI_MASK) == 0) {
+            // Every 1024 yields, check if it's time to exit
+            (void)clock_gettime(CLOCK_REALTIME, &now);
+            atomic_store_explicit(
+                &test_data.done,
+                now.tv_sec - start_time.tv_sec == g_benchmark_seconds,
+                memory_order_release);
+        }
+    }
+    while (!test_data.done);
+
+    while (!monad_run_queue_is_empty(rq)) {
+        next_fiber = monad_run_queue_try_pop(rq);
+        monad_fiber_run(next_fiber, &suspend_info);
+        if (suspend_info.suspend_type == MF_SUSPEND_RETURN) {
+            wakeup_count += suspend_info.eval.value;
+            monad_fiber_destroy(next_fiber);
+        }
+    }
+
+    monad_run_queue_destroy(rq);
+
+    double const nanos_per_wakeup =
+        (g_benchmark_seconds * 1'000'000'000.0) / (double)wakeup_count;
+    fprintf(
+        stdout,
+        "%s:\tsingle core semaphore wakeup rate: %lu w/s, %.1f ns/w\n",
+        self->name,
+        wakeup_count / g_benchmark_seconds,
+        nanos_per_wakeup);
 }
 
 int main(int argc, char **argv)
