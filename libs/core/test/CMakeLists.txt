@@ -11,6 +11,7 @@ monad_add_test(backtrace_test "backtrace.cpp")
 monad_add_test(cma_allocators_test "cma_allocators.cpp")
 monad_add_test(cpuset_test "cpuset.cpp")
 monad_add_test(encode_test "encode_test.cpp")
+monad_add_test(fiber_test "fiber.cpp")
 monad_add_test(hugemem_test "huge_mem.cpp")
 target_link_libraries(hugemem_test GTest::gmock)
 monad_add_test(io_buffers_test "io_buffers.cpp")
@@ -31,7 +32,8 @@ add_executable(check_c_only check_c_only.c)
 target_link_libraries(check_c_only PRIVATE monad_core_c monad_core_crt)
 
 # Ensure the API demo described in fiber-api.md compiles
-if(0) # Still for exposition only, compiles but does not link
 add_executable(fiber-hello fiber-hello.c)
-target_link_libraries(fiber-hello PRIVATE monad_core_c)
-endif()
+target_link_libraries(fiber-hello PRIVATE monad_core_c monad_core_crt)
+
+add_executable(fiber_benchmark fiber_bench.c)
+target_link_libraries(fiber_benchmark monad_core_c monad_core_crt)

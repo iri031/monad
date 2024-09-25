@@ -95,9 +95,14 @@ add_library(monad_core_c OBJECT
   "src/monad/core/assert.c"
   "src/monad/core/assert.h"
   "src/monad/core/c_result.h"
+  "src/monad/core/spinlock.h"
+  "src/monad/core/spinloop.h"
+  "src/monad/core/srcloc.h"
+  "src/monad/core/thread.h"
   # fiber
   "src/monad/fiber/fiber.h"
   "src/monad/fiber/fiber.c"
+  "src/monad/fiber/fiber_thr.c"
   # mem
   "src/monad/mem/align.h"
   "src/monad/mem/cma/cma_alloc.h"
@@ -115,10 +120,27 @@ if(MONAD_CORE_FORCE_DEBUG_ASSERT)
                              PUBLIC MONAD_CORE_FORCE_DEBUG_ASSERT=1)
 endif()
 
+if (MONAD_CORE_SPINLOCK_TRACK_OWNER_INFO)
+  target_compile_definitions(monad_core_c
+          PUBLIC MONAD_SPINLOCK_TRACK_OWNER_INFO=1)
+endif()
+
+if (MONAD_CORE_SPINLOCK_TRACK_STATS)
+  target_compile_definitions(monad_core_c
+          PUBLIC MONAD_SPINLOCK_TRACK_STATS=1)
+endif()
+
+if (MONAD_CORE_SPINLOCK_TRACK_STATS_ATOMIC)
+  target_compile_definitions(monad_core_c
+          PUBLIC MONAD_SPINLOCK_TRACK_STATS_ATOMIC=1)
+endif()
+
 target_compile_features(monad_core_c PUBLIC c_std_23)
 target_compile_definitions(monad_core_c PUBLIC _GNU_SOURCE)
 target_compile_options(monad_core_c PRIVATE -Wall -Werror -Wextra)
-target_include_directories(monad_core_c PUBLIC "${PROJECT_SOURCE_DIR}/src")
+target_include_directories(monad_core_c
+        PUBLIC "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(monad_core_c PUBLIC monad_boost_context)
 
 if(NOT ${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   target_link_libraries(monad_core_c PUBLIC monad_compat)
@@ -154,11 +176,7 @@ add_library(
   "src/monad/core/result.hpp"
   "src/monad/core/size_of.hpp"
   "src/monad/core/small_prng.hpp"
-  "src/monad/core/spinlock.h"
-  "src/monad/core/spinloop.h"
-  "src/monad/core/srcloc.h"
   "src/monad/core/srcloc.hpp"
-  "src/monad/core/thread.h"
   "src/monad/core/unaligned.hpp"
   "src/monad/core/unordered_map.hpp"
   "src/monad/lru/lru_cache.hpp"
@@ -191,13 +209,16 @@ add_library(
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   # Append Linux-specific implementation files
   target_sources(
+    monad_core_c PRIVATE
+    # core
+    "src/monad/core/thread-linux.c")
+  target_sources(
     monad_core PRIVATE
     # core
     "src/monad/core/cgroup.c"
     "src/monad/core/cgroup.h"
     "src/monad/core/cpuset.c"
     "src/monad/core/cpuset.h"
-    "src/monad/core/thread-linux.c"
     # io
     "src/monad/io/buffers.cpp"
     "src/monad/io/buffers.hpp"
@@ -210,27 +231,7 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
     "src/monad/procfs/statm.c"
     "src/monad/procfs/statm.h")
 elseif(APPLE)
-  target_sources(monad_core PRIVATE "src/monad/core/thread-darwin.c")
-endif()
-
-if (MONAD_CORE_FORCE_DEBUG_ASSERT)
-  target_compile_definitions(monad_core
-          PUBLIC MONAD_CORE_FORCE_DEBUG_ASSERT=1)
-endif()
-
-if (MONAD_CORE_SPINLOCK_TRACK_OWNER_INFO)
-  target_compile_definitions(monad_core
-          PUBLIC MONAD_SPINLOCK_TRACK_OWNER_INFO=1)
-endif()
-
-if (MONAD_CORE_SPINLOCK_TRACK_STATS)
-  target_compile_definitions(monad_core
-          PUBLIC MONAD_SPINLOCK_TRACK_STATS=1)
-endif()
-
-if (MONAD_CORE_SPINLOCK_TRACK_STATS_ATOMIC)
-  target_compile_definitions(monad_core
-          PUBLIC MONAD_SPINLOCK_TRACK_STATS_ATOMIC=1)
+  target_sources(monad_core_c PRIVATE "src/monad/core/thread-darwin.c")
 endif()
 
 target_include_directories(monad_core PUBLIC "src")

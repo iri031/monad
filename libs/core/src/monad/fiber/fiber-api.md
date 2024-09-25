@@ -110,9 +110,10 @@ int main(int argc, char **argv)
     int rc;
     monad_fiber_t *hello_fiber;
     char const *name;
+    monad_allocator_t *const alloc = nullptr; // Use default allocator
     monad_fiber_attr_t const fiber_attr = {
         .stack_size = 1UL << 17, // 128 KiB stack
-        .alloc = nullptr // Use the default allocator
+        .alloc = alloc
     };
 
     // This application says hello to you using a fiber; it expects your name
@@ -187,6 +188,24 @@ int main(int argc, char **argv)
 }
 ```
 
+## Where is the code?
+
+1. For the fibers themselves:
+   - `fiber.h` - defines the interface for fibers, i.e., the public
+     functions and the central `monad_fiber_t` structure
+   - `fiber_inline.h` - most of the implementation is here, so it can be
+     inlined for performance reasons
+   - `fiber.c` - implementation file for fiber functions whose performance
+     is not critical
+   - `fiber_thr.c` - an implementation file which contains the `thread_local`
+     state for the `monad_thread_executor_t` objects
+
+2. For the synchronization primitives:
+   - To be added in a subsequent commit
+
+3. The scheduler
+   - To be added in a subsequent commit
+
 ## `monad_fiber_t` basic design
 
 ### How to use `monad_fiber_t`
@@ -248,14 +267,14 @@ how and when a fiber performs a context switch. The model we follow is:
   will switch into the given fiber and begin (or resume) running its
   associated function
 
-- In general, when a fiber suspends for any reason (yield, sleeping,
-  returning, etc.), it jumps back to the context that was executing
-  previously. This is the context that was running the code for
-  `monad_fiber_run` in the first place, so the suspension of a fiber
-  appears to the caller of `monad_fiber_run` as the `monad_fiber_run`
-  function call returning back to them
+- When a fiber suspends for any reason (yield, sleeping, returning, etc.),
+  it jumps back to the context that was executing previously. This is the
+  context that was running the code for `monad_fiber_run` in the first
+  place, so the suspension of a fiber appears to the caller of
+  `monad_fiber_run` as the `monad_fiber_run` function call returning back
+  to them
 
-- In general then, the function that calls `monad_fiber_run` is
-  a lightweight scheduler: it decides to run fibers somehow, and
+- Consequently, the function that calls `monad_fiber_run` is always
+  a lightweight scheduler: it decides to run fibers somehow, and typically
   calls `monad_fiber_run` in a loop, with the sequence of fibers it
   wishes to run

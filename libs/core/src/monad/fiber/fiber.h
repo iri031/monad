@@ -10,12 +10,32 @@
 #include <stdint.h>
 
 #include <monad/core/c_result.h>
+#include <monad/core/spinlock.h>
 #include <monad/mem/cma/cma_alloc.h>
+
+#if !defined(__clang__) && !defined(__has_feature)
+    #define __has_feature(X) 0
+#endif
+
+#if __has_feature(address_sanitizer) || __SANITIZE_ADDRESS__
+    #define MONAD_HAS_ASAN 1
+#endif
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
+
+/*
+ * Forward declaration of opaque / incomplete types defined in other headers
+ */
+
+typedef void *monad_fcontext_t;
+typedef struct monad_thread_executor monad_thread_executor_t;
+
+/*
+ * Types defined by fiber.h
+ */
 
 typedef struct monad_fiber monad_fiber_t;
 typedef struct monad_fiber_args monad_fiber_args_t;
@@ -31,6 +51,13 @@ static monad_fiber_prio_t const MONAD_FIBER_PRIO_LOWEST = INT64_MAX - 1;
 static monad_fiber_prio_t const MONAD_FIBER_PRIO_NO_CHANGE = INT64_MAX;
 
 #define MONAD_FIBER_MAX_ARGS (4)
+
+// TODO(ken): https://github.com/monad-crypto/monad-internal/issues/498
+/// Various objects (fibers, wait channels, etc.) can be given a name for the
+/// sake of debugging; the strlen(3) of the name cannot exceed this value
+#define MONAD_FIBER_NAME_LEN (31)
+
+enum monad_fiber_state : unsigned;
 
 enum monad_fiber_suspend_type : unsigned
 {
@@ -79,25 +106,91 @@ int monad_fiber_set_function(
     monad_fiber_ffunc_t *ffunc, monad_fiber_args_t fargs);
 
 /// Returns the structure representing the currently executing fiber; returns
-/// nullptr if the current execution context is not a fiber
-monad_fiber_t *monad_fiber_self();
+/// nullptr if the current execution context is not a fiber, i.e., if it is an
+/// ordinary thread
+static monad_fiber_t *monad_fiber_self();
 
 /// Begin running a fiber's function (or resume that function at the suspension
 /// point, if it was suspended) on the given thread; this call returns the next
 /// time the function suspends, and populates @ref suspend_info with info about
 /// that suspension
-int monad_fiber_run(
+static int monad_fiber_run(
     monad_fiber_t *next_fiber, monad_fiber_suspend_info_t *suspend_info);
 
 /// Similar to sched_yield(2) or pthread_yield_np(3), but for fibers: yields
 /// from the currently-running fiber back to the previously-running fiber
-void monad_fiber_yield(monad_c_result eval);
+static void monad_fiber_yield(monad_c_result eval);
 
+/// Get the name of a fiber, for debugging and instrumentation
+int monad_fiber_get_name(monad_fiber_t *fiber, char *name, size_t size);
+
+/// Set the name of a fiber, for debugging and instrumentation
+int monad_fiber_set_name(monad_fiber_t *fiber, char const *name);
+
+/// Returns true if the given fiber would execute immediately if monad_fiber_run
+/// is called; be aware that this has a TOCTOU race in multithreaded code,
+/// e.g., this could change asynchronously because of another thread
+static bool monad_fiber_is_runnable(monad_fiber_t const *fiber);
+
+struct monad_fiber_stack
+{
+    void *stack_base;   ///< Lowest addr, incl. unusable memory (guard pages)
+    void *stack_bottom; ///< Bottom of usable stack
+    void *stack_top;    ///< Top of usable stack
+};
+
+struct monad_fiber_stats
+{
+    size_t total_reset; ///< # of times monad_fiber_set_function is called
+    size_t total_run;   ///< # of times fiber has been run (1 + <#resumed>)
+    size_t total_migrate;          ///< # of times moved between threads
+};
+
+/*
+ * Fiber structures and inline functions
+ */
+
+/// Object which represents a user-created fiber; users can set the priority
+/// field of the current fiber(e.g., ` monad_fiber_self()->priority += 100` )
+/// but should not directly write to other fields
 struct monad_fiber
 {
-    monad_fiber_prio_t priority; ///< Scheduling priority
+    alignas(64) monad_spinlock_t lock;   ///< Protects most fields
+    enum monad_fiber_state state;        ///< Run state the fiber is in
+    monad_fiber_prio_t priority;         ///< Scheduling priority
+    monad_fcontext_t md_suspended_ctx;   ///< Suspended context pointer
+    monad_thread_executor_t *thr_exec;   ///< Current thread we're running on
+    void *user_data;                     ///< Opaque user data
+    struct monad_fiber_stack stack;      ///< Stack descriptor
+    struct monad_fiber_stats stats;      ///< Statistics about this context
+    monad_fiber_ffunc_t *ffunc;          ///< Fiber function to run
+    monad_fiber_args_t fargs;            ///< Opaque arguments passed to ffunc
+    monad_fiber_attr_t create_attr;      ///< Attributes we were created with
+    monad_memblk_t self_memblk;          ///< Dynamic memory block we live in
+    char name[MONAD_FIBER_NAME_LEN + 1]; ///< Context name, for debugging
+#if MONAD_HAS_ASAN
+    void *fake_stack_save;               ///< For ASAN stack support
+#endif
 };
+
+enum monad_fiber_state : unsigned
+{
+    MF_STATE_INIT,      ///< Fiber function not run yet
+    MF_STATE_CAN_RUN,   ///< Not running but able to run
+    MF_STATE_RUNNING,   ///< Fiber or thread is running
+    MF_STATE_FINISHED   ///< Suspended by function return; fiber is finished
+};
+
+inline bool monad_fiber_is_runnable(monad_fiber_t const *fiber)
+{
+    MONAD_DEBUG_ASSERT(fiber != nullptr);
+    return __atomic_load_n(&fiber->state, __ATOMIC_SEQ_CST) == MF_STATE_CAN_RUN;
+}
 
 #if __cplusplus
 } // extern "C"
 #endif
+
+#define MONAD_FIBER_INTERNAL
+#include "fiber_inline.h"
+#undef MONAD_FIBER_INTERNAL
