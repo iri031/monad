@@ -31,6 +31,7 @@ extern "C"
  */
 
 typedef void *monad_fcontext_t;
+typedef struct monad_run_queue monad_run_queue_t;
 typedef struct monad_thread_executor monad_thread_executor_t;
 
 /*
@@ -158,6 +159,10 @@ struct monad_fiber
     alignas(64) monad_spinlock_t lock;   ///< Protects most fields
     enum monad_fiber_state state;        ///< Run state the fiber is in
     monad_fiber_prio_t priority;         ///< Scheduling priority
+    #if MONAD_CORE_RUN_QUEUE_SUPPORT_EQUAL_PRIO
+    __int128_t rq_priority;              ///< Adjusted priority, see run_queue.h
+    #endif
+    monad_run_queue_t *run_queue;        ///< Most recent run queue
     monad_fcontext_t md_suspended_ctx;   ///< Suspended context pointer
     monad_thread_executor_t *thr_exec;   ///< Current thread we're running on
     void *user_data;                     ///< Opaque user data
@@ -177,6 +182,7 @@ enum monad_fiber_state : unsigned
 {
     MF_STATE_INIT,      ///< Fiber function not run yet
     MF_STATE_CAN_RUN,   ///< Not running but able to run
+    MF_STATE_RUN_QUEUE, ///< Scheduled on a run queue
     MF_STATE_RUNNING,   ///< Fiber or thread is running
     MF_STATE_FINISHED   ///< Suspended by function return; fiber is finished
 };
