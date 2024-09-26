@@ -46,6 +46,43 @@ target_compile_definitions(monad_async_c PRIVATE MONAD_ASYNC_SOURCE=1)
 target_include_directories(monad_async_c PUBLIC "src")
 target_link_libraries(monad_async_c PUBLIC uring monad_core monad_context_c)
 
+# This is reasonable behavior to have, that is not strictly needed at the
+# moment for `monad` but could cause surprises later and failures in the test
+# suite. This should be the normal behavior (without a configuration option)
+# if we can figure out how to avoid the slight performance hit
+option(MONAD_FIBER_RUN_QUEUE_SUPPORT_EQUAL_PRIO
+        "Allow the run_queue to support equal priority fibers" ON)
+
+set(monad_fiber_c_INCLUDES
+  "src/monad/fiber/fiber.h"
+  "src/monad/fiber/fiber_channel.h"
+  "src/monad/fiber/fiber_inline.h"
+  "src/monad/fiber/fiber_semaphore.h"
+  "src/monad/fiber/run_queue.h")
+add_library(monad_fiber_c STATIC
+  "src/monad/fiber/fiber.c"
+  "src/monad/fiber/fiber_thr.c"
+  "src/monad/fiber/run_queue.c")
+if (MONAD_FIBER_RUN_QUEUE_SUPPORT_EQUAL_PRIO)
+    target_compile_definitions(monad_fiber_c
+            PUBLIC MONAD_FIBER_RUN_QUEUE_SUPPORT_EQUAL_PRIO=1)
+endif()
+target_compile_features(monad_fiber_c PUBLIC c_std_23)
+target_compile_options(monad_fiber_c PRIVATE -Wall -Wextra -Werror)
+target_include_directories(monad_fiber_c PUBLIC "src")
+target_link_libraries(monad_fiber_c PUBLIC monad_core_c monad_boost_context)
+
+set(monad_fiber_INCLUDES
+  "src/monad/fiber/config.hpp"
+  "src/monad/fiber/priority_pool.hpp"
+  "src/monad/fiber/priority_task.hpp")
+
+add_library(monad_fiber STATIC
+  "src/monad/fiber/priority_pool.cpp")
+target_compile_features(monad_fiber PUBLIC cxx_std_23)
+target_include_directories(monad_fiber PUBLIC "src")
+target_link_libraries(monad_fiber PUBLIC monad_fiber_c monad_core)
+
 if(BINDGEN_PROGRAM)
   add_custom_command(OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/rust/async.rs"
     COMMAND "${BINDGEN_PROGRAM}" -o "${CMAKE_CURRENT_SOURCE_DIR}/rust/async.rs"
@@ -80,6 +117,7 @@ enable_testing()
 
 add_subdirectory("src/monad/async/test")
 add_subdirectory("src/monad/context/test")
+add_subdirectory("src/monad/fiber/test")
 
 if(RUSTC_PROGRAM AND NOT CMAKE_C_FLAGS_INIT MATCHES "fsanitize=")
     cmake_host_system_information(RESULT linux_flavour QUERY DISTRIB_ID)

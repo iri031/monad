@@ -143,6 +143,8 @@ target_include_directories(
 target_link_libraries(
   monad_execution
   PUBLIC monad_core
+  PUBLIC monad_fiber
+  PUBLIC monad_fiber_c
   PUBLIC monad_trie
   PRIVATE Boost::graph
   PRIVATE Boost::json
