@@ -56,7 +56,7 @@ target_include_directories(monad_trie PUBLIC "src")
 target_include_directories(monad_trie PRIVATE "third_party")
 monad_compile_options(monad_trie)
 target_link_libraries(monad_trie PRIVATE Boost::boost)
-target_link_libraries(monad_trie PUBLIC monad_async monad_fiber_c)
+target_link_libraries(monad_trie PUBLIC monad_async monad_fiber monad_core)
 add_executable(monad_mpt "src/monad/mpt/cli_tool_main.cpp"
                          "src/monad/mpt/cli_tool_impl.cpp")
 monad_compile_options(monad_mpt)

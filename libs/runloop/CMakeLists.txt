@@ -70,7 +70,7 @@ endif()
 target_compile_features(monad_fiber_c PUBLIC c_std_23)
 target_compile_options(monad_fiber_c PRIVATE -Wall -Wextra -Werror)
 target_include_directories(monad_fiber_c PUBLIC "src")
-target_link_libraries(monad_fiber_c PUBLIC monad_core_c monad_boost_context)
+target_link_libraries(monad_fiber_c PUBLIC monad_core_c monad_context_c)
 
 set(monad_fiber_INCLUDES
   "src/monad/fiber/config.hpp"

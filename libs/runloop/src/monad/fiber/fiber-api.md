@@ -264,7 +264,8 @@ opaque argument for the user's private data. This usually has type
 take an instance of this structure:
 
 ```.h
-struct monad_fiber_args {
+struct monad_fiber_args
+{
     uintptr_t arg[MONAD_FIBER_MAX_ARGS];
 };
 ```
@@ -299,12 +300,11 @@ how and when a fiber performs a context switch. The model we follow is:
   will switch into the given fiber and begin (or resume) running its
   associated function
 
-- When a fiber suspends for any reason (yield, sleeping, returning, etc.),
-  it jumps back to the context that was executing previously. This is the
-  context that was running the code for `monad_fiber_run` in the first
-  place, so the suspension of a fiber appears to the caller of
-  `monad_fiber_run` as the `monad_fiber_run` function call returning back
-  to them
+- When a fiber suspends or returns, it jumps back to the context that
+  was executing previously. This is the  context that was running the code
+  for `monad_fiber_run` in the first place, so the suspension of a fiber
+  appears to the caller of `monad_fiber_run` as the `monad_fiber_run`
+  function call returning back to them
 
 - Consequently, the function that calls `monad_fiber_run` is always
   a lightweight scheduler: it decides to run fibers somehow, and typically
@@ -314,6 +314,17 @@ how and when a fiber performs a context switch. The model we follow is:
 - The most obvious design is to use a single global priority queue
   (a `monad_run_queue_t` object). Each worker takes the
   next-highest-priority fiber and runs it until it suspends
+
+- Returning and suspension are different: a fiber whose function has
+  suspended can be resumed by another call to `monad_fiber_run`. If a
+  fiber function has returned however, it cannot be run again. Once a
+  a fiber's function has returned, the fiber's resources (i.e., its stack)
+  can be reused to run a new function. A fiber that is only suspended
+  cannot be changed to run a different function, however. This is
+  because the fiber holds the suspended state for the function: its
+  active stack frames. These are potentially holding stack-local C++
+  objects which should be destroyed first. Attempting to change the
+  function when the fiber is suspended will return `EBUSY`
 
 Here is an example of how you might build such a worker thread (this
 is just an API example, the current implementation is more complex):

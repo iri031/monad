@@ -7,10 +7,12 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include <sysexits.h>
 
+#include <monad/context/context_switcher.h>
 #include <monad/core/likely.h>
 #include <monad/fiber/fiber.h>
 #include <monad/fiber/fiber_channel.h>
@@ -36,6 +38,8 @@ enum long_only_option
 // @formatter:off
 static struct option longopts[] = {
     {.name = "list", .has_arg = 0, .flag = nullptr, .val = 'L'},
+    {.name = "list-switchers", .has_arg = 0, .flag = nullptr, .val = 'W'},
+    {.name = "switcher", .has_arg = 1, .flag = nullptr, .val = 'w'},
     {.name = "stack_shift", .has_arg = 1, .flag = nullptr, .val = 's'},
     {.name = "time", .has_arg = 1, .flag = nullptr, .val = 't'},
     {.name = "rq-fibers",
@@ -53,7 +57,7 @@ static void usage(FILE *out)
 {
     fprintf(
         out,
-        "%s: [-Lh] [-t <sec>] [-s <shift>] [--rq-fibers <#>] [benchmark...]\n",
+        "%s: [-LWh] [-w <switcher>] [-t <sec>] [-s <shift>] [--rq-fibers <#>] [benchmark...]\n",
         __progname);
 }
 
@@ -133,12 +137,28 @@ static struct benchmark
 static const struct benchmark *const g_bench_table_end =
     g_bench_table + sizeof(g_bench_table) / sizeof(struct benchmark);
 
+static struct context_switcher_meta
+{
+    char const *name;
+    monad_context_switcher_impl const *impl;
+} g_context_switcher_table[] = {
+    {.name = "none", .impl = &monad_context_switcher_none},
+    {.name = "sjlj", .impl = &monad_context_switcher_sjlj},
+    {.name = "fcontext", .impl = &monad_context_switcher_fcontext}};
+
+static const struct context_switcher_meta *const g_context_switcher_table_end =
+    g_context_switcher_table +
+    sizeof(g_context_switcher_table) / sizeof(struct context_switcher_meta);
+
 int parse_options(int argc, char **argv)
 {
     int ch;
+    bool option_found;
     monad_c_result mcr;
+    struct context_switcher_meta *csm;
 
-    while ((ch = getopt_long(argc, argv, "s:t:Lh", longopts, nullptr)) != -1) {
+    while ((ch = getopt_long(argc, argv, "w:s:t:LWh", longopts, nullptr)) !=
+           -1) {
         switch (ch) {
         case 'L':
             for (struct benchmark *b = g_bench_table; b != g_bench_table_end;
@@ -146,6 +166,38 @@ int parse_options(int argc, char **argv)
                 fprintf(stdout, "%s:\t%s\n", b->name, b->description);
             }
             exit(0);
+
+        case 'W':
+            fprintf(stdout, "%s", g_context_switcher_table->name);
+            for (csm = g_context_switcher_table + 1;
+                 csm != g_context_switcher_table_end;
+                 ++csm) {
+                fprintf(stdout, " %s", csm->name);
+            }
+            fprintf(stdout, "\n");
+            exit(0);
+
+        case 'w':
+            option_found = false;
+            for (csm = g_context_switcher_table;
+                 csm != g_context_switcher_table_end;
+                 ++csm) {
+                if (strcmp(csm->name, optarg) == 0) {
+                    atomic_store_explicit(
+                        &g_monad_fiber_default_context_switcher_impl,
+                        csm->impl,
+                        memory_order_release);
+                    option_found = true;
+                    break;
+                }
+            }
+            if (!option_found) {
+                errx(
+                    EX_USAGE,
+                    "%s is not a valid type of context switcher",
+                    optarg);
+            }
+            break;
 
         case 's':
             mcr = monad_strtonum(optarg, 10, 30);

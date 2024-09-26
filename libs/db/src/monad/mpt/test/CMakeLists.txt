@@ -40,7 +40,7 @@ add_executable(monad_trie_test "monad_trie_test.cpp")
 monad_compile_options(monad_trie_test)
 target_include_directories(monad_trie_test
                            PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
-target_link_libraries(monad_trie_test PUBLIC monad_core CLI11::CLI11 monad_trie)
+target_link_libraries(monad_trie_test PUBLIC CLI11::CLI11 monad_trie)
 
 add_executable(monad_trie_test_statistical_generation_test
                "monad_trie_test_statistical_generation_test.cpp")
