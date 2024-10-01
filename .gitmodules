@@ -41,3 +41,6 @@
 [submodule "libs/runloop/third_party/binutils-gdb"]
 	path = libs/runloop/third_party/binutils-gdb
 	url = git@github.com:monad-crypto/binutils-gdb.git
+[submodule "libs/execution/third_party/blst/include/blst"]
+	path = libs/execution/third_party/blst/include/blst
+	url = https://github.com/supranational/blst.git

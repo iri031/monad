@@ -8,6 +8,15 @@ project(monad_execution)
 # deps
 # ##############################################################################
 
+set(libblst ${CMAKE_CURRENT_BINARY_DIR}/libblst.a)
+
+add_custom_target(
+  blst
+  CC=$ENV{CC} CFLAGS=$ENV{CFLAGS}
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/blst/include/blst/build.sh
+  BYPRODUCTS ${libblst}
+  WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
 # ##############################################################################
 # libs
 # ##############################################################################
@@ -135,17 +144,21 @@ add_library(
   # types/fmt
   "src/monad/types/fmt/incarnation_fmt.hpp")
 
+add_dependencies(monad_execution blst)
+
 target_include_directories(
   monad_execution
   PUBLIC ${PROJECT_SOURCE_DIR}/src
   PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/test
   PRIVATE ${Boost_INCLUDE_DIRS}
-  PUBLIC ${silkpre_SOURCE_DIR}/lib)
+  PUBLIC ${silkpre_SOURCE_DIR}/lib
+  PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/blst/include)
 
 target_link_libraries(
   monad_execution
   PUBLIC monad_core
   PUBLIC monad_trie
+  PRIVATE ${libblst}
   PRIVATE Boost::fiber
   PRIVATE Boost::graph
   PRIVATE Boost::json
