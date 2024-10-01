@@ -1,6 +1,7 @@
 function(monad_test target)
   add_executable(monad_context_c_${target} ${ARGN})
-  target_link_libraries(monad_context_c_${target} PRIVATE monad_context_c GTest::GTest GTest::Main)
+  monad_compile_options(monad_context_c_${target})
+  target_link_libraries(monad_context_c_${target} PRIVATE monad_context_c monad_core_c GTest::GTest GTest::Main)
   target_link_options(monad_context_c_${target} PRIVATE -rdynamic)
   gtest_discover_tests(
     monad_context_c_${target}
@@ -11,3 +12,5 @@ function(monad_test target)
 endfunction()
 
 monad_test(context_switcher_test "context_switcher.cpp")
+monad_test(thread_db_test "thread_db_test.cpp")
+target_link_libraries(monad_context_c_thread_db_test PRIVATE monad_context_c-custom-binutils-gdb)

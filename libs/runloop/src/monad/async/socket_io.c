@@ -289,9 +289,8 @@ monad_c_result monad_async_task_socket_transfer_to_uring(
             (void *)task,
             (void *)ex,
             file_index,
-            BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)
-                ? outcome_status_code_message(&ret.error)
-                : "success");
+            MONAD_FAILED(ret) ? outcome_status_code_message(&ret.error)
+                              : "success");
 #endif
         if (MONAD_FAILED(ret)) {
             monad_async_executor_free_file_index(ex, file_index);
@@ -383,9 +382,8 @@ monad_c_result monad_async_task_socket_accept(
         (void *)task,
         (void *)ex,
         connected_file_index,
-        BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)
-            ? outcome_status_code_message(&ret.error)
-            : "success");
+        MONAD_FAILED(ret) ? outcome_status_code_message(&ret.error)
+                          : "success");
 #endif
     if (MONAD_FAILED(ret)) {
         monad_async_executor_free_file_index(ex, connected_file_index);

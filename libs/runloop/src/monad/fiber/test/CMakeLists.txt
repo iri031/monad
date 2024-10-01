@@ -2,7 +2,7 @@ function(monad_test target)
   add_executable(monad_fiber_c_${target} ${ARGN})
   target_compile_features(monad_fiber_c_${target} PRIVATE cxx_std_23)
   target_link_libraries(monad_fiber_c_${target}
-                        PRIVATE monad_fiber_c monad_core GTest::GTest GTest::Main)
+                        PRIVATE monad_fiber_c monad_async_c monad_core GTest::GTest GTest::Main)
   gtest_discover_tests(
     monad_fiber_c_${target}
     TEST_PREFIX RunLoop/

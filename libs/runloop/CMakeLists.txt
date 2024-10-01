@@ -8,6 +8,9 @@ find_program(RUSTC_PROGRAM rustc)
 
 add_subdirectory("third_party/monad-boost-context")
 
+add_library(monad_context_c-custom-binutils-gdb INTERFACE IMPORTED)
+target_include_directories(monad_context_c-custom-binutils-gdb INTERFACE "third_party/binutils-gdb")
+
 set(monad_context_INCLUDES
   "src/monad/context/context_switcher.h"
 )
@@ -16,13 +19,39 @@ add_library(monad_context_c STATIC
   "src/monad/context/context_switcher_fcontext.c"
   "src/monad/context/context_switcher_sjlj.c"
 )
-target_compile_features(monad_context_c PUBLIC c_std_23 cxx_std_20)
-target_compile_options(monad_context_c PRIVATE -Wall -Wextra -Wconversion -Wpedantic -Werror)
-target_compile_definitions(monad_context_c PRIVATE _GNU_SOURCE=1 MONAD_CONTEXT_SOURCE=1)
+monad_compile_options(monad_context_c)
+target_compile_options(monad_context_c PRIVATE -Wpedantic)
+target_compile_definitions(monad_context_c PRIVATE MONAD_CONTEXT_SOURCE=1)
 target_include_directories(monad_context_c PUBLIC "src")
-target_link_libraries(monad_context_c PUBLIC monad_boost_context)
-target_link_libraries(monad_context_c PUBLIC monad_core_c)
-monad_target_gdb_pretty_printer(monad_context_c monad_context_c_pretty_printer "src/monad/context/gdb_pretty_printers.py")
+target_link_libraries(monad_context_c PRIVATE monad_boost_context monad_context_c-custom-binutils-gdb monad_core_crt)
+
+# This MUST be a shared library called libthread_db.so for GDB to load it
+# We do NOT use monad_compile_options() here because this custom libthread_db.so.1
+# is loaded as a plugin into GDB, and by rights should be compiled with whatever
+# GDB is. The current implementation is "lucky" in that it doesn't cause the loading
+# of anything which would blow up GDB, but if say any C++ ever appeared in the
+# source code to cause an incompatible libstdc++ to get loaded, very bad.
+add_library(monad_context_c_libthread_db SHARED
+  "src/monad/context/thread_db.c"
+)
+target_compile_features(monad_context_c_libthread_db PRIVATE c_std_23 cxx_std_20)
+target_compile_options(monad_context_c_libthread_db PRIVATE -Wall -Wextra -Wconversion -Werror)
+# Hide all symbols in this except those explicitly made visibile to prevent
+# unhelpful collision with the GDB process symbols
+target_compile_options(monad_context_c_libthread_db PRIVATE -fvisibility=hidden)
+set_target_properties(monad_context_c_libthread_db PROPERTIES
+  POSITION_INDEPENDENT_CODE ON
+  OUTPUT_NAME "thread_db"
+  SUFFIX ".so.1"
+)
+target_link_libraries(monad_context_c_libthread_db PRIVATE monad_context_c-custom-binutils-gdb)
+# We need to inhibit all dependencies on anything else to prevent clashing with GDB's runtime
+# when loaded in as a plugin. TODO FIXME this is failing to link. If it does ever cause
+# problems with GDB, diagnosing and fixing this should be revisited.
+#target_link_options(monad_context_c_libthread_db PRIVATE -static)
+target_compile_definitions(monad_context_c PUBLIC MONAD_CONTEXT_CUSTOM_GDB_THREAD_DB_PATH=$<TARGET_FILE_DIR:monad_context_c_libthread_db>)
+
+
 
 set(monad_async_INCLUDES
   "src/monad/async/executor.h"
@@ -40,11 +69,11 @@ add_library(monad_async_c STATIC
   "src/monad/async/util.cpp"
   "src/monad/async/work_dispatcher.c"
 )
-target_compile_features(monad_async_c PUBLIC c_std_23 cxx_std_20)
-target_compile_options(monad_async_c PRIVATE -Wall -Wextra -Wconversion -Wpedantic -Werror)
+monad_compile_options(monad_async_c)
+target_compile_options(monad_async_c PRIVATE -Wpedantic)
 target_compile_definitions(monad_async_c PRIVATE MONAD_ASYNC_SOURCE=1)
 target_include_directories(monad_async_c PUBLIC "src")
-target_link_libraries(monad_async_c PUBLIC uring monad_core monad_context_c)
+target_link_libraries(monad_async_c PUBLIC uring monad_core monad_core_crt monad_context_c)
 
 # This is reasonable behavior to have, that is not strictly needed at the
 # moment for `monad` but could cause surprises later and failures in the test
@@ -83,7 +112,7 @@ target_compile_features(monad_fiber PUBLIC cxx_std_23)
 target_include_directories(monad_fiber PUBLIC "src")
 target_link_libraries(monad_fiber PUBLIC monad_fiber_c monad_core)
 
-if(BINDGEN_PROGRAM)
+if(0) #BINDGEN_PROGRAM)
   add_custom_command(OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/rust/async.rs"
     COMMAND "${BINDGEN_PROGRAM}" -o "${CMAKE_CURRENT_SOURCE_DIR}/rust/async.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/monad/async/all.h"
@@ -119,7 +148,7 @@ add_subdirectory("src/monad/async/test")
 add_subdirectory("src/monad/context/test")
 add_subdirectory("src/monad/fiber/test")
 
-if(RUSTC_PROGRAM AND NOT CMAKE_C_FLAGS_INIT MATCHES "fsanitize=")
+if(0) #RUSTC_PROGRAM AND NOT CMAKE_C_FLAGS_INIT MATCHES "fsanitize=")
     cmake_host_system_information(RESULT linux_flavour QUERY DISTRIB_ID)
     if(linux_flavour MATCHES "debian|ubuntu")
         find_package(Boost REQUIRED stacktrace_backtrace)

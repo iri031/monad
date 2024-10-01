@@ -35,7 +35,8 @@ namespace
     [[noreturn]] monad_c_result fiber_worker_main(monad_fiber_args_t mfa)
     {
         using monad::fiber::TaskChannelMsg;
-        auto *const task_channel = std::bit_cast<monad_fiber_channel_t *>(mfa.arg[0]);
+        auto *const task_channel =
+            std::bit_cast<monad_fiber_channel_t *>(mfa.arg[0]);
         while (true) {
             // Pop a message header from the fiber channel. This describes a
             // a TaskChannelMsg::Payload object
@@ -48,7 +49,8 @@ namespace
 
             // Set our fiber priority to whatever the task tells us it's
             // supposed to be, then run the task
-            monad_fiber_self()->priority = payload->prio_task.priority;
+            auto *thisfiber = monad_fiber_self();
+            thisfiber->priority = payload->prio_task.priority;
             payload->prio_task.task();
 
             // Tell the pool we're done with the task
@@ -145,6 +147,11 @@ void PriorityPool::submit(
     monad_fiber_msghdr_init_trailing(
         &channel_msg.hdr, sizeof channel_msg.payload);
     monad_fiber_channel_push(&task_channel_, &channel_msg.hdr);
+}
+
+void PriorityPool::resume(monad_fiber_t *fiber)
+{
+    _monad_fiber_try_wakeup(fiber);
 }
 
 MONAD_FIBER_NAMESPACE_END

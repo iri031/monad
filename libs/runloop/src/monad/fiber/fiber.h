@@ -40,7 +40,7 @@ typedef struct monad_fiber_suspend_info monad_fiber_suspend_info_t;
 typedef TAILQ_HEAD(monad_fiber_wait_queue, monad_fiber)
     monad_fiber_wait_queue_t;
 
-typedef monad_c_result (monad_fiber_ffunc_t)(monad_fiber_args_t);
+typedef monad_c_result(monad_fiber_ffunc_t)(monad_fiber_args_t);
 typedef int64_t monad_fiber_prio_t;
 
 // TODO(ken): https://github.com/monad-crypto/monad-internal/issues/498
@@ -70,7 +70,7 @@ enum monad_fiber_suspend_type : unsigned
 struct monad_fiber_suspend_info
 {
     enum monad_fiber_suspend_type suspend_type; ///< Reason for last suspension
-    monad_c_result eval;                        ///< Value (for YIELD / RETURN)
+    monad_c_result eval; ///< Value (for YIELD / RETURN)
 };
 
 /// Opaque arguments are passed into fiber functions using this structure
@@ -82,7 +82,7 @@ struct monad_fiber_args
 /// Creation attributes for monad_fiber_create
 struct monad_fiber_attr
 {
-    size_t stack_size;        ///< Size of fiber stack
+    size_t stack_size; ///< Size of fiber stack
     monad_allocator_t *alloc; ///< Allocator used for the monad_fiber_t object
 };
 
@@ -103,6 +103,13 @@ void monad_fiber_destroy(monad_fiber_t *fiber);
 int monad_fiber_set_function(
     monad_fiber_t *fiber, monad_fiber_prio_t priority,
     monad_fiber_ffunc_t *ffunc, monad_fiber_args_t fargs);
+
+void monad_fiber_suspend_save_detach_and_invoke(
+    monad_fiber_t *fiber, monad_fiber_t *save,
+    bool (*to_invoke)(monad_context_task detached_task));
+
+monad_fiber_t *monad_fiber_from_foreign_context(
+    monad_context_task context_task, monad_fiber_t const *save);
 
 /// Returns the structure representing the currently executing fiber; returns
 /// nullptr if the current execution context is not a fiber, i.e., if it is an
@@ -145,12 +152,12 @@ extern _Atomic(monad_context_switcher_impl const *)
 
 struct monad_fiber_stats
 {
-    size_t total_reset;      ///< # of times monad_fiber_set_function is called
-    size_t total_run;        ///< # of times fiber has been run (1 + <#resumed>)
-    size_t total_sleep;      ///< # of times exec slept on a sync. primitive
+    size_t total_reset; ///< # of times monad_fiber_set_function is called
+    size_t total_run; ///< # of times fiber has been run (1 + <#resumed>)
+    size_t total_sleep; ///< # of times exec slept on a sync. primitive
     size_t total_sched_fail; ///< # times scheduling immediately failed
     size_t total_spurious_wakeups; ///< # times woken up just to sleep again
-    size_t total_migrate;          ///< # of times moved between threads
+    size_t total_migrate; ///< # of times moved between threads
 };
 
 /*
@@ -162,34 +169,40 @@ struct monad_fiber_stats
 /// but should not directly write to other fields
 struct monad_fiber
 {
-    struct monad_context_task_head task; ///< monad_context runnable object
-    monad_context switch_ctx;            ///< monad_context state object
-    alignas(64) monad_spinlock_t lock;   ///< Protects most fiber fields
-    enum monad_fiber_state state;        ///< Run state fiber is in
-    monad_fiber_prio_t priority;         ///< Scheduling priority
-    TAILQ_ENTRY(monad_fiber) wait_link;  ///< Linkage for wait_queue
+    struct monad_context_task_head head; ///< monad_context runnable object
+    alignas(64) monad_spinlock_t lock; ///< Protects most fiber fields
+    enum monad_fiber_state state; ///< Run state fiber is in
+    monad_fiber_prio_t priority; ///< Scheduling priority
+    TAILQ_ENTRY(monad_fiber) wait_link; ///< Linkage for wait_queue
 #if MONAD_FIBER_RUN_QUEUE_SUPPORT_EQUAL_PRIO
-    __int128_t rq_priority;              ///< Adjusted priority, see run_queue.h
+    __int128_t rq_priority; ///< Adjusted priority, see run_queue.h
 #endif
-    monad_run_queue_t *run_queue;        ///< Most recent run queue
-    void *wait_object;                   ///< Synch. primitive we're sleeping on
-    void *user_data;                     ///< Opaque user data
-    struct monad_fiber_stats stats;      ///< Statistics about this context
-    monad_fiber_ffunc_t *ffunc;          ///< Fiber function to run
-    monad_fiber_args_t fargs;            ///< Opaque arguments passed to ffunc
-    monad_fiber_attr_t create_attr;      ///< Attributes we were created with
-    monad_memblk_t self_memblk;          ///< Dynamic memory block we live in
+    monad_run_queue_t *run_queue; ///< Most recent run queue
+    void *wait_object; ///< Synch. primitive we're sleeping on
+    void *user_data; ///< Opaque user data
+    struct monad_fiber_stats stats; ///< Statistics about this context
+    monad_fiber_ffunc_t *ffunc; ///< Fiber function to run
+    monad_fiber_args_t fargs; ///< Opaque arguments passed to ffunc
+    monad_fiber_attr_t create_attr; ///< Attributes we were created with
+    monad_memblk_t self_memblk; ///< Dynamic memory block we live in
     char name[MONAD_FIBER_NAME_LEN + 1]; ///< Context name, for debugging
 };
+#if __STDC_VERSION__ >= 202300L || defined(__cplusplus)
+static_assert(sizeof(struct monad_fiber) == 512);
+static_assert(sizeof(struct monad_fiber) <= MONAD_CONTEXT_TASK_ALLOCATION_SIZE);
+    #ifdef __cplusplus
+static_assert(alignof(struct monad_fiber) == 64);
+    #endif
+#endif
 
 enum monad_fiber_state : unsigned
 {
-    MF_STATE_INIT,       ///< Fiber function not run yet
-    MF_STATE_CAN_RUN,    ///< Not running but able to run
+    MF_STATE_INIT, ///< Fiber function not run yet
+    MF_STATE_CAN_RUN, ///< Not running but able to run
     MF_STATE_WAIT_QUEUE, ///< Asleep on a wait queue
-    MF_STATE_RUN_QUEUE,  ///< Scheduled on a run queue
-    MF_STATE_RUNNING,    ///< Fiber or thread is running
-    MF_STATE_FINISHED    ///< Suspended by function return; fiber is finished
+    MF_STATE_RUN_QUEUE, ///< Scheduled on a run queue
+    MF_STATE_RUNNING, ///< Fiber or thread is running
+    MF_STATE_FINISHED ///< Suspended by function return; fiber is finished
 };
 
 inline bool monad_fiber_is_runnable(monad_fiber_t const *fiber)

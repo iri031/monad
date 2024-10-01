@@ -254,7 +254,7 @@ target_link_libraries(monad_core_disas PUBLIC monad_core)
 # recompiled rather than some other kind of reuse mechanism because the code
 # generation must enable position independent code.
 add_library(
-  monad_core_crt SHARED
+  monad_core_crt
   # config
   "src/monad/config.hpp"
   # core
@@ -263,8 +263,6 @@ add_library(
   "src/monad/core/c_result_impl.cpp"
   # util
   "src/monad/util/parse_util_err.cpp")
-set_target_properties(monad_core_crt PROPERTIES CXX_VISIBILITY_PRESET hidden
-                                                VISIBILITY_INLINES_HIDDEN ON)
 target_include_directories(monad_core_crt PUBLIC "src")
 monad_compile_options(monad_core_crt)
 target_link_libraries(monad_core_crt PRIVATE monad_core_stacktrace_options)
@@ -273,12 +271,6 @@ if(NOT APPLE)
      CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_compile_options(monad_core_crt PUBLIC "-fno-sanitize=function,vptr")
   endif()
-  target_link_options(monad_core_crt PRIVATE -static-libstdc++)
-  target_link_options(
-    monad_core_crt
-    PRIVATE
-    "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/monad/core/core_crt.sym"
-  )
 endif()
 
 # ##############################################################################

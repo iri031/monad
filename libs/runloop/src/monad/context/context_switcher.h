@@ -6,14 +6,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#ifndef MONAD_CONTEXT_TRACK_OWNERSHIP
-    #ifdef NDEBUG
-        #define MONAD_CONTEXT_TRACK_OWNERSHIP 0
-    #else
-        #define MONAD_CONTEXT_TRACK_OWNERSHIP 1
-    #endif
-#endif
-
 #ifndef MONAD_CONTEXT_CPP_DEFAULT_INITIALISE
     #ifdef __cplusplus
         #define MONAD_CONTEXT_CPP_DEFAULT_INITIALISE                           \
@@ -24,10 +16,6 @@
     #endif
 #endif
 
-#if MONAD_CONTEXT_TRACK_OWNERSHIP
-    #include <threads.h>
-#endif
-
 #ifdef __cplusplus
     #include <memory>
     #include <type_traits>
@@ -36,9 +24,13 @@ extern "C"
 {
 #endif
 
+typedef struct monad_context_head *monad_context;
+
 //! \brief How much memory to allocate to fit all implementations of `struct
 //! monad_context_task_head`
-#define MONAD_CONTEXT_TASK_ALLOCATION_SIZE (304)
+#define MONAD_CONTEXT_TASK_ALLOCATION_SIZE (512)
+//! \brief How many of those bytes are used by the i/o executor for its state
+#define MONAD_ASYNC_TASK_FOOTPRINT (296)
 
 //! \brief The public attributes of a task
 typedef struct monad_context_task_head
@@ -49,6 +41,9 @@ typedef struct monad_context_task_head
         MONAD_CONTEXT_CPP_DEFAULT_INITIALISE;
     //! \brief Any user defined value
     void *user_ptr MONAD_CONTEXT_CPP_DEFAULT_INITIALISE;
+
+    //! \brief The context for the running task
+    monad_context context MONAD_CONTEXT_CPP_DEFAULT_INITIALISE;
 
     // The following are **NOT** user modifiable
     //! \brief Set to the result of the task on exit; also used as scratch
@@ -69,7 +64,7 @@ typedef struct monad_context_task_head
 #endif
 } *monad_context_task;
 #if __STDC_VERSION__ >= 202300L || defined(__cplusplus)
-static_assert(sizeof(struct monad_context_task_head) == 56);
+static_assert(sizeof(struct monad_context_task_head) == 64);
     #ifdef __cplusplus
 static_assert(alignof(struct monad_context_task_head) == 8);
     #endif
@@ -84,8 +79,6 @@ struct monad_context_task_attr
     //! \brief 0 chooses platform default stack size
     size_t stack_size;
 };
-
-typedef struct monad_context_head *monad_context;
 
 typedef struct monad_context_switcher_head
 {
@@ -105,7 +98,7 @@ typedef struct monad_context_switcher_head
     //! \brief Create a switchable context for a task
     monad_c_result (*const create)(
         monad_context *context, struct monad_context_switcher_head *switcher,
-        monad_context_task task, const struct monad_context_task_attr *attr);
+        monad_context_task task, struct monad_context_task_attr const *attr);
     //! \brief Destroys a switchable context
     monad_c_result (*const destroy)(monad_context context);
 
@@ -151,14 +144,6 @@ typedef struct monad_context_switcher_head
         void *user_ptr);
 
     // Must come AFTER what the Rust bindings will use
-#if MONAD_CONTEXT_TRACK_OWNERSHIP
-    struct
-    {
-        mtx_t lock;
-        monad_context front, back;
-        size_t count;
-    } contexts_list;
-#endif
 } *monad_context_switcher;
 
 typedef struct monad_context_switcher_impl
@@ -176,10 +161,7 @@ typedef struct monad_context_head
     MONAD_CONTEXT_ATOMIC(monad_context_switcher) switcher;
 
     // Must come AFTER what the Rust bindings will use
-#if MONAD_CONTEXT_TRACK_OWNERSHIP
-    void *stack_bottom, *stack_current, *stack_top;
-    monad_context prev, next;
-#endif
+    size_t const thread_db_slot;
 
     struct
     {
@@ -295,7 +277,7 @@ namespace monad
         //! smart pointer
         inline context_ptr make_context(
             monad_context_switcher impl, monad_context_task task,
-            struct monad_context_task_attr &attr)
+            const struct monad_context_task_attr &attr)
         {
             monad_context ex;
             to_result(impl->create(&ex, impl, task, &attr)).value();
@@ -303,4 +285,41 @@ namespace monad
         }
     }
 }
+#endif
+
+#ifndef MONAD_CONTEXT_DISABLE_INLINE_CUSTOM_GDB_THREAD_DB_LOAD
+    #ifndef MONAD_CONTEXT_CUSTOM_GDB_THREAD_DB_PATH
+        #error                                                                 \
+            "MONAD_CONTEXT_CUSTOM_GDB_THREAD_DB_PATH should be defined to the directory of our custom libthread_db.so.1"
+    #endif
+    #define MONAD_CONTEXT_CUSTOM_GDB_THREAD_DB_PATH_STRINGISE2(x) #x
+    #define MONAD_CONTEXT_CUSTOM_GDB_THREAD_DB_PATH_STRINGISE(x)               \
+        MONAD_CONTEXT_CUSTOM_GDB_THREAD_DB_PATH_STRINGISE2(x)
+    #if defined(__ELF__)
+        #ifdef __clang__
+            #pragma clang diagnostic push
+            #pragma clang diagnostic ignored "-Woverlength-strings"
+        #endif
+__asm__(
+    ".pushsection \".debug_gdb_scripts\", \"MS\",@progbits,1\n"
+    ".byte 4 /* Python Text */\n"
+    ".ascii \"gdb.inlined-script.monad-context\\n\"\n"
+    ".ascii \"import gdb\\n\"\n"
+    ".ascii \"gdb.execute('set "
+    "libthread-db-search-"
+    "path " MONAD_CONTEXT_CUSTOM_GDB_THREAD_DB_PATH_STRINGISE(
+        MONAD_CONTEXT_CUSTOM_GDB_THREAD_DB_PATH) "')\\n\"\n"
+
+                                                 ".ascii \"print('NOTE: set "
+                                                 "libthread-db-search-"
+                                                 "path"
+                                                 " " MONAD_CONTEXT_CUSTOM_GDB_THREAD_DB_PATH_STRINGISE(
+                                                     MONAD_CONTEXT_CUSTOM_GDB_THREAD_DB_PATH) "')\\n\"\n"
+
+                                                                                              ".byte 0\n"
+                                                                                              ".popsection\n");
+        #ifdef __clang__
+            #pragma clang diagnostic pop
+        #endif
+    #endif
 #endif

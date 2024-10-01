@@ -2,8 +2,8 @@
 
 // #define MONAD_ASYNC_FILE_IO_PRINTING 1
 
-#include <monad/core/c_result.h>
 #include <monad/context/config.h>
+#include <monad/core/c_result.h>
 
 #include "executor.h"
 #include "executor_impl.h"
@@ -92,9 +92,8 @@ monad_c_result monad_async_task_file_create(
         (void *)task,
         (void *)ex,
         file_index,
-        BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)
-            ? outcome_status_code_message(&ret.error)
-            : "success");
+        MONAD_FAILED(ret) ? outcome_status_code_message(&ret.error)
+                          : "success");
 #endif
     if (MONAD_FAILED(ret)) {
         monad_async_executor_free_file_index(ex, file_index);
@@ -136,9 +135,8 @@ monad_c_result monad_async_task_file_create(
             (void *)task,
             (void *)ex,
             file_index,
-            BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)
-                ? outcome_status_code_message(&ret.error)
-                : "success");
+            MONAD_FAILED(ret) ? outcome_status_code_message(&ret.error)
+                              : "success");
 #endif
         if (MONAD_FAILED(ret)) {
             (void)monad_async_task_file_destroy(task_, (monad_async_file)p);

@@ -40,6 +40,8 @@ struct monad_thread_executor_stats
 struct monad_thread_executor
 {
     monad_fiber_t *cur_fiber; ///< Fiber our thread is running (or null)
+    bool cur_fiber_resumed, cur_fiber_detached;
+    bool (*call_after_suspend_to_executor)(monad_context_task task);
     monad_context_switcher switcher; ///< Thread's context switching machinery
     thrd_t thread; ///< Opaque system handle for the thread
     monad_tid_t thread_id; ///< System ID for thread, for debugging
@@ -58,7 +60,7 @@ struct monad_thread_executor
 #ifdef __cplusplus
 constinit
 #endif
-extern thread_local struct monad_thread_executor _monad_tl_thr_exec;
+    extern thread_local struct monad_thread_executor _monad_tl_thr_exec;
 
 static inline monad_thread_executor_t *_monad_current_thread_executor()
 {
@@ -75,8 +77,25 @@ _monad_start_switch_to_fiber(void *arg0, monad_context thread_ctx)
     // Trampoline function needed by monad_context when we jump from a non-fiber
     // execution context (i.e., an ordinary thread) into a fiber context.
     monad_thread_executor_t *const thr_exec = (monad_thread_executor_t *)arg0;
-    thr_exec->switcher->suspend_and_call_resume(
-        thread_ctx, thr_exec->cur_fiber->switch_ctx);
+    if (thr_exec->call_after_suspend_to_executor != nullptr) {
+        bool (*call_after_suspend_to_executor)(monad_context_task task) =
+            thr_exec->call_after_suspend_to_executor;
+        thr_exec->call_after_suspend_to_executor = nullptr;
+        thr_exec->cur_fiber_detached =
+            call_after_suspend_to_executor(&thr_exec->cur_fiber->head);
+    }
+    if (!thr_exec->cur_fiber_resumed) {
+        thr_exec->cur_fiber_resumed = true;
+        thr_exec->switcher->suspend_and_call_resume(
+            thread_ctx, thr_exec->cur_fiber->head.context);
+    }
+    if (thr_exec->call_after_suspend_to_executor != nullptr) {
+        bool (*call_after_suspend_to_executor)(monad_context_task task) =
+            thr_exec->call_after_suspend_to_executor;
+        thr_exec->call_after_suspend_to_executor = nullptr;
+        thr_exec->cur_fiber_detached =
+            call_after_suspend_to_executor(&thr_exec->cur_fiber->head);
+    }
     return monad_c_make_success(0);
 }
 
@@ -104,20 +123,20 @@ static inline void _monad_suspend_fiber(
     monad_thread_executor_t *thr_exec;
 
     MONAD_DEBUG_ASSERT(monad_spinlock_is_owned(&self->lock));
-    switcher =
-        atomic_load_explicit(&self->switch_ctx->switcher, memory_order_relaxed);
+    switcher = atomic_load_explicit(
+        &self->head.context->switcher, memory_order_relaxed);
     thr_exec = (monad_thread_executor_t *)switcher->user_ptr;
     self->state = suspend_state;
     thr_exec->suspend_info.suspend_type = suspend_type;
     thr_exec->suspend_info.eval = eval;
-    switcher->suspend_and_call_resume(self->switch_ctx, nullptr);
+    switcher->suspend_and_call_resume(self->head.context, nullptr);
 
     // When suspend_and_call_resume returns, we have been resumed from the
     // suspension and are the current fiber again. Note that it is not safe to
     // touch the `thr_exec` variable anymore, as we are potentially resumed by
     // a different thread than we were suspended on, so it would now point at
     // the wrong thread object. If you need to access `thr_exec` here, it must
-    // first be reseated by reading `self->switch_ctx->switcher->user_ptr`
+    // first be reseated by reading `self->head.context->switcher->user_ptr`
     _monad_finish_switch_to_fiber(self);
 }
 
@@ -171,17 +190,23 @@ inline int monad_fiber_run(
     }
 
     if (atomic_load_explicit(
-            &next_fiber->switch_ctx->switcher, memory_order_relaxed) !=
+            &next_fiber->head.context->switcher, memory_order_relaxed) !=
         thr_exec->switcher) {
         monad_context_reparent_switcher(
-            next_fiber->switch_ctx, thr_exec->switcher);
+            next_fiber->head.context, thr_exec->switcher);
         ++next_fiber->stats.total_migrate;
     }
     ++thr_exec->stats.total_run;
     thr_exec->cur_fiber = next_fiber;
+    thr_exec->cur_fiber_resumed = false;
+    thr_exec->cur_fiber_detached = false;
     mcr = thr_exec->switcher->resume_many(
         thr_exec->switcher, _monad_start_switch_to_fiber, thr_exec);
     thr_exec->cur_fiber = nullptr;
+    if (thr_exec->cur_fiber_detached) {
+        // State has been replaced
+        return 0;
+    }
     if (MONAD_FAILED(mcr)) {
         MONAD_SPINLOCK_UNLOCK(&next_fiber->lock);
         return (int)mcr.error.value; // XXX: just assuming this is errno domain?

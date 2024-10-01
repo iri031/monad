@@ -41,8 +41,8 @@ static void fiber_detach(monad_context_task task)
 
     MONAD_SPINLOCK_LOCK(&self->lock);
     self->state = MF_STATE_FINISHED;
-    switcher =
-        atomic_load_explicit(&self->switch_ctx->switcher, memory_order_relaxed);
+    switcher = atomic_load_explicit(
+        &self->head.context->switcher, memory_order_relaxed);
     thr_exec = switcher->user_ptr;
     thr_exec->suspend_info.suspend_type = MF_SUSPEND_RETURN;
     thr_exec->suspend_info.eval = task->result;
@@ -64,7 +64,10 @@ int monad_fiber_create(monad_fiber_attr_t const *attr, monad_fiber_t **fiber)
         attr = &g_default_fiber_attr;
     }
     rc = monad_cma_alloc(
-        attr->alloc, sizeof **fiber, alignof(monad_fiber_t), &memblk);
+        attr->alloc,
+        MONAD_CONTEXT_TASK_ALLOCATION_SIZE,
+        alignof(monad_fiber_t),
+        &memblk);
     if (rc != 0) {
         return rc;
     }
@@ -82,10 +85,10 @@ void monad_fiber_destroy(monad_fiber_t *fiber)
 {
     monad_context_switcher switcher = nullptr;
     MONAD_ASSERT(fiber != nullptr);
-    if (fiber->switch_ctx != nullptr) {
+    if (fiber->head.context != nullptr) {
         switcher = atomic_load_explicit(
-            &fiber->switch_ctx->switcher, memory_order_acquire);
-        switcher->destroy(fiber->switch_ctx);
+            &fiber->head.context->switcher, memory_order_acquire);
+        switcher->destroy(fiber->head.context);
     }
     monad_cma_dealloc(fiber->create_attr.alloc, fiber->self_memblk);
 }
@@ -113,21 +116,21 @@ int monad_fiber_set_function(
         return EBUSY;
     }
 
-    if (fiber->switch_ctx == nullptr) {
+    if (fiber->head.context == nullptr) {
         // The fiber has no associated switchable state (i.e., it has no stack).
         // Tell the switcher to create one.
         mcr = thr_exec->switcher->create(
-            &fiber->switch_ctx, thr_exec->switcher, &fiber->task, &task_attr);
+            &fiber->head.context, thr_exec->switcher, &fiber->head, &task_attr);
         if (MONAD_FAILED(mcr)) {
             MONAD_SPINLOCK_UNLOCK(&fiber->lock);
             return mcr.error.value;
         }
-        fiber->task.user_code = fiber_entrypoint;
-        fiber->task.user_ptr = nullptr; // XXX: useful somehow?
+        fiber->head.user_code = fiber_entrypoint;
+        fiber->head.user_ptr = nullptr; // XXX: useful somehow?
         memcpy(
-            (void *)&fiber->task.detach,
+            (void *)&fiber->head.detach,
             &FIBER_DETACH_ADDR,
-            sizeof fiber->task.detach);
+            sizeof fiber->head.detach);
     }
 
     fiber->state = MF_STATE_CAN_RUN;
@@ -138,6 +141,37 @@ int monad_fiber_set_function(
     MONAD_SPINLOCK_UNLOCK(&fiber->lock);
     return 0;
 }
+
+void monad_fiber_suspend_save_detach_and_invoke(
+    monad_fiber_t *fiber, monad_fiber_t *save,
+    bool (*to_invoke)(monad_context_task detached_task))
+{
+    memcpy(
+        ((char *)save) + sizeof(struct monad_context_task_head),
+        ((char *)fiber) + sizeof(struct monad_context_task_head),
+        sizeof(monad_fiber_t) - sizeof(struct monad_context_task_head));
+    monad_context_task context_task = &fiber->head;
+    monad_context_switcher switcher = atomic_load_explicit(
+        &context_task->context->switcher, memory_order_acquire);
+    monad_thread_executor_t *thr_exec =
+        (monad_thread_executor_t *)switcher->user_ptr;
+    context_task->detach(context_task);
+    // Return to base
+    thr_exec->call_after_suspend_to_executor = to_invoke;
+    switcher->suspend_and_call_resume(context_task->context, nullptr);
+}
+
+monad_fiber_t *monad_fiber_from_foreign_context(
+    monad_context_task context_task, monad_fiber_t const *save)
+{
+    monad_fiber_t *fiber = (monad_fiber_t *)context_task;
+    memcpy(
+        ((char *)fiber) + sizeof(struct monad_context_task_head),
+        ((char *)save) + sizeof(struct monad_context_task_head),
+        sizeof(monad_fiber_t) - sizeof(struct monad_context_task_head));
+    return fiber;
+}
+
 
 int monad_fiber_get_name(monad_fiber_t *fiber, char *name, size_t size)
 {

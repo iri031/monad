@@ -56,6 +56,9 @@ public:
     // Submit a task to the fiber pool
     void submit(monad_fiber_prio_t priority, std::function<void()> task);
 
+    // Resume execution of a pool fiber within the pool
+    void resume(monad_fiber_t *fiber);
+
     // Called by the fiber to mark that the task is finished
     void finish(TaskChannelMsg::token_t finished)
     {
