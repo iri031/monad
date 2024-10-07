@@ -67,23 +67,33 @@ using TryGet = std::move_only_function<std::optional<Block>(uint64_t) const>;
 
 void log_tps(
     uint64_t const block_num, uint64_t const nblocks, uint64_t const ntxs,
-    uint64_t const gas, std::chrono::steady_clock::time_point const begin)
+    uint64_t const gas, std::chrono::steady_clock::time_point const begin,
+    uint64_t const batch_execution_time, uint64_t const batch_commit_time)
 {
     auto const now = std::chrono::steady_clock::now();
-    auto const elapsed = std::max(
+    auto const total_elapsed = std::max(
         static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::microseconds>(now - begin)
                 .count()),
         1UL); // for the unlikely case that elapsed < 1 mic
-    uint64_t const tps = (ntxs) * 1'000'000 / elapsed;
-    uint64_t const gps = gas / elapsed;
+    uint64_t const tps = (ntxs) * 1'000'000 / total_elapsed;
+    uint64_t const gps = gas / total_elapsed;
+
+    uint64_t batch_other_time =
+        total_elapsed - batch_execution_time - batch_commit_time;
 
     LOG_INFO(
-        "Run {:4d} blocks to {:8d}, number of transactions {:6d}, "
+        "Run {:4d} blocks to {:8d}, number of transactions = {:6d}, time = "
+        "{:6d} ms, execution "
+        "time = {:6d} ms, commit time = {:6d} ms, other time = {:6d} ms, "
         "tps = {:5d}, gps = {:4d} M, rss = {:6d} MB",
         nblocks,
         block_num,
         ntxs,
+        total_elapsed / 1000,
+        batch_execution_time / 1000,
+        batch_commit_time / 1000,
+        batch_other_time / 1000,
         tps,
         gps,
         monad_procfs_self_resident() / (1L << 20));
@@ -92,7 +102,8 @@ void log_tps(
 Result<std::pair<uint64_t, uint64_t>> run_monad(
     Chain const &chain, Db &db, TryGet const &try_get,
     fiber::PriorityPool &priority_pool, uint64_t &block_num,
-    uint64_t const nblocks)
+    uint64_t const nblocks, uint64_t &total_execution_time,
+    uint64_t &total_commit_time)
 {
     constexpr auto SLEEP_TIME = std::chrono::microseconds(100);
     signal(SIGINT, signal_handler);
@@ -105,6 +116,9 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     uint64_t total_gas = 0;
     uint64_t batch_gas = 0;
     auto batch_begin = std::chrono::steady_clock::now();
+    uint64_t batch_execution_time = 0;
+    uint64_t batch_commit_time = 0;
+
     uint64_t ntxs = 0;
 
     BlockHashBuffer block_hash_buffer;
@@ -124,6 +138,8 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
             ? std::numeric_limits<uint64_t>::max()
             : block_num + nblocks - 1;
     while (block_num <= end_block_num && stop == 0) {
+        auto const block_execution_begin = std::chrono::steady_clock::now();
+
         auto block = try_get(block_num);
         if (!block.has_value()) {
             std::this_thread::sleep_for(SLEEP_TIME);
@@ -151,8 +167,25 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
 
         BOOST_OUTCOME_TRY(
             chain.validate_header(receipts, block.value().header));
+
+        auto const block_execution_end = std::chrono::steady_clock::now();
+        auto const block_execution_time = static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                block_execution_end - block_execution_begin)
+                .count());
+        batch_execution_time += block_execution_time;
+        total_execution_time += block_execution_time;
+
         block_state.log_debug();
         block_state.commit(receipts);
+
+        auto const block_commit_end = std::chrono::steady_clock::now();
+        auto const block_commit_time = static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                block_commit_end - block_execution_end)
+                .count());
+        batch_commit_time += block_commit_time;
+        total_commit_time += block_commit_time;
 
         if (!chain.validate_root(
                 rev,
@@ -174,17 +207,27 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
                 batch_num_blocks,
                 batch_num_txs,
                 batch_gas,
-                batch_begin);
+                batch_begin,
+                batch_execution_time,
+                batch_commit_time);
             batch_num_blocks = 0;
             batch_num_txs = 0;
             batch_gas = 0;
             batch_begin = std::chrono::steady_clock::now();
+            batch_execution_time = 0;
+            batch_commit_time = 0;
         }
         ++block_num;
     }
     if (batch_num_blocks > 0) {
         log_tps(
-            block_num, batch_num_blocks, batch_num_txs, batch_gas, batch_begin);
+            block_num,
+            batch_num_blocks,
+            batch_num_txs,
+            batch_gas,
+            batch_begin,
+            batch_execution_time,
+            batch_commit_time);
     }
     return {ntxs, total_gas};
 }
@@ -475,8 +518,17 @@ int main(int const argc, char const *argv[])
     }();
 
     uint64_t block_num = start_block_num;
-    auto const result =
-        run_monad(*chain, db_cache, try_get, priority_pool, block_num, nblocks);
+    uint64_t total_execution_time = 0;
+    uint64_t total_commit_time = 0;
+    auto const result = run_monad(
+        *chain,
+        db_cache,
+        try_get,
+        priority_pool,
+        block_num,
+        nblocks,
+        total_execution_time,
+        total_commit_time);
 
     if (MONAD_UNLIKELY(result.has_error())) {
         LOG_ERROR(
@@ -485,22 +537,29 @@ int main(int const argc, char const *argv[])
             result.assume_error().message().c_str());
     }
     else {
-        auto const elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::steady_clock::now() - start_time);
+        auto const elapsed = static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::steady_clock::now() - start_time)
+                .count());
+        auto const total_other_time = elapsed -
+                                      (total_execution_time / 1'000'000) -
+                                      (total_commit_time / 1'000'000);
         auto const [ntxs, total_gas] = result.assume_value();
         LOG_INFO(
             "Finish running, finish(stopped) block number = {}, "
-            "number of blocks run = {}, time_elapsed = {}, num transactions = "
-            "{}, "
-            "tps = {}, gps = {} M",
+            "number of blocks = {}, number of transactions = {:6d}, "
+            "time_elasped = {:6d} ms, execution_time = {:6d} ms, commit_time = "
+            "{:6d} ms, other_time = {:6d} ms, "
+            "tps = {:5d}, gps = {:4d} M",
             block_num,
             nblocks,
-            elapsed,
             ntxs,
-            ntxs / std::max(1UL, static_cast<uint64_t>(elapsed.count())),
-            total_gas /
-                (1'000'000 *
-                 std::max(1UL, static_cast<uint64_t>(elapsed.count()))));
+            elapsed,
+            total_execution_time / 1'000'000,
+            total_commit_time / 1'000'000,
+            total_other_time,
+            ntxs / std::max(1UL, elapsed),
+            total_gas / (1'000'000 * std::max(1UL, elapsed)));
     }
 
     if (sync != nullptr) {
