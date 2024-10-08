@@ -437,7 +437,7 @@ int main(int const argc, char const *argv[])
     auto const try_get = [&] -> TryGet {
         switch (chain_config) {
         case ChainConfig::EthereumMainnet:
-            return [block_db = BlockDb{block_db_path}](
+            return [block_db = BlockDb{block_db_path, *chain}](
                        uint64_t const i) -> std::optional<Block> {
                 Block block;
                 if (block_db.get(i, block)) {
@@ -446,7 +446,8 @@ int main(int const argc, char const *argv[])
                 return std::nullopt;
             };
         case ChainConfig::MonadDevnet:
-            return [block_db_path](uint64_t const i) -> std::optional<Block> {
+            return [block_db_path,
+                    &chain](uint64_t const i) -> std::optional<Block> {
                 auto const path = block_db_path / std::to_string(i);
                 if (!fs::exists(path)) {
                     return std::nullopt;
@@ -465,7 +466,7 @@ int main(int const argc, char const *argv[])
                 buf << istream.rdbuf();
                 auto view = byte_string_view{
                     (unsigned char *)buf.view().data(), buf.view().size()};
-                auto block_result = rlp::decode_block(view);
+                auto block_result = rlp::decode_block(*chain, view);
                 if (block_result.has_error()) {
                     return std::nullopt;
                 }

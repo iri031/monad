@@ -1,8 +1,11 @@
+#include <monad/chain/ethereum_mainnet.hpp>
+#include <monad/chain/ethereum_test_chain.hpp>
 #include <monad/core/block.hpp>
 #include <monad/core/byte_string.hpp>
 #include <monad/core/rlp/block_rlp.hpp>
 #include <monad/core/transaction.hpp>
 #include <monad/db/block_db.hpp>
+#include <monad/rlp/decode_error.hpp>
 
 #include <evmc/evmc.hpp>
 
@@ -21,7 +24,8 @@ using namespace intx;
 TEST(Rlp_Block, DecodeEncodeBlock46402)
 {
     Block block;
-    BlockDb const block_db(test_resource::correct_block_data_dir);
+    EthereumMainnet const chain;
+    BlockDb const block_db{test_resource::correct_block_data_dir, chain};
     bool const res = block_db.get(46'402, block);
     ASSERT_TRUE(res);
 
@@ -108,7 +112,7 @@ TEST(Rlp_Block, DecodeEncodeBlock46402)
     auto const encoded_block = rlp::encode_block(block);
     byte_string_view encoded_block_view{encoded_block};
 
-    auto const decoded_block = rlp::decode_block(encoded_block_view);
+    auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
     ASSERT_FALSE(decoded_block.has_error());
     EXPECT_EQ(encoded_block_view.size(), 0);
     EXPECT_EQ(decoded_block.value(), block);
@@ -117,7 +121,8 @@ TEST(Rlp_Block, DecodeEncodeBlock46402)
 TEST(Rlp_Block, DecodeEncodeBlock2730000)
 {
     Block block;
-    BlockDb const block_db(test_resource::correct_block_data_dir);
+    EthereumMainnet const chain;
+    BlockDb const block_db{test_resource::correct_block_data_dir, chain};
     EXPECT_TRUE(block_db.get(2'730'000, block));
 
     // Header
@@ -266,7 +271,7 @@ TEST(Rlp_Block, DecodeEncodeBlock2730000)
     auto const encoded_block = rlp::encode_block(block);
     byte_string_view encoded_block_view{encoded_block};
 
-    auto const decoded_block = rlp::decode_block(encoded_block_view);
+    auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
     ASSERT_FALSE(decoded_block.has_error());
     EXPECT_EQ(encoded_block_view.size(), 0);
     EXPECT_EQ(decoded_block.value(), block);
@@ -275,7 +280,8 @@ TEST(Rlp_Block, DecodeEncodeBlock2730000)
 TEST(Rlp_Block, DecodeEncodeBlock2730001)
 {
     Block block;
-    BlockDb const block_db(test_resource::correct_block_data_dir);
+    EthereumMainnet const chain;
+    BlockDb const block_db{test_resource::correct_block_data_dir, chain};
     EXPECT_TRUE(block_db.get(2'730'001, block));
 
     // Header
@@ -451,7 +457,7 @@ TEST(Rlp_Block, DecodeEncodeBlock2730001)
     auto const encoded_block = rlp::encode_block(block);
     byte_string_view encoded_block_view{encoded_block};
 
-    auto const decoded_block = rlp::decode_block(encoded_block_view);
+    auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
     ASSERT_FALSE(decoded_block.has_error());
     EXPECT_EQ(encoded_block_view.size(), 0);
     EXPECT_EQ(decoded_block.value(), block);
@@ -460,7 +466,8 @@ TEST(Rlp_Block, DecodeEncodeBlock2730001)
 TEST(Rlp_Block, DecodeEncodeBlock2730002)
 {
     Block block;
-    BlockDb const block_db(test_resource::correct_block_data_dir);
+    EthereumMainnet const chain;
+    BlockDb const block_db{test_resource::correct_block_data_dir, chain};
     EXPECT_TRUE(block_db.get(2'730'002, block));
 
     // Header
@@ -521,7 +528,7 @@ TEST(Rlp_Block, DecodeEncodeBlock2730002)
     auto const encoded_block = rlp::encode_block(block);
     byte_string_view encoded_block_view{encoded_block};
 
-    auto const decoded_block = rlp::decode_block(encoded_block_view);
+    auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
     ASSERT_FALSE(decoded_block.has_error());
     EXPECT_EQ(encoded_block_view.size(), 0);
     EXPECT_EQ(decoded_block.value(), block);
@@ -530,7 +537,8 @@ TEST(Rlp_Block, DecodeEncodeBlock2730002)
 TEST(Rlp_Block, DecodeEncodeBlock2730009)
 {
     Block block;
-    BlockDb const block_db(test_resource::correct_block_data_dir);
+    EthereumMainnet const chain;
+    BlockDb const block_db{test_resource::correct_block_data_dir, chain};
     EXPECT_TRUE(block_db.get(2730009, block));
 
     // Header
@@ -576,7 +584,7 @@ TEST(Rlp_Block, DecodeEncodeBlock2730009)
     auto const encoded_block = rlp::encode_block(block);
     byte_string_view encoded_block_view{encoded_block};
 
-    auto const decoded_block = rlp::decode_block(encoded_block_view);
+    auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
     ASSERT_FALSE(decoded_block.has_error());
     EXPECT_EQ(encoded_block_view.size(), 0);
     EXPECT_EQ(decoded_block.value(), block);
@@ -585,7 +593,8 @@ TEST(Rlp_Block, DecodeEncodeBlock2730009)
 TEST(Rlp_Block, DecodeEncodeBlock14000000)
 {
     Block block;
-    BlockDb const block_db(test_resource::correct_block_data_dir);
+    EthereumMainnet const chain;
+    BlockDb const block_db{test_resource::correct_block_data_dir, chain};
     EXPECT_TRUE(block_db.get(14'000'000, block));
 
     // Header
@@ -695,7 +704,7 @@ TEST(Rlp_Block, DecodeEncodeBlock14000000)
     auto const encoded_block = rlp::encode_block(block);
     byte_string_view encoded_block_view{encoded_block};
 
-    auto const decoded_block = rlp::decode_block(encoded_block_view);
+    auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
     ASSERT_FALSE(decoded_block.has_error());
     EXPECT_EQ(encoded_block_view.size(), 0);
     EXPECT_EQ(decoded_block.value(), block);
@@ -760,10 +769,20 @@ TEST(Rlp_Block, DecodeEncodeShanghai)
         0xfc, 0xe5, 0xed, 0xbc, 0x8e, 0x2a, 0x86, 0x97, 0xc1, 0x53, 0x31, 0x67,
         0x7e, 0x6e, 0xbf, 0x0b, 0x82, 0x27, 0x10};
 
+    // decode negative tests
+    for (int rev = EVMC_FRONTIER; rev < EVMC_SHANGHAI; ++rev) {
+        byte_string_view encoded_block_view{encoded_block};
+        EthereumTestChain const chain(static_cast<evmc_revision>(rev));
+        auto const err_decode = rlp::decode_block(chain, encoded_block_view);
+        EXPECT_TRUE(err_decode.has_error())
+            << "Expected failure for rev " << rev;
+        EXPECT_EQ(err_decode.error(), rlp::DecodeError::InputTooLong);
+    }
+
     auto const encoded_block_copy = encoded_block;
     byte_string_view encoded_block_view{encoded_block};
-
-    auto const decoded_block = rlp::decode_block(encoded_block_view);
+    EthereumTestChain const chain(EVMC_SHANGHAI);
+    auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
     // Header
     ASSERT_FALSE(decoded_block.has_error());
     EXPECT_EQ(encoded_block_view.size(), 0);
@@ -940,10 +959,20 @@ TEST(Rlp_Block, DecodeEncodeCancun)
         0xe5, 0xed, 0xbc, 0x8e, 0x2a, 0x86, 0x97, 0xc1, 0x53, 0x31, 0x67, 0x7e,
         0x6e, 0xbf, 0x0b, 0x82, 0x27, 0x10};
 
+    // decode negative tests
+    for (int rev = EVMC_FRONTIER; rev < EVMC_CANCUN; ++rev) {
+        byte_string_view encoded_block_view{encoded_block};
+        EthereumTestChain const chain(static_cast<evmc_revision>(rev));
+        auto const err_decode = rlp::decode_block(chain, encoded_block_view);
+        EXPECT_TRUE(err_decode.has_error())
+            << "Expected failure for rev " << rev;
+        EXPECT_EQ(err_decode.error(), rlp::DecodeError::InputTooLong);
+    }
+
     auto const encoded_block_copy = encoded_block;
     byte_string_view encoded_block_view{encoded_block};
-
-    auto const decoded_block = rlp::decode_block(encoded_block_view);
+    EthereumTestChain const chain(EVMC_CANCUN);
+    auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
     // Header
     ASSERT_FALSE(decoded_block.has_error());
     EXPECT_EQ(encoded_block_view.size(), 0);
