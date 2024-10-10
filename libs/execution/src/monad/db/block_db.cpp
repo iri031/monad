@@ -56,7 +56,8 @@ bool BlockDb::get(uint64_t const num, Block &block) const
 void BlockDb::upsert(uint64_t const num, Block const &block) const
 {
     auto const key = std::to_string(num);
-    auto const encoded_block = rlp::encode_block(block);
+    auto const encoded_block =
+        rlp::encode_block(chain_.get_revision(block.header), block);
     size_t brotli_size = BrotliEncoderMaxCompressedSize(encoded_block.size());
     MONAD_ASSERT(brotli_size);
     byte_string brotli_buffer;

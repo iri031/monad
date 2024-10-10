@@ -109,7 +109,8 @@ TEST(Rlp_Block, DecodeEncodeBlock46402)
     EXPECT_EQ(block.ommers.size(), 0);
 
     // check encoding
-    auto const encoded_block = rlp::encode_block(block);
+    auto const encoded_block =
+        rlp::encode_block(chain.get_revision(block.header), block);
     byte_string_view encoded_block_view{encoded_block};
 
     auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
@@ -268,7 +269,8 @@ TEST(Rlp_Block, DecodeEncodeBlock2730000)
     EXPECT_EQ(block.ommers.size(), 0);
 
     // check encoding
-    auto const encoded_block = rlp::encode_block(block);
+    auto const encoded_block =
+        rlp::encode_block(chain.get_revision(block.header), block);
     byte_string_view encoded_block_view{encoded_block};
 
     auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
@@ -454,7 +456,8 @@ TEST(Rlp_Block, DecodeEncodeBlock2730001)
     EXPECT_EQ(block.ommers.size(), 0);
 
     // check encoding
-    auto const encoded_block = rlp::encode_block(block);
+    auto const encoded_block =
+        rlp::encode_block(chain.get_revision(block.header), block);
     byte_string_view encoded_block_view{encoded_block};
 
     auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
@@ -525,7 +528,8 @@ TEST(Rlp_Block, DecodeEncodeBlock2730002)
     EXPECT_EQ(block.ommers.size(), 0);
 
     // check encoding
-    auto const encoded_block = rlp::encode_block(block);
+    auto const encoded_block =
+        rlp::encode_block(chain.get_revision(block.header), block);
     byte_string_view encoded_block_view{encoded_block};
 
     auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
@@ -581,7 +585,8 @@ TEST(Rlp_Block, DecodeEncodeBlock2730009)
     EXPECT_EQ(block.ommers.size(), 0);
 
     // check encoding
-    auto const encoded_block = rlp::encode_block(block);
+    auto const encoded_block =
+        rlp::encode_block(chain.get_revision(block.header), block);
     byte_string_view encoded_block_view{encoded_block};
 
     auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
@@ -701,7 +706,8 @@ TEST(Rlp_Block, DecodeEncodeBlock14000000)
     EXPECT_EQ(block.ommers.size(), 0);
 
     // check encoding
-    auto const encoded_block = rlp::encode_block(block);
+    auto const encoded_block =
+        rlp::encode_block(chain.get_revision(block.header), block);
     byte_string_view encoded_block_view{encoded_block};
 
     auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
@@ -890,8 +896,9 @@ TEST(Rlp_Block, DecodeEncodeShanghai)
     EXPECT_EQ(decoded_block.value().withdrawals.value()[3].amount, 0x2710);
 
     // check encoding
-    auto const encoded_block_from_decoded =
-        rlp::encode_block(decoded_block.value());
+    auto const encoded_block_from_decoded = rlp::encode_block(
+        chain.get_revision(decoded_block.value().header),
+        decoded_block.value());
     EXPECT_EQ(encoded_block_from_decoded, encoded_block_copy);
 }
 
@@ -1091,7 +1098,8 @@ TEST(Rlp_Block, DecodeEncodeCancun)
     EXPECT_EQ(decoded_block.value().withdrawals.value()[3].amount, 0x2710);
 
     // check encoding
-    auto const encoded_block_from_decoded =
-        rlp::encode_block(decoded_block.value());
+    auto const encoded_block_from_decoded = rlp::encode_block(
+        chain.get_revision(decoded_block.value().header),
+        decoded_block.value());
     EXPECT_EQ(encoded_block_from_decoded, encoded_block_copy);
 }

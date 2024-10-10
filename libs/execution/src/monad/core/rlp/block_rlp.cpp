@@ -1,3 +1,4 @@
+#include <monad/core/assert.h>
 #include <monad/core/block.hpp>
 #include <monad/core/byte_string.hpp>
 #include <monad/core/int.hpp>
@@ -27,7 +28,8 @@
 
 MONAD_RLP_NAMESPACE_BEGIN
 
-byte_string encode_block_header(BlockHeader const &block_header)
+byte_string
+encode_block_header(evmc_revision const rev, BlockHeader const &block_header)
 {
     byte_string encoded_block_header;
     encoded_block_header += encode_bytes32(block_header.parent_hash);
@@ -47,25 +49,31 @@ byte_string encode_block_header(BlockHeader const &block_header)
     encoded_block_header +=
         encode_string2(to_byte_string_view(block_header.nonce));
 
-    if (block_header.base_fee_per_gas.has_value()) {
+    if (rev >= EVMC_LONDON) {
+        // EIP-1559
+        MONAD_ASSERT(block_header.base_fee_per_gas.has_value());
         encoded_block_header +=
             encode_unsigned(block_header.base_fee_per_gas.value());
     }
 
-    if (block_header.withdrawals_root.has_value()) {
+    if (rev >= EVMC_SHANGHAI) {
+        // EIP-4895
+        MONAD_ASSERT(block_header.withdrawals_root.has_value());
         encoded_block_header +=
             encode_bytes32(block_header.withdrawals_root.value());
     }
 
-    if (block_header.blob_gas_used.has_value()) {
+    if (rev >= EVMC_CANCUN) {
+        MONAD_ASSERT(
+            block_header.blob_gas_used.has_value() ||
+            block_header.excess_blob_gas.has_value() ||
+            block_header.parent_beacon_block_root.has_value());
+        // EIP-4844
         encoded_block_header +=
             encode_unsigned(block_header.blob_gas_used.value());
-    }
-    if (block_header.excess_blob_gas.has_value()) {
         encoded_block_header +=
             encode_unsigned(block_header.excess_blob_gas.value());
-    }
-    if (block_header.parent_beacon_block_root.has_value()) {
+        // EIP-4788
         encoded_block_header +=
             encode_bytes32(block_header.parent_beacon_block_root.value());
     }
@@ -73,9 +81,10 @@ byte_string encode_block_header(BlockHeader const &block_header)
     return encode_list2(encoded_block_header);
 }
 
-byte_string encode_block(Block const &block)
+byte_string encode_block(evmc_revision const rev, Block const &block)
 {
-    byte_string const encoded_block_header = encode_block_header(block.header);
+    byte_string const encoded_block_header =
+        encode_block_header(rev, block.header);
     byte_string encoded_block_transactions;
     byte_string encoded_block_ommers;
 
@@ -91,7 +100,7 @@ byte_string encode_block(Block const &block)
     encoded_block_transactions = encode_list2(encoded_block_transactions);
 
     for (auto const &ommer : block.ommers) {
-        encoded_block_ommers += encode_block_header(ommer);
+        encoded_block_ommers += encode_block_header(rev, ommer);
     }
     encoded_block_ommers = encode_list2(encoded_block_ommers);
 
@@ -100,7 +109,9 @@ byte_string encode_block(Block const &block)
     encoded_block += encoded_block_transactions;
     encoded_block += encoded_block_ommers;
 
-    if (block.withdrawals.has_value()) {
+    if (rev >= EVMC_SHANGHAI) {
+        // EIP-4895
+        MONAD_ASSERT(block.withdrawals.has_value());
         byte_string encoded_block_withdrawals;
         for (auto const &withdraw : block.withdrawals.value()) {
             encoded_block_withdrawals += encode_withdrawal(withdraw);
