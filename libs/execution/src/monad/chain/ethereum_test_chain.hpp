@@ -21,7 +21,7 @@ public:
     {
     }
 
-    virtual evmc_revision get_revision(BlockHeader const &) const override
+    virtual evmc_revision get_revision(uint64_t) const override
     {
         return rev_;
     }

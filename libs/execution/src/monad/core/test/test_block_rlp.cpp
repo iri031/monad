@@ -110,7 +110,7 @@ TEST(Rlp_Block, DecodeEncodeBlock46402)
 
     // check encoding
     auto const encoded_block =
-        rlp::encode_block(chain.get_revision(block.header), block);
+        rlp::encode_block(chain.get_revision(block.header.number), block);
     byte_string_view encoded_block_view{encoded_block};
 
     auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
@@ -270,7 +270,7 @@ TEST(Rlp_Block, DecodeEncodeBlock2730000)
 
     // check encoding
     auto const encoded_block =
-        rlp::encode_block(chain.get_revision(block.header), block);
+        rlp::encode_block(chain.get_revision(block.header.number), block);
     byte_string_view encoded_block_view{encoded_block};
 
     auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
@@ -457,7 +457,7 @@ TEST(Rlp_Block, DecodeEncodeBlock2730001)
 
     // check encoding
     auto const encoded_block =
-        rlp::encode_block(chain.get_revision(block.header), block);
+        rlp::encode_block(chain.get_revision(block.header.number), block);
     byte_string_view encoded_block_view{encoded_block};
 
     auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
@@ -529,7 +529,7 @@ TEST(Rlp_Block, DecodeEncodeBlock2730002)
 
     // check encoding
     auto const encoded_block =
-        rlp::encode_block(chain.get_revision(block.header), block);
+        rlp::encode_block(chain.get_revision(block.header.number), block);
     byte_string_view encoded_block_view{encoded_block};
 
     auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
@@ -586,7 +586,7 @@ TEST(Rlp_Block, DecodeEncodeBlock2730009)
 
     // check encoding
     auto const encoded_block =
-        rlp::encode_block(chain.get_revision(block.header), block);
+        rlp::encode_block(chain.get_revision(block.header.number), block);
     byte_string_view encoded_block_view{encoded_block};
 
     auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
@@ -707,7 +707,7 @@ TEST(Rlp_Block, DecodeEncodeBlock14000000)
 
     // check encoding
     auto const encoded_block =
-        rlp::encode_block(chain.get_revision(block.header), block);
+        rlp::encode_block(chain.get_revision(block.header.number), block);
     byte_string_view encoded_block_view{encoded_block};
 
     auto const decoded_block = rlp::decode_block(chain, encoded_block_view);
@@ -897,7 +897,7 @@ TEST(Rlp_Block, DecodeEncodeShanghai)
 
     // check encoding
     auto const encoded_block_from_decoded = rlp::encode_block(
-        chain.get_revision(decoded_block.value().header),
+        chain.get_revision(decoded_block.value().header.number),
         decoded_block.value());
     EXPECT_EQ(encoded_block_from_decoded, encoded_block_copy);
 }
@@ -1099,7 +1099,7 @@ TEST(Rlp_Block, DecodeEncodeCancun)
 
     // check encoding
     auto const encoded_block_from_decoded = rlp::encode_block(
-        chain.get_revision(decoded_block.value().header),
+        chain.get_revision(decoded_block.value().header.number),
         decoded_block.value());
     EXPECT_EQ(encoded_block_from_decoded, encoded_block_copy);
 }

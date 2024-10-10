@@ -148,7 +148,7 @@ decode_block_header(Chain const &chain, byte_string_view &enc)
     BOOST_OUTCOME_TRY(block_header.prev_randao, decode_bytes32(payload));
     BOOST_OUTCOME_TRY(block_header.nonce, decode_byte_string_fixed<8>(payload));
 
-    auto const rev = chain.get_revision(block_header);
+    auto const rev = chain.get_revision(block_header.number);
 
     if (rev >= EVMC_LONDON) {
         // EIP-1559
@@ -232,7 +232,7 @@ Result<Block> decode_block(Chain const &chain, byte_string_view &enc)
     BOOST_OUTCOME_TRY(block.transactions, decode_transaction_list(payload));
     BOOST_OUTCOME_TRY(block.ommers, decode_block_header_vector(chain, payload));
 
-    if (chain.get_revision(block.header) >= EVMC_SHANGHAI) {
+    if (chain.get_revision(block.header.number) >= EVMC_SHANGHAI) {
         BOOST_OUTCOME_TRY(auto withdrawals, decode_withdrawal_list(payload));
         block.withdrawals.emplace(std::move(withdrawals));
     }
