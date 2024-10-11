@@ -21,7 +21,7 @@ public:
     {
     }
 
-    virtual evmc_revision get_revision(uint64_t) const override
+    virtual evmc_revision get_revision(uint64_t, uint64_t) const override
     {
         return rev_;
     }
