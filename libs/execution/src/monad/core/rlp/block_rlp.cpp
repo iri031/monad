@@ -99,10 +99,17 @@ byte_string encode_block(evmc_revision const rev, Block const &block)
     }
     encoded_block_transactions = encode_list2(encoded_block_transactions);
 
-    for (auto const &ommer : block.ommers) {
-        encoded_block_ommers += encode_block_header(rev, ommer);
+    if (rev >= EVMC_PARIS) {
+        // EIP-3675: Ommers must be empty
+        MONAD_ASSERT(block.ommers.empty());
+        encoded_block_ommers += EMPTY_LIST;
     }
-    encoded_block_ommers = encode_list2(encoded_block_ommers);
+    else {
+        for (auto const &ommer : block.ommers) {
+            encoded_block_ommers += encode_block_header(rev, ommer);
+        }
+        encoded_block_ommers = encode_list2(encoded_block_ommers);
+    }
 
     byte_string encoded_block;
     encoded_block += encoded_block_header;
@@ -233,8 +240,17 @@ Result<Block> decode_block(Chain const &chain, byte_string_view &enc)
     BOOST_OUTCOME_TRY(block.transactions, decode_transaction_list(payload));
     BOOST_OUTCOME_TRY(block.ommers, decode_block_header_vector(chain, payload));
 
-    if (chain.get_revision(block.header.number, block.header.timestamp) >=
-        EVMC_SHANGHAI) {
+    auto const rev =
+        chain.get_revision(block.header.number, block.header.timestamp);
+
+    if (rev >= EVMC_PARIS) {
+        // EIP-3675: Ommers must be empty
+        if (!block.ommers.empty()) {
+            return DecodeError::InputTooLong;
+        }
+    }
+
+    if (rev >= EVMC_SHANGHAI) {
         BOOST_OUTCOME_TRY(auto withdrawals, decode_withdrawal_list(payload));
         block.withdrawals.emplace(std::move(withdrawals));
     }
