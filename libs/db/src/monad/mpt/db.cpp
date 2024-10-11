@@ -27,6 +27,7 @@
 
 #include <boost/container/deque.hpp>
 #include <boost/fiber/operations.hpp>
+#include <boost/outcome/try.hpp>
 
 #include <atomic>
 #include <cerrno>
@@ -154,11 +155,11 @@ struct Db::ROOnDisk final : public Db::Impl
         uint64_t const version) override
     {
         if (!root.is_valid()) {
-            return {NodeCursor{}, find_result::unknown};
+            return {NodeCursor{}, DbError::root_node_is_null_failure};
         }
         // db we last loaded does not contain the version we want to find
         if (!aux().version_is_valid_ondisk(version)) {
-            return {NodeCursor{}, find_result::version_no_longer_exist};
+            return {NodeCursor{}, DbError::version_no_longer_exist};
         }
         try {
             auto const res = find_blocking(aux(), root, key);
@@ -166,11 +167,10 @@ struct Db::ROOnDisk final : public Db::Impl
             return aux().version_is_valid_ondisk(version)
                        ? res
                        : find_result_type{
-                             NodeCursor{},
-                             find_result::version_no_longer_exist};
+                             NodeCursor{}, DbError::version_no_longer_exist};
         }
         catch (std::exception const &e) { // exception implies UB
-            return {NodeCursor{}, find_result::version_no_longer_exist};
+            return {NodeCursor{}, DbError::version_no_longer_exist};
         }
     }
 
@@ -749,11 +749,10 @@ Db::find(NodeCursor root, NibblesView const key, uint64_t const block_id) const
 {
     MONAD_ASSERT(impl_);
     auto const [it, result] = impl_->find_fiber_blocking(root, key, block_id);
-    if (result != find_result::success) {
-        return DbError::key_not_found;
+    if (result != DbError::success) {
+        return static_cast<DbError>(result);
     }
     MONAD_DEBUG_ASSERT(it.node != nullptr);
-    MONAD_DEBUG_ASSERT(it.node->has_value());
     return it;
 }
 
@@ -774,33 +773,27 @@ Db::find(NibblesView const key, uint64_t const block_id) const
 Result<byte_string_view>
 Db::get(NibblesView const key, uint64_t const block_id) const
 {
-    auto res = find(key, block_id);
-    if (!res.has_value() || !res.value().node->has_value()) {
-        return DbError::key_not_found;
+    BOOST_OUTCOME_TRY(NodeCursor const node_cursor, find(key, block_id));
+    if (node_cursor.node->has_value()) {
+        return node_cursor.node->value();
     }
-    return res.value().node->value();
+    return DbError::node_is_not_leaf_failure;
 }
 
 Result<byte_string_view> Db::get_data(
     NodeCursor root, NibblesView const key, uint64_t const block_id) const
 {
-    auto res = find(root, key, block_id);
-    if (!res.has_value()) {
-        return DbError::key_not_found;
-    }
-    MONAD_DEBUG_ASSERT(res.value().node != nullptr);
-    return res.value().node->data();
+    BOOST_OUTCOME_TRY(NodeCursor const node_cursor, find(root, key, block_id));
+    MONAD_DEBUG_ASSERT(node_cursor.node != nullptr);
+    return node_cursor.node->data();
 }
 
 Result<byte_string_view>
 Db::get_data(NibblesView const key, uint64_t const block_id) const
 {
-    auto res = find(key, block_id);
-    if (!res.has_value()) {
-        return DbError::key_not_found;
-    }
-    MONAD_DEBUG_ASSERT(res.value().node != nullptr);
-    return res.value().node->data();
+    BOOST_OUTCOME_TRY(NodeCursor const node_cursor, find(key, block_id));
+    MONAD_DEBUG_ASSERT(node_cursor.node != nullptr);
+    return node_cursor.node->data();
 }
 
 void Db::upsert(
@@ -966,7 +959,7 @@ namespace detail
                             std::move(buffer_), buffer_off, io_state);
                     root = sender->root;
                     sender->res_root = {
-                        NodeCursor{*sender->root.get()}, find_result::success};
+                        NodeCursor{*sender->root.get()}, DbError::success};
                     {
                         AsyncContext::TrieRootCache::ConstAccessor acc;
                         MONAD_ASSERT(
@@ -978,12 +971,12 @@ namespace detail
                 }
                 catch (std::exception const &) {
                     sender->res_root = {
-                        NodeCursor{}, find_result::version_no_longer_exist};
+                        NodeCursor{}, DbError::version_no_longer_exist};
                 }
             }
             else {
                 sender->res_root = {
-                    NodeCursor{}, find_result::version_no_longer_exist};
+                    NodeCursor{}, DbError::version_no_longer_exist};
             }
 
             for (auto &invoc : pendings) {
@@ -1019,15 +1012,14 @@ namespace detail
             }
             try {
                 // verify version still valid in history after success
-                res_bytes = aux.version_is_valid_ondisk(version)
-                                ? std::move(res).assume_value()
-                                : find_bytes_result_type{
-                                      byte_string{},
-                                      find_result::version_no_longer_exist};
+                res_bytes =
+                    aux.version_is_valid_ondisk(version)
+                        ? std::move(res).assume_value()
+                        : find_bytes_result_type{
+                              byte_string{}, DbError::version_no_longer_exist};
             }
             catch (std::exception const &e) { // exception implies UB
-                res_bytes = {
-                    byte_string{}, find_result::version_no_longer_exist};
+                res_bytes = {byte_string{}, DbError::version_no_longer_exist};
             }
             io_state->completed(async::success());
             delete this_io_state;
@@ -1045,7 +1037,7 @@ namespace detail
             if (context.root_cache.find(acc, block_id)) {
                 // found in LRU - no IO necessary
                 root = acc->second->val;
-                res_root = {NodeCursor{*root.get()}, find_result::success};
+                res_root = {NodeCursor{*root.get()}, DbError::success};
                 io_state->completed(async::success());
                 return async::success();
             }
@@ -1054,19 +1046,18 @@ namespace detail
                 context.aux.get_root_offset_at_version(block_id);
             if (offset == INVALID_OFFSET) {
                 // root is no longer valid
-                res_root = {NodeCursor{}, find_result::version_no_longer_exist};
+                res_root = {NodeCursor{}, DbError::version_no_longer_exist};
                 io_state->completed(async::success());
                 return async::success();
             }
 
             auto cont = [this, io_state](std::shared_ptr<Node> root_) {
                 if (!root_) {
-                    res_root = {
-                        NodeCursor{}, find_result::version_no_longer_exist};
+                    res_root = {NodeCursor{}, DbError::version_no_longer_exist};
                 }
                 else {
                     root = root_;
-                    res_root = {NodeCursor{*root.get()}, find_result::success};
+                    res_root = {NodeCursor{*root.get()}, DbError::success};
                 }
                 io_state->completed(async::success());
             };
@@ -1085,8 +1076,7 @@ namespace detail
         case op_t::op_get_data2: {
             // verify version is valid in db history before doing anything
             if (!context.aux.version_is_valid_ondisk(block_id)) {
-                res_bytes = {
-                    byte_string{}, find_result::version_no_longer_exist};
+                res_bytes = {byte_string{}, DbError::version_no_longer_exist};
                 io_state->completed(async::success());
                 return async::success();
             }
@@ -1117,9 +1107,9 @@ namespace detail
         auto const res_msg = (op_type == op_get1 || op_type == op_get_data1)
                                  ? res_root.second
                                  : res_bytes.second;
-        MONAD_ASSERT(res_msg != find_result::unknown);
-        if (res_msg != find_result::success) {
-            return DbError::key_not_found;
+        MONAD_ASSERT(res_msg != DbError::unknown);
+        if (res_msg != DbError::success) {
+            return static_cast<DbError>(res_msg);
         }
         switch (op_type) {
         case op_t::op_get1:

@@ -661,7 +661,7 @@ int main(int argc, char *argv[])
                 root.reset(read_node_blocking(
                     io.storage_pool(), aux.get_latest_root_offset()));
                 auto [res, errc] = find_blocking(aux, *root, state_nibbles);
-                MONAD_ASSERT(errc == find_result::success);
+                MONAD_ASSERT(errc == DbError::success);
                 state_start = res;
                 return ret;
             };
@@ -708,7 +708,7 @@ int main(int argc, char *argv[])
                         auto const [data, errc] = res.assume_value();
                         MONAD_ASSERT(
                             data.size() == KECCAK256_SIZE || data.size() == 0);
-                        MONAD_ASSERT(errc == monad::mpt::find_result::success);
+                        MONAD_ASSERT(errc == monad::mpt::DbError::success);
                         ops++;
 
                         if (!done) {
@@ -749,7 +749,7 @@ int main(int argc, char *argv[])
                     state->receiver().set_value(
                         state.get(),
                         monad::mpt::find_bytes_result_type(
-                            {}, monad::mpt::find_result::success));
+                            {}, monad::mpt::DbError::success));
                 }
 
                 auto begin = std::chrono::steady_clock::now();
@@ -805,7 +805,7 @@ int main(int argc, char *argv[])
                         auto const [node_cursor, errc] =
                             request.promise->get_future().get();
                         MONAD_ASSERT(node_cursor.is_valid());
-                        MONAD_ASSERT(errc == monad::mpt::find_result::success);
+                        MONAD_ASSERT(errc == monad::mpt::DbError::success);
                         MONAD_ASSERT(node_cursor.node->has_value());
                         ops++;
                         boost::this_fiber::yield();
@@ -893,7 +893,7 @@ int main(int argc, char *argv[])
                         auto const [node_cursor, errc] =
                             request.promise->get_future().get();
                         MONAD_ASSERT(node_cursor.is_valid());
-                        MONAD_ASSERT(errc == monad::mpt::find_result::success);
+                        MONAD_ASSERT(errc == monad::mpt::DbError::success);
                         MONAD_ASSERT(node_cursor.node->has_value());
                         ops.fetch_add(1, std::memory_order_relaxed);
                     }
@@ -1041,7 +1041,7 @@ int main(int argc, char *argv[])
                         auto const [node_cursor, errc] =
                             state.receiver().p.get_future().get();
                         MONAD_ASSERT(node_cursor.is_valid());
-                        MONAD_ASSERT(errc == monad::mpt::find_result::success);
+                        MONAD_ASSERT(errc == monad::mpt::DbError::success);
                         MONAD_ASSERT(node_cursor.node->has_value());
                         ops.fetch_add(1, std::memory_order_relaxed);
                     }

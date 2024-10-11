@@ -464,7 +464,7 @@ TEST_F(OnDiskDbWithFileAsyncFixture, read_only_db_single_thread_async)
             test_cached_level),
         [&](result_t res) {
             EXPECT_TRUE(res.has_error());
-            EXPECT_EQ(res.error(), DbError::key_not_found);
+            EXPECT_EQ(res.error(), DbError::version_no_longer_exist);
         });
 
     poll_until(1);
@@ -561,7 +561,8 @@ TEST(ReadOnlyDbTest, open_empty_rodb)
     EXPECT_EQ(ro_db.get_latest_block_id(), INVALID_BLOCK_ID);
     EXPECT_EQ(ro_db.get_earliest_block_id(), INVALID_BLOCK_ID);
     // RODb get() from any block will fail
-    EXPECT_EQ(ro_db.get({}, 0).assume_error(), DbError::key_not_found);
+    EXPECT_EQ(
+        ro_db.get({}, 0).assume_error(), DbError::root_node_is_null_failure);
 }
 
 TEST(ReadOnlyDbTest, read_only_db_concurrent)
@@ -1189,7 +1190,7 @@ TEST_F(OnDiskDbFixture, rw_query_old_version)
     write(kv[1].first, kv[1].second, block_id + i);
     auto bad_read = this->db.get(prefix + kv[0].first, block_id);
     EXPECT_TRUE(bad_read.has_error());
-    EXPECT_EQ(bad_read.error(), DbError::key_not_found);
+    EXPECT_EQ(bad_read.error(), DbError::root_node_is_null_failure);
 }
 
 TEST(DbTest, move_trie_causes_discontinuous_history)
