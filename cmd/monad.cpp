@@ -65,18 +65,21 @@ namespace fs = std::filesystem;
 
 using TryGet = std::move_only_function<std::optional<Block>(uint64_t) const>;
 
+template <class Period = std::ratio<1>>
+std::chrono::duration<double, Period>
+n_per(uint64_t const n, std::chrono::duration<double> const t)
+{
+    MONAD_ASSERT(t.count() > 0);
+    std::chrono::duration<double> const r(static_cast<double>(n) / t.count());
+    return std::chrono::duration_cast<std::chrono::duration<double, Period>>(r);
+}
+
 void log_tps(
     uint64_t const block_num, uint64_t const nblocks, uint64_t const ntxs,
     uint64_t const gas, std::chrono::steady_clock::time_point const begin)
 {
-    auto const now = std::chrono::steady_clock::now();
-    auto const elapsed = std::max(
-        static_cast<uint64_t>(
-            std::chrono::duration_cast<std::chrono::microseconds>(now - begin)
-                .count()),
-        1UL); // for the unlikely case that elapsed < 1 mic
-    uint64_t const tps = (ntxs) * 1'000'000 / elapsed;
-    uint64_t const gps = gas / elapsed;
+    std::chrono::nanoseconds const elapsed =
+        std::chrono::steady_clock::now() - begin;
 
     LOG_INFO(
         "Run {:4d} blocks to {:8d}, number of transactions {:6d}, "
@@ -84,8 +87,8 @@ void log_tps(
         nblocks,
         block_num,
         ntxs,
-        tps,
-        gps,
+        static_cast<uint64_t>(n_per(ntxs, elapsed).count()),
+        static_cast<uint64_t>(n_per<std::mega>(gas, elapsed).count()),
         monad_procfs_self_resident() / (1L << 20));
 };
 
@@ -192,7 +195,6 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
 
 int main(int const argc, char const *argv[])
 {
-
     CLI::App cli{"monad"};
     cli.option_defaults()->always_capture_default();
 
@@ -486,9 +488,9 @@ int main(int const argc, char const *argv[])
             result.assume_error().message().c_str());
     }
     else {
-        auto const elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::steady_clock::now() - start_time);
-        auto const [ntxs, total_gas] = result.assume_value();
+        std::chrono::nanoseconds const elapsed =
+            std::chrono::steady_clock::now() - start_time;
+        auto const [ntxs, gas] = result.assume_value();
         LOG_INFO(
             "Finish running, finish(stopped) block number = {}, "
             "number of blocks run = {}, time_elapsed = {}, num transactions = "
@@ -498,10 +500,8 @@ int main(int const argc, char const *argv[])
             nblocks,
             elapsed,
             ntxs,
-            ntxs / std::max(1UL, static_cast<uint64_t>(elapsed.count())),
-            total_gas /
-                (1'000'000 *
-                 std::max(1UL, static_cast<uint64_t>(elapsed.count()))));
+            static_cast<uint64_t>(n_per(ntxs, elapsed).count()),
+            static_cast<uint64_t>(n_per<std::mega>(gas, elapsed).count()));
     }
 
     if (sync != nullptr) {
