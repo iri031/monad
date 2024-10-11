@@ -207,11 +207,7 @@ monad_async_task_socket_listen(monad_async_socket sock_, int backlog)
 static inline monad_c_result monad_async_task_socket_task_op_cancel(
     struct monad_async_executor_impl *ex, struct monad_async_task_impl *task)
 {
-    struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(
-        ex,
-        (struct monad_async_task_impl *)atomic_load_explicit(
-            &ex->head.current_task, memory_order_acquire),
-        false);
+    struct io_uring_sqe *sqe = get_sqe_for_cancellation(ex);
     io_uring_prep_cancel(sqe, io_uring_mangle_into_data(task), 0);
     return monad_c_make_failure(EAGAIN); // Canceller needs to wait
 }
@@ -223,7 +219,7 @@ static inline monad_c_result monad_async_task_socket_iostatus_op_cancel(
     struct monad_async_executor_impl *ex =
         (struct monad_async_executor_impl *)atomic_load_explicit(
             &task->head.current_executor, memory_order_acquire);
-    struct io_uring_sqe *sqe = get_sqe_suspending_if_necessary(ex, task, false);
+    struct io_uring_sqe *sqe = get_sqe_for_cancellation(ex);
     io_uring_prep_cancel(sqe, io_uring_mangle_into_data(iostatus), 0);
     return monad_c_make_failure(EAGAIN); // Canceller needs to wait
 }
