@@ -130,14 +130,34 @@ Section with_Sigma.
     \pre txp |-> TransactionR qtx t
     \arg{senderp} "sender" (Vref senderp)
     \pre{qs} senderp |-> optionAddressR qs (Some (Message.caller t))
+    \arg{hdrp: ptr} "hdr" (Vref hdrp)
+    \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \arg{block_statep: ptr} "block_state" (Vref block_statep)
     \prepost{(preBlockState: StateOfAccounts) (gl: BlockState.glocs)}
       block_statep |-> BlockState.Rc block preBlockState 1 gl
-    \arg{hdrp: ptr} "hdr" (Vref hdrp)
-    \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \arg{prevp: ptr} "prev" (Vref prevp)
     \prepost{prg: gname} prevp |-> PromiseR (1/2) prg (storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) (i-1))
     \post storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) i.
 
-  (* TODO: execute_imp2, which "returns" a State, which is the diff that needs to be generalized *)
+  Record State :=
+    {
+      original: StateOfAccounts;
+      newStates: list StateOfAccounts; (* head is the latest *)
+    }.
+
+  (* not supposed to be shared, so no fraction *)
+  Definition StateR (s: State): Rep. Proof. Admitted.
+  Definition execute_impl2_spec : WpSpec mpredI val val :=
+    \arg{chainp :ptr} "chain" (Vref chainp)
+    \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
+    \arg{txp} "tx" (Vref txp)
+    \pre{(qtx: Qp) (i:nat) (block: Block) t} Exists t, [| nth_error (transactions block) i = Some t |]
+    \pre txp |-> TransactionR qtx t
+    \arg{senderp} "sender" (Vref senderp)
+    \pre{qs} senderp |-> optionAddressR qs (Some (Message.caller t))
+    \arg{hdrp: ptr} "hdr" (Vref hdrp)
+    \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
+    \arg{prevp: ptr} "prev" (Vref prevp)
+    \arg{statep: ptr} "prev" (Vref statep)
+    \post storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) i.
 End with_Sigma.
