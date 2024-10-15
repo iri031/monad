@@ -9,6 +9,7 @@
 #include <monad/statesync/statesync_messages.h>
 #include <monad/statesync/statesync_server.h>
 #include <monad/statesync/statesync_server_context.hpp>
+#include <monad/statesync/statesync_version.h>
 
 #include <ankerl/unordered_dense.h>
 #include <quill/Quill.h>
@@ -255,6 +256,10 @@ LLVMFuzzerTestOneInput(uint8_t const *const data, size_t const size)
     monad_statesync_client_context *const cctx =
         monad_statesync_client_context_create(
             &cdbname_str, 1, "", &client, &statesync_send_request);
+    for (size_t i = 0; i < MONAD_STATESYNC_N_PREFIXES; ++i) {
+        monad_statesync_client_handle_new_peer(
+            cctx, i, MONAD_STATESYNC_VERSION);
+    }
     std::filesystem::path sdbname{tmp_dbname()};
     OnDiskMachine machine;
     mpt::Db sdb{

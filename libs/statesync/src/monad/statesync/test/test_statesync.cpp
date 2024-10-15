@@ -9,6 +9,7 @@
 #include <monad/statesync/statesync_client.h>
 #include <monad/statesync/statesync_server.h>
 #include <monad/statesync/statesync_server_context.hpp>
+#include <monad/statesync/statesync_version.h>
 #include <test_resource_data.h>
 
 #include <ethash/keccak.hpp>
@@ -142,6 +143,10 @@ namespace
             char const *const str = cdbname.c_str();
             cctx = monad_statesync_client_context_create(
                 &str, 1, genesis.c_str(), &client, &statesync_send_request);
+            for (size_t i = 0; i < MONAD_STATESYNC_N_PREFIXES; ++i) {
+                monad_statesync_client_handle_new_peer(
+                    cctx, i, MONAD_STATESYNC_VERSION);
+            }
             net = {.client = &client, .cctx = cctx};
             server = monad_statesync_server_create(
                 &sctx,

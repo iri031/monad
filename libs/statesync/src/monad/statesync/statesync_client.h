@@ -10,6 +10,10 @@ extern "C"
 struct monad_statesync_client;
 struct monad_statesync_client_context;
 
+constexpr uint8_t MONAD_STATESYNC_PREFIX_BYTES = 1;
+constexpr size_t MONAD_STATESYNC_N_PREFIXES =
+    1 << (8 * MONAD_STATESYNC_PREFIX_BYTES);
+
 struct monad_statesync_client_context *monad_statesync_client_context_create(
     char const *const *dbname_paths, size_t len, char const *genesis_file,
     struct monad_statesync_client *,
@@ -18,6 +22,9 @@ struct monad_statesync_client_context *monad_statesync_client_context_create(
 
 bool monad_statesync_client_has_reached_target(
     struct monad_statesync_client_context const *);
+
+void monad_statesync_client_handle_new_peer(
+    struct monad_statesync_client_context *, uint64_t prefix, uint32_t version);
 
 void monad_statesync_client_handle_target(
     struct monad_statesync_client_context *, struct monad_sync_target);

@@ -8,9 +8,11 @@
 #include <monad/execution/genesis.hpp>
 #include <monad/statesync/statesync_client.h>
 #include <monad/statesync/statesync_client_context.hpp>
+#include <monad/statesync/statesync_version.h>
 
 #include <ankerl/unordered_dense.h>
 
+#include <algorithm>
 #include <bit>
 #include <deque>
 #include <filesystem>
@@ -232,7 +234,7 @@ monad_statesync_client_context *monad_statesync_client_context_create(
         dbname_paths, dbname_paths + len};
     MONAD_ASSERT(!paths.empty());
     return new monad_statesync_client_context{
-        paths, genesis_file, 1, sync, statesync_send_request};
+        paths, genesis_file, sync, statesync_send_request};
 }
 
 bool monad_statesync_client_has_reached_target(
@@ -251,9 +253,21 @@ bool monad_statesync_client_has_reached_target(
     return true;
 }
 
+void monad_statesync_client_handle_new_peer(
+    monad_statesync_client_context *const ctx, uint64_t const prefix,
+    uint32_t const version)
+{
+    MONAD_ASSERT(monad_statesync_compatible(version));
+    // TODO: handle switching peers
+    MONAD_ASSERT(ctx->version.at(prefix) == (MONAD_STATESYNC_VERSION + 1));
+    ctx->version.at(prefix) = version;
+}
+
 void monad_statesync_client_handle_target(
     monad_statesync_client_context *const ctx, monad_sync_target const msg)
 {
+    MONAD_ASSERT(
+        std::ranges::all_of(ctx->version, &monad_statesync_compatible));
     MONAD_ASSERT(msg.n != INVALID_BLOCK_ID);
     MONAD_ASSERT(ctx->target == INVALID_BLOCK_ID || msg.n >= ctx->target);
 
@@ -274,7 +288,7 @@ void monad_statesync_client_handle_target(
                 ctx->sync,
                 monad_sync_request{
                     .prefix = i,
-                    .prefix_bytes = ctx->prefix_bytes,
+                    .prefix_bytes = MONAD_STATESYNC_PREFIX_BYTES,
                     .target = msg.n,
                     .from = from,
                     .until =
@@ -358,7 +372,7 @@ void monad_statesync_client_handle_done(
             ctx->sync,
             monad_sync_request{
                 .prefix = msg.prefix,
-                .prefix_bytes = ctx->prefix_bytes,
+                .prefix_bytes = MONAD_STATESYNC_PREFIX_BYTES,
                 .target = ctx->target,
                 .from = progress + 1,
                 .until = std::min(progress + (1 << 20), ctx->target),

@@ -30,7 +30,7 @@ struct monad_statesync_client_context
     monad::mpt::Db db;
     monad::TrieDb tdb;
     std::vector<std::pair<uint64_t, uint64_t>> progress;
-    uint8_t prefix_bytes;
+    std::vector<uint32_t> version;
     uint64_t target;
     uint64_t current;
     monad::bytes32_t expected_root;
@@ -46,8 +46,7 @@ struct monad_statesync_client_context
 
     monad_statesync_client_context(
         std::vector<std::filesystem::path> dbname_paths,
-        std::filesystem::path genesis, uint8_t prefix_bytes,
-        monad_statesync_client *,
+        std::filesystem::path genesis, monad_statesync_client *,
         void (*statesync_send_request)(
             struct monad_statesync_client *, struct monad_sync_request));
 };
