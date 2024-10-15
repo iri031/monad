@@ -40,7 +40,7 @@ Module BlockState. Section with_Sigma.
   (** defines how the Coq (mathematical) state of Coq type [StateOfAccounts] is represented as a C++ datastructure in the fields of the BlockState class.
       [blockPreState] is the state at the beginning of the block.  newState
    *)
-  Definition Raux (newState: StateOfAccounts): Rep.
+  Definition R (newState: StateOfAccounts): Rep.
     
   Admitted. (* To be defined later. something like: [_field db_ |-> DbR blockPreState ** _field deltas |-> StateDeltasR blockPreState newState] *)
 
@@ -48,7 +48,7 @@ Module BlockState. Section with_Sigma.
   Definition inv  (commitedIndexLoc: gname)
     : Rep :=
     Exists committedIndex: nat,
-        Raux (stateAfterTransactions blockPreState (List.firstn committedIndex (transactions b)))
+        R (stateAfterTransactions blockPreState (List.firstn committedIndex (transactions b)))
           ** pureR (storedAtGhostLoc (1/3)%Q commitedIndexLoc committedIndex).
 
   Record glocs :=
@@ -57,7 +57,7 @@ Module BlockState. Section with_Sigma.
       invLoc: gname;
     }.
   
-  Definition R (q: Qp) (g: glocs) : Rep  :=
+  Definition Rc (q: Qp) (g: glocs) : Rep  :=
     as_Rep (fun this:ptr =>
               cinvq (invLoc g) q (this |-> inv (commitedIndexLoc g))).
 
@@ -91,12 +91,53 @@ Section with_Sigma.
     \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
     \arg "rev" (valOfRev Shanghai)
     \arg{blockp: ptr} "block" (Vref blockp)
-    \prepost{(block: Block)} blockp |-> BlockR 1 block (* is this modified, if so, fix this line, else make it const in C++ code? *)
+    \prepost{(block: Block)} blockp |-> BlockR 1 block (* is this modified? if so, fix this line, else make it const in C++ code? *)
     \arg{block_statep: ptr} "block_state" (Vref block_statep)
     \prepost{(preBlockState: StateOfAccounts) (gl: BlockState.glocs)}
-      blockp |-> BlockState.R block preBlockState 1 gl
+      block_statep |-> BlockState.Rc block preBlockState 1 gl
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
     \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool
     \post storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) (length (transactions block)).
+
+  Definition execute_block_simpler : WpSpec mpredI val val :=
+    \arg{chainp :ptr} "chain" (Vref chainp)
+    \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
+    \arg "rev" (valOfRev Shanghai)
+    \arg{blockp: ptr} "block" (Vref blockp)
+    \prepost{(block: Block)} blockp |-> BlockR 1 block (* is this modified? if so, fix this line, else make it const in C++ code? *)
+    \arg{block_statep: ptr} "block_state" (Vref block_statep)
+    \prepost{(preBlockState: StateOfAccounts)}
+      block_statep |-> BlockState.R block preBlockState preBlockState
+    \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
+    \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
+    \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool
+    \post block_statep |-> BlockState.R block preBlockState (stateAfterTransactions preBlockState (transactions block)).
+
+  Definition TransactionR (q: Qp) (t: Transaction): Rep. Proof. Admitted.
+
+  Definition optionAddressR (q:Qp) (oaddr: option evm.address): Rep. Proof. Admitted.
+
+  (* set_value() passes the resource/assertion P to the one calling get_future->wait()*)
+  Definition PromiseR (q:Qp) (g: gname) (P: mpred) : Rep. Proof. Admitted.
   
+  Definition execute_spec : WpSpec mpredI val val :=
+    \arg{chainp :ptr} "chain" (Vref chainp)
+    \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
+    \arg{i:nat} "i" (Vnat i)
+    \arg{txp} "tx" (Vref txp)
+    \pre{(qtx: Qp) (block: Block) t} Exists t, [| nth_error (transactions block) i = Some t |]
+    \pre txp |-> TransactionR qtx t
+    \arg{senderp} "sender" (Vref senderp)
+    \pre{qs} senderp |-> optionAddressR qs (Some (Message.caller t))
+    \arg{block_statep: ptr} "block_state" (Vref block_statep)
+    \prepost{(preBlockState: StateOfAccounts) (gl: BlockState.glocs)}
+      block_statep |-> BlockState.Rc block preBlockState 1 gl
+    \arg{hdrp: ptr} "hdr" (Vref hdrp)
+    \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
+    \arg{prevp: ptr} "prev" (Vref prevp)
+    \prepost{prg: gname} prevp |-> PromiseR (1/2) prg (storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) (i-1))
+    \post storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) i.
+
+  (* TODO: execute_imp2, which "returns" a State, which is the diff that needs to be generalized *)
+End with_Sigma.
