@@ -12,6 +12,7 @@ Require Import stdpp.gmap.
 Notation StateOfAccounts := GlobalState.
 Definition Transaction := Message.t. (* TODO: refine *)
 
+Definition BlockHeader: Type. Admitted.
 Record TransactionResult :=
   {
     gas_used: N;
@@ -23,20 +24,21 @@ Definition stateAfterTransactionAux  (s: StateOfAccounts) (t: Transaction): Stat
 Admitted. (* To be provided by an appropriate EVM semantics *)
 
 (* similar to what execute_final does *)
-Definition applyGasRefundsAndRewards (s: StateOfAccounts) (t: TransactionResult): StateOfAccounts. Admitted.
+Definition applyGasRefundsAndRewards (hdr: BlockHeader) (s: StateOfAccounts) (t: TransactionResult): StateOfAccounts. Admitted.
 
-Definition stateAfterTransaction  (s: StateOfAccounts) (t: Transaction): StateOfAccounts * TransactionResult :=
+Definition stateAfterTransaction (hdr: BlockHeader) (s: StateOfAccounts) (t: Transaction): StateOfAccounts * TransactionResult :=
   let (si, r) := stateAfterTransactionAux s t in
-  (applyGasRefundsAndRewards si r, r).
+  (applyGasRefundsAndRewards hdr si r, r).
 
-Definition stateAfterTransactions  (s: StateOfAccounts) (ts: list Transaction): StateOfAccounts * list TransactionResult :=
+Definition stateAfterTransactions  (hdr: BlockHeader) (s: StateOfAccounts) (ts: list Transaction): StateOfAccounts * list TransactionResult :=
   List.fold_left (fun s t =>
                     let '(si, rl) := s in
-                    let (sf, r) := stateAfterTransaction si t in (sf, r::rl)) ts (s,[]).
+                    let (sf, r) := stateAfterTransaction hdr si t in (sf, r::rl)) ts (s,[]).
 
 Record Block :=
   {
-    transactions: list Transaction
+    transactions: list Transaction;
+    header: BlockHeader;
   }.
   Import cancelable_invariants.
 
@@ -64,7 +66,7 @@ Module BlockState. Section with_Sigma.
   Definition inv  (commitedIndexLoc: gname)
     : Rep :=
     Exists committedIndex: nat,
-        R (fst (stateAfterTransactions blockPreState (List.firstn committedIndex (transactions b))))
+        R (fst (stateAfterTransactions (header b) blockPreState (List.firstn committedIndex (transactions b))))
           ** pureR (storedAtGhostLoc (1/3)%Q commitedIndexLoc committedIndex).
 
   Record glocs :=
@@ -101,7 +103,12 @@ Section with_Sigma.
   Definition PriorityPoolR (q: Qp) (c: PriorityPool): Rep. Proof. Admitted.
 
   Definition BlockR (q: Qp) (c: Block): Rep. Proof. Admitted.
+  Definition ResultR {T} (trep: T -> Rep) (t:T): Rep. Proof. Admitted.
+  Definition ReceiptR (t: TransactionResult): Rep. Admitted.
+  Definition VectorR {ElemType} (elemRep: ElemType -> Rep) (t:list ElemType): Rep. Proof. Admitted.
   
+
+(*  
   Definition execute_block_spec : WpSpec mpredI val val :=
     \arg{chainp :ptr} "chain" (Vref chainp)
     \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
@@ -115,7 +122,8 @@ Section with_Sigma.
     \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
     \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool
     \post storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) (length (transactions block)).
-
+ *)
+  
   Definition execute_block_simpler : WpSpec mpredI val val :=
     \arg{chainp :ptr} "chain" (Vref chainp)
     \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
@@ -128,9 +136,10 @@ Section with_Sigma.
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
     \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool
-    \post
-      let (actual_final_state, receipts) := stateAfterTransactions preBlockState (transactions block) in
-      block_statep |-> BlockState.R block preBlockState actual_final_state.
+    \post{retp}[Vptr retp]
+      let (actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (transactions block) in
+      retp |-> VectorR ReceiptR receipts
+      ** block_statep |-> BlockState.R block preBlockState actual_final_state.
 
   Definition TransactionR (q: Qp) (t: Transaction): Rep. Proof. Admitted.
 
@@ -138,7 +147,8 @@ Section with_Sigma.
 
   (* set_value() passes the resource/assertion P to the one calling get_future->wait()*)
   Definition PromiseR (q:Qp) (g: gname) (P: mpred) : Rep. Proof. Admitted.
-  
+
+
   Definition execute_spec : WpSpec mpredI val val :=
     \arg{chainp :ptr} "chain" (Vref chainp)
     \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
@@ -155,7 +165,11 @@ Section with_Sigma.
       block_statep |-> BlockState.Rc block preBlockState 1 gl
     \arg{prevp: ptr} "prev" (Vref prevp)
     \prepost{prg: gname} prevp |-> PromiseR (1/2) prg (storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) (i-1))
-    \post storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) i.
+    \post{retp}[Vptr retp]
+      let actualPreState := fst (stateAfterTransactions (header block) preBlockState (firstn i (transactions block))) in
+      let '(_, result) := stateAfterTransactionAux actualPreState t in
+       retp |-> ResultR ReceiptR result
+       ** storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) i.
 
   Record State :=
     {
@@ -175,6 +189,8 @@ Section with_Sigma.
       |}.
 
   Definition tnonce (t: Transaction) : N. Proof. Admitted.
+
+  Definition EvmcResultR (r: TransactionResult): Rep. Proof. Admitted.
   
   Definition execute_impl2_spec : WpSpec mpredI val val :=
     \arg{chainp :ptr} "chain" (Vref chainp)
@@ -192,10 +208,11 @@ Section with_Sigma.
     \prepost{(preBlockState: StateOfAccounts) (gl: BlockState.glocs)}
       blockStatePtr |-> BlockState.Rc block preBlockState 1 gl
     \pre [| account.nonce senderAcState = tnonce t|]
-    \post Exists stateFinal,
-      let actualPreState := fst (stateAfterTransactions preBlockState (firstn i (transactions block))) in
-      let actualPostState := fst (stateAfterTransaction actualPreState t) in
-      statep |-> StateR stateFinal
+    \post{retp}[Vptr retp] Exists stateFinal,
+      let actualPreState := fst (stateAfterTransactions (header block) preBlockState (firstn i (transactions block))) in
+      let '(actualPostState, result) := stateAfterTransactionAux actualPreState t in
+      retp |-> ResultR EvmcResultR result 
+      ** statep |-> StateR stateFinal
       ** [| match original stateFinal !! senderAddr with
             | Some senderAcState' => senderAcState'= senderAcState
             | _ => False
@@ -206,4 +223,5 @@ Section with_Sigma.
                           | Some actualAcPostState => exists tl, acNewStates=actualAcPostState::tl (* is [tl] guaranteed to be empty? *)
                           | None => False
                           end) |].
+  
 End with_Sigma.
