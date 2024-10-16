@@ -12,11 +12,27 @@ Require Import stdpp.gmap.
 Notation StateOfAccounts := GlobalState.
 Definition Transaction := Message.t. (* TODO: refine *)
 
-Definition stateAfterTransaction  (s: StateOfAccounts) (t: Transaction): StateOfAccounts.
+Record TransactionResult :=
+  {
+    gas_used: N;
+    gas_refund: N;
+    logs: list evm.log_entry;
+  }.
+
+Definition stateAfterTransactionAux  (s: StateOfAccounts) (t: Transaction): StateOfAccounts * TransactionResult.
 Admitted. (* To be provided by an appropriate EVM semantics *)
 
-Definition stateAfterTransactions  (s: StateOfAccounts) (ts: list Transaction): StateOfAccounts :=
-  List.fold_left stateAfterTransaction ts s.
+(* similar to what execute_final does *)
+Definition applyGasRefundsAndRewards (s: StateOfAccounts) (t: TransactionResult): StateOfAccounts. Admitted.
+
+Definition stateAfterTransaction  (s: StateOfAccounts) (t: Transaction): StateOfAccounts * TransactionResult :=
+  let (si, r) := stateAfterTransactionAux s t in
+  (applyGasRefundsAndRewards si r, r).
+
+Definition stateAfterTransactions  (s: StateOfAccounts) (ts: list Transaction): StateOfAccounts * list TransactionResult :=
+  List.fold_left (fun s t =>
+                    let '(si, rl) := s in
+                    let (sf, r) := stateAfterTransaction si t in (sf, r::rl)) ts (s,[]).
 
 Record Block :=
   {
@@ -48,7 +64,7 @@ Module BlockState. Section with_Sigma.
   Definition inv  (commitedIndexLoc: gname)
     : Rep :=
     Exists committedIndex: nat,
-        R (stateAfterTransactions blockPreState (List.firstn committedIndex (transactions b)))
+        R (fst (stateAfterTransactions blockPreState (List.firstn committedIndex (transactions b))))
           ** pureR (storedAtGhostLoc (1/3)%Q commitedIndexLoc committedIndex).
 
   Record glocs :=
@@ -112,7 +128,9 @@ Section with_Sigma.
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
     \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool
-    \post block_statep |-> BlockState.R block preBlockState (stateAfterTransactions preBlockState (transactions block)).
+    \post
+      let (actual_final_state, receipts) := stateAfterTransactions preBlockState (transactions block) in
+      block_statep |-> BlockState.R block preBlockState actual_final_state.
 
   Definition TransactionR (q: Qp) (t: Transaction): Rep. Proof. Admitted.
 
@@ -175,8 +193,8 @@ Section with_Sigma.
       blockStatePtr |-> BlockState.Rc block preBlockState 1 gl
     \pre [| account.nonce senderAcState = tnonce t|]
     \post Exists stateFinal,
-      let actualPreState := stateAfterTransactions preBlockState (firstn i (transactions block)) in
-      let actualPostState := stateAfterTransaction actualPreState t in
+      let actualPreState := fst (stateAfterTransactions preBlockState (firstn i (transactions block))) in
+      let actualPostState := fst (stateAfterTransaction actualPreState t) in
       statep |-> StateR stateFinal
       ** [| match original stateFinal !! senderAddr with
             | Some senderAcState' => senderAcState'= senderAcState
