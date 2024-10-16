@@ -34,43 +34,61 @@ class TraceType(IntEnum):
 # Quill writes a \n after every log (see first line of
 # PatternFormatter::_set_pattern), hence the +1;
 read_size = 21 + 1
-struct = "=ciQQx"
+struct_format = "=ciQQx"
 
 
 def summary(f):
     timing = defaultdict(list)
     start = defaultdict(lambda: defaultdict(list))
 
-    for chunk in iter(partial(f.read, read_size), b""):
-        type, tid, time, value = unpack(struct, chunk)
-        trace_type = TraceType(ord(type))
+    for chunk_num, chunk in enumerate(iter(partial(f.read, read_size), b"")):
+        if len(chunk) != read_size:
+            print(f"Incomplete chunk at {chunk_num}: expected {read_size} bytes, got {len(chunk)} bytes")
+            continue
+        try:
+            type_byte, tid, time, value = unpack(struct_format, chunk)
+        except struct_format.error as e:
+            print(f"Unpack error at chunk {chunk_num}: {e}")
+            continue
+
+        trace_type = TraceType(ord(type_byte))
 
         if trace_type.name.startswith("Start"):
-            start[trace_type.name[5:]][value].append(time)
-        else:
-            assert trace_type.name.startswith("End")
+            start_event = trace_type.name[5:]
+            start[start_event][value].append(time)
+        elif trace_type.name.startswith("End"):
             key = trace_type.name[3:]
-            assert value in start[key]
-            assert len(start[key][value]) > 0
-            timing[key].append(time - start[key][value].pop())
+            if value not in start[key] or len(start[key][value]) == 0:
+                print(f"Unmatched End event at chunk {chunk_num}: {trace_type.name}, value={value}")
+                continue
+            start_time = start[key][value].pop()
+            delta = time - start_time
+            if delta < 0:
+                print(f"Negative timing for {key} at chunk {chunk_num}: end_time={time}, start_time={start_time}")
+                continue  # Skip negative timing
+            timing[key].append(delta)
             if len(start[key][value]) == 0:
                 del start[key][value]
+        else:
+            print(f"Unknown TraceType at chunk {chunk_num}: {trace_type.name}")
 
-    assert all(len(l) == 0 for l in start.values())
+    assert all(len(l) == 0 for l in start.values()), "Some start events did not have corresponding end events."
 
     pctls = [0, 1, 25, 50, 75, 99, 100]
-    print(
-        pd.DataFrame(
-            data=[
-                np.append(
-                    [key, len(val), np.round(np.average(val) / 1000, 2)],
-                    np.round(np.percentile(val, pctls) / 1000, 2),
-                )
-                for key, val in sorted(timing.items())
-            ],
-            columns=["Event", "n", "avg(us)"] + list(map(lambda x: f"{x}%(us)", pctls)),
-        ).to_string(index=False)
+    data = []
+    for key, val in sorted(timing.items()):
+        if not val:
+            continue
+        avg_us = np.round(np.average(val) / 1000, 2)
+        percentiles = np.round(np.percentile(val, pctls) / 1000, 2)
+        row = [key, len(val), avg_us] + list(percentiles)
+        data.append(row)
+
+    df = pd.DataFrame(
+        data=data,
+        columns=["Event", "n", "avg(us)"] + [f"{p}%(us)" for p in pctls],
     )
+    print(df.to_string(index=False))
 
 
 def dump(f, number, txn):
