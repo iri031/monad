@@ -141,12 +141,23 @@ Section with_Sigma.
 
   Record State :=
     {
-      original: StateOfAccounts;
-      newStates: list StateOfAccounts; (* head is the latest *)
+      original: gmap evm.address account.state;
+      newStates: gmap evm.address (list account.state); (* head is the latest *)
+      blockStatePtr: ptr;
     }.
 
   (* not supposed to be shared, so no fraction *)
   Definition StateR (s: State): Rep. Proof. Admitted.
+
+  Definition preImpl2State (blockStatePtr: ptr) (senderAddr: evm.address) (sender: account.state): State:=
+    {|
+      blockStatePtr:= blockStatePtr;
+      newStates:= ∅;
+      original := <[senderAddr := sender]>∅;
+      |}.
+
+  Definition tnonce (t: Transaction) : N. Proof. Admitted.
+  
   Definition execute_impl2_spec : WpSpec mpredI val val :=
     \arg{chainp :ptr} "chain" (Vref chainp)
     \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
@@ -157,7 +168,24 @@ Section with_Sigma.
     \pre{qs} senderp |-> optionAddressR qs (Some (Message.caller t))
     \arg{hdrp: ptr} "hdr" (Vref hdrp)
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
-    \arg{prevp: ptr} "prev" (Vref prevp)
     \arg{statep: ptr} "prev" (Vref statep)
-    \post storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) i.
+    \pre{(blockStatePtr: ptr) (senderAddr: evm.address) (senderAcState: account.state)}
+      statep |-> StateR (preImpl2State blockStatePtr senderAddr senderAcState)
+    \prepost{(preBlockState: StateOfAccounts) (gl: BlockState.glocs)}
+      blockStatePtr |-> BlockState.Rc block preBlockState 1 gl
+    \pre [| account.nonce senderAcState = tnonce t|]
+    \post Exists stateFinal,
+      let actualPreState := stateAfterTransactions preBlockState (firstn i (transactions block)) in
+      let actualPostState := stateAfterTransaction actualPreState t in
+      statep |-> StateR stateFinal
+      ** [| match original stateFinal !! senderAddr with
+            | Some senderAcState' => senderAcState'= senderAcState
+            | _ => False
+            end |]
+      ** [| (forall acAddr acState, original stateFinal !! acAddr = Some acState -> Some acState = actualPreState !! acAddr) (* original matches the result of sequential execution of previous blocks *)
+            ->  (forall acAddr acNewStates, newStates stateFinal !! acAddr = Some acNewStates ->
+                          match actualPostState !! acAddr with
+                          | Some actualAcPostState => exists tl, acNewStates=actualAcPostState::tl (* is [tl] guaranteed to be empty? *)
+                          | None => False
+                          end) |].
 End with_Sigma.
