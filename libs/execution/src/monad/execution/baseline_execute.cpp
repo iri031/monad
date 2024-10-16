@@ -117,7 +117,7 @@ evmc::Result baseline_execute(
                     auto os = std::ofstream(contract_path);
                     os.write(
                         reinterpret_cast<char const *>(code_analysis.executable_code.data()),
-                        code_analysis.executable_code.size());
+                        static_cast<std::streamsize>(code_analysis.executable_code.size()));
 
                     auto code_address_dir = fs::path(contracts_dir_var) / "code_address" /
                             fmt::format("{:02x}", msg.code_address.bytes[0]) /
