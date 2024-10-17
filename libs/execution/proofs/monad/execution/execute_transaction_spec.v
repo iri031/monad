@@ -4,6 +4,34 @@ Require Import bedrock.lang.cpp.
 
 Import cQp_compat.
 
+(*
+int x;
+int y;
+
+\pre x |-> 1
+\post x |-> 2
+void f()
+
+\pre y |-> 1
+\post y |-> 2
+void g()
+
+Exists q v, x |-q> v
+wp (read x)
+
+(Exists v,  x |-1> v)(write x foo) (x |-> foo)
+
+
+x |-0.4-> 1 ** x |-0.6-> 1 |-- x |-1.0-> 1
+void h()
+{
+  x=1;
+  y=1;
+  f();
+
+  g();
+}
+*)
 #[local] Open Scope Z_scope.
 
 Require Import EVMOpSem.evmfull.
@@ -96,6 +124,26 @@ Definition valOfRev (r : Revision) : val := Vint 0. (* TODO: fix *)
 Section with_Sigma.
   Context `{Sigma:cpp_logic} {CU: genv} {hh: HasOwn mpredI fracR}. (* some standard assumptions about the c++ logic *)
 
+    (* set_value() passes the resource/assertion P to the one calling get_future->wait()*)
+  Definition PromiseR (q:Qp) (g: gname) (P: mpred) : Rep. Proof. Admitted.
+
+  Lemma sharePromise q1 q2 g P:  PromiseR (q1+q2) g P |-- PromiseR q1 g P **  PromiseR q2 g P.
+  Proof. Admitted.
+    
+  
+  Definition promise_constructor_spec (this:ptr) :WpSpec mpredI val val :=
+    \pre{P:mpred} emp
+    \post Exists g:gname, this |->  PromiseR 1 g P.
+  
+  Definition promise_setvalue_spec (this:ptr) :WpSpec mpredI val val :=
+    \prepost{(P:mpred) (q:Qp) (g:gname)} this |-> PromiseR q g P
+    \pre P
+    \post emp.
+
+  Definition promise_getfuture_wait_spec (this:ptr) :WpSpec mpredI val val :=
+    \prepost{(P:mpred) (q:Qp) (g:gname)} this |-> PromiseR q g P
+    \post P.
+  
   (* defines how [c] is represented in memory as an object of class Chain. this predicate asserts [q] ownership of the object, assuming it can be shared across multiple threads  *)
   Definition ChainR (q: Qp) (c: Chain): Rep. Proof. Admitted.
 
@@ -131,11 +179,11 @@ Section with_Sigma.
     \arg{blockp: ptr} "block" (Vref blockp)
     \prepost{(block: Block)} blockp |-> BlockR 1 block (* is this modified? if so, fix this line, else make it const in C++ code? *)
     \arg{block_statep: ptr} "block_state" (Vref block_statep)
-    \prepost{(preBlockState: StateOfAccounts)}
+    \pre{(preBlockState: StateOfAccounts)}
       block_statep |-> BlockState.R block preBlockState preBlockState
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
-    \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool
+    \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool (* TODO: write a spec of priority_pool.submit() *)
     \post{retp}[Vptr retp]
       let (actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (transactions block) in
       retp |-> VectorR ReceiptR receipts
@@ -145,8 +193,6 @@ Section with_Sigma.
 
   Definition optionAddressR (q:Qp) (oaddr: option evm.address): Rep. Proof. Admitted.
 
-  (* set_value() passes the resource/assertion P to the one calling get_future->wait()*)
-  Definition PromiseR (q:Qp) (g: gname) (P: mpred) : Rep. Proof. Admitted.
 
 
   Definition execute_spec : WpSpec mpredI val val :=
@@ -162,7 +208,7 @@ Section with_Sigma.
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \arg{block_statep: ptr} "block_state" (Vref block_statep)
     \prepost{(preBlockState: StateOfAccounts) (gl: BlockState.glocs)}
-      block_statep |-> BlockState.Rc block preBlockState 1 gl
+      block_statep |-> BlockState.Rc block preBlockState 1 gl (* the concurrent invariant does not hold during BlockState.merge : Fix *)
     \arg{prevp: ptr} "prev" (Vref prevp)
     \prepost{prg: gname} prevp |-> PromiseR (1/2) prg (storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) (i-1))
     \post{retp}[Vptr retp]
@@ -202,7 +248,7 @@ Section with_Sigma.
     \pre{qs} senderp |-> optionAddressR qs (Some (Message.caller t))
     \arg{hdrp: ptr} "hdr" (Vref hdrp)
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
-    \arg{statep: ptr} "prev" (Vref statep)
+    \arg{statep: ptr} "state" (Vref statep)
     \pre{(blockStatePtr: ptr) (senderAddr: evm.address) (senderAcState: account.state)}
       statep |-> StateR (preImpl2State blockStatePtr senderAddr senderAcState)
     \prepost{(preBlockState: StateOfAccounts) (gl: BlockState.glocs)}
@@ -217,11 +263,51 @@ Section with_Sigma.
             | Some senderAcState' => senderAcState'= senderAcState
             | _ => False
             end |]
-      ** [| (forall acAddr acState, original stateFinal !! acAddr = Some acState -> Some acState = actualPreState !! acAddr) (* original matches the result of sequential execution of previous blocks *)
+      ** [| (forall acAddr acState, original stateFinal !! acAddr = Some acState -> Some acState = actualPreState !! acAddr) (* original matches the result of sequential execution of previous transactions *)
             ->  (forall acAddr acNewStates, newStates stateFinal !! acAddr = Some acNewStates ->
                           match actualPostState !! acAddr with
-                          | Some actualAcPostState => exists tl, acNewStates=actualAcPostState::tl (* is [tl] guaranteed to be empty? *)
+                          | Some actualAcPostState => acNewStates=[actualAcPostState]
                           | None => False
                           end) |].
   
 End with_Sigma.
+Module Generalized1.
+  Record State :=
+    {
+      assumptionsOnPreState: GlobalState -> Prop ;
+      stateUpdates: GlobalState -> GlobalState;
+      blockStatePtr: ptr;
+    }.
+  
+  Context `{Sigma:cpp_logic} {CU: genv} {hh: HasOwn mpredI fracR}. (* some standard assumptions about the c++ logic *)
+    Definition StateR (s: State): Rep. Proof. Admitted.
+
+  Definition can_merge (this:ptr): WpSpec mpredI val val :=
+    \prepost{(preState curState: StateOfAccounts) (block: Block)}
+      this |-> BlockState.R block preState curState
+    \arg{statep: ptr} "prev" (Vref statep)
+    \pre{finalS}
+      statep |-> StateR finalS
+    \post{b} [Vbool b] if b then [|assumptionsOnPreState finalS curState|] else [| True |].
+    
+    
+End Generalized1.
+Module Generalized2.
+  Class SplitGlobalState (Tcomm Trest: Type):=
+    {
+      isoL: (Tcomm * Trest) -> GlobalState;
+      isoR: GlobalState -> (Tcomm * Trest);
+      isIso: ssrfun.cancel isoL isoR;
+    }.
+
+  Context {Tcomm Trest: Type} {ss: SplitGlobalState Tcomm Trest}.
+
+    Record State :=
+    {
+      assumptionsOnPreState: GlobalState -> Prop ;
+      commStateUpdates: Tcomm -> Tcomm;
+      restStateUpdates: Trest -> Trest;
+      blockStatePtr: ptr;
+    }.
+    
+End Generalized2.
