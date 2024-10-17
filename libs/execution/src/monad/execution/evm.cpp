@@ -266,7 +266,7 @@ evmc::Result create_contract_account(
 
     auto const input_code_analysis =
         evmone::baseline::analyze(rev, {msg.input_data, msg.input_size});
-    auto result = baseline_execute(m_call, rev, host, input_code_analysis);
+    auto result = baseline_execute(m_call, rev, host, input_code_analysis, state.get_block());
 
     post_create_contract_account<rev>(state, m_call.recipient, result);
     return std::move(result);
@@ -293,7 +293,7 @@ call(EvmcHost<rev> *const host, State &state, evmc_message const &msg) noexcept
     }
     else {
         auto const code = state.get_code(msg.code_address);
-        result = baseline_execute(msg, rev, host, *code);
+        result = baseline_execute(msg, rev, host, *code, state.get_block());
     }
 
     post_call(state, result);

@@ -10,6 +10,6 @@
 MONAD_NAMESPACE_BEGIN
 
 evmc::Result baseline_execute(
-    evmc_message const &, evmc_revision, evmc::Host *, CodeAnalysis const &);
+    evmc_message const &, evmc_revision, evmc::Host *, CodeAnalysis const &, uint64_t);
 
 MONAD_NAMESPACE_END

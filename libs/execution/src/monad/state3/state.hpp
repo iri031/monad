@@ -247,6 +247,11 @@ public:
         }
     }
 
+    uint64_t get_block() const
+    {
+        return incarnation_.get_block();
+    }
+
     bytes32_t
     get_transient_storage(Address const &address, bytes32_t const &key)
     {

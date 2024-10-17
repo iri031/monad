@@ -47,8 +47,7 @@ namespace fs = std::filesystem;
 
 MONAD_NAMESPACE_BEGIN
 
-typedef tbb::concurrent_hash_map<evmc::address,int, tbb::tbb_hash_compare<evmc::address>> ContractTable;
-typedef tbb::concurrent_hash_map<evmc::address,int, tbb::tbb_hash_compare<evmc::address>>::accessor Accessor;
+using ContractTable = tbb::concurrent_hash_map<evmc::address,int, tbb::tbb_hash_compare<evmc::address>>;
 
 ContractTable call_counter;
 const int CONTRACT_CALL_THRESHOLD = 5;
@@ -56,7 +55,8 @@ const int CONTRACT_CALL_THRESHOLD = 5;
 
 evmc::Result baseline_execute(
     evmc_message const &msg, evmc_revision const rev, evmc::Host *const host,
-    CodeAnalysis const &code_analysis)
+    CodeAnalysis const &code_analysis, uint64_t block
+    )
 {
     std::unique_ptr<evmc_vm> const vm{evmc_create_evmone()};
 
@@ -89,7 +89,7 @@ evmc::Result baseline_execute(
 #endif
 
     if (result.status_code == EVMC_SUCCESS) {
-        Accessor accessor;
+        ContractTable::accessor accessor;
         const auto itemIsNew = call_counter.insert( accessor, msg.code_address );
         if (itemIsNew) {
             accessor->second = 1;
@@ -106,10 +106,7 @@ evmc::Result baseline_execute(
                     // content addressable path for the contract using keccak of the actual code
                     auto const code_hash = keccak256(code_analysis.executable_code);
 
-                    auto code_hash_dir = fs::path(contracts_dir_var) / "code_hash" /
-                            fmt::format("{:02x}", code_hash.bytes[0]) /
-                            fmt::format("{:02x}", code_hash.bytes[1]);
-
+                    auto code_hash_dir = fs::path(contracts_dir_var) / "code_hash";
                     fs::create_directories(code_hash_dir);
 
                     auto contract_path = code_hash_dir / fmt::format("{}", intx::hex(intx::be::load<intx::uint256>(code_hash.bytes)));
@@ -119,7 +116,10 @@ evmc::Result baseline_execute(
                         reinterpret_cast<char const *>(code_analysis.executable_code.data()),
                         static_cast<std::streamsize>(code_analysis.executable_code.size()));
 
-                    auto code_address_dir = fs::path(contracts_dir_var) / "code_address" /
+                    auto block_prefix =
+                        fmt::format("{}M", block / 1'000'000);
+
+                    auto code_address_dir = fs::path(contracts_dir_var) / "code_address" / block_prefix /
                             fmt::format("{:02x}", msg.code_address.bytes[0]) /
                             fmt::format("{:02x}", msg.code_address.bytes[1]);
 
