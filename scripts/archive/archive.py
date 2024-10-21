@@ -28,31 +28,37 @@ def pad_number(number, width):
     return str(number).zfill(width)
 
 
-def compute_tx_hash(tx_bytes):
-    return Web3.keccak(tx_bytes).hex()
+def compute_hash(bytes):
+    return Web3.keccak(bytes).hex()
 
 
-def decode_block(block_dir, block_number):
+def decompress_block(block_dir, block_number):
     file_path = os.path.join(block_dir, str(block_number))
     if not os.path.isfile(file_path):
         logging.error(f"File for block {block_number} does not exist at '{file_path}'.")
         sys.exit(1)
-
-    transactions = []
-    block_header = []
 
     try:
         with open(file_path, "rb") as f:
             compressed_block_data = f.read()
             block_data = brotli.decompress(compressed_block_data)
 
-            decoded_block = rlp.decode(block_data)
-            block_header = decoded_block[0]
-            transactions = decoded_block[1]
-
     except brotli.error as e:
         logging.error(f"Failed to decompress block {block_number}: {e}")
         sys.exit(1)
+
+    return block_data
+
+
+def decode_block(decompressed_block, block_number):
+
+    transactions = []
+    block_header = []
+
+    try:
+        decoded_block = rlp.decode(decompressed_block)
+        block_header = decoded_block[0]
+        transactions = decoded_block[1]
     except rlp.DecodingError as e:
         logging.error(f"Failed to decode block {block_number}: {e}")
         sys.exit(1)
@@ -82,7 +88,8 @@ class NewBlockHandler(FileSystemEventHandler):
         block_number = int(file_name)
         logging.info(f"Detected new block file: {file_name}")
 
-        header, transactions = decode_block(self.block_dir, block_number)
+        decompressed_block = decompress_block(self.block_dir, block_number)
+        header, transactions = decode_block(decompressed_block, block_number)
 
         self.executor.submit(
             insert_block_into_tx_tables,
@@ -90,6 +97,15 @@ class NewBlockHandler(FileSystemEventHandler):
             block_number,
             self.tables[0],
             self.tables[1],
+        )
+
+        self.executor.submit(
+            insert_block_into_block_tables,
+            header,
+            decompressed_block,
+            block_number,
+            self.tables[2],
+            self.tables[3],
         )
 
 
@@ -122,7 +138,9 @@ def create_tables(project_id, instance_id, table_ids):
     return tables
 
 
-def insert_block_into_tx_tables(transactions, block_number, tx_hash_table, tx_index_table):
+def insert_block_into_tx_tables(
+    transactions, block_number, tx_hash_table, tx_index_table
+):
     tx_datas = []
     tx_hashes = []
     tx_indexes = []
@@ -141,7 +159,7 @@ def insert_block_into_tx_tables(transactions, block_number, tx_hash_table, tx_in
         tx_hashes.append(tx_hash)
         tx_indexes.append(tx_index)
 
-    logging.info(f"Inserting block {block_number} into 'tx_hash_table'")
+    logging.info(f"Inserting block {block_number} into 'tx_hash' table")
     with MutationsBatcher(table=tx_hash_table) as batcher:
         hash_table_rows = []
         for i in range(len(transactions)):
@@ -153,13 +171,15 @@ def insert_block_into_tx_tables(transactions, block_number, tx_hash_table, tx_in
             hash_table_rows.append(hash_table_tx_row)
 
             logging.debug(
-                f"Adding tx {tx_num} of block {block_number} hash={tx_hash} into 'tx_hash_table'"
+                f"Adding tx {tx_num} of block {block_number} hash={tx_hash} into 'tx_hash' table"
             )
 
         batcher.mutate_rows(hash_table_rows)
-        logging.info(f"Successfully wrote {str(len(transactions))} rows for block {block_number} into 'tx_hash_table'")
-    
-    logging.info(f"Inserting block {block_number} into 'tx_index_table'")
+        logging.info(
+            f"Successfully wrote {str(len(transactions))} rows for block {block_number} into 'tx_hash' table"
+        )
+
+    logging.info(f"Inserting block {block_number} into 'tx_index' table")
     with MutationsBatcher(table=tx_index_table) as batcher:
         index_table_rows = []
         for i in range(len(transactions)):
@@ -170,11 +190,47 @@ def insert_block_into_tx_tables(transactions, block_number, tx_hash_table, tx_in
             index_table_rows.append(index_table_tx_row)
 
             logging.debug(
-                f"Adding tx {tx_num} of block {block_number} hash={tx_hash} into 'tx_index_table'"
+                f"Adding tx {tx_num} of block {block_number} hash={tx_hash} into 'tx_index' table"
             )
 
         batcher.mutate_rows(index_table_rows)
-        logging.info(f"Successfully wrote {str(len(transactions))} rows for block {block_number} into 'tx_index_table'")
+        logging.info(
+            f"Successfully wrote {str(len(transactions))} rows for block {block_number} into 'tx_index' table"
+        )
+
+
+def insert_block_into_block_tables(
+    block_header, block, block_number, block_hash_table, block_index_table
+):
+
+    block_hash = compute_hash(block)
+
+    """Block Hash Table"""
+    logging.info(f"Inserting block {block_number} into 'block_hash' table")
+
+    hash_table_row_key = block_hash
+    hash_table_row_mutation = block_hash_table.row(hash_table_row_key)
+    hash_table_row_mutation.set_cell(
+        COLUMN_FAMILY_ID, "header", rlp.encode(block_header)
+    )
+    hash_table_row_mutation.set_cell(COLUMN_FAMILY_ID, "number", str(block_number))
+    hash_table_row_mutation.commit()
+
+    logging.info(
+        f"Successfully wrote header and number of block {block_number} into 'block_hash' table"
+    )
+
+    """Block Index Table"""
+    logging.info(f"Inserting block {block_number} into 'block_index' table")
+
+    index_table_row_key = pad_number(block_number, BLOCK_NUM_PAD)
+    index_table_row_mutation = block_index_table.row(index_table_row_key)
+    index_table_row_mutation.set_cell(COLUMN_FAMILY_ID, "hash", block_hash)
+    index_table_row_mutation.commit()
+
+    logging.info(
+        f"Successfully wrote header of block {block_number} into 'block_index' table"
+    )
 
 
 def main():
@@ -192,7 +248,7 @@ def main():
         sys.exit(1)
 
     # TODO: hard-coded table ids
-    table_ids = ["tx_hash", "tx_index"]
+    table_ids = ["tx_hash", "tx_index", "block_hash", "block_index"]
 
     tables = create_tables(project_id, instance_id, table_ids)
 
@@ -203,13 +259,23 @@ def main():
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         for block_num in existing_blocks:
-            header, transactions = decode_block(block_dir, block_num)
+            decompressed_block = decompress_block(block_dir, block_num)
+            header, transactions = decode_block(decompressed_block, block_num)
             executor.submit(
                 insert_block_into_tx_tables,
                 transactions,
                 block_num,
                 tables[0],
                 tables[1],
+            )
+
+            executor.submit(
+                insert_block_into_block_tables,
+                header,
+                decompressed_block,
+                block_num,
+                tables[2],
+                tables[3],
             )
 
         # Set up directory monitoring
