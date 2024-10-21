@@ -1,0 +1,7 @@
+brotli==1.1.0
+google-auth==2.35.0
+google-cloud-bigtable==2.26.0
+google-cloud-core==2.4.1
+rlp==4.0.0
+watchdog==5.0.3
+web3==6.11.0
