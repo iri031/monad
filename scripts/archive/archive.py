@@ -7,10 +7,11 @@ import rlp
 import time
 import logging
 from google.cloud import bigtable
+from typing import Any, List, Tuple
 from google.cloud.bigtable.batcher import MutationsBatcher
 from web3 import Web3
 from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from concurrent.futures import ThreadPoolExecutor
 
 # Configuration Constants
@@ -24,15 +25,15 @@ logging.basicConfig(
 )
 
 
-def pad_number(number, width):
+def pad_number(number: int, width: int) -> str:
     return str(number).zfill(width)
 
 
-def compute_hash(bytes):
-    return Web3.keccak(bytes).hex()
+def compute_hash(data: bytes) -> str:
+    return Web3.keccak(data).hex()
 
 
-def decompress_block(block_dir, block_number):
+def decompress_block(block_dir: str, block_number: int) -> bytes:
     file_path = os.path.join(block_dir, str(block_number))
     if not os.path.isfile(file_path):
         logging.error(f"File for block {block_number} does not exist at '{file_path}'.")
@@ -50,7 +51,7 @@ def decompress_block(block_dir, block_number):
     return block_data
 
 
-def decode_block(decompressed_block, block_number):
+def decode_block(decompressed_block: bytes, block_number: int) -> Tuple[Any, Any]:
 
     transactions = []
     block_header = []
@@ -68,14 +69,16 @@ def decode_block(decompressed_block, block_number):
 
 """Handler for new block files."""
 class NewBlockHandler(FileSystemEventHandler):
-    def __init__(self, block_dir, tables, executor):
+    def __init__(
+        self, block_dir: str, tables: List[bigtable.table], executor: ThreadPoolExecutor
+    ) -> None:
         super().__init__()
         self.block_dir = block_dir
         self.tables = tables
         self.executor = executor
 
     """Called when a file is created."""
-    def on_created(self, event):
+    def on_created(self, event: FileSystemEvent) -> None:
         if event.is_directory:
             logging.error("Unexpected directory created!")
             sys.exit(1)
@@ -113,7 +116,7 @@ class NewBlockHandler(FileSystemEventHandler):
 Create tables and column families if they don't exist before
 Right now we fix each table to have one column family called "data"
 """
-def create_tables(project_id, instance_id, table_ids):
+def create_tables(project_id: str, instance_id: str, table_ids: List[str]):
     client = bigtable.Client(project=project_id, admin=True)
     instance = client.instance(instance_id)
     tables = []
@@ -139,8 +142,11 @@ def create_tables(project_id, instance_id, table_ids):
 
 
 def insert_block_into_tx_tables(
-    transactions, block_number, tx_hash_table, tx_index_table
-):
+    transactions: List[Any],
+    block_number: int,
+    tx_hash_table: bigtable.table,
+    tx_index_table: bigtable.table,
+) -> None:
     tx_datas = []
     tx_hashes = []
     tx_indexes = []
@@ -148,7 +154,7 @@ def insert_block_into_tx_tables(
     for tx_num, tx in enumerate(transactions):
         # re-encoding because individual fields are decoded
         tx_data = rlp.encode(tx)
-        tx_hash = compute_tx_hash(tx_data)
+        tx_hash = compute_hash(tx_data)
 
         """generate joint index <block_number>_<tx_number>"""
         block_padded = pad_number(block_number, BLOCK_NUM_PAD)
@@ -200,8 +206,12 @@ def insert_block_into_tx_tables(
 
 
 def insert_block_into_block_tables(
-    block_header, block, block_number, block_hash_table, block_index_table
-):
+    block_header: Any,
+    block: bytes,
+    block_number: int,
+    block_hash_table: bigtable.table,
+    block_index_table: bigtable.table,
+) -> None:
 
     block_hash = compute_hash(block)
 
