@@ -2,6 +2,7 @@
 #include <monad/async/storage_pool.hpp>
 #include <monad/core/assert.h>
 #include <monad/core/byte_string.hpp>
+#include <monad/core/scope_polyfill.hpp>
 #include <monad/core/small_prng.hpp>
 #include <monad/core/start_lifetime_as_polyfill.hpp>
 #include <monad/core/unaligned.hpp>

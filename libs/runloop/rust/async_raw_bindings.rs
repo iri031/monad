@@ -266,12 +266,6 @@ impl Default for cxx_result_status_code_system_monad {
 }
 unsafe extern "C" {
     #[doc = "! \\brief Declare a Boost.Outcome layout compatible C result type for\n! `result<intptr_t>`"]
-    pub fn outcome_make_result_system_monad_success(
-        value: isize,
-    ) -> cxx_result_status_code_system_monad;
-}
-unsafe extern "C" {
-    #[doc = "! \\brief Declare a Boost.Outcome layout compatible C result type for\n! `result<intptr_t>`"]
     pub fn outcome_make_result_system_monad_failure_posix(
         errcode: ::std::os::raw::c_int,
     ) -> cxx_result_status_code_system_monad;
