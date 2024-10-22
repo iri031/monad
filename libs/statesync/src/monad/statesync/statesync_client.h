@@ -29,6 +29,9 @@ void monad_statesync_client_handle_new_peer(
 void monad_statesync_client_handle_target(
     struct monad_statesync_client_context *, struct monad_sync_target);
 
+bool monad_statesync_client_handle_code_upsert(
+    struct monad_statesync_client_context *, struct monad_sync_code_upsert *);
+
 bool monad_statesync_client_handle_upsert(
     struct monad_statesync_client_context *, enum monad_sync_type,
     unsigned char const *, uint64_t);

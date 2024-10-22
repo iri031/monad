@@ -25,6 +25,40 @@ enum monad_sync_type : uint8_t
 static_assert(sizeof(enum monad_sync_type) == 1);
 static_assert(alignof(enum monad_sync_type) == 1);
 
+struct monad_sync_code_upsert
+{
+    size_t size;
+    unsigned char code[];
+};
+
+struct monad_sync_account_upsert
+{
+    unsigned char addr[20];
+    size_t size;
+    unsigned char acct[];
+};
+
+struct monad_sync_storage_upsert
+{
+    unsigned char addr[20];
+    unsigned char key[32];
+    size_t size;
+    unsigned char value[];
+};
+
+struct monad_sync_account_delete
+{
+    unsigned char addr[20];
+};
+
+struct monad_sync_storage_delete
+{
+    unsigned char addr[20];
+    unsigned char key[32];
+    size_t size;
+    unsigned char value[];
+};
+
 struct monad_sync_request
 {
     uint64_t prefix;
