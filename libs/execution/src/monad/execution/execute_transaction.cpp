@@ -215,7 +215,7 @@ Result<Receipt> execute_impl(
 
         {
             TRACE_TXN_EVENT(StartStall);
-            prev.get_future().wait();
+	    waitForPrevTransactionsThatCanUpdate(i, state.readAccounts());
         }
 
         if (block_state.can_merge(state)) {

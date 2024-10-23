@@ -86,26 +86,23 @@ Module BlockState. Section with_Sigma.
   (** defines how the Coq (mathematical) state of Coq type [StateOfAccounts] is represented as a C++ datastructure in the fields of the BlockState class.
       [blockPreState] is the state at the beginning of the block.  newState
    *)
-  Definition R (newState: StateOfAccounts): Rep.
+  Definition R (q:Qp) (newState: StateOfAccounts): Rep.
     
   Admitted. (* To be defined later. something like: [_field db_ |-> DbR blockPreState ** _field deltas |-> StateDeltasR blockPreState newState] *)
 
 
-  Definition inv  (commitedIndexLoc: gname)
-    : Rep :=
-    Exists committedIndex: nat,
-        R (fst (stateAfterTransactions (header b) blockPreState (List.firstn committedIndex (transactions b))))
-          ** pureR (storedAtGhostLoc (1/3)%Q commitedIndexLoc committedIndex).
+  Definition inv : Rep :=
+    Exists (newState: StateOfAccounts),
+        R (1/3)%Qp newState.
 
   Record glocs :=
     {
-      commitedIndexLoc: gname;
       invLoc: gname;
     }.
   
   Definition Rc (q: Qp) (g: glocs) : Rep  :=
     as_Rep (fun this:ptr =>
-              cinvq (invLoc g) q (this |-> inv (commitedIndexLoc g))).
+              cinvq (invLoc g) q (this |-> inv)).
 
   
 End with_Sigma. End BlockState.
@@ -180,19 +177,18 @@ Section with_Sigma.
     \prepost{(block: Block)} blockp |-> BlockR 1 block (* is this modified? if so, fix this line, else make it const in C++ code? *)
     \arg{block_statep: ptr} "block_state" (Vref block_statep)
     \pre{(preBlockState: StateOfAccounts)}
-      block_statep |-> BlockState.R block preBlockState preBlockState
+      block_statep |-> BlockState.R block preBlockState 1 preBlockState
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
     \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool (* TODO: write a spec of priority_pool.submit() *)
     \post{retp}[Vptr retp]
       let (actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (transactions block) in
       retp |-> VectorR ReceiptR receipts
-      ** block_statep |-> BlockState.R block preBlockState actual_final_state.
+      ** block_statep |-> BlockState.R block preBlockState 1 actual_final_state.
 
   Definition TransactionR (q: Qp) (t: Transaction): Rep. Proof. Admitted.
 
   Definition optionAddressR (q:Qp) (oaddr: option evm.address): Rep. Proof. Admitted.
-
 
 
   Definition execute_spec : WpSpec mpredI val val :=
@@ -208,14 +204,16 @@ Section with_Sigma.
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \arg{block_statep: ptr} "block_state" (Vref block_statep)
     \prepost{(preBlockState: StateOfAccounts) (gl: BlockState.glocs)}
-      block_statep |-> BlockState.Rc block preBlockState 1 gl (* the concurrent invariant does not hold during BlockState.merge : Fix *)
+      block_statep |-> BlockState.Rc block preBlockState 1 gl
     \arg{prevp: ptr} "prev" (Vref prevp)
-    \prepost{prg: gname} prevp |-> PromiseR (1/2) prg (storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) (i-1))
+    \prepost{prg: gname} prevp |-> PromiseR (1/2) prg
+       (block_statep |-> BlockState.R block preBlockState (2/3)%Qp ((fst (stateAfterTransactions (header block) preBlockState (List.firstn i (transactions block))))))
     \post{retp}[Vptr retp]
       let actualPreState := fst (stateAfterTransactions (header block) preBlockState (firstn i (transactions block))) in
       let '(_, result) := stateAfterTransactionAux actualPreState t in
        retp |-> ResultR ReceiptR result
-       ** storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) i.
+       ** (block_statep |-> BlockState.R block preBlockState (2/3)%Qp ((fst (stateAfterTransactions (header block) preBlockState (List.firstn (1+i) (transactions block))))))
+.
 
   Record State :=
     {
@@ -283,8 +281,8 @@ Module Generalized1.
     Definition StateR (s: State): Rep. Proof. Admitted.
 
   Definition can_merge (this:ptr): WpSpec mpredI val val :=
-    \prepost{(preState curState: StateOfAccounts) (block: Block)}
-      this |-> BlockState.R block preState curState
+    \prepost{(preState curState: StateOfAccounts) (block: Block) (q:Qp)}
+      this |-> BlockState.R block preState q curState
     \arg{statep: ptr} "prev" (Vref statep)
     \pre{finalS}
       statep |-> StateR finalS

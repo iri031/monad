@@ -159,12 +159,12 @@ Result<std::vector<Receipt>> execute_block(
                     block_hash_buffer,
                     block_state,
                     promises[i]);
-                promises[i + 1].set_value();
+		notifyDone(i);
             });
     }
 
     auto const last = static_cast<std::ptrdiff_t>(block.transactions.size());
-    promises[last].get_future().wait();
+    waitForAllTransaction();
 
     std::vector<Receipt> receipts;
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
