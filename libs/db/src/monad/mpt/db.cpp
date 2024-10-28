@@ -762,6 +762,7 @@ struct OnDiskWithWorkerThreadImpl
 
     explicit OnDiskWithWorkerThreadImpl(OnDiskDbConfig const &options)
         : worker_thread_([&, options = options] {
+            pthread_setname_np(pthread_self(), "triedb rw");
             {
                 std::unique_lock const g(lock_);
                 worker_ = std::make_unique<DbAsyncWorker>(this, options);
