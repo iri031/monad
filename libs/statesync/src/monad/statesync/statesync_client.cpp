@@ -1,5 +1,8 @@
 #include <monad/config.hpp>
 #include <monad/core/assert.h>
+#include <monad/core/basic_formatter.hpp>
+#include <monad/core/fmt/address_fmt.hpp>
+#include <monad/core/fmt/bytes_fmt.hpp>
 #include <monad/core/likely.h>
 #include <monad/core/rlp/bytes_rlp.hpp>
 #include <monad/core/unaligned.hpp>
@@ -61,7 +64,6 @@ void commit(monad_statesync_client_context &ctx)
     }
     UpdateList code_updates;
 
-    ankerl::unordered_dense::segmented_set<bytes32_t> remaining;
     std::deque<bytes32_t> upserted;
     for (auto const &hash : ctx.hash) {
         if (ctx.code.contains(hash)) {
@@ -72,9 +74,6 @@ void commit(monad_statesync_client_context &ctx)
                 .next = UpdateList{},
                 .version = static_cast<int64_t>(ctx.current)}));
             upserted.emplace_back(hash);
-        }
-        else {
-            remaining.insert(hash);
         }
     }
 
@@ -98,7 +97,6 @@ void commit(monad_statesync_client_context &ctx)
     for (auto const &hash : upserted) {
         MONAD_ASSERT(ctx.code.erase(hash) == 1);
     }
-    ctx.hash = std::move(remaining);
     ctx.deltas.clear();
 }
 
@@ -373,8 +371,8 @@ void monad_statesync_client_handle_done(
 bool monad_statesync_client_finalize(monad_statesync_client_context *const ctx)
 {
     MONAD_ASSERT(ctx->deltas.empty());
-    if (!ctx->buffered.empty() || !ctx->hash.empty()) {
-        // sent storage with no account or not all code was sent
+    if (!ctx->buffered.empty()) {
+        // sent storage with no account
         return false;
     }
 
@@ -384,6 +382,12 @@ bool monad_statesync_client_finalize(monad_statesync_client_context *const ctx)
     }
     TrieDb db{ctx->db};
     MONAD_ASSERT(db.get_block_number() == ctx->target);
+
+    for (auto const &hash : ctx->hash) {
+        if (db.read_code(hash) == nullptr) {
+            return false;
+        }
+    }
     return db.state_root() == ctx->expected_root;
 }
 
