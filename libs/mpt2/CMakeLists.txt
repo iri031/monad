@@ -20,3 +20,4 @@ target_include_directories(monad_mpt2 PUBLIC ${PROJECT_SOURCE_DIR}/src)
 monad_compile_options(monad_mpt2)
 
 target_link_libraries(monad_mpt2 PUBLIC monad_execution)
+monad_add_test_folder("src/monad/mpt2")
