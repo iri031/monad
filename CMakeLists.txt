@@ -157,6 +157,7 @@ add_subdirectory("libs/runloop")
 add_subdirectory("libs/async")
 add_subdirectory("libs/db")
 add_subdirectory("libs/execution")
+add_subdirectory("libs/mpt2")
 add_subdirectory("libs/rpc")
 add_subdirectory("libs/statesync")
 
