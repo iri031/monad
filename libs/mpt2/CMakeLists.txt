@@ -7,6 +7,9 @@ project(monad_mpt2)
 add_library(
   monad_mpt2 STATIC
   "src/monad/mpt2/config.hpp"
+  "src/monad/mpt2/node.hpp"
+  "src/monad/mpt2/proof.cpp"
+  "src/monad/mpt2/proof.hpp"
   # rlp
   "src/monad/mpt2/rlp/item.hpp"
   "src/monad/mpt2/rlp/item.cpp"
