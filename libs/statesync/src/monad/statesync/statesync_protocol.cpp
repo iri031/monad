@@ -156,8 +156,7 @@ void StatesyncProtocolV1::send_request(
             .prefix_bytes = monad_statesync_client_prefix_bytes(),
             .target = ctx->target,
             .from = from,
-            .until = from >= (ctx->target * 99 / 100) ? ctx->target
-                                                      : ctx->target * 99 / 100,
+            .until = ctx->target,
             .old_target = old_target});
 }
 
