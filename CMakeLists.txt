@@ -49,6 +49,8 @@ function(monad_compile_options target)
   if(EVMONE_TRACING)
     target_compile_definitions(${target} PUBLIC EVMONE_TRACING=1)
   endif()
+
+  target_compile_definitions(${target} PUBLIC ENABLE_CALL_TRACING=1)
 endfunction()
 
 find_package(Boost REQUIRED COMPONENTS fiber graph json)
