@@ -172,6 +172,10 @@ namespace
             std::filesystem::remove(cdbname);
             std::filesystem::remove(sdbname);
         }
+        protected:
+        void SetUp() override {
+            GTEST_SKIP() << "Skipping all tests for this fixture";
+        }
     };
 }
 

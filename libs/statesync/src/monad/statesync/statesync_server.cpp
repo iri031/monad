@@ -58,11 +58,11 @@ bool send_deletion(
     MONAD_ASSERT(
         rq.old_target <= rq.target || rq.old_target == INVALID_BLOCK_ID);
 
+    auto const &deleted = ctx.deleted;
     if (rq.old_target == INVALID_BLOCK_ID) {
-        return true;
+        return deleted.count(rq.target) != 0;
     }
 
-    auto const &deleted = ctx.deleted;
     auto const prefix = from_prefix(rq.prefix, rq.prefix_bytes);
 
     for (uint64_t i = rq.old_target + 1; i <= rq.target; ++i) {
