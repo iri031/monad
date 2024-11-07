@@ -434,6 +434,15 @@ void AsyncIO::submit_request_(
         sqe->ioprio = 0;
         break;
     }
+    if (storage_pool_->logger() != nullptr) {
+        storage_pool::write_log_entry entry(
+            chunk_and_offset.id,
+            chunk_and_offset.offset,
+            offset,
+            (uint32_t)buffer.size());
+        to_result(monad_lbl_add(storage_pool_->logger(), &entry, sizeof(entry)))
+            .value();
+    }
 
     io_uring_sqe_set_data(sqe, uring_data);
     MONAD_ASYNC_IO_URING_RETRYABLE(io_uring_submit(wr_ring));

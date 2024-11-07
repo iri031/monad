@@ -48,6 +48,9 @@ check_if_boost_fiber_needs_ucontext_macro()
 
 find_package(TBB REQUIRED)
 
+pkg_check_modules(zstd REQUIRED IMPORTED_TARGET libzstd)
+
+
 add_subdirectory("third_party/nanobench")
 
 add_subdirectory("third_party/nlohmann_json" SYSTEM)
@@ -123,6 +126,8 @@ add_library(
   # io
   "src/monad/io/buffer_pool.cpp"
   "src/monad/io/buffer_pool.hpp"
+  "src/monad/io/lightweight_binary_logger.cpp"
+  "src/monad/io/lightweight_binary_logger.h"
   "src/monad/io/config.hpp"
   # rlp
   "src/monad/rlp/config.hpp"
@@ -176,6 +181,7 @@ else()
   target_link_libraries(monad_core PRIVATE Boost::stacktrace_basic)
 endif()
 
+target_link_libraries(monad_core PRIVATE PkgConfig::zstd)
 target_link_libraries(monad_core PUBLIC openssl_sha3 Boost::fiber TBB::tbb)
 target_link_libraries(monad_core PUBLIC komihash)
 target_link_libraries(monad_core PUBLIC blake3)
@@ -185,6 +191,11 @@ target_link_libraries(monad_core PUBLIC unordered_dense)
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   target_link_libraries(monad_core PUBLIC cgroup uring)
 endif()
+
+add_executable(monad_lbl "src/monad/io/lightweight_binary_logger_cli_tool_main.cpp"
+                         "src/monad/io/lightweight_binary_logger_cli_tool_impl.cpp")
+monad_compile_options(monad_lbl)
+target_link_libraries(monad_lbl PUBLIC monad_core PkgConfig::zstd CLI11::CLI11)
 
 add_library(
   monad_core_disas STATIC

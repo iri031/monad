@@ -104,6 +104,7 @@ AsyncIOContext::AsyncIOContext(ReadOnlyOnDiskDbConfig const &options)
         MONAD_ASSERT(!options.dbname_paths.empty());
         return async::storage_pool{
             options.dbname_paths,
+            options.io_logger_path,
             async::storage_pool::mode::open_existing,
             pool_options};
     }()}
@@ -144,6 +145,7 @@ AsyncIOContext::AsyncIOContext(OnDiskDbConfig const &options)
         }
         return async::storage_pool{
             options.dbname_paths,
+            options.io_logger_path,
             options.append ? async::storage_pool::mode::open_existing
                            : async::storage_pool::mode::truncate};
     }()}

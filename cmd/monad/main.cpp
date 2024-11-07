@@ -105,6 +105,7 @@ int main(int const argc, char const *argv[])
     unsigned sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 1);
     unsigned ro_sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 2);
     std::vector<fs::path> dbname_paths;
+    fs::path binary_logger_io;
     fs::path snapshot;
     fs::path dump_snapshot;
     std::string statesync;
@@ -142,6 +143,10 @@ int main(int const argc, char const *argv[])
         "A comma-separated list of previously created database paths. You can "
         "configure the storage pool with one or more files/devices. If no "
         "value is passed, the replay will run with an in-memory triedb");
+    cli.add_option(
+        "--binary_logger_io",
+        binary_logger_io,
+        "path to file to log all DB write i/o");
     cli.add_option(
         "--dump_snapshot",
         dump_snapshot,
@@ -240,7 +245,8 @@ int main(int const argc, char const *argv[])
                     .wr_buffers = 32,
                     .uring_entries = 128,
                     .sq_thread_cpu = sq_thread_cpu,
-                    .dbname_paths = dbname_paths}};
+                    .dbname_paths = dbname_paths,
+                    .io_logger_path = binary_logger_io}};
         }
         machine = std::make_unique<InMemoryMachine>();
         return mpt::Db{*machine};
