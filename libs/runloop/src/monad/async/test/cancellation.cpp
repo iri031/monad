@@ -5,7 +5,6 @@
 #include "../executor.h"
 #include "monad/async/cpp_helpers.hpp"
 #include "monad/async/task.h"
-#include "monad/context/boost_result.h"
 #include "monad/context/config.h"
 #include "monad/context/context_switcher.h"
 
@@ -164,7 +163,7 @@ TEST(cancellation, suspend_for_duration)
         };
 
         char tempfilepath[256];
-        close(monad_async_make_temporary_file(
+        close(monad_make_temporary_file(
             tempfilepath, sizeof(tempfilepath)));
         auto fh = make_file(task, nullptr, tempfilepath, how);
         unlink(tempfilepath);
