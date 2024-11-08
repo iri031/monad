@@ -146,7 +146,10 @@ public:
 };
 
 chunk_offset_t
-async_write_node_set_spare(UpdateAuxImpl &aux, Node &node, bool is_fast);
+async_write_node_set_spare(UpdateAuxImpl &, Node &, bool is_fast);
+
+chunk_offset_t
+write_new_root_node(UpdateAuxImpl &, Node &root, uint64_t version);
 
 node_writer_unique_ptr_type
 replace_node_writer(UpdateAuxImpl &, node_writer_unique_ptr_type const &);
@@ -973,6 +976,13 @@ void async_read(UpdateAuxImpl &aux, Receiver &&receiver)
 Node::UniquePtr upsert(
     UpdateAuxImpl &, uint64_t, StateMachine &, Node::UniquePtr old,
     UpdateList &&);
+
+// deep copy of a `src_trie` to trie of `root` under prefix `dest`, where
+// `src_trie` is not necessarily from the same version as `root`.
+Node::UniquePtr copy_trie_to_dest(
+    UpdateAuxImpl &, Node &src_root, NibblesView src_prefix,
+    Node::UniquePtr dest_root, NibblesView dest_prefx,
+    uint64_t const dest_version, bool must_write_to_disk);
 
 // load all nodes as far as caching policy would allow
 size_t load_all(UpdateAuxImpl &, StateMachine &, NodeCursor);
