@@ -1,35 +1,77 @@
 #pragma once
 
 #include <monad/config.hpp>
-#include <monad/core/assert.h>
 #include <monad/core/bytes.hpp>
 
 #include <cstdint>
+#include <deque>
+#include <vector>
 
 MONAD_NAMESPACE_BEGIN
 
-class BlockHashBuffer
+struct BlockHashBufferBase
 {
     static constexpr unsigned N = 256;
 
+    virtual uint64_t n() const = 0;
+    virtual bytes32_t const &get(uint64_t) const = 0;
+    virtual ~BlockHashBufferBase() = default;
+};
+
+class BlockHashBuffer : public BlockHashBufferBase
+{
     bytes32_t b_[N];
     uint64_t n_;
 
 public:
     BlockHashBuffer();
 
-    void set(uint64_t const n, bytes32_t const &h)
-    {
-        MONAD_ASSERT(!n_ || n == n_);
-        b_[n % N] = h;
-        n_ = n + 1;
-    }
+    uint64_t n() const override;
+    bytes32_t const &get(uint64_t) const override;
 
-    bytes32_t const &get(uint64_t const n) const
-    {
-        MONAD_ASSERT(n < n_ && n + N >= n_);
-        return b_[n % N];
-    }
+    void set(uint64_t, bytes32_t const &);
+};
+
+class BlockHashBufferProposal : public BlockHashBufferBase
+{
+    uint64_t n_;
+    uint64_t round_;
+    uint64_t parent_round_;
+    BlockHashBufferBase const *buf_;
+    std::vector<bytes32_t> deltas_;
+
+public:
+    BlockHashBufferProposal(
+        bytes32_t const &, uint64_t, uint64_t, BlockHashBufferBase const &);
+    BlockHashBufferProposal(
+        bytes32_t const &, uint64_t, uint64_t, BlockHashBufferProposal const &);
+
+    // needed for deque.erase()
+    BlockHashBufferProposal(BlockHashBufferProposal &&) = default;
+    BlockHashBufferProposal &operator=(BlockHashBufferProposal &&) = default;
+    BlockHashBufferProposal(BlockHashBufferProposal &) = delete;
+    BlockHashBufferProposal &operator=(BlockHashBufferProposal &) = delete;
+
+    uint64_t n() const override;
+    bytes32_t const &get(uint64_t) const override;
+
+    uint64_t round() const;
+    uint64_t parent_round() const;
+    bytes32_t const &h() const;
+};
+
+class BlockHashChain
+{
+    BlockHashBuffer &buf_;
+    std::deque<BlockHashBufferProposal> proposals_;
+    uint64_t finalized_;
+
+public:
+    BlockHashChain(BlockHashBuffer &);
+
+    BlockHashBufferBase const &
+    propose(bytes32_t const &, uint64_t round, uint64_t parent_round);
+    BlockHashBufferBase const &finalize(uint64_t const round);
 };
 
 MONAD_NAMESPACE_END
