@@ -99,7 +99,7 @@ void log_tps(
 
 void init_block_hash_buffer(
     mpt::Db &rodb, uint64_t const block_number,
-    BlockHashBuffer &block_hash_buffer)
+    BlockHashBufferFinalized &block_hash_buffer)
 {
     TrieDb tdb{rodb};
     for (uint64_t b = block_number < 256 ? 0 : block_number - 256;
@@ -119,7 +119,7 @@ void init_block_hash_buffer(
 
 void init_block_hash_buffer(
     BlockDb &block_db, uint64_t const block_number,
-    BlockHashBuffer &block_hash_buffer)
+    BlockHashBufferFinalized &block_hash_buffer)
 {
     for (uint64_t b = block_number < 256 ? 1 : block_number - 255;
          b <= block_number;
@@ -135,7 +135,7 @@ void init_block_hash_buffer(
 }
 
 Result<std::pair<uint64_t, uint64_t>> on_proposal_event(
-    Block &block, BlockHashBuffer &block_hash_buffer, Chain const &chain,
+    Block &block, BlockHashBufferFinalized &block_hash_buffer, Chain const &chain,
     Db &db, fiber::PriorityPool &priority_pool)
 {
     BOOST_OUTCOME_TRY(chain.static_validate_header(block.header));
@@ -193,7 +193,7 @@ Result<std::pair<uint64_t, uint64_t>> on_proposal_event(
 }
 
 Result<std::pair<uint64_t, uint64_t>> run_monad(
-    Chain const &chain, Db &db, BlockHashBuffer &block_hash_buffer,
+    Chain const &chain, Db &db, BlockHashBufferFinalized &block_hash_buffer,
     TryGet const &try_get, EventEmitter &emitter,
     fiber::PriorityPool &priority_pool, uint64_t &block_num,
     uint64_t const nblocks)
@@ -554,7 +554,7 @@ int main(int const argc, char const *argv[])
         MONAD_ASSERT(false);
     }();
 
-    BlockHashBuffer block_hash_buffer;
+    BlockHashBufferFinalized block_hash_buffer;
     if (!snapshot.empty() || dbname_paths.empty() ||
         !db.version_is_valid(init_block_num - 255)) {
         BlockDb block_db{block_db_path};
