@@ -12,91 +12,67 @@
 
 MONAD_NAMESPACE_BEGIN
 
-class BlockHashBuffer
+struct BlockHashBuffer
 {
     static constexpr unsigned N = 256;
 
+    virtual uint64_t n() const = 0;
+    virtual void set(uint64_t const n, bytes32_t const &h) = 0;
+    virtual bytes32_t const &get(uint64_t const n) const = 0;
+};
+
+class BlockHashBufferFinal : BlockHashBuffer
+{
     bytes32_t b_[N];
     uint64_t n_;
 
 public:
-    BlockHashBuffer();
+    BlockHashBufferFinal();
 
-    void set(uint64_t const n, bytes32_t const &h)
+    virtual uint64_t n() const override
+    {
+        return n_;
+    };
+
+    virtual void set(uint64_t const n, bytes32_t const &h) override
     {
         MONAD_ASSERT(!n_ || n == n_);
         b_[n % N] = h;
         n_ = n + 1;
     }
 
-    bytes32_t const &get(uint64_t const n) const
+    virtual bytes32_t const &get(uint64_t const n) const override
     {
         MONAD_ASSERT(n < n_ && n + N >= n_);
         return b_[n % N];
     }
 };
 
-class BlockHashChain
+class BlockHashBufferProposal : BlockHashBuffer
 {
-    template <class Key, class T>
-    using Map = ankerl::unordered_dense::segmented_map<Key, T>;
+    uint64_t const n_;
+    BlockHashBufferFinal const &buf_;
+    std::vector<bytes32_t> hash_;
 
-    Map<uint64_t, BlockHashBuffer> chain_;
-    Map<uint64_t, std::vector<uint64_t>> gc_;
-    uint64_t last_finalized_block_;
+    BlockHashBufferProposal(bytes32_t const &, BlockHashBufferFinal const &);
+    BlockHashBufferProposal(bytes32_t const &, BlockHashBufferProposal const &);
 
-public:
-    BlockHashChain(
-        uint64_t const last_finalized_block =
-            std::numeric_limits<uint64_t>::max())
-        : last_finalized_block_(last_finalized_block)
-    {
-    }
-
-    BlockHashBuffer &next_buffer(
-        uint64_t const block_number, uint64_t const round,
-        uint64_t const parent_round)
-    {
-        auto [it1, inserted] =
-            chain_.try_emplace(parent_round, BlockHashBuffer());
-        auto it2 = gc_.try_emplace(block_number, std::vector<uint64_t>{}).first;
-        if (MONAD_UNLIKELY(inserted)) {
-            MONAD_ASSERT(round == parent_round);
-            it2->second.emplace_back(round);
-            return it1->second;
-        }
-        else {
-            // TODO: This copies the the entire BlockHashBufer (8k) every time.
-            // We can optimize for the happy path and only copy on fork.
-            auto it3 = chain_.try_emplace(round, it1->second).first;
-            it2->second.emplace_back(round);
-            return it3->second;
-        }
-    }
-
-    void finalize(uint64_t const block_number, uint64_t const round)
-    {
-        // drop chains from previous blocks
-        for (uint64_t b = last_finalized_block_ + 1; b < block_number; ++b) {
-            auto it = gc_.find(b);
-            MONAD_ASSERT(it != gc_.end());
-            for (auto r : it->second) {
-                chain_.erase(r);
-            }
-            gc_.erase(it);
-        }
-
-        // current block - keep only the finalized round
-        auto it = gc_.find(block_number);
-        MONAD_ASSERT(it != gc_.end());
-        for (auto r : it->second) {
-            if (r != round) {
-                chain_.erase(r);
-            }
-        }
-
-        last_finalized_block_ = block_number;
-    }
+    virtual uint64_t n() const override = 0;
+    virtual void set(uint64_t, bytes32_t const &) override;
+    virtual bytes32_t const &get(uint64_t) const override;
 };
+
+// uint64_t n;
+// uint64_t n_round;
+// BlockHashBuffer buf;
+// std::deque<BlockHashBufferProposal> proposals;
+//
+// void finalize(uint64_t const round, bytes32_t const &hash)
+//{
+//     buf.set(n, hash);
+//     for (size_t i = 0; i < (round - n_round); ++i) {
+//         proposals.pop_front();
+//     }
+// }
 
 MONAD_NAMESPACE_END
