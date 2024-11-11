@@ -34,6 +34,11 @@ struct Db
     virtual std::optional<bytes32_t> withdrawals_root() = 0;
 
     virtual void increment_block_number() = 0;
+    // for executing a proposal
+    virtual void
+    set(uint64_t block_number, uint64_t round_number,
+        std::optional<uint64_t> parent_round_number = std::nullopt) = 0;
+    virtual void finalize(uint64_t block_number, uint64_t round_number) = 0;
 
     virtual void commit(
         StateDeltas const &, Code const &, BlockHeader const &,

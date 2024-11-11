@@ -189,6 +189,7 @@ void BlockchainTest::TestBody()
             State state{bs, Incarnation{0, 0}};
             load_state_from_json(j_contents.at("pre"), state);
             bs.merge(state);
+            tdb.increment_block_number();
             bs.commit({}, {}, {}, {}, {}, std::nullopt);
         }
 

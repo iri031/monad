@@ -140,6 +140,11 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
 
         BOOST_OUTCOME_TRY(static_validate_block(rev, block));
 
+        // Ethereum: set to finalized state of last block before executing,
+        // commit to `round = block_number`, and finalize immediately after
+        // commit finishes.
+        // TODO: Monad
+        db.set(block.header.number, block.header.number, std::nullopt);
         BlockState block_state(db);
         BOOST_OUTCOME_TRY(
             auto const results,
@@ -168,6 +173,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
             block.transactions,
             block.ommers,
             block.withdrawals);
+        db.finalize(block.header.number, block.header.number);
 
         if (!chain.validate_root(
                 rev,
@@ -346,6 +352,7 @@ int main(int const argc, char const *argv[])
         return mpt::Db{*machine};
     }();
 
+    TrieDb triedb{db}; // on init, revert to latest finalized block
     // Note: in memory db block number is always zero
     uint64_t const init_block_num = [&] {
         if (!snapshot.empty()) {
@@ -366,9 +373,8 @@ int main(int const argc, char const *argv[])
             TrieDb tdb{db};
             read_genesis(genesis, tdb);
         }
-        return db.get_latest_block_id();
+        return db.current_block_id();
     }();
-    TrieDb triedb{db};
 
     std::optional<monad_statesync_server_context> ctx;
     std::jthread sync_thread;

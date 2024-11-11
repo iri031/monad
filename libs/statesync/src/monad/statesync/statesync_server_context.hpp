@@ -49,6 +49,11 @@ struct monad_statesync_server_context final : public monad::Db
     virtual std::optional<monad::bytes32_t> withdrawals_root() override;
 
     virtual void increment_block_number() override;
+    virtual void
+    set(uint64_t block_number, uint64_t round_number,
+        std::optional<uint64_t> parent_round_number = std::nullopt) override;
+    virtual void
+    finalize(uint64_t block_number, uint64_t round_number) override;
 
     virtual void commit(
         monad::StateDeltas const &state_deltas, monad::Code const &code,
