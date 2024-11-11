@@ -53,6 +53,8 @@ public:
     Result<NodeCursor> find(NodeCursor, NibblesView, uint64_t block_id) const;
     Result<NodeCursor> find(NibblesView prefix, uint64_t block_id) const;
     Result<byte_string_view> get(NibblesView, uint64_t block_id) const;
+    Result<byte_string_view>
+    get(NodeCursor, NibblesView, uint64_t block_id) const;
     Result<byte_string_view> get_data(NibblesView, uint64_t block_id) const;
     Result<byte_string_view>
     get_data(NodeCursor, NibblesView, uint64_t block_id) const;
@@ -85,6 +87,8 @@ public:
     uint64_t get_latest_block_id() const;
     uint64_t get_earliest_block_id() const;
     uint64_t get_history_length() const;
+    bool version_is_valid(uint64_t) const;
+
     // This function moves trie from source to destination version in db
     // history. Only the RWDb can call this API for state sync purposes.
     void move_trie_version_forward(uint64_t src, uint64_t dest);
@@ -97,6 +101,7 @@ public:
 
     bool is_on_disk() const;
     bool is_read_only() const;
+    uint64_t current_block_id() const;
 };
 
 // The following are not threadsafe. Please use async get from the RODb owning
