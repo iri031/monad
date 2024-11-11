@@ -113,6 +113,19 @@ void monad_statesync_server_context::increment_block_number()
     rw.increment_block_number();
 }
 
+void monad_statesync_server_context::set(
+    uint64_t const block_number, uint64_t const round_number,
+    std::optional<uint64_t> const parent_round_number)
+{
+    rw.set(block_number, round_number, parent_round_number);
+}
+
+void monad_statesync_server_context::finalize(
+    uint64_t const block_number, uint64_t const round_number)
+{
+    rw.finalize(block_number, round_number);
+}
+
 void monad_statesync_server_context::commit(
     StateDeltas const &state_deltas, Code const &code,
     BlockHeader const &header, std::vector<Receipt> const &receipts,

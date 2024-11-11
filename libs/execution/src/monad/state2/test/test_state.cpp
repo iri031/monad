@@ -473,6 +473,7 @@ TYPED_TEST(StateTest, selfdestruct_merge_commit_incarnation)
         bs.merge(s2);
     }
     {
+        this->tdb.increment_block_number();
         bs.commit({}, {}, {}, {}, {}, std::nullopt);
         EXPECT_EQ(
             this->tdb.read_storage(a, Incarnation{1, 2}, key1), bytes32_t{});
@@ -512,6 +513,7 @@ TYPED_TEST(StateTest, selfdestruct_merge_create_commit_incarnation)
         bs.merge(s2);
     }
     {
+        this->tdb.increment_block_number();
         bs.commit({}, {}, {}, {}, {}, std::nullopt);
         EXPECT_EQ(this->tdb.read_storage(a, Incarnation{1, 2}, key1), value1);
         EXPECT_EQ(this->tdb.read_storage(a, Incarnation{1, 2}, key2), value2);
@@ -545,6 +547,7 @@ TYPED_TEST(StateTest, selfdestruct_create_destroy_create_commit_incarnation)
         bs.merge(s2);
     }
     {
+        this->tdb.increment_block_number();
         bs.commit({}, {}, {}, {}, {}, std::nullopt);
         EXPECT_EQ(
             this->tdb.read_storage(a, Incarnation{1, 2}, key1), bytes32_t{});
@@ -1079,6 +1082,7 @@ TYPED_TEST(StateTest, commit_storage_and_account_together_regression)
     as.set_storage(a, key1, value1);
 
     bs.merge(as);
+    this->tdb.increment_block_number();
     bs.commit({}, {}, {}, {}, {}, std::nullopt);
 
     EXPECT_TRUE(this->tdb.read_account(a).has_value());
@@ -1096,6 +1100,7 @@ TYPED_TEST(StateTest, set_and_then_clear_storage_in_same_commit)
     EXPECT_EQ(as.set_storage(a, key1, value1), EVMC_STORAGE_ADDED);
     EXPECT_EQ(as.set_storage(a, key1, null), EVMC_STORAGE_ADDED_DELETED);
     bs.merge(as);
+    this->tdb.increment_block_number();
     bs.commit({}, {}, {}, {}, {}, std::nullopt);
 
     EXPECT_EQ(
@@ -1136,6 +1141,7 @@ TYPED_TEST(StateTest, commit_twice)
             as.set_storage(b, key2, value2), EVMC_STORAGE_DELETED_RESTORED);
         EXPECT_TRUE(bs.can_merge(as));
         bs.merge(as);
+        this->tdb.increment_block_number();
         bs.commit({}, {}, {}, {}, {}, std::nullopt);
 
         EXPECT_EQ(this->tdb.read_storage(b, Incarnation{1, 1}, key1), value2);
@@ -1153,6 +1159,7 @@ TYPED_TEST(StateTest, commit_twice)
         cs.destruct_suicides<EVMC_SHANGHAI>();
         EXPECT_TRUE(bs.can_merge(cs));
         bs.merge(cs);
+        this->tdb.increment_block_number();
         bs.commit({}, {}, {}, {}, {}, std::nullopt);
 
         EXPECT_EQ(

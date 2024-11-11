@@ -113,6 +113,19 @@ public:
         db_.increment_block_number();
     }
 
+    virtual void
+    set(uint64_t const block_number, uint64_t const round_number,
+        std::optional<uint64_t> const parent_round_number) override
+    {
+        db_.set(block_number, round_number, parent_round_number);
+    }
+
+    virtual void
+    finalize(uint64_t const block_number, uint64_t const round_number) override
+    {
+        db_.finalize(block_number, round_number);
+    }
+
     virtual void commit(
         StateDeltas const &state_deltas, Code const &code,
         BlockHeader const &header, std::vector<Receipt> const &receipts,
