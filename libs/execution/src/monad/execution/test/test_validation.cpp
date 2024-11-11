@@ -208,19 +208,19 @@ TEST(Validation, wrong_dao_extra_data)
 TEST(Validation, base_fee_per_gas_existence)
 {
     static BlockHeader const header1{
-        .ommers_hash = NULL_LIST_HASH,
         .gas_limit = 10000,
-        .gas_used = 5000,
-        .base_fee_per_gas = 1000};
+        .base_fee_per_gas = 1000,
+        .ommers_hash = NULL_LIST_HASH,
+        .gas_used = 5000};
 
     auto const result1 = static_validate_header<EVMC_FRONTIER>(header1);
     EXPECT_EQ(result1.error(), BlockError::FieldBeforeFork);
 
     static BlockHeader const header2{
-        .ommers_hash = NULL_LIST_HASH,
         .gas_limit = 10000,
-        .gas_used = 5000,
-        .base_fee_per_gas = std::nullopt};
+        .base_fee_per_gas = std::nullopt,
+        .ommers_hash = NULL_LIST_HASH,
+        .gas_used = 5000};
 
     auto const result2 = static_validate_header<EVMC_LONDON>(header2);
     EXPECT_EQ(result2.error(), BlockError::MissingField);
@@ -229,21 +229,21 @@ TEST(Validation, base_fee_per_gas_existence)
 TEST(Validation, withdrawal_root_existence)
 {
     static BlockHeader const header1{
-        .ommers_hash = NULL_LIST_HASH,
         .gas_limit = 10000,
-        .gas_used = 5000,
         .base_fee_per_gas = std::nullopt,
-        .withdrawals_root = 0x00_bytes32};
+        .ommers_hash = NULL_LIST_HASH,
+        .withdrawals_root = 0x00_bytes32,
+        .gas_used = 5000};
 
     auto const result1 = static_validate_header<EVMC_FRONTIER>(header1);
     EXPECT_EQ(result1.error(), BlockError::FieldBeforeFork);
 
     static BlockHeader const header2{
-        .ommers_hash = NULL_LIST_HASH,
         .gas_limit = 10000,
-        .gas_used = 5000,
         .base_fee_per_gas = 1000,
-        .withdrawals_root = std::nullopt};
+        .ommers_hash = NULL_LIST_HASH,
+        .withdrawals_root = std::nullopt,
+        .gas_used = 5000};
 
     auto const result2 = static_validate_header<EVMC_SHANGHAI>(header2);
     EXPECT_EQ(result2.error(), BlockError::MissingField);
@@ -255,11 +255,11 @@ TEST(Validation, invalid_nonce)
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
 
     static BlockHeader const header{
-        .ommers_hash = NULL_LIST_HASH,
         .gas_limit = 10000,
-        .gas_used = 5000,
         .nonce = nonce,
-        .base_fee_per_gas = 1000};
+        .base_fee_per_gas = 1000,
+        .ommers_hash = NULL_LIST_HASH,
+        .gas_used = 5000};
 
     auto const result = static_validate_header<EVMC_PARIS>(header);
     EXPECT_EQ(result.error(), BlockError::InvalidNonce);

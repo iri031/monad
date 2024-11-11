@@ -16,18 +16,12 @@ MONAD_NAMESPACE_BEGIN
 
 struct BlockHeader
 {
-    Receipt::Bloom logs_bloom{};
-    bytes32_t parent_hash{};
-    bytes32_t ommers_hash{};
-    bytes32_t state_root{};
-    bytes32_t transactions_root{};
-    bytes32_t receipts_root{};
+    // input fields
     bytes32_t prev_randao{}; // aka mix_hash
     uint256_t difficulty{};
 
     uint64_t number{0};
     uint64_t gas_limit{0};
-    uint64_t gas_used{0};
     uint64_t timestamp{0};
 
     byte_string_fixed<8> nonce{};
@@ -36,10 +30,24 @@ struct BlockHeader
     Address beneficiary{};
 
     std::optional<uint256_t> base_fee_per_gas{std::nullopt}; // EIP-1559
-    std::optional<bytes32_t> withdrawals_root{std::nullopt}; // EIP-4895
     std::optional<uint64_t> blob_gas_used{std::nullopt}; // EIP-4844
     std::optional<uint64_t> excess_blob_gas{std::nullopt}; // EIP-4844
     std::optional<bytes32_t> parent_beacon_block_root{std::nullopt}; // EIP-4788
+
+    // monad specific fields
+    std::optional<bytes32_t> bft_block_id{};
+    std::optional<uint64_t> round{};
+    std::optional<uint64_t> parent_round{};
+
+    // output fields
+    Receipt::Bloom logs_bloom{};
+    bytes32_t parent_hash{};
+    bytes32_t ommers_hash{};
+    bytes32_t state_root{};
+    bytes32_t transactions_root{};
+    bytes32_t receipts_root{};
+    std::optional<bytes32_t> withdrawals_root{std::nullopt}; // EIP-4895
+    uint64_t gas_used{0};
 
     friend bool operator==(BlockHeader const &, BlockHeader const &) = default;
 };
@@ -54,10 +62,10 @@ struct Block
     friend bool operator==(Block const &, Block const &) = default;
 };
 
-static_assert(sizeof(BlockHeader) == 728);
+static_assert(sizeof(BlockHeader) == 792);
 static_assert(alignof(BlockHeader) == 8);
 
-static_assert(sizeof(Block) == 808);
+static_assert(sizeof(Block) == 872);
 static_assert(alignof(Block) == 8);
 
 MONAD_NAMESPACE_END
