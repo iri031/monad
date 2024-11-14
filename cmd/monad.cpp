@@ -18,6 +18,7 @@
 #include <monad/execution/trace/event_trace.hpp>
 #include <monad/execution/validate_block.hpp>
 #include <monad/fiber/priority_pool.hpp>
+#include <monad/mpt/nibbles_view.hpp>
 #include <monad/mpt/ondisk_db_config.hpp>
 #include <monad/procfs/statm.h>
 #include <monad/state2/block_state.hpp>
@@ -90,10 +91,50 @@ void log_tps(
         monad_procfs_self_resident() / (1L << 20));
 };
 
+void init_block_hash_buffer(
+    mpt::Db &rodb, uint64_t const block_number,
+    BlockHashBuffer &block_hash_buffer)
+{
+    for (uint64_t b = block_number < 256 ? 0 : block_number - 256;
+         b < block_number;
+         ++b) {
+        auto const header = rodb.get(
+            mpt::concat(
+                FINALIZED_NIBBLE, mpt::NibblesView{block_header_nibbles}),
+            b);
+        if (!header.has_value()) {
+            LOG_ERROR(
+                "Could not query block header {} from TrieDb -- {}",
+                b,
+                header.error().message());
+            MONAD_ASSERT(false);
+        }
+        auto const h = std::bit_cast<bytes32_t>(keccak256(header.value()));
+        block_hash_buffer.set(b, h);
+    }
+}
+
+void init_block_hash_buffer(
+    BlockDb &block_db, uint64_t const block_number,
+    BlockHashBuffer &block_hash_buffer)
+{
+    for (uint64_t b = block_number < 256 ? 1 : block_number - 255;
+         b <= block_number;
+         ++b) {
+        Block block;
+        auto const ok = block_db.get(b, block);
+        if (!ok) {
+            LOG_ERROR("Could not query block {} from blockdb.", b);
+            MONAD_ASSERT(false);
+        }
+        block_hash_buffer.set(b - 1, block.header.parent_hash);
+    }
+}
+
 Result<std::pair<uint64_t, uint64_t>> run_monad(
-    Chain const &chain, Db &db, TryGet const &try_get,
-    fiber::PriorityPool &priority_pool, uint64_t &block_num,
-    uint64_t const nblocks)
+    Chain const &chain, Db &db, BlockHashBuffer &block_hash_buffer,
+    TryGet const &try_get, fiber::PriorityPool &priority_pool,
+    uint64_t &block_num, uint64_t const nblocks)
 {
     constexpr auto SLEEP_TIME = std::chrono::microseconds(100);
     signal(SIGINT, signal_handler);
@@ -108,18 +149,6 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     auto batch_begin = std::chrono::steady_clock::now();
     uint64_t ntxs = 0;
 
-    BlockHashBuffer block_hash_buffer;
-    for (uint64_t i = block_num < 256 ? 1 : block_num - 255;
-         i < block_num && stop == 0;) {
-        auto const block = try_get(i);
-        if (!block.has_value()) {
-            std::this_thread::sleep_for(SLEEP_TIME);
-            continue;
-        }
-        block_hash_buffer.set(i - 1, block.value().header.parent_hash);
-        ++i;
-    }
-
     uint64_t const end_block_num =
         (std::numeric_limits<uint64_t>::max() - block_num + 1) <= nblocks
             ? std::numeric_limits<uint64_t>::max()
@@ -131,8 +160,6 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
             continue;
         }
         auto &block = opt_block.value();
-
-        block_hash_buffer.set(block_num - 1, block.header.parent_hash);
 
         BOOST_OUTCOME_TRY(chain.static_validate_header(block.header));
 
@@ -186,6 +213,10 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
                 block.header)) {
             return BlockError::WrongMerkleRoot;
         }
+
+        auto const h = std::bit_cast<bytes32_t>(
+            keccak256(rlp::encode_block_header(block.header)));
+        block_hash_buffer.set(block_num, h);
 
         ntxs += block.transactions.size();
         batch_num_txs += block.transactions.size();
@@ -493,9 +524,26 @@ int main(int const argc, char const *argv[])
         MONAD_ASSERT(false);
     }();
 
+    BlockHashBuffer block_hash_buffer;
+    if (!snapshot.empty() || dbname_paths.empty()) {
+        BlockDb block_db{block_db_path};
+        init_block_hash_buffer(block_db, start_block_num, block_hash_buffer);
+    }
+    else {
+        mpt::Db rodb{mpt::ReadOnlyOnDiskDbConfig{
+            .sq_thread_cpu = ro_sq_thread_cpu, .dbname_paths = dbname_paths}};
+        init_block_hash_buffer(rodb, start_block_num, block_hash_buffer);
+    }
+
     uint64_t block_num = start_block_num;
-    auto const result =
-        run_monad(*chain, db_cache, try_get, priority_pool, block_num, nblocks);
+    auto const result = run_monad(
+        *chain,
+        db_cache,
+        block_hash_buffer,
+        try_get,
+        priority_pool,
+        block_num,
+        nblocks);
 
     if (MONAD_UNLIKELY(result.has_error())) {
         LOG_ERROR(
