@@ -98,43 +98,6 @@ void log_tps(
         monad_procfs_self_resident() / (1L << 20));
 };
 
-void init_block_hash_buffer(
-    mpt::Db &rodb, uint64_t const block_number,
-    BlockHashBufferFinalized &block_hash_buffer)
-{
-    TrieDb tdb{rodb};
-    for (uint64_t b = block_number < 256 ? 0 : block_number - 256;
-         b < block_number;
-         ++b) {
-        tdb.set_block_number(b);
-        auto const header = tdb.read_header();
-        if (!header.has_value()) {
-            LOG_ERROR("Could not query block header {} from TrieDb", b);
-            MONAD_ASSERT(false);
-        }
-        auto const h = std::bit_cast<bytes32_t>(
-            keccak256(rlp::encode_block_header(header.value())));
-        block_hash_buffer.set(b, h);
-    }
-}
-
-void init_block_hash_buffer(
-    BlockDb &block_db, uint64_t const block_number,
-    BlockHashBufferFinalized &block_hash_buffer)
-{
-    for (uint64_t b = block_number < 256 ? 1 : block_number - 255;
-         b <= block_number;
-         ++b) {
-        Block block;
-        auto const ok = block_db.get(b, block);
-        if (!ok) {
-            LOG_ERROR("Could not query block {} from blockdb.", b);
-            MONAD_ASSERT(false);
-        }
-        block_hash_buffer.set(b - 1, block.header.parent_hash);
-    }
-}
-
 Result<bytes32_t> on_proposal_event(
     Block &block, BlockHashBuffer const &block_hash_buffer, Chain const &chain,
     Db &db, fiber::PriorityPool &priority_pool)
@@ -598,17 +561,22 @@ int main(int const argc, char const *argv[])
     }();
 
     BlockHashBufferFinalized block_hash_buffer;
-    if (!snapshot.empty() || dbname_paths.empty() ||
-        (!db.version_is_valid(init_block_num - 255) &&
-         chain_config == ChainConfig::EthereumMainnet) ||
-        chain->get_revision(init_block_num) <= EVMC_BYZANTIUM) {
-        BlockDb block_db{block_db_path};
-        init_block_hash_buffer(block_db, start_block_num, block_hash_buffer);
-    }
-    else {
+    {
         mpt::Db rodb{mpt::ReadOnlyOnDiskDbConfig{
             .sq_thread_cpu = ro_sq_thread_cpu, .dbname_paths = dbname_paths}};
-        init_block_hash_buffer(rodb, start_block_num, block_hash_buffer);
+        // We need to init from BlockDb if rev <= BYZANTIUM. Before EIP-658,
+        // receipts root was calculated using a transaction status code and
+        // intermediate state root. TrieDb only supports EIP-658 calculation of
+        // recipts root. Therefore, before EIP-658, our eth header hashes will
+        // not match the expected results when replaying ethereum history.
+        if (chain->get_revision(init_block_num) <= EVMC_BYZANTIUM ||
+            !init_block_hash_buffer_from_triedb(
+                rodb, start_block_num, block_hash_buffer)) {
+            BlockDb block_db{block_db_path};
+            MONAD_ASSERT(chain_config == ChainConfig::EthereumMainnet);
+            MONAD_ASSERT(init_block_hash_buffer_from_blockdb(
+                block_db, start_block_num, block_hash_buffer));
+        }
     }
 
     BlockHashChain block_hash_chain(block_hash_buffer);
