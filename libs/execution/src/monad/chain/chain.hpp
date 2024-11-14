@@ -9,6 +9,7 @@
 
 MONAD_NAMESPACE_BEGIN
 
+struct Block;
 struct BlockHeader;
 struct Receipt;
 
@@ -22,13 +23,15 @@ struct Chain
 
     virtual Result<void> static_validate_header(BlockHeader const &) const;
 
-    virtual Result<void> validate_header(
-        std::vector<Receipt> const &, BlockHeader const &) const = 0;
+    virtual Result<void> on_pre_commit_outputs(
+        std::vector<Receipt> const &, std::vector<BlockHeader> const &,
+        BlockHeader &) const = 0;
 
-    virtual bool validate_root(
-        evmc_revision, BlockHeader const &, bytes32_t const &state_root,
+    virtual bool on_post_commit_outputs(
+        evmc_revision, bytes32_t const &state_root,
         bytes32_t const &receipts_root, bytes32_t const &transactions_root,
-        std::optional<bytes32_t> const &withdrawals_root) const = 0;
+        std::optional<bytes32_t> const &withdrawals_root,
+        BlockHeader &) const = 0;
 };
 
 MONAD_NAMESPACE_END

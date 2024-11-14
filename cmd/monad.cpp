@@ -164,7 +164,9 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
             call_frames[i] = (std::move(result.call_frames));
         }
 
-        BOOST_OUTCOME_TRY(chain.validate_header(receipts, block.header));
+        BOOST_OUTCOME_TRY(
+            chain.on_pre_commit_outputs(receipts, block.ommers, block.header));
+
         block_state.log_debug();
         block_state.commit(
             block.header,
@@ -175,13 +177,13 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
             block.withdrawals);
         db.finalize(block.header.number, block.header.number);
 
-        if (!chain.validate_root(
+        if (!chain.on_post_commit_outputs(
                 rev,
-                block.header,
                 db.state_root(),
                 db.receipts_root(),
                 db.transactions_root(),
-                db.withdrawals_root())) {
+                db.withdrawals_root(),
+                block.header)) {
             return BlockError::WrongMerkleRoot;
         }
 

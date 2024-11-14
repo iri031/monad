@@ -45,14 +45,17 @@ Receipt::Bloom compute_bloom(std::vector<Receipt> const &receipts)
     return bloom;
 }
 
+bytes32_t compute_ommers_hash(std::vector<BlockHeader> const &ommers)
+{
+    if (ommers.empty()) {
+        return NULL_LIST_HASH;
+    }
+    return to_bytes(keccak256(rlp::encode_ommers(ommers)));
+}
+
 template <evmc_revision rev>
 Result<void> static_validate_header(BlockHeader const &header)
 {
-    // YP eq. 56
-    if (MONAD_UNLIKELY(header.gas_used > header.gas_limit)) {
-        return BlockError::GasAboveLimit;
-    }
-
     // YP eq. 56
     if (MONAD_UNLIKELY(header.gas_limit < 5000)) {
         return BlockError::InvalidGasLimit;
@@ -127,22 +130,9 @@ Result<void> static_validate_header(BlockHeader const &header)
 
 EXPLICIT_EVMC_REVISION(static_validate_header);
 
-bytes32_t compute_ommers_hash(std::vector<BlockHeader> const &ommers)
-{
-    if (ommers.empty()) {
-        return NULL_LIST_HASH;
-    }
-    return to_bytes(keccak256(rlp::encode_ommers(ommers)));
-}
-
 template <evmc_revision rev>
 constexpr Result<void> static_validate_ommers(Block const &block)
 {
-    // YP eq. 33
-    if (compute_ommers_hash(block.ommers) != block.header.ommers_hash) {
-        return BlockError::WrongOmmersHash;
-    }
-
     // EIP-3675
     if constexpr (rev >= EVMC_PARIS) {
         if (MONAD_UNLIKELY(!block.ommers.empty())) {
