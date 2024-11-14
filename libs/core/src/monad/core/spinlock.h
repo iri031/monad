@@ -38,12 +38,7 @@ typedef struct monad_spinlock monad_spinlock_t;
     #define MONAD_SPINSTAT_INC(X)
 #endif
 
-// TODO(ken): remove this workaround when we have clang-19
-#if defined(__clang__) && __clang_major__ < 19
-    #define MONAD_SPINLOCK_HIST_BUCKETS 15
-#else
-constexpr size_t MONAD_SPINLOCK_HIST_BUCKETS = 15;
-#endif
+#define MONAD_SPINLOCK_HIST_BUCKETS 15
 
 // clang-format off
 /// Lock statistics; these may not be 100% accurate, since we may not be

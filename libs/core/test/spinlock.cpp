@@ -172,13 +172,11 @@ TEST(spinlock, try_lock_basic)
     pin_threads_to_cores(threads);
 
     latch.arrive_and_wait();
-    std::atomic_thread_fence(std::memory_order::seq_cst);
     auto const start_time = std::chrono::system_clock::now();
     while (s.done.load(std::memory_order::acquire) < NUM_THREADS) {
         monad_spinloop_hint();
     }
     auto const end_time = std::chrono::system_clock::now();
-    std::atomic_thread_fence(std::memory_order::seq_cst);
     for (std::thread &t : threads) {
         t.join();
     }
