@@ -154,6 +154,7 @@ Nibbles proposal_prefix(uint64_t const round_number)
 void TrieDb::commit(
     StateDeltas const &state_deltas, Code const &code,
     BlockHeader const &header, std::vector<Receipt> const &receipts,
+    bytes32_t const &previous_block_header_hash,
     std::vector<std::vector<CallFrame>> const &call_frames,
     std::vector<Transaction> const &transactions,
     std::vector<BlockHeader> const &ommers,
@@ -267,13 +268,11 @@ void TrieDb::commit(
             .version = static_cast<int64_t>(block_number_)}));
     }
 
-    auto const &rlp_block_header =
-        bytes_alloc_.emplace_back(rlp::encode_block_header(header));
     UpdateList block_hash_nested_updates;
     block_hash_nested_updates.push_front(update_alloc_.emplace_back(Update{
-        .key =
-            NibblesView{hash_alloc_.emplace_back(keccak256(rlp_block_header))},
-        .value = encoded_block_number,
+        .key = to_byte_string_view(previous_block_header_hash.bytes),
+        .value =
+            bytes_alloc_.emplace_back(rlp::encode_unsigned(header.number - 1)),
         .incarnation = false,
         .next = UpdateList{},
         .version = static_cast<int64_t>(block_number_)}));
@@ -312,7 +311,7 @@ void TrieDb::commit(
         .version = static_cast<int64_t>(block_number_)};
     auto block_header_update = Update{
         .key = block_header_nibbles,
-        .value = rlp_block_header,
+        .value = bytes_alloc_.emplace_back(rlp::encode_block_header(header)),
         .incarnation = true,
         .next = UpdateList{},
         .version = static_cast<int64_t>(block_number_)};

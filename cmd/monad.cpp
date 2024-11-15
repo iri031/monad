@@ -198,6 +198,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
         block_state.commit(
             block.header,
             receipts,
+            block_hash_buffer.get(block_num - 1),
             call_frames,
             block.transactions,
             block.ommers,

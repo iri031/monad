@@ -82,6 +82,7 @@ Result<std::vector<Receipt>> BlockchainTest::execute(
     block_state.commit(
         block.header,
         receipts,
+        block_hash_buffer.get(block.header.number - 1),
         call_frames,
         block.transactions,
         block.ommers,
@@ -201,7 +202,7 @@ void BlockchainTest::TestBody()
             load_state_from_json(j_contents.at("pre"), state);
             bs.merge(state);
             tdb.increment_block_number();
-            bs.commit({}, {}, {}, {}, {}, std::nullopt);
+            bs.commit({}, {}, {}, {}, {}, {}, std::nullopt);
         }
 
         BlockHashBuffer block_hash_buffer;
@@ -271,20 +272,20 @@ void BlockchainTest::TestBody()
                     auto const decoded_block_header = decode_res.value();
                     EXPECT_EQ(decode_res.value(), block.value().header);
                 }
-                { // look up block hash
-                    auto const block_hash = keccak256(
-                        rlp::encode_block_header(block.value().header));
+                { // verify previous block hash was correctly written
+                    auto const previous_block_hash =
+                        block_hash_buffer.get(block.value().header.number - 1);
                     auto res = db.get(
                         mpt::concat(
                             FINALIZED_NIBBLE,
                             BLOCK_HASH_NIBBLE,
-                            mpt::NibblesView{block_hash}),
+                            mpt::NibblesView{previous_block_hash}),
                         curr_block_number);
                     EXPECT_TRUE(res.has_value());
                     auto const decoded_number =
                         rlp::decode_unsigned<uint64_t>(res.value());
                     EXPECT_TRUE(decoded_number.has_value());
-                    EXPECT_EQ(decoded_number.value(), curr_block_number);
+                    EXPECT_EQ(decoded_number.value(), curr_block_number - 1);
                 }
                 // verify tx hash
                 for (unsigned i = 0; i < block.value().transactions.size();
