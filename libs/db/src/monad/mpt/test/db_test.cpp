@@ -9,6 +9,7 @@
 #include <monad/core/hex_literal.hpp>
 #include <monad/core/result.hpp>
 #include <monad/core/small_prng.hpp>
+#include <monad/core/unaligned.hpp>
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/db_error.hpp>
 #include <monad/mpt/nibbles_view.hpp>
@@ -31,6 +32,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <deque>
 #include <filesystem>
 #include <initializer_list>
 #include <iostream>
@@ -264,19 +266,23 @@ namespace
         }
     };
 
+    monad::byte_string keccak_int_to_string(size_t const n)
+    {
+        monad::byte_string ret(KECCAK256_SIZE, 0);
+        keccak256((unsigned char const *)&n, 8, ret.data());
+        return ret;
+    }
+
     std::pair<std::vector<monad::byte_string>, std::vector<Update>>
     prepare_random_updates(unsigned size)
     {
         std::vector<monad::byte_string> bytes_alloc;
         std::vector<Update> updates_alloc;
         for (size_t i = 0; i < size; ++i) {
-            monad::byte_string kv(KECCAK256_SIZE, 0);
-            MONAD_ASSERT(kv.size() == KECCAK256_SIZE);
-            keccak256((unsigned char const *)&i, 8, kv.data());
-            bytes_alloc.emplace_back(kv);
+            auto &kv = bytes_alloc.emplace_back(keccak_int_to_string(i));
             updates_alloc.push_back(Update{
-                .key = bytes_alloc.back(),
-                .value = bytes_alloc.back(),
+                .key = kv,
+                .value = kv,
                 .incarnation = false,
                 .next = UpdateList{}});
         }
@@ -774,6 +780,95 @@ TEST_F(OnDiskDbWithFileFixture, load_correct_root_upon_reopen_nonempty_db)
         EXPECT_EQ(db.get_latest_block_id(), block_id);
         EXPECT_EQ(db.get_earliest_block_id(), block_id);
     }
+}
+
+TEST_F(OnDiskDbWithFileFixture, out_of_order_upserts_with_compaction)
+{
+    ReadOnlyOnDiskDbConfig const ro_config{.dbname_paths = {dbname}};
+    Db rodb{ro_config};
+
+    auto get_release_offsets = [](monad::byte_string_view const bytes)
+        -> std::pair<uint32_t, uint32_t> {
+        MONAD_ASSERT(bytes.size() == 8);
+        return {
+            monad::unaligned_load<uint32_t>(bytes.data()),
+            monad::unaligned_load<uint32_t>(bytes.data() + sizeof(uint32_t))};
+    };
+
+    auto const prefix = 0x00_hex;
+    constexpr unsigned keys_per_version = 10;
+    uint64_t block_id = 0;
+    uint64_t n = 0;
+
+    for (block_id = 0; block_id < 15000; ++block_id) {
+        std::deque<monad::byte_string> kv_alloc;
+        for (unsigned i = 0; i < keys_per_version; ++i) {
+            kv_alloc.emplace_back(keccak_int_to_string(n++));
+        }
+        // upsert N
+        upsert_updates_flat_list(
+            db,
+            prefix,
+            block_id,
+            make_update(kv_alloc[0], kv_alloc[0]),
+            make_update(kv_alloc[1], kv_alloc[1]),
+            make_update(kv_alloc[2], kv_alloc[2]),
+            make_update(kv_alloc[3], kv_alloc[3]),
+            make_update(kv_alloc[4], kv_alloc[4]),
+            make_update(kv_alloc[5], kv_alloc[5]),
+            make_update(kv_alloc[6], kv_alloc[6]),
+            make_update(kv_alloc[7], kv_alloc[7]),
+            make_update(kv_alloc[8], kv_alloc[8]),
+            make_update(kv_alloc[9], kv_alloc[9]));
+        if (block_id == 0) {
+            continue;
+        }
+        auto const result_n = rodb.get({}, block_id);
+        EXPECT_TRUE(result_n.has_value());
+        auto const [fast_n, slow_n] = get_release_offsets(result_n.value());
+        auto const result_before = rodb.get({}, block_id - 1);
+        EXPECT_TRUE(result_before.has_value());
+        auto const [fast_n_1, slow_n_1] =
+            get_release_offsets(result_before.value());
+        EXPECT_GE(fast_n, fast_n_1);
+        EXPECT_GE(slow_n, slow_n_1);
+        // upsert on top of N-1
+        upsert_updates_flat_list(
+            db,
+            prefix,
+            block_id - 1,
+            make_update(kv_alloc[0], kv_alloc[0]),
+            make_update(kv_alloc[1], kv_alloc[1]),
+            make_update(kv_alloc[2], kv_alloc[2]),
+            make_update(kv_alloc[3], kv_alloc[3]),
+            make_update(kv_alloc[4], kv_alloc[4]),
+            make_update(kv_alloc[5], kv_alloc[5]),
+            make_update(kv_alloc[6], kv_alloc[6]),
+            make_update(kv_alloc[7], kv_alloc[7]),
+            make_update(kv_alloc[8], kv_alloc[8]),
+            make_update(kv_alloc[9], kv_alloc[9]));
+        auto const result_after = rodb.get({}, block_id - 1);
+        EXPECT_TRUE(result_after.has_value());
+        // offsets remain the same after the second upsert
+        EXPECT_EQ(result_before.value(), result_after.value());
+        // convert to byte_string so that both data are in scope
+        monad::byte_string const data_n_1{
+            rodb.get_data({prefix}, block_id - 1).value()};
+        monad::byte_string const data_n{
+            rodb.get_data({prefix}, block_id).value()};
+        EXPECT_EQ(data_n_1, data_n) << block_id;
+        // prepare for upserting N+1 on top of N
+        db.load_root_for_version(block_id);
+    }
+
+    MONAD_ASSERT(n == block_id * keys_per_version);
+    auto const result_n = rodb.get({}, block_id - 1);
+    EXPECT_TRUE(result_n.has_value());
+    auto const [fast_n, slow_n] = get_release_offsets(result_n.value());
+    EXPECT_EQ(
+        rodb.get_data({prefix}, block_id - 1).value(),
+        0x3a5e9e9e70def63db6d27ecbee6e540f9473627733a38b9803355df8a1400b72_hex);
+    EXPECT_GT(fast_n, 0);
 }
 
 TYPED_TEST(DbTest, simple_with_same_prefix)
