@@ -575,7 +575,8 @@ int main(int const argc, char const *argv[])
     }();
 
     BlockHashBuffer block_hash_buffer;
-    if (!snapshot.empty() || dbname_paths.empty()) {
+    if (!snapshot.empty() || dbname_paths.empty() ||
+        !db.version_is_valid(init_block_num - 255)) {
         BlockDb block_db{block_db_path};
         init_block_hash_buffer(block_db, start_block_num, block_hash_buffer);
     }
