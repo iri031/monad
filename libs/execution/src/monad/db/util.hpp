@@ -3,6 +3,7 @@
 #include <monad/config.hpp>
 #include <monad/core/account.hpp>
 #include <monad/core/address.hpp>
+#include <monad/core/block.hpp>
 #include <monad/core/byte_string.hpp>
 #include <monad/core/result.hpp>
 #include <monad/mpt/db.hpp>
@@ -110,6 +111,9 @@ inline constexpr unsigned char PROPOSAL_NIBBLE = 0;
 inline constexpr unsigned char FINALIZED_NIBBLE = 1;
 inline mpt::Nibbles const proposal_nibbles = mpt::concat(PROPOSAL_NIBBLE);
 inline mpt::Nibbles const finalized_nibbles = mpt::concat(FINALIZED_NIBBLE);
+
+byte_string encode_block_header_db(BlockHeader const &);
+Result<BlockHeader> decode_block_header_db(byte_string_view &);
 
 byte_string encode_account_db(Address const &, Account const &);
 byte_string encode_storage_db(bytes32_t const &, bytes32_t const &);

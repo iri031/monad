@@ -25,7 +25,7 @@ struct Chain
 
     virtual Result<void> on_pre_commit_outputs(
         std::vector<Receipt> const &, std::vector<BlockHeader> const &,
-        BlockHeader &) const = 0;
+        bytes32_t const &, BlockHeader &) const = 0;
 
     virtual bool on_post_commit_outputs(
         evmc_revision, bytes32_t const &state_root,

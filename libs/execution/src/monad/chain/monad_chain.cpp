@@ -13,7 +13,8 @@ using BOOST_OUTCOME_V2_NAMESPACE::success;
 
 Result<void> MonadChain::on_pre_commit_outputs(
     std::vector<Receipt> const &receipts,
-    std::vector<BlockHeader> const &ommers, BlockHeader &hdr) const
+    std::vector<BlockHeader> const &ommers, bytes32_t const &parent_hash,
+    BlockHeader &hdr) const
 {
     uint64_t const gas_used = receipts.empty() ? 0 : receipts.back().gas_used;
 
@@ -27,6 +28,7 @@ Result<void> MonadChain::on_pre_commit_outputs(
         return BlockError::GasAboveLimit;
     }
 
+    hdr.parent_hash = parent_hash;
     hdr.gas_used = gas_used;
     hdr.ommers_hash = compute_ommers_hash(ommers);
     hdr.logs_bloom = compute_bloom(receipts);
