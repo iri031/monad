@@ -68,6 +68,7 @@ public:
     virtual std::optional<bytes32_t> withdrawals_root() override;
     virtual std::string print_stats() override;
 
+    std::optional<BlockHeader> read_header();
     nlohmann::json to_json();
     size_t prefetch_current_root();
     uint64_t get_block_number() const;

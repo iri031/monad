@@ -271,8 +271,8 @@ void TrieDb::commit(
     UpdateList block_hash_nested_updates;
     block_hash_nested_updates.push_front(update_alloc_.emplace_back(Update{
         .key = to_byte_string_view(previous_block_header_hash.bytes),
-        .value =
-            bytes_alloc_.emplace_back(rlp::encode_unsigned(header.number - 1)),
+        .value = bytes_alloc_.emplace_back(
+            rlp::encode_unsigned((header.number > 0) ? header.number - 1 : 0)),
         .incarnation = false,
         .next = UpdateList{},
         .version = static_cast<int64_t>(block_number_)}));
@@ -311,7 +311,7 @@ void TrieDb::commit(
         .version = static_cast<int64_t>(block_number_)};
     auto block_header_update = Update{
         .key = block_header_nibbles,
-        .value = bytes_alloc_.emplace_back(rlp::encode_block_header(header)),
+        .value = bytes_alloc_.emplace_back(encode_block_header_db(header)),
         .incarnation = true,
         .next = UpdateList{},
         .version = static_cast<int64_t>(block_number_)};
@@ -476,6 +476,28 @@ bytes32_t TrieDb::merkle_root(mpt::Nibbles const &nibbles)
     }
     MONAD_ASSERT(value.value().size() == sizeof(bytes32_t));
     return to_bytes(value.value());
+}
+
+std::optional<BlockHeader> TrieDb::read_header()
+{
+    auto const query_res =
+        db_.get(concat(FINALIZED_NIBBLE, BLOCKHEADER_NIBBLE), block_number_);
+    if (!query_res.has_value()) {
+        return {};
+    }
+    auto encoded_header_db = query_res.value();
+    auto decode_res = decode_block_header_db(encoded_header_db);
+    if (!decode_res.has_value()) {
+        return {};
+    }
+
+    auto header = std::move(decode_res.value());
+    header.state_root = state_root();
+    header.receipts_root = receipts_root();
+    header.withdrawals_root = withdrawals_root();
+    header.transactions_root = transactions_root();
+
+    return header;
 }
 
 std::string TrieDb::print_stats()

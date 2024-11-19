@@ -213,6 +213,7 @@ quick_status_code_from_enum<monad::BlockError>::value_mappings()
         {BlockError::InvalidGasLimit, "invalid gas limit", {}},
         {BlockError::ExtraDataTooLong, "extra data too long", {}},
         {BlockError::WrongOmmersHash, "wrong ommers hash", {}},
+        {BlockError::WrongParentHash, "wrong parent hash", {}},
         {BlockError::FieldBeforeFork, "field before fork", {}},
         {BlockError::MissingField, "missing field", {}},
         {BlockError::PowBlockAfterMerge, "pow block after merge", {}},
