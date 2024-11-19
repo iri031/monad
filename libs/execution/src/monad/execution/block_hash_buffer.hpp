@@ -9,22 +9,23 @@
 
 MONAD_NAMESPACE_BEGIN
 
-struct BlockHashBufferBase
+class BlockHashBuffer
 {
+public:
     static constexpr unsigned N = 256;
 
     virtual uint64_t n() const = 0;
     virtual bytes32_t const &get(uint64_t) const = 0;
-    virtual ~BlockHashBufferBase() = default;
+    virtual ~BlockHashBuffer() = default;
 };
 
-class BlockHashBuffer : public BlockHashBufferBase
+class BlockHashBufferFinalized : public BlockHashBuffer
 {
     bytes32_t b_[N];
     uint64_t n_;
 
 public:
-    BlockHashBuffer();
+    BlockHashBufferFinalized();
 
     uint64_t n() const override;
     bytes32_t const &get(uint64_t) const override;
@@ -32,17 +33,18 @@ public:
     void set(uint64_t, bytes32_t const &);
 };
 
-class BlockHashBufferProposal : public BlockHashBufferBase
+class BlockHashBufferProposal : public BlockHashBuffer
 {
     uint64_t n_;
     uint64_t round_;
     uint64_t parent_round_;
-    BlockHashBufferBase const *buf_;
+    BlockHashBuffer const *buf_;
     std::vector<bytes32_t> deltas_;
 
 public:
     BlockHashBufferProposal(
-        bytes32_t const &, uint64_t, uint64_t, BlockHashBufferBase const &);
+        bytes32_t const &, uint64_t, uint64_t,
+        BlockHashBufferFinalized const &);
     BlockHashBufferProposal(
         bytes32_t const &, uint64_t, uint64_t, BlockHashBufferProposal const &);
 
@@ -62,16 +64,16 @@ public:
 
 class BlockHashChain
 {
-    BlockHashBuffer &buf_;
+    BlockHashBufferFinalized &buf_;
     std::deque<BlockHashBufferProposal> proposals_;
     uint64_t finalized_;
 
 public:
-    BlockHashChain(BlockHashBuffer &);
+    BlockHashChain(BlockHashBufferFinalized &);
 
-    BlockHashBufferBase const &
+    BlockHashBuffer const &
     propose(bytes32_t const &, uint64_t round, uint64_t parent_round);
-    BlockHashBufferBase const &finalize(uint64_t const round);
+    BlockHashBuffer const &finalize(uint64_t const round);
 };
 
 MONAD_NAMESPACE_END

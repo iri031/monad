@@ -6,7 +6,7 @@ using namespace monad;
 
 TEST(BlockHashBuffer, simple_chain)
 {
-    BlockHashBuffer buf;
+    BlockHashBufferFinalized buf;
     BlockHashChain chain(buf);
 
     uint64_t round = 0;
@@ -31,7 +31,7 @@ TEST(BlockHashBuffer, simple_chain)
 
 TEST(BlockHashBuffer, fork)
 {
-    BlockHashBuffer buf;
+    BlockHashBufferFinalized buf;
     BlockHashChain chain(buf);
 
     chain.propose(bytes32_t{1}, 0 /* round */, 0 /* parent_round */);
@@ -74,7 +74,7 @@ TEST(BlockHashBuffer, fork)
 
 TEST(BlockHashBuffer, keep_latest_duplicate)
 {
-    BlockHashBuffer buf;
+    BlockHashBufferFinalized buf;
     BlockHashChain chain(buf);
 
     chain.propose(bytes32_t{1}, 0 /* round */, 0 /* parent_round */);
