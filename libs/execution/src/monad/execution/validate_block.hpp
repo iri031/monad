@@ -28,6 +28,7 @@ enum class BlockError
     InvalidGasLimit,
     ExtraDataTooLong,
     WrongOmmersHash,
+    WrongParentHash,
     FieldBeforeFork,
     MissingField,
     PowBlockAfterMerge,

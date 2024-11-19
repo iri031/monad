@@ -78,7 +78,8 @@ EthereumMainnet::static_validate_header(BlockHeader const &header) const
 
 Result<void> EthereumMainnet::on_pre_commit_outputs(
     std::vector<Receipt> const &receipts,
-    std::vector<BlockHeader> const &ommers, BlockHeader &hdr) const
+    std::vector<BlockHeader> const &ommers, bytes32_t const &parent_hash,
+    BlockHeader &hdr) const
 {
     // YP eq. 33
     if (MONAD_UNLIKELY(compute_bloom(receipts) != hdr.logs_bloom)) {
@@ -86,6 +87,10 @@ Result<void> EthereumMainnet::on_pre_commit_outputs(
     }
     if (MONAD_UNLIKELY(compute_ommers_hash(ommers) != hdr.ommers_hash)) {
         return BlockError::WrongOmmersHash;
+    }
+
+    if (MONAD_UNLIKELY(parent_hash != hdr.parent_hash)) {
+        return BlockError::WrongParentHash;
     }
 
     uint64_t const gas_used = receipts.empty() ? 0 : receipts.back().gas_used;

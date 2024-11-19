@@ -95,21 +95,18 @@ void init_block_hash_buffer(
     mpt::Db &rodb, uint64_t const block_number,
     BlockHashBuffer &block_hash_buffer)
 {
+    TrieDb tdb{rodb};
     for (uint64_t b = block_number < 256 ? 0 : block_number - 256;
          b < block_number;
          ++b) {
-        auto const header = rodb.get(
-            mpt::concat(
-                FINALIZED_NIBBLE, mpt::NibblesView{block_header_nibbles}),
-            b);
+        tdb.set_block_number(b);
+        auto const header = tdb.read_header();
         if (!header.has_value()) {
-            LOG_ERROR(
-                "Could not query block header {} from TrieDb -- {}",
-                b,
-                header.error().message());
+            LOG_ERROR("Could not query block header {} from TrieDb", b);
             MONAD_ASSERT(false);
         }
-        auto const h = std::bit_cast<bytes32_t>(keccak256(header.value()));
+        auto const h = std::bit_cast<bytes32_t>(
+            keccak256(rlp::encode_block_header(header.value())));
         block_hash_buffer.set(b, h);
     }
 }
@@ -191,14 +188,16 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
             call_frames[i] = (std::move(result.call_frames));
         }
 
-        BOOST_OUTCOME_TRY(
-            chain.on_pre_commit_outputs(receipts, block.ommers, block.header));
+        auto const &parent_hash = block_hash_buffer.get(block_num - 1);
+
+        BOOST_OUTCOME_TRY(chain.on_pre_commit_outputs(
+            receipts, block.ommers, parent_hash, block.header));
 
         block_state.log_debug();
         block_state.commit(
             block.header,
             receipts,
-            block_hash_buffer.get(block_num - 1),
+            parent_hash,
             call_frames,
             block.transactions,
             block.ommers,

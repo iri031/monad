@@ -76,13 +76,16 @@ Result<std::vector<Receipt>> BlockchainTest::execute(
         receipts[i] = std::move(results[i].receipt);
         call_frames[i] = std::move(results[i].call_frames);
     }
-    BOOST_OUTCOME_TRY(
-        chain.on_pre_commit_outputs(receipts, block.ommers, block.header));
+
+    auto const &parent_hash = block_hash_buffer.get(block.header.number - 1);
+
+    BOOST_OUTCOME_TRY(chain.on_pre_commit_outputs(
+        receipts, block.ommers, parent_hash, block.header));
     block_state.log_debug();
     block_state.commit(
         block.header,
         receipts,
-        block_hash_buffer.get(block.header.number - 1),
+        parent_hash,
         call_frames,
         block.transactions,
         block.ommers,
@@ -262,15 +265,16 @@ void BlockchainTest::TestBody()
                     result.value().size(), block.value().transactions.size())
                     << name;
                 { // verify block header is stored correctly
-                    auto res = db.get(
-                        mpt::concat(FINALIZED_NIBBLE, BLOCKHEADER_NIBBLE),
-                        curr_block_number);
-                    EXPECT_TRUE(res.has_value());
-                    auto const decode_res =
-                        rlp::decode_block_header(res.value());
-                    EXPECT_TRUE(decode_res.has_value());
-                    auto const decoded_block_header = decode_res.value();
-                    EXPECT_EQ(decode_res.value(), block.value().header);
+                    auto const header = tdb.read_header();
+                    EXPECT_TRUE(header.has_value());
+
+                    auto expected_header = block.value().header;
+                    if (rev < EVMC_BYZANTIUM) {
+                        expected_header.receipts_root = tdb.receipts_root();
+                    }
+                    EXPECT_EQ(
+                        rlp::encode_block_header(header.value()),
+                        rlp::encode_block_header(expected_header));
                 }
                 { // verify previous block hash was correctly written
                     auto const previous_block_hash =
