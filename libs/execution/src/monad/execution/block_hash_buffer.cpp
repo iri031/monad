@@ -5,7 +5,7 @@
 
 MONAD_NAMESPACE_BEGIN
 
-BlockHashBuffer::BlockHashBuffer()
+BlockHashBufferFinalized::BlockHashBufferFinalized()
     : b_{}
     , n_{0}
 {
@@ -14,18 +14,18 @@ BlockHashBuffer::BlockHashBuffer()
     }
 }
 
-uint64_t BlockHashBuffer::n() const
+uint64_t BlockHashBufferFinalized::n() const
 {
     return n_;
 };
 
-bytes32_t const &BlockHashBuffer::get(uint64_t const n) const
+bytes32_t const &BlockHashBufferFinalized::get(uint64_t const n) const
 {
     MONAD_ASSERT(n < n_ && n + N >= n_);
     return b_[n % N];
 }
 
-void BlockHashBuffer::set(uint64_t const n, bytes32_t const &h)
+void BlockHashBufferFinalized::set(uint64_t const n, bytes32_t const &h)
 {
     MONAD_ASSERT(!n_ || n == n_);
     b_[n % N] = h;
@@ -34,7 +34,7 @@ void BlockHashBuffer::set(uint64_t const n, bytes32_t const &h)
 
 BlockHashBufferProposal::BlockHashBufferProposal(
     bytes32_t const &h, uint64_t const round, uint64_t const parent_round,
-    BlockHashBufferBase const &buf)
+    BlockHashBufferFinalized const &buf)
     : n_{buf.n() + 1}
     , round_{round}
     , parent_round_{parent_round}
@@ -88,13 +88,13 @@ bytes32_t const &BlockHashBufferProposal::get(uint64_t const n) const
     return buf_->get(n);
 }
 
-BlockHashChain::BlockHashChain(BlockHashBuffer &buf)
+BlockHashChain::BlockHashChain(BlockHashBufferFinalized &buf)
     : buf_{buf}
     , finalized_{buf.n() == 0 ? static_cast<uint64_t>(-1) : buf.n()}
 {
 }
 
-BlockHashBufferBase const &BlockHashChain::propose(
+BlockHashBuffer const &BlockHashChain::propose(
     bytes32_t const &hash, uint64_t const round, uint64_t const parent_round)
 {
     for (auto it = proposals_.rbegin(); it != proposals_.rend();) {
@@ -111,7 +111,7 @@ BlockHashBufferBase const &BlockHashChain::propose(
     return proposals_.emplace_back(hash, round, parent_round, buf_);
 }
 
-BlockHashBufferBase const &BlockHashChain::finalize(uint64_t const round)
+BlockHashBuffer const &BlockHashChain::finalize(uint64_t const round)
 {
     auto const to_finalize = finalized_ + 1;
 
