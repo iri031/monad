@@ -481,7 +481,7 @@ bytes32_t TrieDb::merkle_root(mpt::Nibbles const &nibbles)
 std::optional<BlockHeader> TrieDb::read_header()
 {
     auto const query_res =
-        db_.get(concat(FINALIZED_NIBBLE, BLOCKHEADER_NIBBLE), block_number_);
+        db_.get(read_cursor_, block_header_nibbles, block_number_);
     if (!query_res.has_value()) {
         return {};
     }
