@@ -90,7 +90,9 @@ Result<void> EthereumMainnet::on_pre_commit_outputs(
     }
 
     if (MONAD_UNLIKELY(parent_hash != hdr.parent_hash)) {
-        return BlockError::WrongParentHash;
+        if (get_revision(hdr) >= EVMC_BYZANTIUM) {
+            return BlockError::WrongParentHash;
+        }
     }
 
     uint64_t const gas_used = receipts.empty() ? 0 : receipts.back().gas_used;
