@@ -146,7 +146,8 @@ Result<std::pair<uint64_t, uint64_t>> on_proposal_event(
 
     MONAD_ASSERT(block.header.round.has_value());
 
-    db.set(block.header.number, block.header.round.value(), block.header.parent_round.value());
+    db.set(block.header.number, block.header.round.value(), std::nullopt);
+
     BlockState block_state(db);
     BOOST_OUTCOME_TRY(
         auto const results,
@@ -519,23 +520,27 @@ int main(int const argc, char const *argv[])
     auto const try_get = [&] -> TryGet {
         switch (chain_config) {
         case ChainConfig::EthereumMainnet:
-            return [block_db =
-                        BlockDb{block_db_path}](std::string_view const filename)
-                       -> std::optional<Block> {
-                uint64_t num{};
-                auto [_, ec] = std::from_chars(
-                    filename.data(), filename.data() + filename.size(), num);
-                MONAD_ASSERT(ec == std::errc{});
+            return
+                [init_block_num, block_db = BlockDb{block_db_path}](
+                    std::string_view const filename) -> std::optional<Block> {
+                    uint64_t num{};
+                    auto [_, ec] = std::from_chars(
+                        filename.data(),
+                        filename.data() + filename.size(),
+                        num);
+                    MONAD_ASSERT(ec == std::errc{});
 
-                Block block;
-                if (block_db.get(num, block)) {
-                    MONAD_ASSERT(num > 0);
-                    block.header.round = num;
-                    block.header.parent_round = num - 1;
-                    return block;
-                }
-                return std::nullopt;
-            };
+                    Block block;
+                    if (block_db.get(num, block)) {
+                        MONAD_ASSERT(num > 0);
+                        block.header.round = num;
+                        if (block.header.number != init_block_num) {
+                            block.header.parent_round = num - 1;
+                        }
+                        return block;
+                    }
+                    return std::nullopt;
+                };
         case ChainConfig::MonadDevnet:
             return
                 [block_db_path](
