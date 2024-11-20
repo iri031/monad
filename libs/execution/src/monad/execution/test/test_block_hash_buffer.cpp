@@ -29,6 +29,22 @@ TEST(BlockHashBuffer, simple_chain)
     EXPECT_EQ(buf.get(2), bytes32_t{3});
 }
 
+TEST(BlockHashBuffer, from_seeded_buf)
+{
+    BlockHashBufferFinalized buf;
+    buf.set(0, bytes32_t{1});
+    buf.set(1, bytes32_t{2});
+
+    BlockHashChain chain(buf);
+
+    chain.propose(bytes32_t{3}, 2, 1);
+    chain.finalize(2);
+
+    EXPECT_EQ(buf.get(0), bytes32_t{1});
+    EXPECT_EQ(buf.get(1), bytes32_t{2});
+    EXPECT_EQ(buf.get(2), bytes32_t{3});
+}
+
 TEST(BlockHashBuffer, fork)
 {
     BlockHashBufferFinalized buf;
