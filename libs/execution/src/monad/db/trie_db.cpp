@@ -395,18 +395,21 @@ void TrieDb::load_read_cursor()
 
 void TrieDb::set(
     uint64_t const block_number, uint64_t const round_number,
-    std::optional<uint64_t> const parent_round_number)
+    uint64_t const parent_round_number)
 {
-    MONAD_ASSERT(db_.version_is_valid(block_number - 1));
-    Nibbles const src_prefix =
-        parent_round_number.has_value()
-            ? proposal_prefix(parent_round_number.value())
-            : finalized_nibbles;
-    auto const dest_prefix = proposal_prefix(round_number);
-    db_.copy_trie(
-        block_number - 1, src_prefix, block_number, dest_prefix, false);
     round_number_ = round_number;
     block_number_ = block_number;
+
+    MONAD_ASSERT(db_.version_is_valid(block_number - 1));
+    auto src_prefix = proposal_prefix(parent_round_number);
+    auto const res = db_.find(src_prefix, block_number_ - 1);
+    if (MONAD_UNLIKELY(!res.has_value())) {
+        src_prefix = finalized_nibbles;
+    }
+    auto const dest_prefix = proposal_prefix(round_number);
+
+    db_.copy_trie(
+        block_number_ - 1, src_prefix, block_number, dest_prefix, false);
     load_read_cursor();
 }
 

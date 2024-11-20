@@ -50,7 +50,7 @@ public:
     virtual void increment_block_number() override;
     virtual void
     set(uint64_t block_number, uint64_t round_number,
-        std::optional<uint64_t> parent_round_number = std::nullopt) override;
+        uint64_t parent_round_number) override;
     virtual void commit(
         StateDeltas const &, Code const &, BlockHeader const &,
         std::vector<Receipt> const & = {}, bytes32_t const & = {},

@@ -37,7 +37,7 @@ struct Db
     // for executing a proposal
     virtual void
     set(uint64_t block_number, uint64_t round_number,
-        std::optional<uint64_t> parent_round_number = std::nullopt) = 0;
+        uint64_t parent_round_number) = 0;
     virtual void finalize(uint64_t block_number, uint64_t round_number) = 0;
 
     virtual void commit(

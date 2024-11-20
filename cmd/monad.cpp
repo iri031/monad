@@ -144,9 +144,7 @@ Result<std::pair<uint64_t, uint64_t>> on_proposal_event(
 
     BOOST_OUTCOME_TRY(static_validate_block(rev, block));
 
-    MONAD_ASSERT(block.header.round.has_value());
-
-    db.set(block.header.number, block.header.round.value(), std::nullopt);
+    db.set(block.header.number, block.header.round, block.header.parent_round);
 
     BlockState block_state(db);
     BOOST_OUTCOME_TRY(
@@ -241,7 +239,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
             batch_gas += block.header.gas_used;
         } break;
         case MONAD_FINALIZE_BLOCK: {
-            db.finalize(block.header.number, block.header.round.value());
+            db.finalize(block.header.number, block.header.round);
 
             ++batch_num_blocks;
 
@@ -516,27 +514,24 @@ int main(int const argc, char const *argv[])
     auto const try_get = [&] -> TryGet {
         switch (chain_config) {
         case ChainConfig::EthereumMainnet:
-            return
-                [init_block_num, block_db = BlockDb{block_db_path}](
-                    std::string_view const filename) -> std::optional<Block> {
-                    uint64_t num{};
-                    auto [_, ec] = std::from_chars(
-                        filename.data(),
-                        filename.data() + filename.size(),
-                        num);
-                    MONAD_ASSERT(ec == std::errc{});
+            return [block_db =
+                        BlockDb{block_db_path}](std::string_view const filename)
+                       -> std::optional<Block> {
+                uint64_t num{};
+                auto [_, ec] = std::from_chars(
+                    filename.data(), filename.data() + filename.size(), num);
+                MONAD_ASSERT(ec == std::errc{});
 
-                    Block block;
-                    if (block_db.get(num, block)) {
-                        MONAD_ASSERT(num > 0);
-                        block.header.round = num;
-                        if (block.header.number != init_block_num) {
-                            block.header.parent_round = num - 1;
-                        }
-                        return block;
-                    }
-                    return std::nullopt;
-                };
+                Block block;
+                if (block_db.get(num, block)) {
+                    MONAD_ASSERT(num > 0);
+                    block.header.bft_block_id = bytes32_t{num};
+                    block.header.round = num;
+                    block.header.parent_round = num - 1;
+                    return block;
+                }
+                return std::nullopt;
+            };
         case ChainConfig::MonadDevnet:
             return
                 [block_db_path](
