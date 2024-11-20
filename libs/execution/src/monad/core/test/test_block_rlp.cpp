@@ -1090,9 +1090,6 @@ TEST(Rlp_Block, MonadBlock)
 
     auto const &block = res.value();
 
-    ASSERT_TRUE(block.header.round.has_value());
-    ASSERT_TRUE(block.header.parent_round.has_value());
-    ASSERT_TRUE(block.header.bft_block_id.has_value());
     ASSERT_TRUE(block.header.base_fee_per_gas.has_value());
 
     // Fields that never change
@@ -1103,7 +1100,7 @@ TEST(Rlp_Block, MonadBlock)
     EXPECT_EQ(block.header.number, 1);
     EXPECT_EQ(block.header.gas_limit, 1000);
     EXPECT_EQ(block.header.timestamp, 1731018255);
-    EXPECT_EQ(block.header.round.value(), 11);
-    EXPECT_EQ(block.header.parent_round.value(), 10);
+    EXPECT_EQ(block.header.round, 11);
+    EXPECT_EQ(block.header.parent_round, 10);
     EXPECT_EQ(block.header.base_fee_per_gas.value(), 1000);
 }

@@ -115,7 +115,7 @@ public:
 
     virtual void
     set(uint64_t const block_number, uint64_t const round_number,
-        std::optional<uint64_t> const parent_round_number) override
+        uint64_t const parent_round_number) override
     {
         db_.set(block_number, round_number, parent_round_number);
     }
