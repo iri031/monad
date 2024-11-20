@@ -68,7 +68,6 @@ void signal_handler(int)
 
 using namespace monad;
 namespace fs = std::filesystem;
-using BOOST_OUTCOME_V2_NAMESPACE::success;
 
 using TryGet =
     std::move_only_function<std::optional<Block>(std::string_view) const>;
@@ -134,8 +133,8 @@ void init_block_hash_buffer(
     }
 }
 
-Result<std::pair<uint64_t, uint64_t>> on_proposal_event(
-    Block &block, BlockHashBufferFinalized &block_hash_buffer, Chain const &chain,
+Result<bytes32_t> on_proposal_event(
+    Block &block, BlockHashBuffer const &block_hash_buffer, Chain const &chain,
     Db &db, fiber::PriorityPool &priority_pool)
 {
     BOOST_OUTCOME_TRY(chain.static_validate_header(block.header));
@@ -185,15 +184,12 @@ Result<std::pair<uint64_t, uint64_t>> on_proposal_event(
         return BlockError::WrongMerkleRoot;
     }
 
-    auto const h = std::bit_cast<bytes32_t>(
+    return std::bit_cast<bytes32_t>(
         keccak256(rlp::encode_block_header(block.header)));
-    block_hash_buffer.set(block.header.number, h);
-
-    return success();
 }
 
 Result<std::pair<uint64_t, uint64_t>> run_monad(
-    Chain const &chain, Db &db, BlockHashBufferFinalized &block_hash_buffer,
+    Chain const &chain, Db &db, BlockHashChain &block_hash_chain,
     TryGet const &try_get, EventEmitter &emitter,
     fiber::PriorityPool &priority_pool, uint64_t &block_num,
     uint64_t const nblocks)
@@ -231,8 +227,17 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
 
         switch (event.value().kind) {
         case MONAD_PROPOSE_BLOCK: {
-            BOOST_OUTCOME_TRY(on_proposal_event(
-                block, block_hash_buffer, chain, db, priority_pool));
+            BOOST_OUTCOME_TRY(
+                auto const block_hash,
+                on_proposal_event(
+                    block,
+                    block_hash_chain.find_chain(block.header.parent_round),
+                    chain,
+                    db,
+                    priority_pool));
+            block_hash_chain.propose(
+                block_hash, block.header.round, block.header.parent_round);
+
             ntxs += block.transactions.size();
             batch_num_txs += block.transactions.size();
             total_gas += block.header.gas_used;
@@ -240,6 +245,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
         } break;
         case MONAD_FINALIZE_BLOCK: {
             db.finalize(block.header.number, block.header.round);
+            block_hash_chain.finalize(block.header.round);
 
             ++batch_num_blocks;
 
@@ -570,11 +576,12 @@ int main(int const argc, char const *argv[])
         init_block_hash_buffer(rodb, start_block_num, block_hash_buffer);
     }
 
+    BlockHashChain block_hash_chain(block_hash_buffer);
     uint64_t block_num = start_block_num;
     auto const result = run_monad(
         *chain,
         db_cache,
-        block_hash_buffer,
+        block_hash_chain,
         try_get,
         *emitter,
         priority_pool,

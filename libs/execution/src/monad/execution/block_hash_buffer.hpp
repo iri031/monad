@@ -74,6 +74,7 @@ public:
     BlockHashBuffer const &
     propose(bytes32_t const &, uint64_t round, uint64_t parent_round);
     BlockHashBuffer const &finalize(uint64_t const round);
+    BlockHashBuffer const &find_chain(uint64_t parent_round) const;
 };
 
 MONAD_NAMESPACE_END
