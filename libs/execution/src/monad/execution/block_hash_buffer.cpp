@@ -90,7 +90,7 @@ bytes32_t const &BlockHashBufferProposal::get(uint64_t const n) const
 
 BlockHashChain::BlockHashChain(BlockHashBufferFinalized &buf)
     : buf_{buf}
-    , finalized_{buf.n() == 0 ? static_cast<uint64_t>(-1) : buf.n()}
+    , finalized_{buf.n() - 1}
 {
 }
 
