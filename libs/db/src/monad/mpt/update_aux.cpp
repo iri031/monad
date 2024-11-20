@@ -709,6 +709,7 @@ void UpdateAuxImpl::set_io(
                     }
                 }
                 update_history_length_metadata(*history_len);
+                enable_dynamic_history_length_ = false;
             }
         }
     }
