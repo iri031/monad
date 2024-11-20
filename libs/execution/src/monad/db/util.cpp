@@ -550,8 +550,7 @@ byte_string encode_block_header_db(BlockHeader const &block_header)
 {
     byte_string encoded_block_header;
 
-    encoded_block_header +=
-        rlp::encode_bytes32(block_header.bft_block_id.value_or(bytes32_t{0}));
+    encoded_block_header += rlp::encode_bytes32(block_header.bft_block_id);
 
     encoded_block_header += rlp::encode_bytes32(block_header.parent_hash);
     encoded_block_header += rlp::encode_bytes32(block_header.ommers_hash);
