@@ -98,16 +98,6 @@ Result<void> static_validate_header(BlockHeader const &header)
         return BlockError::MissingField;
     }
 
-    // EIP-4895
-    if constexpr (rev < EVMC_SHANGHAI) {
-        if (MONAD_UNLIKELY(header.withdrawals_root.has_value())) {
-            return BlockError::FieldBeforeFork;
-        }
-    }
-    else if (MONAD_UNLIKELY(!header.withdrawals_root.has_value())) {
-        return BlockError::MissingField;
-    }
-
     // EIP-3675
     if constexpr (rev >= EVMC_PARIS) {
         if (MONAD_UNLIKELY(header.difficulty != 0)) {
@@ -118,10 +108,6 @@ Result<void> static_validate_header(BlockHeader const &header)
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
         if (MONAD_UNLIKELY(header.nonce != empty_nonce)) {
             return BlockError::InvalidNonce;
-        }
-
-        if (MONAD_UNLIKELY(header.ommers_hash != NULL_LIST_HASH)) {
-            return BlockError::WrongOmmersHash;
         }
     }
 

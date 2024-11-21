@@ -73,6 +73,25 @@ EthereumMainnet::static_validate_header(BlockHeader const &header) const
             header.extra_data != dao::extra_data)) {
         return BlockError::WrongDaoExtraData;
     }
+
+    auto const rev = get_revision(header);
+
+    // EIP-4895
+    if (rev < EVMC_SHANGHAI) {
+        if (MONAD_UNLIKELY(header.withdrawals_root.has_value())) {
+            return BlockError::FieldBeforeFork;
+        }
+    }
+    else if (MONAD_UNLIKELY(!header.withdrawals_root.has_value())) {
+        return BlockError::MissingField;
+    }
+
+    if (rev >= EVMC_PARIS) {
+        if (MONAD_UNLIKELY(header.ommers_hash != NULL_LIST_HASH)) {
+            return BlockError::WrongOmmersHash;
+        }
+    }
+
     return success();
 }
 
