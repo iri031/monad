@@ -126,6 +126,12 @@ void monad_statesync_server_context::finalize(
     rw.finalize(block_number, round_number);
 }
 
+void monad_statesync_server_context::update_verified_block(
+    uint64_t const block_number)
+{
+    rw.update_verified_block(block_number);
+}
+
 void monad_statesync_server_context::commit(
     StateDeltas const &state_deltas, Code const &code,
     BlockHeader const &header, std::vector<Receipt> const &receipts,

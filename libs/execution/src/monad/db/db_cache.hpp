@@ -126,6 +126,11 @@ public:
         db_.finalize(block_number, round_number);
     }
 
+    virtual void update_verified_block(uint64_t const block_number) override
+    {
+        db_.update_verified_block(block_number);
+    }
+
     virtual void commit(
         StateDeltas const &state_deltas, Code const &code,
         BlockHeader const &header, std::vector<Receipt> const &receipts,

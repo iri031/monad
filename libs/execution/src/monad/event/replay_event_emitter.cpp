@@ -21,14 +21,15 @@ std::optional<ReplayEventEmitter::Event> ReplayEventEmitter::next_event()
         ev.filename = std::to_string(block_num_);
         break;
     case MONAD_FINALIZE_BLOCK:
+        next_state_ = MONAD_VERIFY_BLOCK;
+        ev.kind = state;
+        ev.filename = std::to_string(block_num_);
+        break;
+    default:
         next_state_ = MONAD_PROPOSE_BLOCK;
         ev.kind = state;
         ev.filename = std::to_string(block_num_);
         ++block_num_;
-        break;
-    default:
-        // no verify during replay
-        MONAD_ASSERT(false);
     }
     return ev;
 }

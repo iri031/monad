@@ -122,6 +122,8 @@ void monad_statesync_client_context::commit()
     finalized_updates.push_front(finalized);
 
     db.upsert(std::move(finalized_updates), current, false, false);
+    db.update_finalized_block(current);
+
     tdb.set_block_number(current);
     for (auto const &hash : upserted) {
         MONAD_ASSERT(this->upserted.emplace(hash).second);

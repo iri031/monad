@@ -69,6 +69,16 @@ public:
         UpdateList, uint64_t block_id, bool enable_compaction = true,
         bool can_write_to_fast = true);
 
+    void update_finalized_block(uint64_t);
+    void update_verified_block(uint64_t);
+    uint64_t get_latest_finalized_block_id() const;
+    uint64_t get_latest_verified_block_id() const;
+
+    uint64_t get_earliest_finalized_block_id() const
+    {
+        return get_earliest_block_id();
+    }
+
     // Traverse APIs: return value indicates if we have finished the full
     // traversal or not.
     // Parallel traversal is a single threaded out of order traverse using async

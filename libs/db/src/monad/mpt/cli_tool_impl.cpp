@@ -831,6 +831,10 @@ public:
                             &old_metadata->root_offsets.storage_,
                             sizeof(metadata->root_offsets.storage_));
                         metadata->history_length = old_metadata->history_length;
+                        metadata->latest_finalized_version =
+                            old_metadata->latest_finalized_version;
+                        metadata->latest_verified_version =
+                            old_metadata->latest_verified_version;
                     });
                     fast_list_base_insertion_count =
                         old_metadata->fast_list_begin()->insertion_count();
