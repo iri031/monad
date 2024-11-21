@@ -256,10 +256,12 @@ void BlockchainTest::TestBody()
                     auto const decode_res =
                         rlp::decode_block_header(res.value());
                     EXPECT_TRUE(decode_res.has_value());
-                    auto const decoded_block_header = decode_res.value();
-                    EXPECT_EQ(decode_res.value(), block.value().header);
+                    if (rev >= EVMC_BYZANTIUM) {
+                        auto const decoded_block_header = decode_res.value();
+                        EXPECT_EQ(decode_res.value(), block.value().header);
+                    }
                 }
-                { // look up block hash
+                if (rev >= EVMC_BYZANTIUM) { // look up block hash
                     auto const block_hash = keccak256(
                         rlp::encode_block_header(block.value().header));
                     auto res = db.get(
