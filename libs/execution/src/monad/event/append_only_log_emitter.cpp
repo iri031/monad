@@ -48,11 +48,7 @@ AppendOnlyLogEmitter::AppendOnlyLogEmitter(
 
                 cursor_.seekg(-2 * EVENT_SIZE, ios::cur);
             }
-            MONAD_ASSERT(cursor_); // event not found
         }
-    }
-    else {
-        MONAD_ASSERT(!rewind_ev);
     }
 }
 

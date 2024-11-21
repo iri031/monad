@@ -497,17 +497,25 @@ int main(int const argc, char const *argv[])
     using ChainPair =
         std::pair<std::unique_ptr<Chain>, std::unique_ptr<EventEmitter>>;
 
-    auto [chain, emitter] = [chain_config, start_block_num] -> ChainPair {
+    auto [chain, emitter] = [&] -> ChainPair {
         switch (chain_config) {
         case ChainConfig::EthereumMainnet:
             return {
                 std::make_unique<EthereumMainnet>(),
                 std::make_unique<ReplayEventEmitter>(start_block_num)};
-        case ChainConfig::MonadDevnet:
+        case ChainConfig::MonadDevnet: {
+            triedb.set_block_number(start_block_num);
+            auto const header = triedb.read_header();
+            MONAD_ASSERT(header.has_value());
+            std::ifstream istream(block_db_path / "wal");
+            monad_execution_event rewind_ev{
+                .kind = MONAD_PROPOSE_BLOCK, .id = header.value().bft_block_id};
             return {
                 std::make_unique<MonadDevnet>(),
-                std::make_unique<ReplayEventEmitter>(
-                    start_block_num)}; // TODO: change this when we integrate
+                std::make_unique<AppendOnlyLogEmitter>(
+                    istream,
+                    &rewind_ev)}; // TODO: change this when we integrate
+        }
         }
         MONAD_ASSERT(false);
     }();
