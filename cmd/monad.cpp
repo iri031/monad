@@ -3,10 +3,12 @@
 #include <monad/config.hpp>
 #include <monad/core/assert.h>
 #include <monad/core/basic_formatter.hpp>
+#include <monad/core/bytes.hpp>
 #include <monad/core/fmt/bytes_fmt.hpp>
 #include <monad/core/likely.h>
 #include <monad/core/log_level_map.hpp>
 #include <monad/core/rlp/block_rlp.hpp>
+#include <monad/core/rlp/bytes_rlp.hpp>
 #include <monad/db/block_db.hpp>
 #include <monad/db/db_cache.hpp>
 #include <monad/db/trie_db.hpp>
@@ -159,16 +161,17 @@ Result<bytes32_t> on_proposal_event(
         call_frames[i] = (std::move(result.call_frames));
     }
 
-    auto const &parent_hash = block_hash_buffer.get(block.header.number - 1);
-
     BOOST_OUTCOME_TRY(chain.on_pre_commit_outputs(
-        receipts, block.ommers, parent_hash, block.header));
+        receipts,
+        block.ommers,
+        block_hash_buffer.get(block.header.number - 1),
+        block.header));
 
     block_state.log_debug();
     block_state.commit(
         block.header,
         receipts,
-        parent_hash,
+        block.header.bft_block_id,
         call_frames,
         block.transactions,
         block.ommers,
@@ -504,17 +507,19 @@ int main(int const argc, char const *argv[])
                 std::make_unique<EthereumMainnet>(),
                 std::make_unique<ReplayEventEmitter>(start_block_num)};
         case ChainConfig::MonadDevnet: {
-            triedb.set_block_number(start_block_num);
-            auto const header = triedb.read_header();
-            MONAD_ASSERT(header.has_value());
+            auto encoded_bft_id = db.get(
+                mpt::concat(FINALIZED_NIBBLE, BFT_BLOCK_NIBBLE),
+                start_block_num);
+            MONAD_ASSERT(encoded_bft_id.has_value());
+            auto const bft_block_id =
+                rlp::decode_bytes32(encoded_bft_id.value());
+            MONAD_ASSERT(bft_block_id.has_value());
             std::ifstream istream(block_db_path / "wal");
             monad_execution_event rewind_ev{
-                .kind = MONAD_PROPOSE_BLOCK, .id = header.value().bft_block_id};
+                .kind = MONAD_PROPOSE_BLOCK, .id = bft_block_id.value()};
             return {
                 std::make_unique<MonadDevnet>(),
-                std::make_unique<AppendOnlyLogEmitter>(
-                    istream,
-                    &rewind_ev)}; // TODO: change this when we integrate
+                std::make_unique<AppendOnlyLogEmitter>(istream, &rewind_ev)};
         }
         }
         MONAD_ASSERT(false);
