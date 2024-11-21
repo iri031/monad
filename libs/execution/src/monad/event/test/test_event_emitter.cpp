@@ -49,16 +49,13 @@ protected:
         ::close(fd);
 
         temppath = temppath2;
-        is.open(temppath, std::ios::binary);
         os.open(temppath, std::ios::binary);
 
-        MONAD_ASSERT(is);
         MONAD_ASSERT(os);
     }
 
     void TearDown() override
     {
-        is.close();
         os.close();
         std::filesystem::remove(temppath);
     }
@@ -66,7 +63,7 @@ protected:
 
 TEST_F(EventEmitterFixture, open_empty)
 {
-    AppendOnlyLogEmitter emitter(is);
+    AppendOnlyLogEmitter emitter(temppath);
     EXPECT_EQ(emitter.next_event(), std::nullopt);
 
     append_event(MONAD_PROPOSE_BLOCK, bytes32_t{1});
@@ -83,7 +80,7 @@ TEST_F(EventEmitterFixture, replay_from_start)
     append_event(MONAD_FINALIZE_BLOCK, bytes32_t{1});
     append_event(MONAD_VERIFY_BLOCK, bytes32_t{1});
 
-    AppendOnlyLogEmitter emitter(is);
+    AppendOnlyLogEmitter emitter(temppath);
 
     auto const output_e0 = emitter.next_event();
     ASSERT_TRUE(output_e0.has_value());
@@ -112,7 +109,7 @@ TEST_F(EventEmitterFixture, rewind)
 
     monad_execution_event const rewind_e{
         .kind = MONAD_PROPOSE_BLOCK, .id = bytes32_t{3}};
-    AppendOnlyLogEmitter emitter(is, &rewind_e);
+    AppendOnlyLogEmitter emitter(temppath, &rewind_e);
 
     for (uint64_t i = 3; i < 6; ++i) {
         auto const output_e = emitter.next_event();
@@ -128,7 +125,7 @@ TEST_F(EventEmitterFixture, open_bad_data)
     os.write(reinterpret_cast<char const *>(&garbage), sizeof(garbage));
     os.flush();
 
-    AppendOnlyLogEmitter emitter(is);
+    AppendOnlyLogEmitter emitter(temppath);
     EXPECT_FALSE(emitter.next_event().has_value());
 
     // simulate consensus writing over the bad data with a proper event
@@ -143,7 +140,7 @@ TEST_F(EventEmitterFixture, open_bad_data)
 
 TEST_F(EventEmitterFixture, partial_write)
 {
-    AppendOnlyLogEmitter emitter(is);
+    AppendOnlyLogEmitter emitter(temppath);
     ASSERT_FALSE(emitter.next_event().has_value());
 
     monad_execution_event e{.kind = MONAD_PROPOSE_BLOCK, .id = bytes32_t{1}};
