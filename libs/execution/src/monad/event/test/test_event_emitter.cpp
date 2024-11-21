@@ -147,7 +147,7 @@ TEST_F(EventEmitterFixture, partial_write)
     ASSERT_FALSE(emitter.next_event().has_value());
 
     monad_execution_event e{.kind = MONAD_PROPOSE_BLOCK, .id = bytes32_t{1}};
-    auto const partial_size = sizeof(monad_execution_event) / 2;
+    auto const partial_size = sizeof(monad_execution_event) - 3;
 
     // write half
     os.write(reinterpret_cast<char *>(&e), partial_size);
@@ -157,7 +157,7 @@ TEST_F(EventEmitterFixture, partial_write)
     EXPECT_FALSE(emitter.next_event().has_value());
 
     // write other half
-    os.write(reinterpret_cast<char *>(&e) + partial_size, partial_size);
+    os.write(reinterpret_cast<char *>(&e) + partial_size, 3);
     os.flush();
 
     ASSERT_EQ(os.tellp(), sizeof(monad_execution_event));
