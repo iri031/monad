@@ -695,6 +695,10 @@ public:
     void fast_forward_next_version(uint64_t version) noexcept;
 
     void update_history_length_metadata(uint64_t history_len) noexcept;
+    void set_finalized_block(uint64_t) noexcept;
+    void set_verified_block(uint64_t) noexcept;
+    uint64_t finalized_block() const noexcept;
+    uint64_t verified_block() const noexcept;
 
     // WARNING: These are destructive, they discard immediately any extraneous
     // data.

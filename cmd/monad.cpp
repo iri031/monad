@@ -264,7 +264,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
             ++block_num;
         } break;
         case MONAD_VERIFY_BLOCK:
-            // TODO: update DB metadata
+            db.update_verified_block(block.header.number);
             break;
         }
     }
@@ -465,9 +465,12 @@ int main(int const argc, char const *argv[])
     }
 
     LOG_INFO(
-        "Finished initializing db at block = {}, state root = {}, time elapsed "
+        "Finished initializing db at block = {}, last finalized block = {}, "
+        "last verified block = {}, state root = {}, time elapsed "
         "= {}",
         init_block_num,
+        db.get_finalized_block(),
+        db.get_verified_block(),
         triedb.state_root(),
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - load_start_time));

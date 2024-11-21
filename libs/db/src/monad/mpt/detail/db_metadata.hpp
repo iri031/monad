@@ -138,6 +138,8 @@ namespace detail
         // cannot use atomic_uint64_t here because db_metadata has to be
         // trivially copyable for db_copy().
         uint64_t history_length;
+        uint64_t finalized_block_id;
+        uint64_t verified_block_id;
 
         // used to know if the metadata was being
         // updated when the process suddenly exited
@@ -453,7 +455,7 @@ namespace detail
 
     static_assert(std::is_trivially_copyable_v<db_metadata>);
     static_assert(std::is_trivially_copy_assignable_v<db_metadata>);
-    static_assert(sizeof(db_metadata) == 524368);
+    static_assert(sizeof(db_metadata) == 524384);
     static_assert(alignof(db_metadata) == 8);
 
     inline void atomic_memcpy(

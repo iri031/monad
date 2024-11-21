@@ -64,17 +64,9 @@ TrieDb::TrieDb(mpt::Db &db)
     , block_number_{
           db.get_latest_block_id() == INVALID_BLOCK_ID
               ? 0
-              : db.get_latest_block_id()}
+              : db.get_finalized_block()}
 {
-    if (db.get_latest_block_id() != INVALID_BLOCK_ID) {
-        if (db.is_on_disk()) {
-            // revert to latest finalized block
-            while (!db.get(finalized_nibbles, block_number_).has_value()) {
-                --block_number_;
-            }
-        }
-        load_read_cursor();
-    }
+    load_read_cursor();
 }
 
 TrieDb::~TrieDb() = default;
@@ -377,6 +369,9 @@ void TrieDb::commit(
         .version = static_cast<int64_t>(block_number_)}));
 
     db_.upsert(std::move(ls), block_number_);
+    if (!round_number_.has_value()) {
+        db_.update_finalized_block(block_number_);
+    }
 
     update_alloc_.clear();
     bytes_alloc_.clear();
@@ -421,7 +416,13 @@ void TrieDb::finalize(uint64_t const block_number, uint64_t const round_number)
         block_number,
         finalized_nibbles,
         true);
+    db_.update_finalized_block(block_number);
     load_read_cursor();
+}
+
+void TrieDb::update_verified_block(uint64_t const block_number)
+{
+    db_.update_verified_block(block_number);
 }
 
 void TrieDb::set_block_number(uint64_t const n)

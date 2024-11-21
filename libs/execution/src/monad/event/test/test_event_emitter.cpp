@@ -196,11 +196,17 @@ TEST(EventEmitter, replay_emulate)
     ev = emitter.next_event().value();
     EXPECT_EQ(ev.kind, MONAD_FINALIZE_BLOCK);
     EXPECT_EQ(ev.filename, "1");
+    ev = emitter.next_event().value();
+    EXPECT_EQ(ev.kind, MONAD_VERIFY_BLOCK);
+    EXPECT_EQ(ev.filename, "1");
 
     ev = emitter.next_event().value();
     EXPECT_EQ(ev.kind, MONAD_PROPOSE_BLOCK);
     EXPECT_EQ(ev.filename, "2");
     ev = emitter.next_event().value();
     EXPECT_EQ(ev.kind, MONAD_FINALIZE_BLOCK);
+    EXPECT_EQ(ev.filename, "2");
+    ev = emitter.next_event().value();
+    EXPECT_EQ(ev.kind, MONAD_VERIFY_BLOCK);
     EXPECT_EQ(ev.filename, "2");
 }

@@ -201,6 +201,49 @@ void UpdateAuxImpl::update_history_length_metadata(
     do_(db_metadata_[1].main);
 }
 
+uint64_t UpdateAuxImpl::finalized_block() const noexcept
+{
+    return start_lifetime_as<std::atomic_uint64_t const>(
+               &db_metadata()->finalized_block_id)
+        ->load(std::memory_order_relaxed);
+}
+
+uint64_t UpdateAuxImpl::verified_block() const noexcept
+{
+    return start_lifetime_as<std::atomic_uint64_t const>(
+               &db_metadata()->verified_block_id)
+        ->load(std::memory_order_relaxed);
+}
+
+void UpdateAuxImpl::set_finalized_block(uint64_t const block_id) noexcept
+{
+    MONAD_ASSERT(is_on_disk());
+    auto do_ = [&](detail::db_metadata *m) {
+        auto g = m->hold_dirty();
+        reinterpret_cast<std::atomic_uint64_t *>(&m->finalized_block_id)
+            ->store(block_id, std::memory_order_relaxed);
+    };
+    do_(db_metadata_[0].main);
+    do_(db_metadata_[1].main);
+}
+
+void UpdateAuxImpl::set_verified_block(uint64_t const block_id) noexcept
+{
+    MONAD_ASSERT(is_on_disk());
+    if (auto const verified = verified_block();
+        MONAD_LIKELY(verified != INVALID_BLOCK_ID)) {
+        MONAD_DEBUG_ASSERT(
+            block_id > verified && finalized_block() >= block_id);
+    }
+    auto do_ = [&](detail::db_metadata *m) {
+        auto g = m->hold_dirty();
+        reinterpret_cast<std::atomic_uint64_t *>(&m->verified_block_id)
+            ->store(block_id, std::memory_order_relaxed);
+    };
+    do_(db_metadata_[0].main);
+    do_(db_metadata_[1].main);
+}
+
 void UpdateAuxImpl::rewind_to_match_offsets()
 {
     MONAD_ASSERT(is_on_disk());
@@ -546,6 +589,8 @@ void UpdateAuxImpl::set_io(
         // Mark as done, init root offset and history versions for the new
         // database as invalid
         advance_db_offsets_to(fast_offset, slow_offset);
+        set_finalized_block(INVALID_BLOCK_ID);
+        set_verified_block(INVALID_BLOCK_ID);
         root_offsets(0).reset_all(0);
         root_offsets(1).reset_all(0);
 
