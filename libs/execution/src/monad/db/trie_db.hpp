@@ -59,9 +59,10 @@ public:
         std::vector<BlockHeader> const &ommers = {},
         std::optional<std::vector<Withdrawal>> const & = {
             std::nullopt}) override;
-
     virtual void
     finalize(uint64_t block_number, uint64_t round_number) override;
+    virtual void update_verified_block(uint64_t) override;
+
     virtual bytes32_t state_root() override;
     virtual bytes32_t receipts_root() override;
     virtual bytes32_t transactions_root() override;

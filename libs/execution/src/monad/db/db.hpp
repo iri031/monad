@@ -39,6 +39,7 @@ struct Db
     set(uint64_t block_number, uint64_t round_number,
         uint64_t parent_round_number) = 0;
     virtual void finalize(uint64_t block_number, uint64_t round_number) = 0;
+    virtual void update_verified_block(uint64_t) = 0;
 
     virtual void commit(
         StateDeltas const &, Code const &, BlockHeader const &,

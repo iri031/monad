@@ -54,6 +54,7 @@ struct monad_statesync_server_context final : public monad::Db
         uint64_t parent_round_number) override;
     virtual void
     finalize(uint64_t block_number, uint64_t round_number) override;
+    virtual void update_verified_block(uint64_t) override;
 
     virtual void commit(
         monad::StateDeltas const &state_deltas, monad::Code const &code,

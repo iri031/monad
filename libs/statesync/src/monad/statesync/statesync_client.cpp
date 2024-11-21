@@ -139,6 +139,7 @@ bool monad_statesync_client_finalize(monad_statesync_client_context *const ctx)
     if (ctx->db.get_latest_block_id() != ctx->target) {
         ctx->db.move_trie_version_forward(
             ctx->db.get_latest_block_id(), ctx->target);
+        ctx->db.update_finalized_block(ctx->target);
     }
     TrieDb db{ctx->db};
     MONAD_ASSERT(db.get_block_number() == ctx->target);
