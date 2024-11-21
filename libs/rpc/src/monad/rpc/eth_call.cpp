@@ -37,7 +37,7 @@ namespace
     {
         constexpr evmc_revision rev = EVMC_SHANGHAI; // TODO
         MonadDevnet chain;
-        MONAD_ASSERT(rev == chain.get_revision(header));
+        MONAD_ASSERT(rev == chain.get_revision(header.number));
 
         Transaction enriched_txn{txn};
 

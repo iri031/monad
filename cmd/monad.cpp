@@ -141,7 +141,7 @@ Result<bytes32_t> on_proposal_event(
 {
     BOOST_OUTCOME_TRY(chain.static_validate_header(block.header));
 
-    evmc_revision const rev = chain.get_revision(block.header);
+    evmc_revision const rev = chain.get_revision(block.header.number);
 
     BOOST_OUTCOME_TRY(static_validate_block(rev, block));
 
@@ -583,7 +583,8 @@ int main(int const argc, char const *argv[])
     BlockHashBufferFinalized block_hash_buffer;
     if (!snapshot.empty() || dbname_paths.empty() ||
         (!db.version_is_valid(init_block_num - 255) &&
-         chain_config == ChainConfig::EthereumMainnet)) {
+         chain_config == ChainConfig::EthereumMainnet) ||
+        chain->get_revision(init_block_num) <= EVMC_BYZANTIUM) {
         BlockDb block_db{block_db_path};
         init_block_hash_buffer(block_db, start_block_num, block_hash_buffer);
     }
