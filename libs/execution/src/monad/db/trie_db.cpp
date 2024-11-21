@@ -146,7 +146,7 @@ Nibbles proposal_prefix(uint64_t const round_number)
 void TrieDb::commit(
     StateDeltas const &state_deltas, Code const &code,
     BlockHeader const &header, std::vector<Receipt> const &receipts,
-    bytes32_t const &previous_block_header_hash,
+    bytes32_t const &bft_block_id,
     std::vector<std::vector<CallFrame>> const &call_frames,
     std::vector<Transaction> const &transactions,
     std::vector<BlockHeader> const &ommers,
@@ -260,15 +260,6 @@ void TrieDb::commit(
             .version = static_cast<int64_t>(block_number_)}));
     }
 
-    UpdateList block_hash_nested_updates;
-    block_hash_nested_updates.push_front(update_alloc_.emplace_back(Update{
-        .key = to_byte_string_view(previous_block_header_hash.bytes),
-        .value = bytes_alloc_.emplace_back(
-            rlp::encode_unsigned((header.number > 0) ? header.number - 1 : 0)),
-        .incarnation = false,
-        .next = UpdateList{},
-        .version = static_cast<int64_t>(block_number_)}));
-
     UpdateList updates;
 
     auto state_update = Update{
@@ -301,12 +292,6 @@ void TrieDb::commit(
         .incarnation = true,
         .next = std::move(transaction_updates),
         .version = static_cast<int64_t>(block_number_)};
-    auto block_header_update = Update{
-        .key = block_header_nibbles,
-        .value = bytes_alloc_.emplace_back(encode_block_header_db(header)),
-        .incarnation = true,
-        .next = UpdateList{},
-        .version = static_cast<int64_t>(block_number_)};
     auto ommer_update = Update{
         .key = ommer_nibbles,
         .value = bytes_alloc_.emplace_back(rlp::encode_ommers(ommers)),
@@ -319,21 +304,13 @@ void TrieDb::commit(
         .incarnation = false,
         .next = std::move(tx_hash_updates),
         .version = static_cast<int64_t>(block_number_)};
-    auto block_hash_update = Update{
-        .key = block_hash_nibbles,
-        .value = byte_string_view{},
-        .incarnation = false,
-        .next = std::move(block_hash_nested_updates),
-        .version = static_cast<int64_t>(block_number_)};
     updates.push_front(state_update);
     updates.push_front(code_update);
     updates.push_front(receipt_update);
     updates.push_front(call_frame_update);
     updates.push_front(transaction_update);
-    updates.push_front(block_header_update);
     updates.push_front(ommer_update);
     updates.push_front(tx_hash_update);
-    updates.push_front(block_hash_update);
     UpdateList withdrawal_updates;
     if (withdrawals.has_value()) {
         // only commit withdrawals when the optional has value
@@ -369,14 +346,69 @@ void TrieDb::commit(
         .version = static_cast<int64_t>(block_number_)}));
 
     db_.upsert(std::move(ls), block_number_);
+
+    // two-stage commit. load read cursor to read computed merkle roots
+    load_read_cursor();
+
+    BlockHeader complete_header = header;
+    complete_header.state_root = state_root();
+    complete_header.receipts_root = receipts_root();
+    complete_header.withdrawals_root = withdrawals_root();
+    complete_header.transactions_root = transactions_root();
+    auto const eth_header_rlp = rlp::encode_block_header(complete_header);
+
+    UpdateList block_hash_nested_updates;
+    block_hash_nested_updates.push_front(update_alloc_.emplace_back(Update{
+        .key = hash_alloc_.emplace_back(keccak256(eth_header_rlp)),
+        .value = encoded_block_number,
+        .incarnation = false,
+        .next = UpdateList{},
+        .version = static_cast<int64_t>(block_number_)}));
+
+    UpdateList updates2;
+
+    auto block_header_update = Update{
+        .key = block_header_nibbles,
+        .value = eth_header_rlp,
+        .incarnation = true,
+        .next = UpdateList{},
+        .version = static_cast<int64_t>(block_number_)};
+    auto bft_block_update = Update{
+        .key = bft_block_nibbles,
+        .value = bytes_alloc_.emplace_back(rlp::encode_bytes32(bft_block_id)),
+        .incarnation = true,
+        .next = UpdateList{},
+        .version = static_cast<int64_t>(block_number_)};
+    auto block_hash_update = Update{
+        .key = block_hash_nibbles,
+        .value = byte_string_view{},
+        .incarnation = false,
+        .next = std::move(block_hash_nested_updates),
+        .version = static_cast<int64_t>(block_number_)};
+
+    updates2.push_front(block_header_update);
+    updates2.push_front(block_hash_update);
+    updates2.push_front(bft_block_update);
+
+    UpdateList ls2;
+    ls2.push_front(update_alloc_.emplace_back(Update{
+        .key = key,
+        .value = byte_string_view{},
+        .incarnation = false,
+        .next = std::move(updates2),
+        .version = static_cast<int64_t>(block_number_)}));
+
+    db_.upsert(std::move(ls2), block_number_);
+
     if (!round_number_.has_value()) {
         db_.update_finalized_block(block_number_);
     }
 
+    load_read_cursor();
+
     update_alloc_.clear();
     bytes_alloc_.clear();
     hash_alloc_.clear();
-    load_read_cursor();
 }
 
 void TrieDb::load_read_cursor()
@@ -496,18 +528,11 @@ std::optional<BlockHeader> TrieDb::read_header()
         return {};
     }
     auto encoded_header_db = query_res.value();
-    auto decode_res = decode_block_header_db(encoded_header_db);
+    auto decode_res = rlp::decode_block_header(encoded_header_db);
     if (!decode_res.has_value()) {
         return {};
     }
-
-    auto header = std::move(decode_res.value());
-    header.state_root = state_root();
-    header.receipts_root = receipts_root();
-    header.withdrawals_root = withdrawals_root();
-    header.transactions_root = transactions_root();
-
-    return header;
+    return std::move(decode_res.value());
 }
 
 std::string TrieDb::print_stats()
