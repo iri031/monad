@@ -507,19 +507,23 @@ int main(int const argc, char const *argv[])
                 std::make_unique<EthereumMainnet>(),
                 std::make_unique<ReplayEventEmitter>(start_block_num)};
         case ChainConfig::MonadDevnet: {
+            std::filesystem::path wal{block_db_path / "wal"};
             auto encoded_bft_id = db.get(
                 mpt::concat(FINALIZED_NIBBLE, BFT_BLOCK_NIBBLE),
                 start_block_num);
-            MONAD_ASSERT(encoded_bft_id.has_value());
+            if (!encoded_bft_id.has_value()) {
+                return {
+                    std::make_unique<MonadDevnet>(),
+                    std::make_unique<AppendOnlyLogEmitter>(wal, nullptr)};
+            }
             auto const bft_block_id =
                 rlp::decode_bytes32(encoded_bft_id.value());
             MONAD_ASSERT(bft_block_id.has_value());
-            std::ifstream istream(block_db_path / "wal");
             monad_execution_event rewind_ev{
                 .kind = MONAD_PROPOSE_BLOCK, .id = bft_block_id.value()};
             return {
                 std::make_unique<MonadDevnet>(),
-                std::make_unique<AppendOnlyLogEmitter>(istream, &rewind_ev)};
+                std::make_unique<AppendOnlyLogEmitter>(wal, &rewind_ev)};
         }
         }
         MONAD_ASSERT(false);
@@ -582,7 +586,8 @@ int main(int const argc, char const *argv[])
 
     BlockHashBufferFinalized block_hash_buffer;
     if (!snapshot.empty() || dbname_paths.empty() ||
-        !db.version_is_valid(init_block_num - 255)) {
+        (!db.version_is_valid(init_block_num - 255) &&
+         chain_config == ChainConfig::EthereumMainnet)) {
         BlockDb block_db{block_db_path};
         init_block_hash_buffer(block_db, start_block_num, block_hash_buffer);
     }

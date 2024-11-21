@@ -17,9 +17,10 @@ namespace
 }
 
 AppendOnlyLogEmitter::AppendOnlyLogEmitter(
-    std::istream &cursor, monad_execution_event const *rewind_ev)
-    : cursor_{cursor}
+    std::filesystem::path const &path, monad_execution_event const *rewind_ev)
 {
+    cursor_.open(path, std::ios::binary);
+
     MONAD_ASSERT(cursor_);
 
     cursor_.seekg(0, ios::end);
