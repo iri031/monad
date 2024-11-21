@@ -228,24 +228,28 @@ TEST(Validation, base_fee_per_gas_existence)
 
 TEST(Validation, withdrawal_root_existence)
 {
+    EthereumMainnet chain;
+
     static BlockHeader const header1{
+        .number = 0, // FRONTIER
         .gas_limit = 10000,
         .base_fee_per_gas = std::nullopt,
         .ommers_hash = NULL_LIST_HASH,
         .withdrawals_root = 0x00_bytes32,
         .gas_used = 5000};
 
-    auto const result1 = static_validate_header<EVMC_FRONTIER>(header1);
+    auto const result1 = chain.static_validate_header(header1);
     EXPECT_EQ(result1.error(), BlockError::FieldBeforeFork);
 
     static BlockHeader const header2{
+        .number = 17034870, // SHANGHAI
         .gas_limit = 10000,
         .base_fee_per_gas = 1000,
         .ommers_hash = NULL_LIST_HASH,
         .withdrawals_root = std::nullopt,
         .gas_used = 5000};
 
-    auto const result2 = static_validate_header<EVMC_SHANGHAI>(header2);
+    auto const result2 = chain.static_validate_header(header2);
     EXPECT_EQ(result2.error(), BlockError::MissingField);
 }
 
