@@ -71,8 +71,7 @@ void signal_handler(int)
 using namespace monad;
 namespace fs = std::filesystem;
 
-using TryGet =
-    std::move_only_function<std::optional<Block>(std::string_view) const>;
+using SlurpBlock = std::move_only_function<Block(std::string_view) const>;
 
 void log_tps(
     uint64_t const block_num, uint64_t const nblocks, uint64_t const ntxs,
@@ -193,7 +192,7 @@ Result<bytes32_t> on_proposal_event(
 
 Result<std::pair<uint64_t, uint64_t>> run_monad(
     Chain const &chain, Db &db, BlockHashChain &block_hash_chain,
-    TryGet const &try_get, EventEmitter &emitter,
+    SlurpBlock const &slurp_block, EventEmitter &emitter,
     fiber::PriorityPool &priority_pool, uint64_t &block_num,
     uint64_t const nblocks)
 {
@@ -221,12 +220,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
             continue;
         }
 
-        auto opt_block = try_get(event->filename);
-        if (!opt_block.has_value()) {
-            std::this_thread::sleep_for(SLEEP_TIME);
-            continue;
-        }
-        auto &block = opt_block.value();
+        auto block = slurp_block(event->filename);
 
         switch (event.value().kind) {
         case MONAD_PROPOSE_BLOCK: {
@@ -530,56 +524,50 @@ int main(int const argc, char const *argv[])
     }();
 
     // TODO: consolidate
-    auto const try_get = [&] -> TryGet {
+    auto const slurp_block = [&] -> SlurpBlock {
         switch (chain_config) {
         case ChainConfig::EthereumMainnet:
-            return [block_db =
-                        BlockDb{block_db_path}](std::string_view const filename)
-                       -> std::optional<Block> {
+            return [block_db = BlockDb{block_db_path}](
+                       std::string_view const filename) -> Block {
                 uint64_t num{};
                 auto [_, ec] = std::from_chars(
                     filename.data(), filename.data() + filename.size(), num);
                 MONAD_ASSERT(ec == std::errc{});
 
                 Block block;
-                if (block_db.get(num, block)) {
-                    MONAD_ASSERT(num > 0);
-                    block.header.bft_block_id = bytes32_t{num};
-                    block.header.round = num;
-                    block.header.parent_round = num - 1;
-                    return block;
-                }
-                return std::nullopt;
+                MONAD_ASSERT(block_db.get(num, block));
+                MONAD_ASSERT(num > 0);
+                block.header.bft_block_id = bytes32_t{num};
+                block.header.round = num;
+                block.header.parent_round = num - 1;
+                return block;
             };
         case ChainConfig::MonadDevnet:
-            return
-                [block_db_path](
-                    std::string_view const filename) -> std::optional<Block> {
-                    auto const path = block_db_path / filename;
-                    if (!fs::exists(path)) {
-                        return std::nullopt;
-                    }
-                    MONAD_ASSERT(fs::is_regular_file(path));
-                    std::ifstream istream(path);
-                    if (!istream) {
-                        LOG_ERROR_LIMIT(
-                            std::chrono::seconds(30),
-                            "Opening {} failed with {}",
-                            path,
-                            strerror(errno));
-                        return std::nullopt;
-                    }
-                    std::ostringstream buf;
-                    buf << istream.rdbuf();
-                    auto view = byte_string_view{
-                        (unsigned char *)buf.view().data(), buf.view().size()};
-                    auto block_result = rlp::decode_monad_block(view);
-                    if (block_result.has_error()) {
-                        return std::nullopt;
-                    }
-                    MONAD_ASSERT(view.empty());
-                    return block_result.assume_value();
-                };
+            return [block_db_path](std::string_view const filename) -> Block {
+                auto const path = block_db_path / filename;
+                if (MONAD_UNLIKELY(
+                        !fs::exists(path) || !fs::is_regular_file(path))) {
+                    LOG_ERROR("File doesn't exist: ", path);
+                    MONAD_ASSERT(false);
+                }
+                std::ifstream istream(path);
+                if (MONAD_UNLIKELY(!istream)) {
+                    LOG_ERROR("Could not open file: {}", path);
+                    MONAD_ASSERT(false);
+                }
+
+                std::ostringstream buf;
+                buf << istream.rdbuf();
+                auto view = byte_string_view{
+                    (unsigned char *)buf.view().data(), buf.view().size()};
+                auto block_result = rlp::decode_monad_block(view);
+                if (MONAD_UNLIKELY(block_result.has_error())) {
+                    LOG_ERROR("Could not decode block: {}", path);
+                    MONAD_ASSERT(false);
+                }
+                MONAD_ASSERT(view.empty());
+                return block_result.assume_value();
+            };
         }
         MONAD_ASSERT(false);
     }();
@@ -604,7 +592,7 @@ int main(int const argc, char const *argv[])
         *chain,
         db_cache,
         block_hash_chain,
-        try_get,
+        slurp_block,
         *emitter,
         priority_pool,
         block_num,
