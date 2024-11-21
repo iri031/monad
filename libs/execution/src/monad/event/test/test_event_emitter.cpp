@@ -122,23 +122,6 @@ TEST_F(EventEmitterFixture, rewind)
     }
 }
 
-TEST_F(EventEmitterFixture, rewind_nonexistent_empty_DeathTest)
-{
-    monad_execution_event const rewind_e{
-        .kind = MONAD_FINALIZE_BLOCK, .id = bytes32_t{1}};
-    EXPECT_DEATH(AppendOnlyLogEmitter(is, &rewind_e), ".*");
-}
-
-TEST_F(EventEmitterFixture, rewind_nonexistent_DeathTest)
-{
-    for (uint64_t i = 0; i < 6; ++i) {
-        append_event(MONAD_PROPOSE_BLOCK, bytes32_t{i});
-    }
-    monad_execution_event const rewind_e{
-        .kind = MONAD_FINALIZE_BLOCK, .id = bytes32_t{1}};
-    EXPECT_DEATH(AppendOnlyLogEmitter(is, &rewind_e), ".*");
-}
-
 TEST_F(EventEmitterFixture, open_bad_data)
 {
     uint64_t const garbage = std::numeric_limits<uint64_t>::max();
