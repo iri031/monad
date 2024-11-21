@@ -25,39 +25,39 @@ uint256_t EthereumMainnet::get_chain_id() const
     return 1;
 };
 
-evmc_revision EthereumMainnet::get_revision(BlockHeader const &header) const
+evmc_revision EthereumMainnet::get_revision(uint64_t const block_number) const
 {
-    if (header.number >= 19426587) {
+    if (block_number >= 19426587) {
         return EVMC_CANCUN;
     }
-    else if (header.number >= 17034870) {
+    else if (block_number >= 17034870) {
         return EVMC_SHANGHAI;
     }
-    else if (header.number >= 15537394) {
+    else if (block_number >= 15537394) {
         return EVMC_PARIS;
     }
-    else if (header.number >= 12965000) {
+    else if (block_number >= 12965000) {
         return EVMC_LONDON;
     }
-    else if (header.number >= 12244000) {
+    else if (block_number >= 12244000) {
         return EVMC_BERLIN;
     }
-    else if (header.number >= 9069000) {
+    else if (block_number >= 9069000) {
         return EVMC_ISTANBUL;
     }
-    else if (header.number >= 7280000) {
+    else if (block_number >= 7280000) {
         return EVMC_PETERSBURG;
     }
-    else if (header.number >= 4370000) {
+    else if (block_number >= 4370000) {
         return EVMC_BYZANTIUM;
     }
-    else if (header.number >= 2675000) {
+    else if (block_number >= 2675000) {
         return EVMC_SPURIOUS_DRAGON;
     }
-    else if (header.number >= 2463000) {
+    else if (block_number >= 2463000) {
         return EVMC_TANGERINE_WHISTLE;
     }
-    else if (header.number >= 1150000) {
+    else if (block_number >= 1150000) {
         return EVMC_HOMESTEAD;
     }
     return EVMC_FRONTIER;
@@ -74,7 +74,7 @@ EthereumMainnet::static_validate_header(BlockHeader const &header) const
         return BlockError::WrongDaoExtraData;
     }
 
-    auto const rev = get_revision(header);
+    auto const rev = get_revision(header.number);
 
     // EIP-4895
     if (rev < EVMC_SHANGHAI) {
@@ -109,7 +109,7 @@ Result<void> EthereumMainnet::on_pre_commit_outputs(
     }
 
     if (MONAD_UNLIKELY(parent_hash != hdr.parent_hash)) {
-        if (get_revision(hdr) >= EVMC_BYZANTIUM) {
+        if (get_revision(hdr.number) >= EVMC_BYZANTIUM) {
             return BlockError::WrongParentHash;
         }
     }
