@@ -569,7 +569,7 @@ int main(int const argc, char const *argv[])
                     buf << istream.rdbuf();
                     auto view = byte_string_view{
                         (unsigned char *)buf.view().data(), buf.view().size()};
-                    auto block_result = rlp::decode_block(view);
+                    auto block_result = rlp::decode_monad_block(view);
                     if (block_result.has_error()) {
                         return std::nullopt;
                     }
