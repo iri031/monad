@@ -109,7 +109,8 @@ TEST_F(EventEmitterFixture, rewind)
 
     monad_execution_event const rewind_e{
         .kind = MONAD_PROPOSE_BLOCK, .id = bytes32_t{3}};
-    AppendOnlyLogEmitter emitter(temppath, &rewind_e);
+    AppendOnlyLogEmitter emitter(temppath);
+    ASSERT_TRUE(emitter.rewind_to_event(rewind_e));
 
     for (uint64_t i = 3; i < 6; ++i) {
         auto const output_e = emitter.next_event();

@@ -16,41 +16,10 @@ namespace
         static_cast<std::streamoff>(sizeof(monad_execution_event));
 }
 
-AppendOnlyLogEmitter::AppendOnlyLogEmitter(
-    std::filesystem::path const &path, monad_execution_event const *rewind_ev)
+AppendOnlyLogEmitter::AppendOnlyLogEmitter(std::filesystem::path const &path)
 {
     cursor_.open(path, std::ios::binary);
-
     MONAD_ASSERT(cursor_);
-
-    cursor_.seekg(0, ios::end);
-    auto const size_on_start = cursor_.tellg();
-    cursor_.seekg(0, ios::beg);
-
-    if (size_on_start >= EVENT_SIZE) {
-        if (rewind_ev) {
-            auto const pos =
-                (size_on_start / EVENT_SIZE) * EVENT_SIZE - EVENT_SIZE;
-            cursor_.seekg(pos);
-            while (cursor_) {
-                monad_execution_event ev;
-                if (!cursor_.read(
-                        reinterpret_cast<char *>(&ev),
-                        sizeof(monad_execution_event))) {
-                    MONAD_ASSERT(false);
-                }
-
-                if (std::bit_cast<bytes32_t>(ev.id) ==
-                        std::bit_cast<bytes32_t>(rewind_ev->id) &&
-                    ev.kind == rewind_ev->kind) {
-                    cursor_.seekg(-EVENT_SIZE, ios::cur);
-                    break;
-                }
-
-                cursor_.seekg(-2 * EVENT_SIZE, ios::cur);
-            }
-        }
-    }
 }
 
 std::optional<AppendOnlyLogEmitter::Event> AppendOnlyLogEmitter::next_event()
@@ -70,6 +39,41 @@ std::optional<AppendOnlyLogEmitter::Event> AppendOnlyLogEmitter::next_event()
         cursor_.seekg(pos);
         return {};
     }
+}
+
+bool AppendOnlyLogEmitter::rewind_to_event(
+    monad_execution_event const &rewind_ev)
+{
+    cursor_.seekg(0, ios::end);
+    auto const size_on_start = cursor_.tellg();
+    cursor_.seekg(0, ios::beg);
+
+    if (size_on_start >= EVENT_SIZE) {
+        auto const pos = (size_on_start / EVENT_SIZE) * EVENT_SIZE - EVENT_SIZE;
+        cursor_.seekg(pos);
+        while (cursor_) {
+            monad_execution_event ev;
+            if (!cursor_.read(
+                    reinterpret_cast<char *>(&ev),
+                    sizeof(monad_execution_event))) {
+                MONAD_ASSERT(false);
+            }
+
+            if (std::bit_cast<bytes32_t>(ev.id) ==
+                    std::bit_cast<bytes32_t>(rewind_ev.id) &&
+                ev.kind == rewind_ev.kind) {
+                cursor_.seekg(-EVENT_SIZE, ios::cur);
+
+                return true;
+            }
+
+            cursor_.seekg(-2 * EVENT_SIZE, ios::cur);
+        }
+    }
+    cursor_.clear();
+    cursor_.seekg(0, ios::beg);
+
+    return false;
 }
 
 MONAD_NAMESPACE_END
