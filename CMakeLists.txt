@@ -7,6 +7,9 @@ option(HUNTER_ENABLED OFF)
 option(EVMONE_TRACING
        "Enable instruction-level tracing for the evmone interpreter" OFF)
 option(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+if(CMAKE_EXPORT_COMPILE_COMMANDS)
+    set(CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES})
+endif()
 option(BUILD_SHARED_LIBS OFF)
 
 include(cmake/test.cmake)
