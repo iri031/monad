@@ -114,13 +114,13 @@ BlockHashBuffer const &BlockHashChain::propose(
 BlockHashBuffer const &BlockHashChain::finalize(uint64_t const round)
 {
     auto const to_finalize = finalized_ + 1;
-
-    MONAD_ASSERT(to_finalize == 0 || round > finalized_);
-    MONAD_ASSERT(!proposals_.empty());
-
     auto winner_it = proposals_.begin();
+
     for (; winner_it != proposals_.end() && winner_it->round() != round;
          ++winner_it) {
+    }
+    if (MONAD_UNLIKELY(winner_it == proposals_.end())) {
+        return buf_;
     }
     MONAD_ASSERT(winner_it->round() == round);
     MONAD_ASSERT((winner_it->n() - 1) == to_finalize);
@@ -129,10 +129,13 @@ BlockHashBuffer const &BlockHashChain::finalize(uint64_t const round)
     finalized_ = to_finalize;
 
     // cleanup chains
-    uint64_t const to_delete = winner_it->parent_round();
-    for (auto it = proposals_.begin();
-         it != proposals_.end() && it->parent_round() == to_delete;) {
-        it = proposals_.erase(it);
+    for (auto it = proposals_.begin(); it != proposals_.end();) {
+        if (it->round() <= round) {
+            it = proposals_.erase(it);
+        }
+        else {
+            ++it;
+        }
     }
 
     return buf_;
