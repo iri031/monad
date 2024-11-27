@@ -74,6 +74,7 @@ public:
     size_t prefetch_current_root();
     uint64_t get_block_number() const;
     uint64_t get_history_length() const;
+    std::optional<uint64_t> get_round() const;
 
     void set_block_number(uint64_t);
 

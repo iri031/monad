@@ -704,4 +704,9 @@ uint64_t TrieDb::get_history_length() const
     return db_.get_history_length();
 }
 
+std::optional<uint64_t> TrieDb::get_round() const
+{
+    return round_number_;
+}
+
 MONAD_NAMESPACE_END
