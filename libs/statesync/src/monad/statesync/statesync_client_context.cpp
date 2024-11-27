@@ -30,10 +30,11 @@ monad_statesync_client_context::monad_statesync_client_context(
     , tdb{db}
     , progress(
           monad_statesync_client_prefixes(),
-          {db.get_latest_block_id(), db.get_latest_block_id()})
+          {db.get_latest_finalized_block_id(),
+           db.get_latest_finalized_block_id()})
     , protocol(monad_statesync_client_prefixes())
     , tgrt{BlockHeader{.number = mpt::INVALID_BLOCK_ID}}
-    , current{db.get_latest_block_id() == mpt::INVALID_BLOCK_ID ? 0 : db.get_latest_block_id() + 1}
+    , current{db.get_latest_finalized_block_id() == mpt::INVALID_BLOCK_ID ? 0 : db.get_latest_finalized_block_id() + 1}
     , n_upserts{0}
     , genesis{genesis}
     , sync{sync}
