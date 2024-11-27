@@ -22,11 +22,27 @@ MONAD_ANONYMOUS_NAMESPACE_BEGIN
 void on_commit(
     monad_statesync_server_context &ctx, StateDeltas const &state_deltas)
 {
-    constexpr auto HISTORY_LENGTH = 1200; // 20 minutes with 1s block times
-
     auto const n = ctx.rw.get_block_number();
-    Deleted::accessor it;
-    MONAD_ASSERT(ctx.deleted.emplace(it, n, Deleted::mapped_type{}));
+    auto const round = ctx.rw.get_round();
+    MONAD_ASSERT(
+        round.has_value()); // should never commit deletions to finalized nibble
+    auto const round_number = round.value();
+
+    auto &proposals = ctx.proposals;
+    auto it = std::find_if(
+        proposals.begin(), proposals.end(), [round_number](auto const &p) {
+            return p.round == round_number;
+        });
+
+    if (it == proposals.end()) {
+        proposals.emplace_back(DeletionProposal{
+            .block_number = n, .round = round_number, .deletion = {}});
+    }
+    else {
+        MONAD_ASSERT(it->block_number == n);
+        it->deletion.clear(); // duplicate round always takes precedence
+    }
+
     for (auto const &[addr, delta] : state_deltas) {
         auto const &account = delta.account.second;
         std::vector<bytes32_t> storage;
@@ -49,16 +65,44 @@ void on_commit(
                 account.has_value() && delta.account.first.has_value() &&
                 delta.account.first->incarnation != account->incarnation;
             if (incarnation || !account.has_value()) {
-                it->second.emplace_back(addr, std::vector<bytes32_t>{});
+                it->deletion.emplace_back(addr, std::vector<bytes32_t>{});
             }
             if (!storage.empty()) {
-                it->second.emplace_back(addr, std::move(storage));
+                it->deletion.emplace_back(addr, std::move(storage));
             }
         }
     }
+}
 
-    if (ctx.deleted.size() > HISTORY_LENGTH) {
-        MONAD_ASSERT(ctx.deleted.erase(n - HISTORY_LENGTH));
+void on_finalize(
+    monad_statesync_server_context &ctx, uint64_t const block_number,
+    uint64_t const round_number)
+{
+    auto &proposals = ctx.proposals;
+
+    auto winner_it = std::find_if(
+        proposals.begin(), proposals.end(), [round_number](auto const &p) {
+            return p.round == round_number;
+        });
+
+    if (MONAD_LIKELY(winner_it != proposals.end())) {
+        constexpr auto HISTORY_LENGTH = 1200; // 20 minutes with 1s block times
+        Deleted::accessor finalized_it;
+        MONAD_ASSERT(ctx.deleted.emplace(
+            finalized_it, block_number, std::move(winner_it->deletion)));
+        if (ctx.deleted.size() > HISTORY_LENGTH) {
+            MONAD_ASSERT(ctx.deleted.erase(block_number - HISTORY_LENGTH));
+        }
+    }
+
+    // gc old rounds
+    for (auto it = proposals.begin(); it != proposals.end();) {
+        if (it->round <= round_number) {
+            it = ctx.proposals.erase(it);
+        }
+        else {
+            ++it;
+        }
     }
 }
 
@@ -123,6 +167,7 @@ void monad_statesync_server_context::set(
 void monad_statesync_server_context::finalize(
     uint64_t const block_number, uint64_t const round_number)
 {
+    on_finalize(*this, block_number, round_number);
     rw.finalize(block_number, round_number);
 }
 
