@@ -144,7 +144,7 @@ BlockHashBuffer const &BlockHashChain::finalize(uint64_t const round)
 BlockHashBuffer const &
 BlockHashChain::find_chain(uint64_t const parent_round) const
 {
-    for (auto it = proposals_.rbegin(); it != proposals_.rend();) {
+    for (auto it = proposals_.rbegin(); it != proposals_.rend(); ++it) {
         if (it->round() == parent_round) {
             return *it;
         }
