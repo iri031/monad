@@ -224,6 +224,10 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
 
         switch (event.value().kind) {
         case MONAD_PROPOSE_BLOCK: {
+            LOG_INFO(
+                "[KKUEHLER] Processing proposal: seqno={}, round={}",
+                block.header.number,
+                block.header.round);
             BOOST_OUTCOME_TRY(
                 auto const block_hash,
                 on_proposal_event(
@@ -241,6 +245,10 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
             batch_gas += block.header.gas_used;
         } break;
         case MONAD_FINALIZE_BLOCK: {
+            LOG_INFO(
+                "[KKUEHLER] Processing finalization : seqno={}, round={}",
+                block.header.number,
+                block.header.round);
             db.finalize(block.header.number, block.header.round);
             block_hash_chain.finalize(block.header.round);
 
@@ -261,6 +269,10 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
             ++block_num;
         } break;
         case MONAD_VERIFY_BLOCK:
+            LOG_INFO(
+                "[KKUEHLER] Processing verify: seqno={}, round={}",
+                block.header.number,
+                block.header.round);
             db.update_verified_block(block.header.number);
             break;
         }
