@@ -427,23 +427,26 @@ void TrieDb::set(
     round_number_ = round_number;
     block_number_ = block_number;
 
-    MONAD_ASSERT(db_.version_is_valid(block_number - 1));
-    auto src_prefix = proposal_prefix(parent_round_number);
-    auto const res = db_.find(src_prefix, block_number_ - 1);
-    if (MONAD_UNLIKELY(!res.has_value())) {
-        src_prefix = finalized_nibbles;
-    }
-    auto const dest_prefix = proposal_prefix(round_number);
+    if (db_.version_is_valid(block_number - 1)) {
+        auto src_prefix = proposal_prefix(parent_round_number);
+        auto const res = db_.find(src_prefix, block_number_ - 1);
+        if (MONAD_UNLIKELY(!res.has_value())) {
+            src_prefix = finalized_nibbles;
+        }
+        auto const dest_prefix = proposal_prefix(round_number);
 
-    db_.copy_trie(
-        block_number_ - 1, src_prefix, block_number, dest_prefix, false);
+        db_.copy_trie(
+            block_number_ - 1, src_prefix, block_number, dest_prefix, false);
+    }
     load_read_cursor();
 }
 
 void TrieDb::finalize(uint64_t const block_number, uint64_t const round_number)
 {
     // no re-finalization
-    if (block_number >= db_.get_latest_finalized_block_id()) {
+    auto const latest_finalized = db_.get_latest_finalized_block_id();
+    if (block_number >= latest_finalized ||
+        latest_finalized == INVALID_BLOCK_ID) {
         db_.copy_trie(
             block_number,
             proposal_prefix(round_number),
@@ -458,7 +461,9 @@ void TrieDb::finalize(uint64_t const block_number, uint64_t const round_number)
 void TrieDb::update_verified_block(uint64_t const block_number)
 {
     // no re-verification
-    if (block_number >= db_.get_latest_verified_block_id()) {
+    auto const latest_verified = db_.get_latest_verified_block_id();
+    if (block_number >= db_.get_latest_verified_block_id() ||
+        latest_verified == INVALID_BLOCK_ID) {
         db_.update_verified_block(block_number);
     }
 }
