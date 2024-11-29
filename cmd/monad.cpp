@@ -225,9 +225,11 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
         switch (event.value().kind) {
         case MONAD_PROPOSE_BLOCK: {
             LOG_INFO(
-                "[KKUEHLER] Processing proposal: seqno={}, round={}",
+                "[KKUEHLER] Processing proposal: seqno={}, round={}, "
+                "parent_round={}",
                 block.header.number,
-                block.header.round);
+                block.header.round,
+                block.header.parent_round);
             BOOST_OUTCOME_TRY(
                 auto const block_hash,
                 on_proposal_event(
@@ -497,8 +499,6 @@ int main(int const argc, char const *argv[])
 
     auto const start_time = std::chrono::steady_clock::now();
 
-    auto db_cache = ctx ? DbCache{*ctx} : DbCache{triedb};
-
     using ChainPair =
         std::pair<std::unique_ptr<Chain>, std::unique_ptr<EventEmitter>>;
 
@@ -597,7 +597,7 @@ int main(int const argc, char const *argv[])
     uint64_t block_num = start_block_num;
     auto const result = run_monad(
         *chain,
-        db_cache,
+        ctx ? std::ref<Db>(*ctx) : std::ref<Db>(triedb),
         block_hash_chain,
         slurp_block,
         *emitter,
