@@ -146,25 +146,6 @@ MONAD_ANONYMOUS_NAMESPACE_END
 
 MONAD_NAMESPACE_BEGIN
 
-void StatesyncProtocolV1::send_request(
-    monad_statesync_client_context *const ctx, uint64_t const prefix) const
-{
-    auto const &[progress, old_target] = ctx->progress[prefix];
-    MONAD_ASSERT(progress == INVALID_BLOCK_ID || progress < ctx->target);
-    MONAD_ASSERT(old_target == INVALID_BLOCK_ID || old_target <= ctx->target);
-    auto const from = progress == INVALID_BLOCK_ID ? 0 : progress + 1;
-    ctx->statesync_send_request(
-        ctx->sync,
-        monad_sync_request{
-            .prefix = prefix,
-            .prefix_bytes = monad_statesync_client_prefix_bytes(),
-            .target = ctx->target,
-            .from = from,
-            .until = from >= (ctx->target * 99 / 100) ? ctx->target
-                                                      : ctx->target * 99 / 100,
-            .old_target = old_target});
-}
-
 bool StatesyncProtocolV1::handle_upsert(
     monad_statesync_client_context *const ctx, monad_sync_type const type,
     unsigned char const *const val, uint64_t const size) const

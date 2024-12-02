@@ -24,12 +24,6 @@
 using namespace monad;
 using namespace monad::mpt;
 
-struct monad_statesync_client
-{
-    std::deque<monad_sync_request> rqs;
-    uint64_t mask;
-};
-
 struct monad_statesync_server_network
 {
     monad_statesync_client *client;

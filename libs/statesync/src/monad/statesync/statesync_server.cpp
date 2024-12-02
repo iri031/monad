@@ -262,18 +262,20 @@ bool statesync_server_handle_request(
     }
     auto const end = std::chrono::steady_clock::now();
 
-    LOG_INFO(
-        "processed request prefix={} prefix_bytes={} target={} from={} "
-        "until={} "
-        "old_target={} overall={} traverse={}",
-        rq.prefix,
-        rq.prefix_bytes,
-        rq.target,
-        rq.from,
-        rq.until,
-        rq.old_target,
-        std::chrono::duration_cast<std::chrono::microseconds>(end - start),
-        std::chrono::duration_cast<std::chrono::microseconds>(end - begin));
+    if (rq.prefix == 0) {
+        LOG_INFO(
+            "processed request prefix={} prefix_bytes={} target={} from={} "
+            "until={} "
+            "old_target={} overall={} traverse={}",
+            rq.prefix,
+            rq.prefix_bytes,
+            rq.target,
+            rq.from,
+            rq.until,
+            rq.old_target,
+            std::chrono::duration_cast<std::chrono::microseconds>(end - start),
+            std::chrono::duration_cast<std::chrono::microseconds>(end - begin));
+    }
 
     return true;
 }
@@ -281,6 +283,8 @@ bool statesync_server_handle_request(
 void monad_statesync_server_handle_request(
     monad_statesync_server *const sync, monad_sync_request const rq)
 {
+    MONAD_ASSERT(rq.from == rq.old_target + 1);
+    MONAD_ASSERT(rq.until == rq.target);
     auto const success = statesync_server_handle_request(sync, rq);
     if (!success) {
         LOG_INFO(

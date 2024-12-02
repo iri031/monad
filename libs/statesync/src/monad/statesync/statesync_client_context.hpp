@@ -31,11 +31,8 @@ struct monad_statesync_client_context
     monad::OnDiskMachine machine;
     monad::mpt::Db db;
     monad::TrieDb tdb;
-    std::vector<std::pair<uint64_t, uint64_t>> progress;
     std::vector<std::unique_ptr<monad::StatesyncProtocol>> protocol;
-    uint64_t target;
     uint64_t current;
-    monad::bytes32_t expected_root;
     Map<monad::Address, StorageDeltas> buffered;
     ankerl::unordered_dense::segmented_set<monad::bytes32_t> upserted;
     ankerl::unordered_dense::segmented_set<monad::bytes32_t> pending;
@@ -43,15 +40,10 @@ struct monad_statesync_client_context
     Map<monad::Address, std::optional<StateDelta>> deltas;
     uint64_t n_upserts;
     std::filesystem::path genesis;
-    monad_statesync_client *sync;
-    void (*statesync_send_request)(
-        struct monad_statesync_client *, struct monad_sync_request);
 
     monad_statesync_client_context(
         std::vector<std::filesystem::path> dbname_paths,
-        std::filesystem::path genesis, monad_statesync_client *,
-        void (*statesync_send_request)(
-            struct monad_statesync_client *, struct monad_sync_request));
+        std::filesystem::path genesis);
 
     void commit();
 };

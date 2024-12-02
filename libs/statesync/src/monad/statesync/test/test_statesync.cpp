@@ -7,6 +7,7 @@
 #include <monad/execution/genesis.hpp>
 #include <monad/mpt/ondisk_db_config.hpp>
 #include <monad/statesync/statesync_client.h>
+#include <monad/statesync/statesync_client_context.hpp>
 #include <monad/statesync/statesync_server.h>
 #include <monad/statesync/statesync_server_context.hpp>
 #include <monad/statesync/statesync_version.h>
@@ -26,6 +27,44 @@ using namespace monad::test;
 struct monad_statesync_client
 {
     std::deque<monad_sync_request> rqs;
+    std::vector<std::pair<uint64_t, uint64_t>> progress;
+
+    void make_requests(uint64_t target)
+    {
+        for (size_t i = 0; i < monad_statesync_client_prefixes(); ++i) {
+            auto [progress, old_target] = this->progress.at(i);
+            if (progress != INVALID_BLOCK_ID && progress >= target) {
+                continue;
+            }
+            auto from = progress == INVALID_BLOCK_ID ? 0 : progress + 1;
+            monad_sync_request rq;
+            rq.prefix = i;
+            rq.prefix_bytes = monad_statesync_client_prefix_bytes();
+            rq.target = target;
+            rq.from = from;
+            rq.until = target;
+            rq.old_target = old_target;
+            rqs.push_back(rq);
+        }
+    }
+
+    bool reached_target(uint64_t target) const
+    {
+        return std::all_of(
+            progress.begin(), progress.end(), [target](auto const &p) {
+                return p.first == target;
+            });
+    }
+
+    void handle_done(monad_sync_done const msg)
+    {
+        MONAD_ASSERT(msg.success);
+
+        auto &[progress, old_target] = this->progress.at(msg.prefix);
+        MONAD_ASSERT(msg.n > progress || progress == INVALID_BLOCK_ID);
+        old_target = msg.n;
+        progress = msg.n;
+    }
 };
 
 struct monad_statesync_server_network
@@ -56,12 +95,6 @@ namespace
             machine,
             mpt::OnDiskDbConfig{.append = false, .dbname_paths = {path}}};
         return dbname;
-    }
-
-    void statesync_send_request(
-        monad_statesync_client *const client, monad_sync_request const rq)
-    {
-        client->rqs.push_back(rq);
     }
 
     monad_sync_target make_target(uint64_t const n, bytes32_t const root)
@@ -109,7 +142,10 @@ namespace
     void statesync_server_send_done(
         monad_statesync_server_network *const net, monad_sync_done const done)
     {
-        monad_statesync_client_handle_done(net->cctx, done);
+        net->client->handle_done(done);
+        if (net->client->reached_target(done.n)) {
+            net->cctx->commit();
+        }
     }
 
     struct StateSyncFixture : public ::testing::Test
@@ -142,8 +178,8 @@ namespace
         void init()
         {
             char const *const str = cdbname.c_str();
-            cctx = monad_statesync_client_context_create(
-                &str, 1, genesis.c_str(), &client, &statesync_send_request);
+            cctx =
+                monad_statesync_client_context_create(&str, 1, genesis.c_str());
             net = {.client = &client, .cctx = cctx};
             for (size_t i = 0; i < monad_statesync_client_prefixes(); ++i) {
                 monad_statesync_client_handle_new_peer(
@@ -155,14 +191,25 @@ namespace
                 &statesync_server_recv,
                 &statesync_server_send_upsert,
                 &statesync_server_send_done);
+            client.progress.assign(
+                monad_statesync_client_prefixes(),
+                {cctx->db.get_latest_block_id(),
+                 cctx->db.get_latest_block_id()});
         }
 
-        void run()
+        void run(monad_sync_target const target)
         {
-            while (!client.rqs.empty()) {
-                monad_statesync_server_run_once(server);
+            while (true) {
+                client.make_requests(target.n);
+                if (client.rqs.empty()) {
+                    break;
+                }
+                fprintf(stderr, "client.rqs.size()=%ld\n", client.rqs.size());
+                while (!client.rqs.empty()) {
+                    monad_statesync_server_run_once(server);
+                }
             }
-            EXPECT_TRUE(monad_statesync_client_has_reached_target(cctx));
+            MONAD_ASSERT(client.reached_target(target.n));
         }
 
         ~StateSyncFixture()
@@ -178,13 +225,11 @@ namespace
 TEST_F(StateSyncFixture, genesis)
 {
     init();
-    monad_statesync_client_handle_target(
-        cctx,
-        make_target(
-            0,
-            0xd7f8974fb5ac78d9ac099b9ad5018bedc2ce0a72dad1827a1709da30580f0544_bytes32));
-    EXPECT_TRUE(monad_statesync_client_has_reached_target(cctx));
-    EXPECT_TRUE(monad_statesync_client_finalize(cctx));
+    auto target = make_target(
+        0,
+        0xd7f8974fb5ac78d9ac099b9ad5018bedc2ce0a72dad1827a1709da30580f0544_bytes32);
+    read_genesis(cctx->genesis, cctx->tdb);
+    EXPECT_TRUE(monad_statesync_client_finalize(cctx, target));
 }
 
 TEST_F(StateSyncFixture, sync_from_latest)
@@ -197,13 +242,10 @@ TEST_F(StateSyncFixture, sync_from_latest)
         load_db(tdb, 1'000'000);
         init();
     }
-    monad_statesync_client_handle_target(
-        cctx,
-        make_target(
-            1'000'000,
-            0xb9eda41f4a719d9f2ae332e3954de18bceeeba2248a44110878949384b184888_bytes32));
-    EXPECT_TRUE(monad_statesync_client_has_reached_target(cctx));
-    EXPECT_TRUE(monad_statesync_client_finalize(cctx));
+    auto target = make_target(
+        1'000'000,
+        0xb9eda41f4a719d9f2ae332e3954de18bceeeba2248a44110878949384b184888_bytes32);
+    EXPECT_TRUE(monad_statesync_client_finalize(cctx, target));
 }
 
 TEST_F(StateSyncFixture, sync_from_empty)
@@ -212,14 +254,12 @@ TEST_F(StateSyncFixture, sync_from_empty)
         load_db(stdb, 1'000'000);
         init();
     }
-    monad_statesync_client_handle_target(
-        cctx,
-        make_target(
-            1'000'000,
-            0xb9eda41f4a719d9f2ae332e3954de18bceeeba2248a44110878949384b184888_bytes32));
-    run();
-    EXPECT_TRUE(monad_statesync_client_has_reached_target(cctx));
-    EXPECT_TRUE(monad_statesync_client_finalize(cctx));
+    auto target = make_target(
+        1'000'000,
+        0xb9eda41f4a719d9f2ae332e3954de18bceeeba2248a44110878949384b184888_bytes32);
+    run(target);
+    EXPECT_TRUE(client.reached_target(target.n));
+    EXPECT_TRUE(monad_statesync_client_finalize(cctx, target));
 
     OnDiskMachine machine;
     mpt::Db cdb{
@@ -372,49 +412,37 @@ TEST_F(StateSyncFixture, sync_from_some)
         read_genesis(genesis, ctdb);
     }
 
-    monad_statesync_client_handle_target(
-        cctx,
-        make_target(
-            1,
-            0x5d651a344741e37c613b580048934ae0deb58b72b542b61416cf7d1fb81d5a79_bytes32));
-    run();
+    auto target = make_target(
+        1,
+        0x5d651a344741e37c613b580048934ae0deb58b72b542b61416cf7d1fb81d5a79_bytes32);
+    run(target);
 
-    monad_statesync_client_handle_target(
-        cctx,
-        make_target(
-            2,
-            0xd1afa4d8e4546cd3ca0314f2ea5ed7c2de22162b2d72b0ca3f56bcfa551e9e5f_bytes32));
-    run();
+    target = make_target(
+        2,
+        0xd1afa4d8e4546cd3ca0314f2ea5ed7c2de22162b2d72b0ca3f56bcfa551e9e5f_bytes32);
+    run(target);
 
-    monad_statesync_client_handle_target(
-        cctx,
-        make_target(
-            3,
-            0x1922e617443693307d169df71f44688795793a91c4bf40742765c096e00413d7_bytes32));
-    run();
+    target = make_target(
+        3,
+        0x1922e617443693307d169df71f44688795793a91c4bf40742765c096e00413d7_bytes32);
+    run(target);
 
-    monad_statesync_client_handle_target(
-        cctx,
-        make_target(
-            4,
-            0x589b5012c41144a33447c07b0cc1f3108181774b7f1eec1fa0f466ffa9bc74b3_bytes32));
-    run();
+    target = make_target(
+        4,
+        0x589b5012c41144a33447c07b0cc1f3108181774b7f1eec1fa0f466ffa9bc74b3_bytes32);
+    run(target);
 
-    monad_statesync_client_handle_target(
-        cctx,
-        make_target(
-            5,
-            0x1922e617443693307d169df71f44688795793a91c4bf40742765c096e00413d7_bytes32));
-    run();
+    target = make_target(
+        5,
+        0x1922e617443693307d169df71f44688795793a91c4bf40742765c096e00413d7_bytes32);
+    run(target);
 
-    monad_statesync_client_handle_target(
-        cctx,
-        make_target(
-            6,
-            0xd1afa4d8e4546cd3ca0314f2ea5ed7c2de22162b2d72b0ca3f56bcfa551e9e5f_bytes32));
-    run();
+    target = make_target(
+        6,
+        0xd1afa4d8e4546cd3ca0314f2ea5ed7c2de22162b2d72b0ca3f56bcfa551e9e5f_bytes32);
+    run(target);
 
-    EXPECT_TRUE(monad_statesync_client_finalize(cctx));
+    EXPECT_TRUE(monad_statesync_client_finalize(cctx, target));
 }
 
 TEST_F(StateSyncFixture, ignore_unused_code)
@@ -430,16 +458,14 @@ TEST_F(StateSyncFixture, ignore_unused_code)
                        "ffffffffffffffffffffffff")
             .value();
     auto const code_hash = to_bytes(keccak256(code));
-    monad_statesync_client_handle_target(
-        cctx,
-        make_target(
-            1'000'000,
-            0xb9eda41f4a719d9f2ae332e3954de18bceeeba2248a44110878949384b184888_bytes32));
+    auto target = make_target(
+        1'000'000,
+        0xb9eda41f4a719d9f2ae332e3954de18bceeeba2248a44110878949384b184888_bytes32);
     // send some random code
     statesync_server_send_upsert(
         &net, SYNC_TYPE_UPSERT_CODE, code.data(), code.size(), nullptr, 0);
-    run();
-    EXPECT_TRUE(monad_statesync_client_finalize(cctx));
+    run(target);
+    EXPECT_TRUE(monad_statesync_client_finalize(cctx, target));
     OnDiskMachine machine;
     mpt::Db cdb{
         machine,
@@ -461,10 +487,9 @@ TEST_F(StateSyncFixture, sync_one_account)
         BlockHeader{});
     auto const expected_root = stdb.state_root();
     init();
-    monad_statesync_client_handle_target(
-        cctx, make_target(1'000'000, expected_root));
-    run();
-    EXPECT_TRUE(monad_statesync_client_finalize(cctx));
+    auto target = make_target(1'000'000, expected_root);
+    run(target);
+    EXPECT_TRUE(monad_statesync_client_finalize(cctx, target));
 }
 
 TEST_F(StateSyncFixture, sync_empty)
@@ -472,10 +497,9 @@ TEST_F(StateSyncFixture, sync_empty)
     stdb.set_block_number(1'000'000);
     stdb.commit(StateDeltas{}, Code{}, BlockHeader{});
     init();
-    monad_statesync_client_handle_target(
-        cctx, make_target(1'000'000, NULL_ROOT));
-    run();
-    EXPECT_TRUE(monad_statesync_client_finalize(cctx));
+    auto target = make_target(1'000'000, NULL_ROOT);
+    run(target);
+    EXPECT_TRUE(monad_statesync_client_finalize(cctx, target));
 }
 
 TEST_F(StateSyncFixture, account_updated_after_storage)
@@ -504,10 +528,9 @@ TEST_F(StateSyncFixture, account_updated_after_storage)
         Code{},
         BlockHeader{});
     init();
-    monad_statesync_client_handle_target(
-        cctx, make_target(102, stdb.state_root()));
-    run();
-    EXPECT_TRUE(monad_statesync_client_finalize(cctx));
+    auto target = make_target(102, stdb.state_root());
+    run(target);
+    EXPECT_TRUE(monad_statesync_client_finalize(cctx, target));
 }
 
 TEST_F(StateSyncFixture, account_deleted_after_storage)
@@ -536,7 +559,9 @@ TEST_F(StateSyncFixture, account_deleted_after_storage)
         Code{},
         BlockHeader{});
     init();
-    monad_statesync_client_handle_target(cctx, make_target(102, NULL_ROOT));
+    auto target = make_target(102, stdb.state_root());
+    run(target);
+    EXPECT_TRUE(monad_statesync_client_finalize(cctx, target));
 }
 
 TEST_F(StateSyncFixture, account_deleted_and_prefix_skipped)
@@ -551,9 +576,8 @@ TEST_F(StateSyncFixture, account_deleted_and_prefix_skipped)
                  .storage = {}}}},
         Code{},
         BlockHeader{});
-    monad_statesync_client_handle_target(
-        cctx, make_target(1, sctx.state_root()));
-    run();
+    auto target = make_target(1, sctx.state_root());
+    run(target);
 
     stdb.increment_block_number();
     sctx.commit(
@@ -564,16 +588,12 @@ TEST_F(StateSyncFixture, account_deleted_and_prefix_skipped)
                  .storage = {}}}},
         Code{},
         BlockHeader{});
-    monad_statesync_client_handle_target(
-        cctx, make_target(2, sctx.state_root()));
-    client.rqs.clear();
 
     stdb.increment_block_number();
     sctx.commit(StateDeltas{}, Code{}, BlockHeader{});
-    monad_statesync_client_handle_target(
-        cctx, make_target(3, sctx.state_root()));
-    run();
-    EXPECT_TRUE(monad_statesync_client_finalize(cctx));
+    target = make_target(3, sctx.state_root());
+    run(target);
+    EXPECT_TRUE(monad_statesync_client_finalize(cctx, target));
 }
 
 TEST_F(StateSyncFixture, delete_updated_account)
@@ -588,9 +608,8 @@ TEST_F(StateSyncFixture, delete_updated_account)
             {ADDR_A, StateDelta{.account = {std::nullopt, a}, .storage = {}}}},
         Code{},
         BlockHeader{});
-    monad_statesync_client_handle_target(
-        cctx, make_target(1, sctx.state_root()));
-    run();
+    auto target = make_target(1, sctx.state_root());
+    run(target);
 
     stdb.increment_block_number();
     sctx.commit(
@@ -601,8 +620,8 @@ TEST_F(StateSyncFixture, delete_updated_account)
                  .storage = {{bytes32_t{}, {bytes32_t{}, bytes32_t{64}}}}}}},
         Code{},
         BlockHeader{});
-    monad_statesync_client_handle_target(
-        cctx, make_target(2, sctx.state_root()));
+    target = make_target(2, sctx.state_root());
+    client.make_requests(target.n);
     client.rqs.pop_front();
     while (!client.rqs.empty()) {
         monad_statesync_server_run_once(server);
@@ -614,10 +633,9 @@ TEST_F(StateSyncFixture, delete_updated_account)
             {ADDR_A, StateDelta{.account = {a, std::nullopt}, .storage = {}}}},
         Code{},
         BlockHeader{});
-    monad_statesync_client_handle_target(
-        cctx, make_target(3, sctx.state_root()));
-    run();
-    EXPECT_TRUE(monad_statesync_client_finalize(cctx));
+    target = make_target(3, sctx.state_root());
+    run(target);
+    EXPECT_TRUE(monad_statesync_client_finalize(cctx, target));
 }
 
 TEST_F(StateSyncFixture, delete_storage_after_account_deletion)
@@ -637,9 +655,8 @@ TEST_F(StateSyncFixture, delete_storage_after_account_deletion)
                       {bytes32_t{1}, {bytes32_t{}, bytes32_t{64}}}}}}},
         Code{},
         BlockHeader{});
-    monad_statesync_client_handle_target(
-        cctx, make_target(1'000'000, sctx.state_root()));
-    run();
+    auto target = make_target(1'000'000, sctx.state_root());
+    run(target);
 
     stdb.increment_block_number();
     sctx.commit(
@@ -667,10 +684,9 @@ TEST_F(StateSyncFixture, delete_storage_after_account_deletion)
                  .storage = {{bytes32_t{}, {bytes32_t{64}, bytes32_t{}}}}}}},
         Code{},
         BlockHeader{});
-    monad_statesync_client_handle_target(
-        cctx, make_target(1'000'003, sctx.state_root()));
-    run();
-    EXPECT_TRUE(monad_statesync_client_finalize(cctx));
+    target = make_target(1'000'003, sctx.state_root());
+    run(target);
+    EXPECT_TRUE(monad_statesync_client_finalize(cctx, target));
 }
 
 TEST_F(StateSyncFixture, update_contract_twice)
@@ -708,9 +724,8 @@ TEST_F(StateSyncFixture, update_contract_twice)
         {},
         {});
 
-    monad_statesync_client_handle_target(
-        cctx, make_target(1, sctx.state_root()));
-    run();
+    auto target = make_target(1, sctx.state_root());
+    run(target);
 
     stdb.increment_block_number();
     sctx.commit(
@@ -726,11 +741,10 @@ TEST_F(StateSyncFixture, update_contract_twice)
         Code{},
         {},
         {});
-    monad_statesync_client_handle_target(
-        cctx, make_target(2, sctx.state_root()));
-    run();
+    target = make_target(2, sctx.state_root());
+    run(target);
 
-    EXPECT_TRUE(monad_statesync_client_finalize(cctx));
+    EXPECT_TRUE(monad_statesync_client_finalize(cctx, target));
 }
 
 TEST_F(StateSyncFixture, benchmark)
@@ -750,8 +764,7 @@ TEST_F(StateSyncFixture, benchmark)
     stdb.commit(deltas, Code{}, BlockHeader{});
     auto const expected_root = stdb.state_root();
     init();
-    monad_statesync_client_handle_target(
-        cctx, make_target(1'000'000, expected_root));
-    run();
-    EXPECT_TRUE(monad_statesync_client_finalize(cctx));
+    auto target = make_target(1'000'000, expected_root);
+    run(target);
+    EXPECT_TRUE(monad_statesync_client_finalize(cctx, target));
 }

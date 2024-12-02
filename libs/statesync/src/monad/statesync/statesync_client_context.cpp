@@ -14,9 +14,7 @@ using namespace monad::mpt;
 
 monad_statesync_client_context::monad_statesync_client_context(
     std::vector<std::filesystem::path> const dbname_paths,
-    std::filesystem::path const genesis, monad_statesync_client *const sync,
-    void (*statesync_send_request)(
-        struct monad_statesync_client *, struct monad_sync_request))
+    std::filesystem::path const genesis)
     : db{machine,
          mpt::OnDiskDbConfig{
              .append = true,
@@ -27,22 +25,16 @@ monad_statesync_client_context::monad_statesync_client_context(
              .sq_thread_cpu = get_nprocs() - 1,
              .dbname_paths = dbname_paths}}
     , tdb{db}
-    , progress(
-          monad_statesync_client_prefixes(),
-          {db.get_latest_block_id(), db.get_latest_block_id()})
     , protocol(monad_statesync_client_prefixes())
-    , target{db.get_latest_block_id()}
     , current{db.get_latest_block_id() == mpt::INVALID_BLOCK_ID ? 0 : db.get_latest_block_id() + 1}
-    , expected_root{NULL_ROOT}
     , n_upserts{0}
     , genesis{genesis}
-    , sync{sync}
-    , statesync_send_request{statesync_send_request}
 {
 }
 
 void monad_statesync_client_context::commit()
 {
+    fprintf(stderr, "commit\n");
     std::deque<mpt::Update> alloc;
     std::deque<byte_string> bytes_alloc;
     std::deque<hash256> hash_alloc;
