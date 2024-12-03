@@ -660,9 +660,11 @@ int main(int argc, char *argv[])
                 if (!in_memory) {
                     aux.set_io(&io, history_len);
                 }
+                inflight_node_t inflights;
                 root = read_node_blocking(
                     io.storage_pool(), aux.get_latest_root_offset());
-                auto [res, errc] = find_blocking(aux, *root, state_nibbles);
+                auto [res, errc] =
+                    find_blocking(aux, inflights, *root, state_nibbles);
                 MONAD_ASSERT(errc == find_result::success);
                 state_start = res;
                 return ret;
@@ -783,7 +785,7 @@ int main(int argc, char *argv[])
 
                 uint64_t ops{0};
                 bool signal_done{false};
-                inflight_map_t inflights;
+                inflight_node_t inflights;
                 auto find = [n_slices, &ops, &signal_done, &inflights](
                                 UpdateAuxImpl *aux,
                                 NodeCursor state_start,
@@ -905,7 +907,7 @@ int main(int argc, char *argv[])
                     }
                 };
                 auto poll = [&signal_done, &req](UpdateAuxImpl *aux) {
-                    inflight_map_t inflights;
+                    inflight_node_t inflights;
                     fiber_find_request_t request;
                     for (;;) {
                         boost::this_fiber::yield();
@@ -945,7 +947,7 @@ int main(int argc, char *argv[])
                 std::cout << "   Joining threads 1 ..." << std::endl;
                 while (signal_done < int(random_read_benchmark_threads + 1)) {
                     boost::this_fiber::yield();
-                    inflight_map_t inflights;
+                    inflight_node_t inflights;
                     fiber_find_request_t request;
                     if (req.try_dequeue(request)) {
                         find_notify_fiber_future(aux, inflights, request);
@@ -986,10 +988,10 @@ int main(int argc, char *argv[])
                             p;
                         monad::byte_string key;
                         fiber_find_request_t request;
-                        inflight_map_t &inflights;
+                        inflight_node_t &inflights;
 
                         explicit receiver_t(
-                            UpdateAuxImpl &aux_, inflight_map_t &inflights_)
+                            UpdateAuxImpl &aux_, inflight_node_t &inflights_)
                             : aux(aux_)
                             , inflights(inflights_)
                         {
@@ -1014,7 +1016,7 @@ int main(int argc, char *argv[])
                             find_notify_fiber_future(aux, inflights, request);
                         }
                     };
-                    inflight_map_t inflights;
+                    inflight_node_t inflights;
                     using connected_state_type = decltype(connect(
                         *aux.io,
                         MONAD_ASYNC_NAMESPACE::threadsafe_sender{},
@@ -1024,7 +1026,7 @@ int main(int argc, char *argv[])
                         *aux.io,
                         std::piecewise_construct,
                         std::tuple{},
-                        std::tuple<UpdateAuxImpl &, inflight_map_t &>{
+                        std::tuple<UpdateAuxImpl &, inflight_node_t &>{
                             aux, inflights});
                     auto *state_it = states.begin();
                     while (0 == signal_done.load(std::memory_order_relaxed)) {

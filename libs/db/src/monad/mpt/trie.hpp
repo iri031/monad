@@ -977,14 +977,20 @@ Node::UniquePtr upsert(
     UpdateAuxImpl &, uint64_t, StateMachine &, Node::UniquePtr old,
     UpdateList &&);
 
+using inflight_node_t = unordered_dense_map<
+    chunk_offset_t,
+    std::vector<std::move_only_function<MONAD_ASYNC_NAMESPACE::result<void>(
+        NodeCursor, std::shared_ptr<Node>)>>,
+    chunk_offset_t_hasher>;
+
 // Performs a deep copy of a subtrie from `src_root` trie at
 // `src_prefix` to the `dest_root` trie at `dest_prefix`.
 // Note that `src_root` may be of a different version than `dest_root`.
 // Any pre-existing trie at `dest_prefix` will be overwritten.
 // The in-memory effect is similar to a move operation.
 Node::UniquePtr copy_trie_to_dest(
-    UpdateAuxImpl &, Node &src_root, NibblesView src_prefix,
-    Node::UniquePtr dest_root, NibblesView dest_prefx,
+    UpdateAuxImpl &, inflight_node_t &inflights, Node &src_root,
+    NibblesView src_prefix, Node::UniquePtr dest_root, NibblesView dest_prefx,
     uint64_t const dest_version, bool must_write_to_disk);
 
 // load all nodes as far as caching policy would allow
@@ -1002,14 +1008,10 @@ enum class find_result : uint8_t
     key_mismatch_failure,
     branch_not_exist_failure,
     key_ends_earlier_than_node_failure,
-    need_to_continue_in_io_thread
+    need_to_continue_in_io_thread,
+    find_blocking_is_inflight
 };
 using find_result_type = std::pair<NodeCursor, find_result>;
-
-using inflight_map_t = unordered_dense_map<
-    chunk_offset_t,
-    std::vector<std::function<MONAD_ASYNC_NAMESPACE::result<void>(NodeCursor)>>,
-    chunk_offset_t_hasher>;
 
 // The request type to put to the fiber buffered channel for triedb thread
 // to work on
@@ -1028,16 +1030,20 @@ static_assert(std::is_trivially_copyable_v<fiber_find_request_t> == true);
 // during execution, DO NOT invoke it directly from a transaction fiber, as is
 // not race free.
 void find_notify_fiber_future(
-    UpdateAuxImpl &, inflight_map_t &inflights, fiber_find_request_t);
+    UpdateAuxImpl &, inflight_node_t &inflights, fiber_find_request_t);
 
-/*! \brief blocking find node indexed by key from root, It works for bothon-disk
-and in-memory trie. When node along key is not yet in memory, it load node
-through blocking read.
- \warning Should only invoke it from the triedb owning
+/*! \brief blocking find node indexed by key from root, It works for both
+on-disk and in-memory trie. When node along key is not yet in memory, it loads
+the node through blocking read, unless inflights says the node is already being
+loaded in which case it returns find_result::find_blocking_is_inflight.
+
+\warning Should only invoke it from the triedb owning
 thread, as no synchronization is provided, and user code should make sure no
-other place is modifying trie. */
-find_result_type
-find_blocking(UpdateAuxImpl const &, NodeCursor, NibblesView key);
+other place is modifying trie.
+*/
+find_result_type find_blocking(
+    UpdateAuxImpl const &, inflight_node_t &inflights, NodeCursor,
+    NibblesView key);
 
 //////////////////////////////////////////////////////////////////////////////
 // helpers

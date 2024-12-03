@@ -54,6 +54,8 @@
 
 MONAD_MPT_NAMESPACE_BEGIN
 
+static AsyncContextUniquePtr async_context_create(Db &db);
+
 namespace detail
 {
     struct void_receiver
@@ -67,6 +69,8 @@ namespace detail
 
 struct Db::Impl
 {
+    AsyncContextUniquePtr rodb_ctx;
+
     virtual ~Impl() = default;
 
     virtual Node::UniquePtr &root() = 0;
@@ -165,7 +169,14 @@ struct Db::ROOnDisk final : public Db::Impl
             return {NodeCursor{}, find_result::version_no_longer_exist};
         }
         try {
-            auto const res = find_blocking(aux(), root, key);
+            find_result_type res;
+            for (;;) {
+                res = find_blocking(aux(), rodb_ctx->inflight_nodes, root, key);
+                if (res.second != find_result::find_blocking_is_inflight) {
+                    break;
+                }
+                aux().io->poll_blocking();
+            }
             // verify version still valid in history after success
             return aux().version_is_valid_ondisk(version)
                        ? res
@@ -206,6 +217,7 @@ struct Db::ROOnDisk final : public Db::Impl
     {
         return preorder_traverse(
             aux(),
+            rodb_ctx->inflight_nodes,
             node,
             machine,
             [this, version]() -> bool {
@@ -236,6 +248,7 @@ struct Db::InMemory final : public Db::Impl
     StateMachine &machine_;
     Node::UniquePtr root_;
     uint64_t root_version_;
+    inflight_node_t inflights_;
 
     explicit InMemory(StateMachine &machine)
         : aux_{nullptr}
@@ -267,15 +280,15 @@ struct Db::InMemory final : public Db::Impl
     {
         // in memory copy_trie only allows moving trie from src to prefix under
         // the same version
-        root_ =
-            copy_trie_to_dest(aux_, *root_, src, {}, dest, dest_version, false);
+        root_ = copy_trie_to_dest(
+            aux_, inflights_, *root_, src, {}, dest, dest_version, false);
         root_version_ = dest_version;
     }
 
     virtual find_result_type find_fiber_blocking(
         NodeCursor const &root, NibblesView const &key, uint64_t = 0) override
     {
-        return find_blocking(aux(), root, key);
+        return find_blocking(aux(), inflights_, root, key);
     }
 
     virtual size_t prefetch_fiber_blocking() override
@@ -291,7 +304,8 @@ struct Db::InMemory final : public Db::Impl
     virtual bool traverse_fiber_blocking(
         Node &node, TraverseMachine &machine, uint64_t, size_t) override
     {
-        return preorder_traverse(aux(), node, machine, [] { return true; });
+        return preorder_traverse(
+            aux(), inflights_, node, machine, [] { return true; });
     }
 
     virtual void move_trie_version_fiber_blocking(uint64_t, uint64_t) override
@@ -434,7 +448,7 @@ struct Db::RWOnDisk final : public Db::Impl
         // Runs in the triedb worker thread
         void run()
         {
-            inflight_map_t inflights;
+            inflight_node_t inflights;
             ::boost::container::deque<
                 threadsafe_boost_fibers_promise<find_result_type>>
                 find_promises;
@@ -503,6 +517,7 @@ struct Db::RWOnDisk final : public Db::Impl
                         if (aux.version_is_valid_ondisk(req->version)) {
                             req->promise->set_value(preorder_traverse(
                                 aux,
+                                inflights,
                                 req->root,
                                 req->machine,
                                 [&] { return true; },
@@ -539,6 +554,7 @@ struct Db::RWOnDisk final : public Db::Impl
                         req->promise = &upsert_promises.back();
                         auto root = copy_trie_to_dest(
                             aux,
+                            inflights,
                             req->src_root,
                             req->src,
                             std::move(req->dest_root),
@@ -856,6 +872,7 @@ Db::Db(StateMachine &machine, OnDiskDbConfig const &config)
 Db::Db(ReadOnlyOnDiskDbConfig const &config)
     : impl_{std::make_unique<ROOnDisk>(config)}
 {
+    impl_->rodb_ctx = async_context_create(*this);
 }
 
 Db::~Db() = default;
@@ -960,8 +977,12 @@ bool Db::traverse_blocking(
 {
     MONAD_ASSERT(impl_);
     MONAD_ASSERT(cursor.is_valid());
+    inflight_node_t local_inflights;
+    inflight_node_t &inflights = (impl_->rodb_ctx != nullptr)
+                                     ? impl_->rodb_ctx->inflight_nodes
+                                     : local_inflights;
     return preorder_traverse_blocking(
-        impl_->aux(), *cursor.node, machine, [this, block_id] {
+        impl_->aux(), inflights, *cursor.node, machine, [this, block_id] {
             return impl_->aux().is_on_disk()
                        ? impl_->aux().version_is_valid_ondisk(block_id)
                        : true;
@@ -1009,6 +1030,12 @@ size_t Db::poll(bool const blocking, size_t const count)
 {
     MONAD_ASSERT(impl_);
     return impl_->poll(blocking, count);
+}
+
+AsyncContext *Db::async_context() const
+{
+    MONAD_ASSERT(impl_);
+    return impl_->rodb_ctx.get();
 }
 
 bool Db::is_on_disk() const

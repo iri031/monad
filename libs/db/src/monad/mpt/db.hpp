@@ -93,6 +93,8 @@ public:
     size_t prefetch();
     // Pump any async DB operations. RO only.
     size_t poll(bool blocking, size_t count = 1);
+    // AsyncContext internally used by RO instance. RO only.
+    AsyncContext *async_context() const;
 
     bool is_on_disk() const;
     bool is_read_only() const;
@@ -117,7 +119,6 @@ struct AsyncContext
 };
 
 using AsyncContextUniquePtr = std::unique_ptr<AsyncContext>;
-AsyncContextUniquePtr async_context_create(Db &db);
 
 namespace detail
 {

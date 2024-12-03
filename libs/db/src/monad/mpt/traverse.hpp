@@ -37,8 +37,9 @@ namespace detail
     // current implementation does not contaminate triedb node caching
     template <typename VerifyVersionFunc>
     inline bool preorder_traverse_blocking_impl(
-        UpdateAuxImpl &aux, unsigned char const branch, Node const &node,
-        TraverseMachine &traverse, VerifyVersionFunc &&verify_func)
+        UpdateAuxImpl &aux, inflight_node_t &inflights,
+        unsigned char const branch, Node const &node, TraverseMachine &traverse,
+        VerifyVersionFunc &&verify_func)
     {
         if (!traverse.down(branch, node)) {
             return true;
@@ -50,7 +51,7 @@ namespace detail
                     auto const *const next = node.next(idx);
                     if (next) {
                         preorder_traverse_blocking_impl(
-                            aux, i, *next, traverse, verify_func);
+                            aux, inflights, i, *next, traverse, verify_func);
                         continue;
                     }
                     MONAD_ASSERT(aux.is_on_disk());
@@ -59,15 +60,19 @@ namespace detail
                         return false;
                     }
                     Node::UniquePtr next_disk{};
+                    auto const offset = node.fnext(idx);
+                    while (inflights.find(offset) != inflights.end()) {
+                        aux.io->poll_blocking();
+                    }
                     try {
-                        next_disk = read_node_blocking(
-                            aux.io->storage_pool(), node.fnext(idx));
+                        next_disk =
+                            read_node_blocking(aux.io->storage_pool(), offset);
                     }
                     catch (std::exception const &e) { // exception implies UB
                         return false;
                     }
                     preorder_traverse_blocking_impl(
-                        aux, i, *next_disk, traverse, verify_func);
+                        aux, inflights, i, *next_disk, traverse, verify_func);
                 }
             }
         }
@@ -95,6 +100,7 @@ namespace detail
         struct receiver_t;
 
         UpdateAuxImpl &aux;
+        inflight_node_t &inflights;
         VerifyVersionFunc verify_func;
         bool stopping{false};
         size_t const max_outstanding_reads{4096};
@@ -102,9 +108,10 @@ namespace detail
         boost::container::deque<receiver_t> reads_to_initiate{};
 
         explicit preorder_traverse_impl(
-            UpdateAuxImpl &aux, VerifyVersionFunc verify_func,
-            size_t const concurrency_limit)
+            UpdateAuxImpl &aux, inflight_node_t &inflights,
+            VerifyVersionFunc verify_func, size_t const concurrency_limit)
             : aux(aux)
+            , inflights(inflights)
             , verify_func(verify_func)
             , max_outstanding_reads(concurrency_limit)
         {
@@ -204,19 +211,59 @@ namespace detail
                                 stopping = true;
                                 return;
                             }
-                            receiver_t receiver(
-                                this,
-                                (unsigned char)i,
-                                node.fnext(idx),
-                                traverse.clone());
-                            if (outstanding_reads >= max_outstanding_reads) {
-                                reads_to_initiate.emplace_back(
-                                    std::move(receiver));
-                                ++idx;
-                                continue;
+                            auto const offset = node.fnext(idx);
+                            if (auto it = inflights.find(offset);
+                                it != inflights.end()) {
+                                ++outstanding_reads;
+                                it->second.push_back(
+                                    [this, branch, traverse = traverse.clone()](
+                                        NodeCursor cur, std::shared_ptr<Node>)
+                                        -> MONAD_ASYNC_NAMESPACE::result<void> {
+                                        --outstanding_reads;
+                                        if (stopping ||
+                                            !verify_func()) { // async
+                                                              // read
+                                                              // failure
+                                                              // or
+                                                              // stopping
+                                                              // initiated
+                                            stopping = true;
+                                            return MONAD_ASYNC_NAMESPACE::
+                                                success();
+                                        }
+                                        try {
+                                            // verify version after read is done
+                                            if (!verify_func()) {
+                                                stopping = true;
+                                                return MONAD_ASYNC_NAMESPACE::
+                                                    success();
+                                            }
+                                            process(
+                                                *cur.node, branch, *traverse);
+                                        }
+                                        catch (std::exception const
+                                                   &e) { // exception implies UB
+                                            stopping = true;
+                                        }
+                                        return MONAD_ASYNC_NAMESPACE::success();
+                                    });
                             }
-                            ++outstanding_reads;
-                            async_read(aux, std::move(receiver));
+                            else {
+                                receiver_t receiver(
+                                    this,
+                                    (unsigned char)i,
+                                    offset,
+                                    traverse.clone());
+                                if (outstanding_reads >=
+                                    max_outstanding_reads) {
+                                    reads_to_initiate.emplace_back(
+                                        std::move(receiver));
+                                    ++idx;
+                                    continue;
+                                }
+                                ++outstanding_reads;
+                                async_read(aux, std::move(receiver));
+                            }
                         }
                         else {
                             process(*next, (unsigned char)i, traverse);
@@ -233,24 +280,25 @@ namespace detail
 // return value indicates if we have done the full traversal or not
 template <typename VerifyVersionFunc>
 inline bool preorder_traverse_blocking(
-    UpdateAuxImpl &aux, Node const &node, TraverseMachine &traverse,
-    VerifyVersionFunc &&verify_func)
+    UpdateAuxImpl &aux, inflight_node_t &inflights, Node const &node,
+    TraverseMachine &traverse, VerifyVersionFunc &&verify_func)
 {
     return detail::preorder_traverse_blocking_impl(
-        aux, INVALID_BRANCH, node, traverse, verify_func);
+        aux, inflights, INVALID_BRANCH, node, traverse, verify_func);
 }
 
 // parallel traversal using async i/o
 template <typename VerifyVersionFunc>
 inline bool preorder_traverse(
-    UpdateAuxImpl &aux, Node const &node, TraverseMachine &traverse,
-    VerifyVersionFunc verify_func, size_t const concurrency_limit = 4096)
+    UpdateAuxImpl &aux, inflight_node_t &inflights, Node const &node,
+    TraverseMachine &traverse, VerifyVersionFunc verify_func,
+    size_t const concurrency_limit = 4096)
 {
     if (aux.io) {
         MONAD_ASSERT(aux.io->owning_thread_id() == get_tl_tid());
     }
     detail::preorder_traverse_impl<VerifyVersionFunc> impl(
-        aux, verify_func, concurrency_limit);
+        aux, inflights, verify_func, concurrency_limit);
     impl.process(node, INVALID_BRANCH, traverse);
     if (aux.io) {
         aux.io->wait_until_done();

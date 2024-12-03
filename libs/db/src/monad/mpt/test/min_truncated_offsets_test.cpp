@@ -27,6 +27,7 @@ using namespace ::monad::mpt;
 
 TEST_F(OnDiskMerkleTrieGTest, min_truncated_offsets)
 {
+    inflight_node_t inflights;
     this->sm = std::make_unique<StateMachineAlways<MerkleCompute>>();
 
     this->aux.alternate_slow_fast_node_writer_unit_testing_only(true);
@@ -195,7 +196,7 @@ TEST_F(OnDiskMerkleTrieGTest, min_truncated_offsets)
 
     // WARNING: test will fail and there are memory leak using parallel traverse
     ASSERT_TRUE(preorder_traverse_blocking(
-        this->aux, *this->root, traverse, [] { return true; }));
+        this->aux, inflights, *this->root, traverse, [] { return true; }));
     EXPECT_EQ(traverse.level, 0);
     EXPECT_EQ(traverse.root_to_node_records.empty(), true);
 }

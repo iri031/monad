@@ -29,7 +29,7 @@ MONAD_MPT_NAMESPACE_BEGIN
 using namespace MONAD_ASYNC_NAMESPACE;
 
 void find_recursive(
-    UpdateAuxImpl &, inflight_map_t &,
+    UpdateAuxImpl &, inflight_node_t &,
     threadsafe_boost_fibers_promise<find_result_type> &, NodeCursor root,
     NibblesView key);
 
@@ -40,7 +40,7 @@ namespace
         static constexpr bool lifetime_managed_internally = true;
 
         UpdateAuxImpl *aux;
-        inflight_map_t &inflights;
+        inflight_node_t &inflights;
         Node *parent;
         chunk_offset_t rd_offset; // required for sender
         unsigned bytes_to_read; // required for sender too
@@ -48,7 +48,7 @@ namespace
         unsigned const branch_index;
 
         find_receiver(
-            UpdateAuxImpl &aux, inflight_map_t &inflights, Node *const parent,
+            UpdateAuxImpl &aux, inflight_node_t &inflights, Node *const parent,
             unsigned char const branch)
             : aux(&aux)
             , inflights(inflights)
@@ -87,7 +87,7 @@ namespace
             auto pendings = std::move(it->second);
             inflights.erase(it);
             for (auto &cont : pendings) {
-                MONAD_ASSERT(cont(NodeCursor{*node}));
+                MONAD_ASSERT(cont(NodeCursor{*node}, {}));
             }
             return;
         }
@@ -99,7 +99,7 @@ namespace
 // existing inflight read, Otherwise, send a read request and put itself on the
 // map
 void find_recursive(
-    UpdateAuxImpl &aux, inflight_map_t &inflights,
+    UpdateAuxImpl &aux, inflight_node_t &inflights,
     threadsafe_boost_fibers_promise<find_result_type> &promise, NodeCursor root,
     NibblesView const key)
 
@@ -154,7 +154,8 @@ void find_recursive(
         }
         chunk_offset_t const offset = node->fnext(child_index);
         auto cont = [&aux, &inflights, &promise, next_key](
-                        NodeCursor node_cursor) -> result<void> {
+                        NodeCursor node_cursor,
+                        std::shared_ptr<Node>) -> result<void> {
             find_recursive(aux, inflights, promise, node_cursor, next_key);
             return success();
         };
@@ -175,7 +176,7 @@ void find_recursive(
 }
 
 void find_notify_fiber_future(
-    UpdateAuxImpl &aux, inflight_map_t &inflights,
+    UpdateAuxImpl &aux, inflight_node_t &inflights,
     fiber_find_request_t const req)
 {
     auto g(aux.shared_lock());

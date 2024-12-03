@@ -212,8 +212,10 @@ struct cli_tool_fixture
                     read_node_blocking(pool, aux.get_latest_root_offset())};
                 monad::mpt::NodeCursor const root(*root_ptr);
 
+                inflight_node_t inflights;
                 for (auto &key : this->state()->keys) {
-                    auto ret = monad::mpt::find_blocking(aux, root, key.first);
+                    auto ret = monad::mpt::find_blocking(
+                        aux, inflights, root, key.first);
                     EXPECT_EQ(ret.second, monad::mpt::find_result::success);
                 }
                 EXPECT_EQ(
@@ -312,9 +314,10 @@ struct cli_tool_fixture
                         read_node_blocking(pool, aux.get_latest_root_offset())};
                     monad::mpt::NodeCursor const root(*root_ptr);
 
+                    inflight_node_t inflights;
                     for (auto &key : this->state()->keys) {
-                        auto ret =
-                            monad::mpt::find_blocking(aux, root, key.first);
+                        auto ret = monad::mpt::find_blocking(
+                            aux, inflights, root, key.first);
                         EXPECT_EQ(ret.second, monad::mpt::find_result::success);
                     }
                     EXPECT_EQ(

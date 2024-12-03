@@ -26,7 +26,7 @@ namespace
     using namespace MONAD_ASYNC_NAMESPACE;
 
     void find(
-        UpdateAuxImpl *aux, inflight_map_t *const inflights, Node *const root,
+        UpdateAuxImpl *aux, inflight_node_t *const inflights, Node *const root,
         monad::byte_string_view const key, monad::byte_string_view const value)
     {
         monad::threadsafe_boost_fibers_promise<monad::mpt::find_result_type>
@@ -60,7 +60,7 @@ namespace
             root_hash(),
             0xcbb6d81afdc76fec144f6a1a283205d42c03c102a94fc210b3a1bcfdcb625884_hex);
 
-        inflight_map_t inflights;
+        inflight_node_t inflights;
         boost::fibers::fiber find_fiber(
             find,
             &this->aux,
@@ -87,7 +87,7 @@ namespace
             root_hash(),
             0xcbb6d81afdc76fec144f6a1a283205d42c03c102a94fc210b3a1bcfdcb625884_hex);
 
-        inflight_map_t inflights;
+        inflight_node_t inflights;
         std::vector<boost::fibers::fiber> fibers;
         for (auto const &[key, val] : one_hundred_updates) {
             fibers.emplace_back(

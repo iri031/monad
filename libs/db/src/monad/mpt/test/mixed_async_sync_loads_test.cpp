@@ -47,17 +47,22 @@ TEST_F(MixedAsyncSyncLoadsTest, works)
     };
 
     // Initiate an async find of a key
+    monad::mpt::inflight_node_t inflights;
     auto state = monad::async::connect(
-        monad::mpt::find_request_sender(aux, *root, key, true, 5),
+        monad::mpt::find_request_sender(aux, inflights, *root, key, true, 5),
         receiver_t{});
     state.initiate();
 
-    // Synchronously load the same key
-    EXPECT_EQ(find_blocking(aux, *root, key).first.node->value(), value);
+    // Synchronously loading the same key should refuse
+    EXPECT_EQ(
+        find_blocking(aux, inflights, *root, key).second,
+        monad::mpt::find_result::find_blocking_is_inflight);
 
     // Let the async find of that key complete
     while (!state.receiver().res) {
         aux.io->poll_blocking();
     }
     EXPECT_EQ(state.receiver().res->first, value);
+    EXPECT_EQ(
+        find_blocking(aux, inflights, *root, key).first.node->value(), value);
 }

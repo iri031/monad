@@ -23,6 +23,8 @@ using namespace ::monad::test;
 
 TEST_F(OnDiskMerkleTrieGTest, recursively_verify_versions)
 {
+    inflight_node_t inflights;
+
     struct ExpectedSubtrieVersion
     {
         Node *root{nullptr};
@@ -143,7 +145,7 @@ TEST_F(OnDiskMerkleTrieGTest, recursively_verify_versions)
         TraverseVerifyVersions traverse{node_records};
         // Must traverse in order
         preorder_traverse_blocking(
-            this->aux, *this->root, traverse, [] { return true; });
+            this->aux, inflights, *this->root, traverse, [] { return true; });
         EXPECT_EQ(traverse.records.empty(), true);
     }
 
@@ -183,7 +185,7 @@ TEST_F(OnDiskMerkleTrieGTest, recursively_verify_versions)
         TraverseVerifyVersions traverse{node_records, true};
         // Must traverse in order
         preorder_traverse_blocking(
-            this->aux, *this->root, traverse, [] { return true; });
+            this->aux, inflights, *this->root, traverse, [] { return true; });
         EXPECT_EQ(traverse.records.empty(), true);
     }
 }

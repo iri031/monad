@@ -10,8 +10,9 @@
 
 MONAD_MPT_NAMESPACE_BEGIN
 
-find_result_type
-find_blocking(UpdateAuxImpl const &aux, NodeCursor root, NibblesView const key)
+find_result_type find_blocking(
+    UpdateAuxImpl const &aux, inflight_node_t &inflights, NodeCursor root,
+    NibblesView const key)
 {
     auto g(aux.shared_lock());
     if (!root.is_valid()) {
@@ -35,11 +36,16 @@ find_blocking(UpdateAuxImpl const &aux, NodeCursor root, NibblesView const key)
                 if (g2.upgrade_was_atomic() ||
                     !node->next(node->to_child_index(nibble))) {
                     // read node if not yet in mem
+                    auto const offset =
+                        node->fnext(node->to_child_index(nibble));
+                    if (inflights.find(offset) != inflights.end()) {
+                        return {
+                            NodeCursor{},
+                            find_result::find_blocking_is_inflight};
+                    }
                     node->set_next(
                         node->to_child_index(nibble),
-                        read_node_blocking(
-                            aux.io->storage_pool(),
-                            node->fnext(node->to_child_index(nibble))));
+                        read_node_blocking(aux.io->storage_pool(), offset));
                 }
             }
             MONAD_ASSERT(node->next(node->to_child_index(nibble)));

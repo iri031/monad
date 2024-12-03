@@ -146,6 +146,7 @@ struct LockingTrieTest
 
 TEST_F(LockingTrieTest, works)
 {
+    monad::mpt::inflight_node_t inflights;
     auto &aux = this->state()->aux;
     auto *root = this->state()->root.get();
     auto &keys = this->state()->keys;
@@ -196,7 +197,8 @@ TEST_F(LockingTrieTest, works)
     // downgrade back to shared, release
     {
         aux.lock().clear();
-        auto [leaf_it, res] = find_blocking(aux, *root, keys.back().first);
+        auto [leaf_it, res] =
+            find_blocking(aux, inflights, *root, keys.back().first);
         EXPECT_EQ(res, monad::mpt::find_result::success);
         EXPECT_NE(leaf_it.node, nullptr);
         EXPECT_TRUE(leaf_it.node->has_value());
@@ -213,7 +215,8 @@ TEST_F(LockingTrieTest, works)
     // Now the node is in cache, no exclusive lock should get taken
     {
         aux.lock().clear();
-        auto [leaf_it, res] = find_blocking(aux, *root, keys.back().first);
+        auto [leaf_it, res] =
+            find_blocking(aux, inflights, *root, keys.back().first);
         EXPECT_EQ(res, monad::mpt::find_result::success);
         EXPECT_NE(leaf_it.node, nullptr);
         EXPECT_TRUE(leaf_it.node->has_value());
@@ -238,7 +241,7 @@ TEST_F(LockingTrieTest, works)
         aux.lock().clear();
         ::boost::fibers::promise<::monad::mpt::find_result_type> p;
         auto fut = p.get_future();
-        ::monad::mpt::inflight_map_t inflights;
+        ::monad::mpt::inflight_node_t inflights;
         ::monad::mpt::find_request_t req{&p, *root, keys[keys.size() - 2].first};
         ::monad::mpt::find_notify_fiber_future(aux, inflights, req);
         while (fut.wait_for(std::chrono::seconds(0)) !=
@@ -266,7 +269,7 @@ TEST_F(LockingTrieTest, works)
         aux.lock().clear();
         ::boost::fibers::promise<::monad::mpt::find_result_type> p;
         auto fut = p.get_future();
-        ::monad::mpt::inflight_map_t inflights;
+        ::monad::mpt::inflight_node_t inflights;
         ::monad::mpt::find_request_t req{&p, *root, keys[keys.size() - 2].first};
         ::monad::mpt::find_notify_fiber_future(aux, inflights, req);
         while (fut.wait_for(std::chrono::seconds(0)) !=

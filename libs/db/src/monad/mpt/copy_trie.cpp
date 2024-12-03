@@ -102,10 +102,20 @@ Node::UniquePtr create_node_with_two_children(
 }
 
 Node::UniquePtr copy_trie_impl(
-    UpdateAuxImpl &aux, Node &src_root, NibblesView const src_prefix,
-    Node::UniquePtr root, NibblesView const dest, uint64_t const dest_version)
+    UpdateAuxImpl &aux, inflight_node_t &inflights, Node &src_root,
+    NibblesView const src_prefix, Node::UniquePtr root, NibblesView const dest,
+    uint64_t const dest_version)
 {
-    auto [src_cursor, res] = find_blocking(aux, src_root, src_prefix);
+    NodeCursor src_cursor;
+    find_result res;
+    for (;;) {
+        std::tie(src_cursor, res) =
+            find_blocking(aux, inflights, src_root, src_prefix);
+        if (res != find_result::find_blocking_is_inflight) {
+            break;
+        }
+        aux.io->poll_blocking();
+    }
     MONAD_ASSERT(res == find_result::success);
     Node &src_node = *src_cursor.node;
     if (!root) {
@@ -259,13 +269,15 @@ Node::UniquePtr copy_trie_impl(
 }
 
 Node::UniquePtr copy_trie_to_dest(
-    UpdateAuxImpl &aux, Node &src_root, NibblesView const src_prefix,
-    Node::UniquePtr root, NibblesView const dest_prefix,
-    uint64_t const dest_version, bool const must_write_to_disk)
+    UpdateAuxImpl &aux, inflight_node_t &inflights, Node &src_root,
+    NibblesView const src_prefix, Node::UniquePtr root,
+    NibblesView const dest_prefix, uint64_t const dest_version,
+    bool const must_write_to_disk)
 {
     auto impl = [&]() -> Node::UniquePtr {
         root = copy_trie_impl(
             aux,
+            inflights,
             src_root,
             src_prefix,
             std::move(root),

@@ -6,12 +6,6 @@ MONAD_MPT_NAMESPACE_BEGIN
 
 using find_bytes_result_type = std::pair<byte_string, find_result>;
 
-using inflight_node_t = unordered_dense_map<
-    chunk_offset_t,
-    std::vector<std::function<MONAD_ASYNC_NAMESPACE::result<void>(
-        NodeCursor, std::shared_ptr<Node>)>>,
-    chunk_offset_t_hasher>;
-
 /*! \brief Sender to perform the asynchronous finding of a node.
  */
 class find_request_sender
