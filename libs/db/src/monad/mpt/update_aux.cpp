@@ -223,7 +223,7 @@ void UpdateAuxImpl::update_history_length_metadata(
         auto const ro = root_offsets(m == db_metadata_[1].main);
         MONAD_ASSERT(history_len > 0 && history_len <= ro.capacity());
         reinterpret_cast<std::atomic_uint64_t *>(&m->history_length)
-            ->store(history_len, std::memory_order_relaxed);
+            ->store(history_len, std::memory_order_release);
     };
     do_(db_metadata_[0].main);
     do_(db_metadata_[1].main);
@@ -233,14 +233,14 @@ uint64_t UpdateAuxImpl::get_latest_finalized_version() const noexcept
 {
     return start_lifetime_as<std::atomic_uint64_t const>(
                &db_metadata()->latest_finalized_version)
-        ->load(std::memory_order_relaxed);
+        ->load(std::memory_order_acquire);
 }
 
 uint64_t UpdateAuxImpl::get_latest_verified_version() const noexcept
 {
     return start_lifetime_as<std::atomic_uint64_t const>(
                &db_metadata()->latest_verified_version)
-        ->load(std::memory_order_relaxed);
+        ->load(std::memory_order_acquire);
 }
 
 void UpdateAuxImpl::set_latest_finalized_version(
@@ -256,7 +256,7 @@ void UpdateAuxImpl::set_latest_finalized_version(
     auto do_ = [&](detail::db_metadata *m) {
         auto g = m->hold_dirty();
         reinterpret_cast<std::atomic_uint64_t *>(&m->latest_finalized_version)
-            ->store(version, std::memory_order_relaxed);
+            ->store(version, std::memory_order_release);
     };
     do_(db_metadata_[0].main);
     do_(db_metadata_[1].main);
@@ -274,7 +274,7 @@ void UpdateAuxImpl::set_latest_verified_version(uint64_t const version) noexcept
     auto do_ = [&](detail::db_metadata *m) {
         auto g = m->hold_dirty();
         reinterpret_cast<std::atomic_uint64_t *>(&m->latest_verified_version)
-            ->store(version, std::memory_order_relaxed);
+            ->store(version, std::memory_order_release);
     };
     do_(db_metadata_[0].main);
     do_(db_metadata_[1].main);
@@ -1103,7 +1103,7 @@ uint64_t UpdateAuxImpl::version_history_length() const noexcept
 {
     return start_lifetime_as<std::atomic_uint64_t const>(
                &db_metadata()->history_length)
-        ->load(std::memory_order_relaxed);
+        ->load(std::memory_order_acquire);
 }
 
 uint64_t UpdateAuxImpl::db_history_min_valid_version() const noexcept
