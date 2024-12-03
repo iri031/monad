@@ -1006,9 +1006,21 @@ enum class find_result : uint8_t
 };
 using find_result_type = std::pair<NodeCursor, find_result>;
 
-using inflight_map_t = unordered_dense_map<
+/* Used by async node loading code to prevent issuing duplicate node loads.
+Benchmarked by Vicky to prove it is a net gain for the average case as
+async i/o setup and teardown is expensive for 512 byte random read i/o.
+
+Note that the `std::shared_ptr<Node>` passed to the continuation can be null
+if the code doing the op doesn't actually deserialise the node, but merely
+determines if the node exists or not. This will be obvious from whichever
+API you are using which uses inflights which will be the case. Continuations
+may also have no interest in the loaded node, hence the rvalue reference
+arg to prevent needless shared ptr atomic increment unless necessary.
+*/
+using inflight_node_t = unordered_dense_map<
     chunk_offset_t,
-    std::vector<std::function<MONAD_ASYNC_NAMESPACE::result<void>(NodeCursor)>>,
+    std::vector<std::move_only_function<MONAD_ASYNC_NAMESPACE::result<void>(
+        NodeCursor, std::shared_ptr<Node> &&)>>,
     chunk_offset_t_hasher>;
 
 // The request type to put to the fiber buffered channel for triedb thread
@@ -1028,12 +1040,13 @@ static_assert(std::is_trivially_copyable_v<fiber_find_request_t> == true);
 // during execution, DO NOT invoke it directly from a transaction fiber, as is
 // not race free.
 void find_notify_fiber_future(
-    UpdateAuxImpl &, inflight_map_t &inflights, fiber_find_request_t);
+    UpdateAuxImpl &, inflight_node_t &inflights, fiber_find_request_t);
 
-/*! \brief blocking find node indexed by key from root, It works for bothon-disk
-and in-memory trie. When node along key is not yet in memory, it load node
-through blocking read.
- \warning Should only invoke it from the triedb owning
+/*! \brief blocking find node indexed by key from root, It works for both
+on-disk and in-memory trie. When node along key is not yet in memory, it loads
+the node through blocking read.
+
+\warning Should only invoke it from the triedb owning
 thread, as no synchronization is provided, and user code should make sure no
 other place is modifying trie. */
 find_result_type

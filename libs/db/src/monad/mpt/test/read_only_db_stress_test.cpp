@@ -199,7 +199,6 @@ int main(int argc, char *const argv[])
             ReadOnlyOnDiskDbConfig const ro_config{
                 .dbname_paths = {dbname_paths}};
             Db ro_db{ro_config};
-            auto async_ctx = async_context_create(ro_db);
 
             unsigned nsuccess = 0;
             unsigned nfailed = 0;
@@ -249,7 +248,7 @@ int main(int argc, char *const argv[])
                 for (size_t k = 0; k < num_nodes_per_version; ++k) {
                     auto *state = new auto(monad::async::connect(
                         monad::mpt::make_get_sender(
-                            async_ctx.get(),
+                            ro_db.async_context(),
                             concat(
                                 NibblesView{prefix},
                                 NibblesView{to_key(

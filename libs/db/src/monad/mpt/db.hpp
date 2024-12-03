@@ -94,6 +94,8 @@ public:
     size_t prefetch();
     // Pump any async DB operations. RO only.
     size_t poll(bool blocking, size_t count = 1);
+    // AsyncContext internally used by RO instance. RO only.
+    AsyncContext *async_context() const;
 
     bool is_on_disk() const;
     bool is_read_only() const;
@@ -105,7 +107,7 @@ public:
 struct AsyncContext
 {
     using inflight_root_t = unordered_dense_map<
-        uint64_t, std::vector<std::function<void(std::shared_ptr<Node>)>>>;
+        uint64_t, std::vector<std::function<void(std::shared_ptr<Node> &&)>>>;
     using TrieRootCache = static_lru_cache<
         chunk_offset_t, std::shared_ptr<Node>, chunk_offset_t_hasher>;
 
@@ -119,7 +121,6 @@ struct AsyncContext
 };
 
 using AsyncContextUniquePtr = std::unique_ptr<AsyncContext>;
-AsyncContextUniquePtr async_context_create(Db &db);
 
 namespace detail
 {

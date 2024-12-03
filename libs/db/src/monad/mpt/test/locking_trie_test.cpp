@@ -238,7 +238,7 @@ TEST_F(LockingTrieTest, works)
         aux.lock().clear();
         ::boost::fibers::promise<::monad::mpt::find_result_type> p;
         auto fut = p.get_future();
-        ::monad::mpt::inflight_map_t inflights;
+        ::monad::mpt::inflight_node_t inflights;
         ::monad::mpt::find_request_t req{&p, *root, keys[keys.size() - 2].first};
         ::monad::mpt::find_notify_fiber_future(aux, inflights, req);
         while (fut.wait_for(std::chrono::seconds(0)) !=
@@ -266,7 +266,7 @@ TEST_F(LockingTrieTest, works)
         aux.lock().clear();
         ::boost::fibers::promise<::monad::mpt::find_result_type> p;
         auto fut = p.get_future();
-        ::monad::mpt::inflight_map_t inflights;
+        ::monad::mpt::inflight_node_t inflights;
         ::monad::mpt::find_request_t req{&p, *root, keys[keys.size() - 2].first};
         ::monad::mpt::find_notify_fiber_future(aux, inflights, req);
         while (fut.wait_for(std::chrono::seconds(0)) !=

@@ -128,7 +128,6 @@ namespace
         using result_t = monad::Result<monad::byte_string>;
 
         Db ro_db;
-        AsyncContextUniquePtr ctx;
         std::atomic<size_t> cbs{0}; // callbacks when found
 
         OnDiskDbWithFileAsyncFixture()
@@ -137,7 +136,6 @@ namespace
                     .dbname_paths = this->config.dbname_paths};
                 return Db{ro_config};
             }())
-            , ctx(async_context_create(ro_db))
         {
         }
 
@@ -425,7 +423,7 @@ TEST_F(OnDiskDbWithFileAsyncFixture, read_only_db_single_thread_async)
         // ensure we can still async query the old version
         async_get(
             make_get_sender(
-                ctx.get(),
+                ro_db.async_context(),
                 prefix + kv[0].first,
                 starting_block_id,
                 test_cached_level),
@@ -435,7 +433,7 @@ TEST_F(OnDiskDbWithFileAsyncFixture, read_only_db_single_thread_async)
             });
         async_get(
             make_get_sender(
-                ctx.get(),
+                ro_db.async_context(),
                 prefix + kv[1].first,
                 starting_block_id,
                 test_cached_level),
@@ -445,7 +443,10 @@ TEST_F(OnDiskDbWithFileAsyncFixture, read_only_db_single_thread_async)
             });
         async_get(
             make_get_data_sender(
-                ctx.get(), prefix, starting_block_id, test_cached_level),
+                ro_db.async_context(),
+                prefix,
+                starting_block_id,
+                test_cached_level),
             [&](result_t res) {
                 ASSERT_TRUE(res.has_value());
                 EXPECT_EQ(
@@ -468,7 +469,7 @@ TEST_F(OnDiskDbWithFileAsyncFixture, read_only_db_single_thread_async)
 
     async_get(
         make_get_sender(
-            ctx.get(),
+            ro_db.async_context(),
             prefix + kv[0].first,
             starting_block_id,
             test_cached_level),
@@ -497,7 +498,8 @@ TEST_F(OnDiskDbWithFileAsyncFixture, async_rodb_level_based_cache_works)
     // Do async reads
     for (auto const &kv : kv_alloc) {
         async_get(
-            make_get_sender(ctx.get(), kv, version, test_cached_level),
+            make_get_sender(
+                ro_db.async_context(), kv, version, test_cached_level),
             [&](result_t res) {
                 EXPECT_TRUE(res.has_value());
                 EXPECT_EQ(res.value(), kv);
@@ -545,12 +547,13 @@ TEST_F(OnDiskDbWithFileAsyncFixture, async_rodb_level_based_cache_works)
     };
 
     InMemoryTraverseMachine traverse_machine{test_cached_level};
-    ASSERT_EQ(ctx->root_cache.size(), 1);
-    auto const offset = ctx->aux.get_root_offset_at_version(version);
+    ASSERT_EQ(ro_db.async_context()->root_cache.size(), 1);
+    auto const offset =
+        ro_db.async_context()->aux.get_root_offset_at_version(version);
     ASSERT_NE(offset, INVALID_OFFSET);
 
     AsyncContext::TrieRootCache::ConstAccessor acc;
-    ASSERT_TRUE(ctx->root_cache.find(acc, offset));
+    ASSERT_TRUE(ro_db.async_context()->root_cache.find(acc, offset));
     auto root = acc->second->val;
     ro_db.traverse(NodeCursor{*root}, traverse_machine, version);
 }
@@ -566,21 +569,22 @@ TEST_F(OnDiskDbWithFileAsyncFixture, root_cache_invalidation)
         db, prefix0, block_id, make_update(kv[0].first, kv[0].second));
 
     async_get(
-        make_get_sender(ctx.get(), prefix0 + kv[0].first, block_id),
+        make_get_sender(ro_db.async_context(), prefix0 + kv[0].first, block_id),
         [&](result_t res) {
             ASSERT_TRUE(res.has_value());
             EXPECT_EQ(res.value(), kv[0].second);
         });
     poll_until(1);
 
-    ASSERT_EQ(ctx.get()->root_cache.size(), 1);
+    ASSERT_EQ(ro_db.async_context()->root_cache.size(), 1);
 
     // Copy trie to new prefix. This rewrites the root offset in memory
     db.copy_trie(block_id, prefix0, block_id, final_prefix, true);
 
     // Do another async read on the same version
     async_get(
-        make_get_sender(ctx.get(), final_prefix + kv[0].first, block_id),
+        make_get_sender(
+            ro_db.async_context(), final_prefix + kv[0].first, block_id),
         [&](result_t res) {
             ASSERT_TRUE(res.has_value());
             EXPECT_EQ(res.value(), kv[0].second);
@@ -589,7 +593,7 @@ TEST_F(OnDiskDbWithFileAsyncFixture, root_cache_invalidation)
 
     // There should be 2 elements in the root cache because the offset in memory
     // has changed.
-    EXPECT_EQ(ctx.get()->root_cache.size(), 2);
+    EXPECT_EQ(ro_db.async_context()->root_cache.size(), 2);
 }
 
 TEST_F(OnDiskDbWithFileFixture, open_emtpy_rodb)

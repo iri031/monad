@@ -54,6 +54,8 @@
 
 MONAD_MPT_NAMESPACE_BEGIN
 
+static AsyncContextUniquePtr async_context_create(Db &db);
+
 namespace detail
 {
     struct void_receiver
@@ -67,6 +69,8 @@ namespace detail
 
 struct Db::Impl
 {
+    AsyncContextUniquePtr rodb_ctx;
+
     virtual ~Impl() = default;
 
     virtual Node::UniquePtr &root() = 0;
@@ -434,7 +438,7 @@ struct Db::RWOnDisk final : public Db::Impl
         // Runs in the triedb worker thread
         void run()
         {
-            inflight_map_t inflights;
+            inflight_node_t inflights;
             ::boost::container::deque<
                 threadsafe_boost_fibers_promise<find_result_type>>
                 find_promises;
@@ -856,6 +860,7 @@ Db::Db(StateMachine &machine, OnDiskDbConfig const &config)
 Db::Db(ReadOnlyOnDiskDbConfig const &config)
     : impl_{std::make_unique<ROOnDisk>(config)}
 {
+    impl_->rodb_ctx = async_context_create(*this);
 }
 
 Db::~Db() = default;
@@ -1011,6 +1016,12 @@ size_t Db::poll(bool const blocking, size_t const count)
     return impl_->poll(blocking, count);
 }
 
+AsyncContext *Db::async_context() const
+{
+    MONAD_ASSERT(impl_);
+    return impl_->rodb_ctx.get();
+}
+
 bool Db::is_on_disk() const
 {
     MONAD_ASSERT(impl_);
@@ -1118,7 +1129,7 @@ namespace detail
             for (auto &invoc : pendings) {
                 // Calling invoc() may invoke user code which deletes `sender`.
                 // It is no longer safe to rely on the `sender` lifetime
-                invoc(root);
+                invoc(static_cast<std::shared_ptr<Node> &&>(root));
             }
         }
     };
@@ -1187,7 +1198,7 @@ namespace detail
                 return async::success();
             }
 
-            auto cont = [this, io_state](std::shared_ptr<Node> root_) {
+            auto cont = [this, io_state](std::shared_ptr<Node> &&root_) {
                 if (!root_) {
                     res_root = {
                         NodeCursor{}, find_result::version_no_longer_exist};
