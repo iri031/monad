@@ -86,6 +86,16 @@ public:
         map_.clear();
     }
 
+    auto cbegin() const noexcept
+    {
+        return map_.cbegin();
+    }
+
+    auto cend() const noexcept
+    {
+        return map_.cend();
+    }
+
 private:
     void update_lru(ListIter it)
     {
