@@ -42,14 +42,38 @@
 #include <monad/core/basic_formatter.hpp>
 #include <monad/core/fmt/address_fmt.hpp>
 
+#include <iostream>
 
 namespace fs = std::filesystem;
 
 MONAD_NAMESPACE_BEGIN
 
-using ContractTable = tbb::concurrent_hash_map<evmc::address,int, tbb::tbb_hash_compare<evmc::address>>;
+struct PairHashCompare {
+    static size_t hash(const std::pair<const uint8_t*, size_t>& key) {
+        size_t hash_value = 0;
+        for (size_t i = 0; i < key.second; ++i) {
+            hash_value = hash_value * 31 + key.first[i];
+        }
+        return hash_value;
+    }
 
-ContractTable call_counter;
+    static bool equal(const std::pair<const uint8_t*, size_t>& lhs, const std::pair<const uint8_t*, size_t>& rhs) {
+        if (lhs.second != rhs.second) {
+            return false;
+        }
+        return std::equal(lhs.first, lhs.first + lhs.second, rhs.first);
+    }
+};
+
+using CalldataMap = tbb::concurrent_hash_map<
+    std::pair<const uint8_t*, size_t>, 
+    size_t, 
+    PairHashCompare
+>;
+
+using ContractTable = tbb::concurrent_hash_map<evmc::address, CalldataMap, tbb::tbb_hash_compare<evmc::address>>;
+
+ContractTable callLogs;
 const int CONTRACT_CALL_THRESHOLD = 5;
 
 
@@ -90,55 +114,52 @@ evmc::Result baseline_execute(
 
     if (result.status_code == EVMC_SUCCESS) {
         ContractTable::accessor accessor;
-        const auto itemIsNew = call_counter.insert( accessor, msg.code_address );
+        const auto itemIsNew = callLogs.insert(accessor, msg.code_address);
         if (itemIsNew) {
-            accessor->second = 1;
+            CalldataMap calldata_map;
+            CalldataMap::accessor calldata_accessor;
+            calldata_map.insert(calldata_accessor, std::make_pair(msg.input_data, msg.input_size));
+            calldata_accessor->second = 1;
+            calldata_accessor.release();
+            accessor->second = std::move(calldata_map);
         }
         else {
-            const int call_count = accessor->second;
-            if (call_count != -1) {
-                if (call_count > CONTRACT_CALL_THRESHOLD) {
-                    // mark for insertion into the contracts dump
-                    accessor->second = -1;
-                    auto contracts_dir_var = std::getenv("CONTRACTS_DIR");
-                    MONAD_ASSERT(contracts_dir_var);
+            CalldataMap::accessor calldata_accessor;
+            auto& calldata_map = accessor->second;
+            const auto calldata_key = std::make_pair(msg.input_data, msg.input_size);
 
-                    // content addressable path for the contract using keccak of the actual code
-                    auto const code_hash = keccak256(code_analysis.executable_code);
-
-                    auto code_hash_dir = fs::path(contracts_dir_var) / "code_hash";
-                    fs::create_directories(code_hash_dir);
-
-                    auto contract_path = code_hash_dir / fmt::format("{}", intx::hex(intx::be::load<intx::uint256>(code_hash.bytes)));
-
-                    auto os = std::ofstream(contract_path);
-                    os.write(
-                        reinterpret_cast<char const *>(code_analysis.executable_code.data()),
-                        static_cast<std::streamsize>(code_analysis.executable_code.size()));
-
-                    auto block_prefix =
-                        fmt::format("{}M", block / 1'000'000);
-
-                    auto code_address_dir = fs::path(contracts_dir_var) / "code_address" / block_prefix /
-                            fmt::format("{:02x}", msg.code_address.bytes[0]) /
-                            fmt::format("{:02x}", msg.code_address.bytes[1]);
-
-                    fs::create_directories(code_address_dir);
-
-                    const Address& addr = msg.code_address;
-                    auto contract_address_path = code_address_dir / fmt::format("{}", addr);
-
-                    fs::create_symlink(contract_path, contract_address_path);
-                } 
-                else {
-                    accessor->second = call_count + 1;
-                }
+            if (calldata_map.find(calldata_accessor, calldata_key)) {
+                // Increment the counter if the entry exists
+                calldata_accessor->second += 1;
+            } else {
+                // Insert a new entry mapping current CALLDATA to 1
+                calldata_map.insert(calldata_accessor, calldata_key);
+                calldata_accessor->second = 1;
             }
+            calldata_accessor.release();
         }
         accessor.release();
     }
 
     return evmc::Result{result};
+}
+
+std::string to_hex_string(const uint8_t* data, size_t size) {
+    std::ostringstream oss;
+    for (size_t i = 0; i < size; ++i) {
+        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(data[i]);
+    }
+    return oss.str();
+}
+
+void print_call_logs() {
+    for (const auto& [contract_address, calldata_map] : callLogs) {
+        std::cout << "Contract: " << to_hex_string(contract_address.bytes, sizeof(contract_address.bytes)) << std::endl;
+        for (const auto& [calldata_key, count] : calldata_map) {
+            // Assuming you have a function to convert the calldata_key to a string
+            std::cout << to_hex_string(calldata_key.first, calldata_key.second) << "," << count << std::endl;
+        }
+    }
 }
 
 MONAD_NAMESPACE_END
