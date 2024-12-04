@@ -84,9 +84,15 @@ std::unordered_map<std::string, std::string> load_hash_map(const std::string& fi
     std::ifstream file(filename);
     std::string line;
     while (std::getline(file, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
         std::istringstream iss(line);
         std::string address, hash;
         if (std::getline(iss, address, ',') && std::getline(iss, hash)) {
+            if (!hash.empty() && hash.back() == '\r') {
+                hash.pop_back();
+            }
             hash_map[address] = hash;
         }
     }
