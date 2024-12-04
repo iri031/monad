@@ -43,6 +43,9 @@
 #include <monad/core/fmt/address_fmt.hpp>
 
 #include <iostream>
+#include <fstream>
+#include <unordered_map>
+#include <sstream>
 
 namespace fs = std::filesystem;
 
@@ -76,10 +79,23 @@ using ContractTable = tbb::concurrent_hash_map<evmc::address, CalldataMap, tbb::
 ContractTable callLogs;
 const int CONTRACT_CALL_THRESHOLD = 5;
 
+std::unordered_map<std::string, std::string> load_hash_map(const std::string& filename) {
+    std::unordered_map<std::string, std::string> hash_map;
+    std::ifstream file(filename);
+    std::string line;
+    while (std::getline(file, line)) {
+        std::istringstream iss(line);
+        std::string address, hash;
+        if (std::getline(iss, address, ',') && std::getline(iss, hash)) {
+            hash_map[address] = hash;
+        }
+    }
+    return hash_map;
+}
 
 evmc::Result baseline_execute(
     evmc_message const &msg, evmc_revision const rev, evmc::Host *const host,
-    CodeAnalysis const &code_analysis, uint64_t block
+    CodeAnalysis const &code_analysis, uint64_t
     )
 {
     std::unique_ptr<evmc_vm> const vm{evmc_create_evmone()};
@@ -153,13 +169,23 @@ std::string to_hex_string(const uint8_t* data, size_t size) {
 }
 
 void print_call_logs() {
+    auto hash_map = load_hash_map("/home/abhishek/hashes_trimmed.txt");
+
     for (const auto& [contract_address, calldata_map] : callLogs) {
-        std::cout << "Contract: " << to_hex_string(contract_address.bytes, sizeof(contract_address.bytes)) << std::endl;
-        for (const auto& [calldata_key, count] : calldata_map) {
-            // Assuming you have a function to convert the calldata_key to a string
-            std::cout << to_hex_string(calldata_key.first, calldata_key.second) << "," << count << std::endl;
+        std::string address_hex = to_hex_string(contract_address.bytes, sizeof(contract_address.bytes));
+        auto it = hash_map.find(address_hex);
+        if (it != hash_map.end()) {
+            std::ofstream file("/home/abhishek/ssd_2tb/calllogs/" + it->second);
+            for (const auto& [calldata_key, count] : calldata_map) {
+                file << to_hex_string(calldata_key.first, calldata_key.second) << "," << count << std::endl;
+            }
+        }
+        else {
+            LOG_ERROR("Contract address not found in hash map: {}", address_hex);
         }
     }
+    LOG_INFO("Hash map size: {}", hash_map.size());
+
 }
 
 MONAD_NAMESPACE_END

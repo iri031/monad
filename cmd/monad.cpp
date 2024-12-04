@@ -13,6 +13,7 @@
 #include <monad/db/util.hpp>
 #include <monad/execution/block_hash_buffer.hpp>
 #include <monad/execution/execute_block.hpp>
+#include <monad/execution/baseline_execute.hpp>
 #include <monad/execution/genesis.hpp>
 #include <monad/execution/trace/event_trace.hpp>
 #include <monad/execution/validate_block.hpp>
@@ -183,6 +184,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
         }
         ++block_num;
     }
+    print_call_logs();
     if (batch_num_blocks > 0) {
         log_tps(
             block_num, batch_num_blocks, batch_num_txs, batch_gas, batch_begin);
