@@ -74,13 +74,14 @@ using CalldataMap = tbb::concurrent_hash_map<
     PairHashCompare
 >;
 
-using ContractTable = tbb::concurrent_hash_map<evmc::address, CalldataMap, tbb::tbb_hash_compare<evmc::address>>;
+std::unordered_map<std::string, std::string> hash_map;
+
+using ContractTable = tbb::concurrent_hash_map<std::string, CalldataMap>;
 
 ContractTable callLogs;
 const int CONTRACT_CALL_THRESHOLD = 5;
 
-std::unordered_map<std::string, std::string> load_hash_map(const std::string& filename) {
-    std::unordered_map<std::string, std::string> hash_map;
+void load_hash_map(std::unordered_map<std::string, std::string> & hash_map, const std::string& filename) {
     std::ifstream file(filename);
     std::string line;
     while (std::getline(file, line)) {
@@ -96,13 +97,20 @@ std::unordered_map<std::string, std::string> load_hash_map(const std::string& fi
             hash_map[address] = hash;
         }
     }
-    return hash_map;
+}
+
+std::string to_hex_string(const uint8_t* data, size_t size) {
+    std::ostringstream oss;
+    for (size_t i = 0; i < size; ++i) {
+        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(data[i]);
+    }
+    return oss.str();
 }
 
 evmc::Result baseline_execute(
     evmc_message const &msg, evmc_revision const rev, evmc::Host *const host,
     CodeAnalysis const &code_analysis, uint64_t
-    )
+)
 {
     std::unique_ptr<evmc_vm> const vm{evmc_create_evmone()};
 
@@ -135,59 +143,52 @@ evmc::Result baseline_execute(
 #endif
 
     if (result.status_code == EVMC_SUCCESS) {
-        ContractTable::accessor accessor;
-        const auto itemIsNew = callLogs.insert(accessor, msg.code_address);
-        if (itemIsNew) {
-            CalldataMap calldata_map;
-            CalldataMap::accessor calldata_accessor;
-            calldata_map.insert(calldata_accessor, std::make_pair(msg.input_data, msg.input_size));
-            calldata_accessor->second = 1;
-            calldata_accessor.release();
-            accessor->second = std::move(calldata_map);
-        }
-        else {
-            CalldataMap::accessor calldata_accessor;
-            auto& calldata_map = accessor->second;
-            const auto calldata_key = std::make_pair(msg.input_data, msg.input_size);
-
-            if (calldata_map.find(calldata_accessor, calldata_key)) {
-                // Increment the counter if the entry exists
-                calldata_accessor->second += 1;
-            } else {
-                // Insert a new entry mapping current CALLDATA to 1
-                calldata_map.insert(calldata_accessor, calldata_key);
+        std::string address_hex = to_hex_string(msg.code_address.bytes, sizeof(msg.code_address.bytes));
+        auto it = hash_map.find(address_hex);
+        if (it != hash_map.end()) {
+            const std::string& hash = it->second;
+            ContractTable::accessor accessor;
+            const auto itemIsNew = callLogs.insert(accessor, hash);
+            if (itemIsNew) {
+                CalldataMap calldata_map;
+                CalldataMap::accessor calldata_accessor;
+                calldata_map.insert(calldata_accessor, std::make_pair(msg.input_data, msg.input_size));
                 calldata_accessor->second = 1;
+                calldata_accessor.release();
+                accessor->second = std::move(calldata_map);
             }
-            calldata_accessor.release();
+            else {
+                CalldataMap::accessor calldata_accessor;
+                auto& calldata_map = accessor->second;
+                const auto calldata_key = std::make_pair(msg.input_data, msg.input_size);
+
+                if (calldata_map.find(calldata_accessor, calldata_key)) {
+                    // Increment the counter if the entry exists
+                    calldata_accessor->second += 1;
+                } else {
+                    // Insert a new entry mapping current CALLDATA to 1
+                    calldata_map.insert(calldata_accessor, calldata_key);
+                    calldata_accessor->second = 1;
+                }
+                calldata_accessor.release();
+            }
+            accessor.release();
         }
-        accessor.release();
     }
 
     return evmc::Result{result};
 }
 
-std::string to_hex_string(const uint8_t* data, size_t size) {
-    std::ostringstream oss;
-    for (size_t i = 0; i < size; ++i) {
-        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(data[i]);
-    }
-    return oss.str();
+void load_hash_map() {
+    load_hash_map(hash_map, "/home/abhishek/hashes_trimmed.txt");
 }
 
 void print_call_logs() {
-    auto hash_map = load_hash_map("/home/abhishek/hashes_trimmed.txt");
 
-    for (const auto& [contract_address, calldata_map] : callLogs) {
-        std::string address_hex = to_hex_string(contract_address.bytes, sizeof(contract_address.bytes));
-        auto it = hash_map.find(address_hex);
-        if (it != hash_map.end()) {
-            std::ofstream file("/home/abhishek/ssd_2tb/calllogs/" + it->second);
-            for (const auto& [calldata_key, count] : calldata_map) {
-                file << to_hex_string(calldata_key.first, calldata_key.second) << "," << count << std::endl;
-            }
-        }
-        else {
-            LOG_ERROR("Contract address not found in hash map: {}", address_hex);
+    for (const auto& [hash, calldata_map] : callLogs) {
+        std::ofstream file("/home/abhishek/ssd_2tb/calllogs/" + hash);
+        for (const auto& [calldata_key, count] : calldata_map) {
+            file << to_hex_string(calldata_key.first, calldata_key.second) << "," << count << std::endl;
         }
     }
     LOG_INFO("Hash map size: {}", hash_map.size());
