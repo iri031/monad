@@ -93,12 +93,11 @@ void monad_statesync_client_handle_target(
 
     ctx->tgrt = tgrt;
 
-    if (tgrt.number == ctx->db.get_latest_finalized_block_id()) {
+    if (tgrt.number == ctx->db.get_latest_block_id()) {
         MONAD_ASSERT(monad_statesync_client_has_reached_target(ctx));
     }
     else if (tgrt.number == 0) {
-        MONAD_ASSERT(
-            ctx->db.get_latest_finalized_block_id() == INVALID_BLOCK_ID);
+        MONAD_ASSERT(ctx->db.get_latest_block_id() == INVALID_BLOCK_ID);
         read_genesis(ctx->genesis, ctx->tdb);
         ctx->progress.assign(
             ctx->progress.size(), {tgrt.number, INVALID_BLOCK_ID});
@@ -151,11 +150,10 @@ bool monad_statesync_client_finalize(monad_statesync_client_context *const ctx)
         return false;
     }
 
-    if (ctx->db.get_latest_finalized_block_id() != tgrt.number) {
-        ctx->db.move_trie_version_forward(
-            ctx->db.get_latest_finalized_block_id(), tgrt.number);
-        MONAD_ASSERT(ctx->db.get(finalized_nibbles, tgrt.number).has_value());
+    if (ctx->db.get_latest_block_id() != tgrt.number) {
+        ctx->db.move_trie_version_forward(ctx->current, tgrt.number);
         ctx->db.update_finalized_block(tgrt.number);
+        MONAD_ASSERT(ctx->db.get(finalized_nibbles, tgrt.number).has_value());
         bytes32_t expected = tgrt.parent_hash;
         for (size_t i = 0; i < std::min(tgrt.number, 256ul); ++i) {
             auto const v = tgrt.number - i - 1;
@@ -186,6 +184,7 @@ bool monad_statesync_client_finalize(monad_statesync_client_context *const ctx)
             ctx->db.upsert(std::move(finalized_updates), v, false, false);
         }
     }
+    ctx->db.update_finalized_block(tgrt.number);
 
     TrieDb db{ctx->db};
     MONAD_ASSERT(db.get_block_number() == tgrt.number);
