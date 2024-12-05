@@ -28,19 +28,16 @@ MONAD_MPT_NAMESPACE_BEGIN
 
 using namespace MONAD_ASYNC_NAMESPACE;
 
-void find_recursive(
-    UpdateAuxImpl &, inflight_map_t &,
-    threadsafe_boost_fibers_promise<find_result_type> &, NodeCursor root,
-    NibblesView key);
-
 namespace
 {
+    using node_handler_t = std::function<async::result<void>(NodeCursor)>;
+
     struct find_receiver
     {
         static constexpr bool lifetime_managed_internally = true;
 
         UpdateAuxImpl *aux;
-        inflight_map_t &inflights;
+        node_handler_t handler;
         Node *parent;
         chunk_offset_t rd_offset; // required for sender
         unsigned bytes_to_read; // required for sender too
@@ -48,10 +45,10 @@ namespace
         unsigned const branch_index;
 
         find_receiver(
-            UpdateAuxImpl &aux, inflight_map_t &inflights, Node *const parent,
+            UpdateAuxImpl &aux, node_handler_t handler, Node *const parent,
             unsigned char const branch)
             : aux(&aux)
-            , inflights(inflights)
+            , handler(handler)
             , parent(parent)
             , rd_offset(0, 0)
             , branch_index(parent->to_child_index(branch))
@@ -76,30 +73,18 @@ namespace
             ResultType buffer_)
         {
             MONAD_ASSERT(buffer_);
-            MONAD_ASSERT(parent->next(branch_index) == nullptr);
             parent->set_next(
                 branch_index,
                 detail::deserialize_node_from_receiver_result(
                     std::move(buffer_), buffer_off, io_state));
             auto *const node = parent->next(branch_index);
-            auto const offset = parent->fnext(branch_index);
-            auto it = inflights.find(offset);
-            auto pendings = std::move(it->second);
-            inflights.erase(it);
-            for (auto &cont : pendings) {
-                MONAD_ASSERT(cont(NodeCursor{*node}));
-            }
-            return;
+            MONAD_ASSERT(handler(NodeCursor{*node}));
         }
     };
 }
 
-// Use a hashtable for inflight requests, it maps a file offset to a list of
-// requests. If a read request exists in the hash table, simply append to an
-// existing inflight read, Otherwise, send a read request and put itself on the
-// map
 void find_recursive(
-    UpdateAuxImpl &aux, inflight_map_t &inflights,
+    UpdateAuxImpl &aux,
     threadsafe_boost_fibers_promise<find_result_type> &promise, NodeCursor root,
     NibblesView const key)
 
@@ -142,8 +127,7 @@ void find_recursive(
             key.substr(static_cast<unsigned char>(prefix_index) + 1u);
         auto const child_index = node->to_child_index(branch);
         if (node->next(child_index) != nullptr) {
-            find_recursive(
-                aux, inflights, promise, *node->next(child_index), next_key);
+            find_recursive(aux, promise, *node->next(child_index), next_key);
             return;
         }
         if (aux.io->owning_thread_id() != get_tl_tid()) {
@@ -152,18 +136,12 @@ void find_recursive(
                  find_result::need_to_continue_in_io_thread});
             return;
         }
-        chunk_offset_t const offset = node->fnext(child_index);
-        auto cont = [&aux, &inflights, &promise, next_key](
-                        NodeCursor node_cursor) -> result<void> {
-            find_recursive(aux, inflights, promise, node_cursor, next_key);
+        auto const cont =
+            [&aux, &promise, next_key](NodeCursor node_cursor) -> result<void> {
+            find_recursive(aux, promise, node_cursor, next_key);
             return success();
         };
-        if (auto lt = inflights.find(offset); lt != inflights.end()) {
-            lt->second.emplace_back(cont);
-            return;
-        }
-        inflights[offset].emplace_back(cont);
-        find_receiver receiver(aux, inflights, node, branch);
+        find_receiver receiver(aux, cont, node, branch);
         detail::initiate_async_read_update(
             *aux.io, std::move(receiver), receiver.bytes_to_read);
     }
@@ -175,11 +153,10 @@ void find_recursive(
 }
 
 void find_notify_fiber_future(
-    UpdateAuxImpl &aux, inflight_map_t &inflights,
-    fiber_find_request_t const req)
+    UpdateAuxImpl &aux, fiber_find_request_t const req)
 {
     auto g(aux.shared_lock());
-    find_recursive(aux, inflights, *req.promise, req.start, req.key);
+    find_recursive(aux, *req.promise, req.start, req.key);
 }
 
 MONAD_MPT_NAMESPACE_END

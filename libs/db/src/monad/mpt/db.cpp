@@ -434,7 +434,6 @@ struct Db::RWOnDisk final : public Db::Impl
         // Runs in the triedb worker thread
         void run()
         {
-            inflight_map_t inflights;
             ::boost::container::deque<
                 threadsafe_boost_fibers_promise<find_result_type>>
                 find_promises;
@@ -469,7 +468,7 @@ struct Db::RWOnDisk final : public Db::Impl
                         // emptied when its future gets destroyed.
                         find_promises.emplace_back(std::move(*req->promise));
                         req->promise = &find_promises.back();
-                        find_notify_fiber_future(aux, inflights, *req);
+                        find_notify_fiber_future(aux, *req);
                     }
                     else if (auto *req = std::get_if<2>(&request.front());
                              req != nullptr) {

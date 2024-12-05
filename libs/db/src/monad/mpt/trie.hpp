@@ -1006,11 +1006,6 @@ enum class find_result : uint8_t
 };
 using find_result_type = std::pair<NodeCursor, find_result>;
 
-using inflight_map_t = unordered_dense_map<
-    chunk_offset_t,
-    std::vector<std::function<MONAD_ASYNC_NAMESPACE::result<void>(NodeCursor)>>,
-    chunk_offset_t_hasher>;
-
 // The request type to put to the fiber buffered channel for triedb thread
 // to work on
 struct fiber_find_request_t
@@ -1027,8 +1022,7 @@ static_assert(std::is_trivially_copyable_v<fiber_find_request_t> == true);
 //! \warning this is not threadsafe, should only be called from triedb thread
 // during execution, DO NOT invoke it directly from a transaction fiber, as is
 // not race free.
-void find_notify_fiber_future(
-    UpdateAuxImpl &, inflight_map_t &inflights, fiber_find_request_t);
+void find_notify_fiber_future(UpdateAuxImpl &, fiber_find_request_t);
 
 /*! \brief blocking find node indexed by key from root, It works for bothon-disk
 and in-memory trie. When node along key is not yet in memory, it load node

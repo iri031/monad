@@ -402,9 +402,8 @@ TYPED_TEST(PlainTrieTest, large_values)
     {
         monad::threadsafe_boost_fibers_promise<find_result_type> p;
         auto fut = p.get_future();
-        inflight_map_t inflights;
         fiber_find_request_t const req{&p, *this->root, key1};
-        find_notify_fiber_future(this->aux, inflights, req);
+        find_notify_fiber_future(this->aux, req);
         while (fut.wait_for(std::chrono::seconds(0)) !=
                ::boost::fibers::future_status::ready) {
             this->aux.io->wait_until_done();
@@ -421,9 +420,8 @@ TYPED_TEST(PlainTrieTest, large_values)
     {
         monad::threadsafe_boost_fibers_promise<find_result_type> p;
         auto fut = p.get_future();
-        inflight_map_t inflights;
         fiber_find_request_t const req{&p, *this->root, key2};
-        find_notify_fiber_future(this->aux, inflights, req);
+        find_notify_fiber_future(this->aux, req);
         while (fut.wait_for(std::chrono::seconds(0)) !=
                ::boost::fibers::future_status::ready) {
             this->aux.io->wait_until_done();

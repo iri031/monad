@@ -26,14 +26,14 @@ namespace
     using namespace MONAD_ASYNC_NAMESPACE;
 
     void find(
-        UpdateAuxImpl *aux, inflight_map_t *const inflights, Node *const root,
-        monad::byte_string_view const key, monad::byte_string_view const value)
+        UpdateAuxImpl *aux, Node *const root, monad::byte_string_view const key,
+        monad::byte_string_view const value)
     {
         monad::threadsafe_boost_fibers_promise<monad::mpt::find_result_type>
             promise;
         fiber_find_request_t const request{
             .promise = &promise, .start = NodeCursor{*root}, .key = key};
-        find_notify_fiber_future(*aux, *inflights, request);
+        find_notify_fiber_future(*aux, request);
         auto const [it, errc] = request.promise->get_future().get();
         ASSERT_TRUE(it.is_valid());
         EXPECT_EQ(errc, monad::mpt::find_result::success);
@@ -60,11 +60,9 @@ namespace
             root_hash(),
             0xcbb6d81afdc76fec144f6a1a283205d42c03c102a94fc210b3a1bcfdcb625884_hex);
 
-        inflight_map_t inflights;
         boost::fibers::fiber find_fiber(
             find,
             &this->aux,
-            &inflights,
             root.get(),
             one_hundred_updates[0].first,
             one_hundred_updates[0].second);
@@ -87,11 +85,9 @@ namespace
             root_hash(),
             0xcbb6d81afdc76fec144f6a1a283205d42c03c102a94fc210b3a1bcfdcb625884_hex);
 
-        inflight_map_t inflights;
         std::vector<boost::fibers::fiber> fibers;
         for (auto const &[key, val] : one_hundred_updates) {
-            fibers.emplace_back(
-                find, &this->aux, &inflights, root.get(), key, val);
+            fibers.emplace_back(find, &this->aux, root.get(), key, val);
         }
 
         bool signal_done = false;

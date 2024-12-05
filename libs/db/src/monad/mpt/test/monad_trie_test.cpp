@@ -728,19 +728,13 @@ int main(int argc, char *argv[])
 
                 uint64_t ops{0};
                 bool signal_done{false};
-                inflight_node_t inflights;
                 std::vector<std::unique_ptr<connected_state_type>> states;
                 states.reserve(random_read_benchmark_threads);
                 for (uint32_t n = 0; n < random_read_benchmark_threads; n++) {
                     states.emplace_back(new auto(connect(
                         *aux.io,
                         find_request_sender{
-                            aux,
-                            inflights,
-                            state_start,
-                            NibblesView{},
-                            true,
-                            5},
+                            aux, state_start, NibblesView{}, true, 5},
                         receiver_t(
                             ops, signal_done, n_slices, state_start, n))));
                 }
@@ -783,8 +777,7 @@ int main(int argc, char *argv[])
 
                 uint64_t ops{0};
                 bool signal_done{false};
-                inflight_map_t inflights;
-                auto find = [n_slices, &ops, &signal_done, &inflights](
+                auto find = [n_slices, &ops, &signal_done](
                                 UpdateAuxImpl *aux,
                                 NodeCursor state_start,
                                 unsigned n) {
@@ -803,7 +796,7 @@ int main(int argc, char *argv[])
                             .promise = &promise,
                             .start = state_start,
                             .key = key};
-                        find_notify_fiber_future(*aux, inflights, request);
+                        find_notify_fiber_future(*aux, request);
                         auto const [node_cursor, errc] =
                             request.promise->get_future().get();
                         MONAD_ASSERT(node_cursor.is_valid());
@@ -905,7 +898,6 @@ int main(int argc, char *argv[])
                     }
                 };
                 auto poll = [&signal_done, &req](UpdateAuxImpl *aux) {
-                    inflight_map_t inflights;
                     fiber_find_request_t request;
                     for (;;) {
                         boost::this_fiber::yield();
@@ -917,7 +909,7 @@ int main(int argc, char *argv[])
                             return;
                         }
                         if (req.try_dequeue(request)) {
-                            find_notify_fiber_future(*aux, inflights, request);
+                            find_notify_fiber_future(*aux, request);
                         }
                     }
                 };
@@ -945,10 +937,9 @@ int main(int argc, char *argv[])
                 std::cout << "   Joining threads 1 ..." << std::endl;
                 while (signal_done < int(random_read_benchmark_threads + 1)) {
                     boost::this_fiber::yield();
-                    inflight_map_t inflights;
                     fiber_find_request_t request;
                     if (req.try_dequeue(request)) {
-                        find_notify_fiber_future(aux, inflights, request);
+                        find_notify_fiber_future(aux, request);
                     }
                 }
                 std::cout << "   Joining threads 2 ..." << std::endl;
@@ -986,12 +977,9 @@ int main(int argc, char *argv[])
                             p;
                         monad::byte_string key;
                         fiber_find_request_t request;
-                        inflight_map_t &inflights;
 
-                        explicit receiver_t(
-                            UpdateAuxImpl &aux_, inflight_map_t &inflights_)
+                        explicit receiver_t(UpdateAuxImpl &aux_)
                             : aux(aux_)
-                            , inflights(inflights_)
                         {
                             key.resize(32);
                         }
@@ -1011,21 +999,19 @@ int main(int argc, char *argv[])
                         {
                             MONAD_ASSERT(res);
                             // We are now on the triedb thread
-                            find_notify_fiber_future(aux, inflights, request);
+                            find_notify_fiber_future(aux, request);
                         }
                     };
-                    inflight_map_t inflights;
                     using connected_state_type = decltype(connect(
                         *aux.io,
                         MONAD_ASYNC_NAMESPACE::threadsafe_sender{},
-                        receiver_t{aux, inflights}));
+                        receiver_t{aux}));
                     auto states = ::monad::make_array<connected_state_type, 4>(
                         std::piecewise_construct,
                         *aux.io,
                         std::piecewise_construct,
                         std::tuple{},
-                        std::tuple<UpdateAuxImpl &, inflight_map_t &>{
-                            aux, inflights});
+                        std::tuple<UpdateAuxImpl &>{aux});
                     auto *state_it = states.begin();
                     while (0 == signal_done.load(std::memory_order_relaxed)) {
                         auto &state = *state_it++;
