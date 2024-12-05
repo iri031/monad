@@ -228,7 +228,6 @@ TEST_F(StateSyncFixture, genesis)
     auto target = make_target(
         0,
         0xd7f8974fb5ac78d9ac099b9ad5018bedc2ce0a72dad1827a1709da30580f0544_bytes32);
-    read_genesis(cctx->genesis, cctx->tdb);
     EXPECT_TRUE(monad_statesync_client_finalize(cctx, target));
 }
 

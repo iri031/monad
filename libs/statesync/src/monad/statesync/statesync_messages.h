@@ -13,7 +13,7 @@ extern "C"
 enum monad_sync_type : uint8_t
 {
     SYNC_TYPE_REQUEST = 0,
-    SYNC_TYPE_TARGET = 1,
+    // unused was TARGET
     SYNC_TYPE_DONE = 2,
     SYNC_TYPE_UPSERT_CODE = 3,
     SYNC_TYPE_UPSERT_ACCOUNT = 4,

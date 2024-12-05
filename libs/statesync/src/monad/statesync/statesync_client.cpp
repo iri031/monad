@@ -73,6 +73,10 @@ bool monad_statesync_client_finalize(
         return false;
     }
 
+    if (sync_target.n == 0) {
+        read_genesis(ctx->genesis, ctx->tdb);
+    }
+
     if (ctx->db.get_latest_block_id() != sync_target.n) {
         ctx->db.move_trie_version_forward(
             ctx->db.get_latest_block_id(), sync_target.n);

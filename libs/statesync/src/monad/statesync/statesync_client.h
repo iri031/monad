@@ -7,7 +7,6 @@ extern "C"
 {
 #endif
 
-struct monad_statesync_client;
 struct monad_statesync_client_context;
 
 struct monad_statesync_client_context *monad_statesync_client_context_create(
@@ -21,8 +20,8 @@ void monad_statesync_client_handle_new_peer(
     struct monad_statesync_client_context *, uint64_t prefix, uint32_t version);
 
 bool monad_statesync_client_handle_upsert(
-    struct monad_statesync_client_context *, uint64_t prefix,
-    enum monad_sync_type, unsigned char const *, uint64_t);
+    struct monad_statesync_client_context *ctx, uint64_t prefix,
+    enum monad_sync_type sync_type, unsigned char const *val, uint64_t len);
 
 bool monad_statesync_client_finalize(
     struct monad_statesync_client_context *, struct monad_sync_target);
