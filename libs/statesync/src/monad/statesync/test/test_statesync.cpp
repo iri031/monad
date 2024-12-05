@@ -206,6 +206,10 @@ TEST_F(StateSyncFixture, sync_from_latest)
             parent_hash = to_bytes(
                 keccak256(rlp::encode_block_header(tdb.read_header().value())));
         }
+        // client commit some proposal to the target version but not finalized
+        tdb.set(N, N, N - 1);
+        tdb.commit({}, {}, BlockHeader{});
+
         load_db(tdb, N);
         init();
     }
@@ -233,6 +237,18 @@ TEST_F(StateSyncFixture, sync_from_empty)
                 rlp::encode_block_header(stdb.read_header().value())));
         }
         load_db(stdb, N);
+
+        {
+            OnDiskMachine machine;
+            mpt::Db cdb{
+                machine,
+                mpt::OnDiskDbConfig{.append = true, .dbname_paths = {cdbname}}};
+            TrieDb ctdb{cdb};
+            ctdb.set(N, N - 1, 0); // proposal N
+            ctdb.commit({}, {}, BlockHeader{});
+            ASSERT_EQ(cdb.get_latest_block_id(), N);
+            ASSERT_EQ(cdb.get_latest_finalized_block_id(), INVALID_BLOCK_ID);
+        }
         init();
     }
     BlockHeader const tgrt{
@@ -274,6 +290,10 @@ TEST_F(StateSyncFixture, sync_from_some)
             machine, OnDiskDbConfig{.append = true, .dbname_paths = {cdbname}}};
         TrieDb tdb{db};
         read_genesis(genesis, tdb);
+        // client commit some proposal to the target version but not finalized
+        tdb.set(1, 1, 0);
+        tdb.commit({}, {}, BlockHeader{});
+
         read_genesis(genesis, stdb);
         init();
     }
@@ -495,6 +515,46 @@ TEST_F(StateSyncFixture, sync_from_some)
     handle_target(cctx, hdr6);
     run();
 
+    EXPECT_TRUE(monad_statesync_client_finalize(cctx));
+}
+
+TEST_F(StateSyncFixture, sync_client_has_proposals)
+{
+    {
+        // init client DB
+        OnDiskMachine machine;
+        mpt::Db db{
+            machine, OnDiskDbConfig{.append = true, .dbname_paths = {cdbname}}};
+        TrieDb tdb{db};
+        for (uint64_t n = 1; n <= 249; ++n) {
+            BlockHeader hdr{.number = n, .parent_hash = NULL_HASH};
+            tdb.set(n, n, n - 1);
+            tdb.commit({}, {}, hdr);
+        }
+    }
+
+    constexpr auto N = 300;
+    bytes32_t parent_hash{NULL_HASH};
+    {
+        // init server db
+        for (size_t i = N - 256; i < N; ++i) {
+            stdb.set_block_number(i);
+            BlockHeader const hdr{.number = i, .parent_hash = parent_hash};
+            stdb.commit({}, {}, hdr);
+            parent_hash = to_bytes(keccak256(
+                rlp::encode_block_header(stdb.read_header().value())));
+        }
+        load_db(stdb, N);
+        init();
+    }
+    BlockHeader const tgrt{
+        .number = N,
+        .parent_hash = parent_hash,
+        .state_root =
+            0xb9eda41f4a719d9f2ae332e3954de18bceeeba2248a44110878949384b184888_bytes32};
+    handle_target(cctx, tgrt);
+    run();
+    EXPECT_TRUE(monad_statesync_client_has_reached_target(cctx));
     EXPECT_TRUE(monad_statesync_client_finalize(cctx));
 }
 
