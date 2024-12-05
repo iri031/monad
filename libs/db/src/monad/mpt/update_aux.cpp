@@ -986,7 +986,7 @@ void UpdateAuxImpl::move_trie_version_forward(
         dest >= db_history_max_version());
     auto g(unique_lock());
     auto g2(set_current_upsert_tid());
-    auto const offset = get_latest_root_offset();
+    auto const offset = get_root_offset_at_version(src);
     update_root_offset(src, INVALID_OFFSET);
     fast_forward_next_version(dest);
     append_root_offset(offset);

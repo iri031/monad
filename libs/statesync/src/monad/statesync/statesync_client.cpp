@@ -154,6 +154,7 @@ bool monad_statesync_client_finalize(monad_statesync_client_context *const ctx)
     if (ctx->db.get_latest_finalized_block_id() != tgrt.number) {
         ctx->db.move_trie_version_forward(
             ctx->db.get_latest_finalized_block_id(), tgrt.number);
+        MONAD_ASSERT(ctx->db.get(finalized_nibbles, tgrt.number).has_value());
         ctx->db.update_finalized_block(tgrt.number);
         bytes32_t expected = tgrt.parent_hash;
         for (size_t i = 0; i < std::min(tgrt.number, 256ul); ++i) {
@@ -188,7 +189,7 @@ bool monad_statesync_client_finalize(monad_statesync_client_context *const ctx)
 
     TrieDb db{ctx->db};
     MONAD_ASSERT(db.get_block_number() == tgrt.number);
-
+    MONAD_ASSERT(ctx->db.get(finalized_nibbles, tgrt.number).has_value());
     return db.state_root() == tgrt.state_root;
 }
 
