@@ -679,6 +679,9 @@ struct Db::RWOnDisk final : public Db::Impl
                 aux_.~UpdateAux<>();
                 new (&aux_)
                     UpdateAux<>{&worker_->io, options.fixed_history_length};
+                if (options.rewind_to_latest_finalized) {
+                    aux_.rewind_to_version(aux_.get_latest_finalized_version());
+                }
             }
             worker_->run();
             std::unique_lock const g(lock_);

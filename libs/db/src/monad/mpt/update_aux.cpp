@@ -342,6 +342,22 @@ void UpdateAuxImpl::rewind_to_match_offsets()
 
 void UpdateAuxImpl::rewind_to_version(uint64_t const version)
 {
+    if (version == db_history_max_version()) {
+        return;
+    }
+    if (version == INVALID_BLOCK_ID) { // clear the whole disk
+        auto do_ = [&](detail::db_metadata *m) {
+            auto g = m->hold_dirty();
+            root_offsets(m == db_metadata_[1].main).reset_all(0);
+        };
+        do_(db_metadata_[0].main);
+        do_(db_metadata_[1].main);
+        advance_db_offsets_to(
+            {db_metadata()->fast_list.begin, 0},
+            {db_metadata()->slow_list.begin, 0});
+        rewind_to_match_offsets();
+        return;
+    }
     MONAD_ASSERT(version_is_valid_ondisk(version));
     MONAD_ASSERT(is_on_disk());
     auto do_ = [&](detail::db_metadata *m) {

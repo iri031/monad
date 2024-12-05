@@ -22,6 +22,7 @@ monad_statesync_client_context::monad_statesync_client_context(
          mpt::OnDiskDbConfig{
              .append = true,
              .compaction = false,
+             .rewind_to_latest_finalized = true,
              .rd_buffers = 8192,
              .wr_buffers = 32,
              .uring_entries = 128,
@@ -30,11 +31,10 @@ monad_statesync_client_context::monad_statesync_client_context(
     , tdb{db}
     , progress(
           monad_statesync_client_prefixes(),
-          {db.get_latest_finalized_block_id(),
-           db.get_latest_finalized_block_id()})
+          {db.get_latest_block_id(), db.get_latest_block_id()})
     , protocol(monad_statesync_client_prefixes())
     , tgrt{BlockHeader{.number = mpt::INVALID_BLOCK_ID}}
-    , current{db.get_latest_finalized_block_id() == mpt::INVALID_BLOCK_ID ? 0 : db.get_latest_finalized_block_id() + 1}
+    , current{db.get_latest_block_id() == mpt::INVALID_BLOCK_ID ? 0 : db.get_latest_block_id() + 1}
     , n_upserts{0}
     , genesis{genesis}
     , sync{sync}
@@ -123,7 +123,6 @@ void monad_statesync_client_context::commit()
     finalized_updates.push_front(finalized);
 
     db.upsert(std::move(finalized_updates), current, false, false);
-    db.update_finalized_block(current);
 
     tdb.set_block_number(current);
     for (auto const &hash : upserted) {
