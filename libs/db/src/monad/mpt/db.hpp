@@ -111,7 +111,6 @@ public:
 
     bool is_on_disk() const;
     bool is_read_only() const;
-    uint64_t current_block_id() const;
 };
 
 // The following are not threadsafe. Please use async get from the RODb owning

@@ -35,9 +35,7 @@ class TrieDb final : public ::monad::Db
     uint64_t block_number_;
     // upsert to finalized if it is nullopt
     std::optional<uint64_t> round_number_{std::nullopt};
-    ::monad::mpt::NodeCursor read_cursor_{};
-
-    void load_read_cursor(); // from block_number_ and round_number_
+    ::monad::mpt::Nibbles prefix_{finalized_nibbles};
 
 public:
     TrieDb(mpt::Db &);

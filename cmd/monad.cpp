@@ -448,7 +448,7 @@ int main(int const argc, char const *argv[])
             TrieDb tdb{db};
             read_genesis(genesis, tdb);
         }
-        return db.current_block_id();
+        return triedb.get_block_number();
     }();
 
     std::optional<monad_statesync_server_context> ctx;

@@ -28,7 +28,7 @@ monad_statesync_client_context::monad_statesync_client_context(
              .uring_entries = 128,
              .sq_thread_cpu = get_nprocs() - 1,
              .dbname_paths = dbname_paths}}
-    , tdb{db}
+    , tdb{db} // open with latest finalized if valid, otherwise init as block 0
     , progress(
           monad_statesync_client_prefixes(),
           {db.get_latest_block_id(), db.get_latest_block_id()})
@@ -40,31 +40,11 @@ monad_statesync_client_context::monad_statesync_client_context(
     , sync{sync}
     , statesync_send_request{statesync_send_request}
 {
-    auto const tdb_block_number = tdb.get_block_number();
     MONAD_ASSERT(db.get(finalized_nibbles, current).has_error());
     if (auto const latest_block = db.get_latest_block_id();
         latest_block != mpt::INVALID_BLOCK_ID) {
         MONAD_ASSERT(db.get(finalized_nibbles, latest_block).has_value());
     }
-    /*
-    WARNING: Direct access to mpt::Db owned by TrieDb must be handled with
-    extreme caution to avoid lifetime and correctness issues.
-    This is because any direct call to db.get() or db.upsert() can swap out the
-    root of rwdb. However, TrieDb holds a node cursor for reading and is unaware
-    when the underlying mpt::Db root becomes outdated. Continuing to look up
-    from an outdated node cursor can lead to a use-after-free error.
-
-    If TrieDb continues reading from a non-owned NodeCursor, you must reset the
-    tdb block number after any db.get() operation by tdb.set_block_number() like
-    below.
-
-    A more robust solution is to avoid having TrieDb maintain a non-owned
-    NodeCursor. Instead, TrieDb could record a prefix to read from directly.
-    The downside, however, is that it introduces additional overhead due
-    to prefix concatenation and redundant prefix lookups.
-    */
-    tdb.set_block_number(tdb_block_number);
-    MONAD_ASSERT(db.current_block_id() == tdb_block_number);
 }
 
 void monad_statesync_client_context::commit()
