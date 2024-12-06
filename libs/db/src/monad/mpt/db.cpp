@@ -88,7 +88,6 @@ struct Db::Impl
         size_t concurrency_limit) = 0;
     virtual void
     move_trie_version_fiber_blocking(uint64_t src, uint64_t dest) = 0;
-    virtual uint64_t current_block_id() const = 0;
     virtual void update_finalized_block(uint64_t) = 0;
     virtual void update_verified_block(uint64_t) = 0;
     virtual uint64_t get_latest_finalized_block_id() const = 0;
@@ -239,11 +238,6 @@ struct Db::ROOnDisk final : public Db::Impl
         return root_ ? NodeCursor{*root_} : NodeCursor{};
     }
 
-    virtual uint64_t current_block_id() const override
-    {
-        return root_version_;
-    }
-
     virtual void update_finalized_block(uint64_t) override
     {
         MONAD_ASSERT(false);
@@ -286,11 +280,6 @@ struct Db::InMemory final : public Db::Impl
     virtual UpdateAux<> &aux() override
     {
         return aux_;
-    }
-
-    virtual uint64_t current_block_id() const override
-    {
-        return root_version_;
     }
 
     virtual void upsert_fiber_blocking(
@@ -727,11 +716,6 @@ struct Db::RWOnDisk final : public Db::Impl
         return aux_;
     }
 
-    virtual uint64_t current_block_id() const override
-    {
-        return root_version_;
-    }
-
     // threadsafe
     virtual find_result_type find_fiber_blocking(
         NodeCursor const &start, NibblesView const &key, uint64_t = 0) override
@@ -1067,12 +1051,6 @@ NodeCursor Db::root() const noexcept
 {
     MONAD_ASSERT(impl_);
     return impl_->root() ? NodeCursor{*impl_->root()} : NodeCursor{};
-}
-
-uint64_t Db::current_block_id() const
-{
-    MONAD_ASSERT(impl_);
-    return impl_->current_block_id();
 }
 
 void Db::update_finalized_block(uint64_t const block_id)
