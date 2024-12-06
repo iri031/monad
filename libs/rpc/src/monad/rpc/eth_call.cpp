@@ -418,15 +418,8 @@ struct monad_eth_call_executor
         : pool_{num_threads, num_fibers, true}
         , db_{[&] {
             std::vector<std::filesystem::path> paths;
-            if (std::filesystem::is_directory(triedb_path)) {
-                for (auto const &file :
-                     std::filesystem::directory_iterator(triedb_path)) {
-                    paths.emplace_back(file.path());
-                }
-            }
-            else {
-                paths.emplace_back(triedb_path);
-            }
+    MONAD_ASSERT(!std::filesystem::is_directory(triedb_path));
+        paths.emplace_back(triedb_path);
 
             // create the db instances on the PriorityPool thread so all the
             // thread local storage gets instantiated on the one thread its
