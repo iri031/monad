@@ -1535,7 +1535,10 @@ opened.
                  << aux.db_history_min_valid_version() << " latest is "
                  << aux.db_history_max_version()
                  << ".\n     It has been configured to retain no more than "
-                 << aux.version_history_length() << ".\n";
+                 << aux.version_history_length()
+                 << ".\n     Latest finalized is "
+                 << aux.get_latest_finalized_version() << " latest verified is "
+                 << aux.get_latest_verified_version() << "\n";
 
             if (impl.rewind_database_to) {
                 if (*impl.rewind_database_to <
@@ -1558,6 +1561,16 @@ opened.
                        << aux.db_history_max_version() << ". Are you sure?\n";
                     impl.cli_ask_question(ss.str().c_str());
                     aux.rewind_to_version(*impl.rewind_database_to);
+                    if (*impl.rewind_database_to <
+                        aux.get_latest_finalized_version()) {
+                        aux.set_latest_finalized_version(
+                            *impl.rewind_database_to);
+                    }
+                    if (*impl.rewind_database_to <
+                        aux.get_latest_verified_version()) {
+                        aux.set_latest_verified_version(
+                            *impl.rewind_database_to);
+                    }
                     cout << "\nSuccess! Now:\n";
                     impl.print_list_info(
                         aux, aux.db_metadata()->fast_list_begin(), "Fast");
