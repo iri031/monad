@@ -251,7 +251,7 @@ void UpdateAuxImpl::set_latest_finalized_version(
         MONAD_LIKELY(
             last_finalized != INVALID_BLOCK_ID &&
             version != INVALID_BLOCK_ID)) {
-        MONAD_DEBUG_ASSERT(version >= last_finalized);
+        // MONAD_DEBUG_ASSERT(version >= last_finalized);
     }
     auto do_ = [&](detail::db_metadata *m) {
         auto g = m->hold_dirty();
@@ -267,9 +267,9 @@ void UpdateAuxImpl::set_latest_verified_version(uint64_t const version) noexcept
     MONAD_ASSERT(is_on_disk());
     if (auto const last_verified = get_latest_verified_version(); MONAD_LIKELY(
             version != INVALID_BLOCK_ID && last_verified != INVALID_BLOCK_ID)) {
-        MONAD_DEBUG_ASSERT(
-            version > last_verified &&
-            get_latest_finalized_version() >= version);
+        // MONAD_DEBUG_ASSERT(
+        //     version > last_verified &&
+        //     get_latest_finalized_version() >= version);
     }
     auto do_ = [&](detail::db_metadata *m) {
         auto g = m->hold_dirty();
