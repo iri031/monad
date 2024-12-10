@@ -36,8 +36,8 @@ class ParallelCommitSystem
      * @param addresses The addresses to wait for. empty addresses means wait for all addresses.
      */
     void waitForTrasactionsAccessingAddresses(
-        txindex_t myindex, std::vector<evmc::address> const = {}){
-            promises[myindex].get_future().wait();
+        txindex_t, std::vector<evmc::address> const = {}){
+            // promises[myindex].get_future().wait();
     }
 
     void notifyDone(txindex_t myindex)
