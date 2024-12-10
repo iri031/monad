@@ -10,6 +10,7 @@
 #include <monad/core/transaction.hpp>
 #include <monad/execution/evmc_host.hpp>
 #include <monad/execution/execute_transaction.hpp>
+#include <monad/execution/parallel_commit_system.hpp>
 #include <monad/execution/explicit_evmc_revision.hpp>
 #include <monad/execution/trace/call_frame.hpp>
 #include <monad/execution/trace/call_tracer.hpp>
