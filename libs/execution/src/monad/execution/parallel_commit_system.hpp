@@ -28,7 +28,7 @@ enum class TransactionStatus : uint8_t
 class ParallelCommitSystem
 {
     public:
-    using txindex_t = uint32_t;
+    using txindex_t = uint64_t;
 
     /**
      * @brief Wait for transactions that access the given addresses to finish.
@@ -36,7 +36,7 @@ class ParallelCommitSystem
      * @param addresses The addresses to wait for. empty addresses means wait for all addresses.
      */
     void waitForTrasactionsAccessingAddresses(
-        txindex_t myindex, std::vector<evmc::address> const &addresses){
+        txindex_t myindex, std::vector<evmc::address> const = {}){
             promises[myindex].get_future().wait();
     }
 
@@ -45,7 +45,7 @@ class ParallelCommitSystem
         promises[myindex + 1].set_value();
     }
 
-    ParallelCommitSystem(uint32_t num_transactions)
+    ParallelCommitSystem(txindex_t num_transactions)
     {
         promises = new boost::fibers::promise<void>[num_transactions + 1];
         promises[0].set_value();

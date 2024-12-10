@@ -6,6 +6,7 @@
 #include <monad/core/receipt.hpp>
 #include <monad/core/result.hpp>
 #include <monad/execution/trace/call_frame.hpp>
+#include <monad/execution/parallel_commit_system.hpp>
 
 #include <evmc/evmc.h>
 
@@ -42,12 +43,13 @@ template <evmc_revision rev>
 Result<ExecutionResult> execute_impl(
     Chain const &, uint64_t i, Transaction const &, Address const &sender,
     BlockHeader const &, BlockHashBuffer const &, BlockState &,
-    boost::fibers::promise<void> &prev);
+    ParallelCommitSystem &);
 
 template <evmc_revision rev>
 Result<ExecutionResult> execute(
     Chain const &, uint64_t i, Transaction const &,
     std::optional<Address> const &, BlockHeader const &,
-    BlockHashBuffer const &, BlockState &, boost::fibers::promise<void> &prev);
+    BlockHashBuffer const &, BlockState &, ParallelCommitSystem &);
 
 MONAD_NAMESPACE_END
+

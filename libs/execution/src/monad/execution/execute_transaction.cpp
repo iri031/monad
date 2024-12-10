@@ -202,7 +202,7 @@ Result<ExecutionResult> execute_impl(
     Chain const &chain, uint64_t const i, Transaction const &tx,
     Address const &sender, BlockHeader const &hdr,
     BlockHashBuffer const &block_hash_buffer, BlockState &block_state,
-    boost::fibers::promise<void> &prev)
+    ParallelCommitSystem &parallel_commit_system)
 {
     BOOST_OUTCOME_TRY(static_validate_transaction<rev>(
         tx, hdr.base_fee_per_gas, chain.get_chain_id()));
@@ -224,7 +224,7 @@ Result<ExecutionResult> execute_impl(
 
         {
             TRACE_TXN_EVENT(StartStall);
-            prev.get_future().wait();
+            parallel_commit_system.waitForTrasactionsAccessingAddresses(i);
         }
 
         if (block_state.can_merge(state)) {
@@ -288,7 +288,7 @@ Result<ExecutionResult> execute(
     Chain const &chain, uint64_t const i, Transaction const &tx,
     std::optional<Address> const &sender, BlockHeader const &hdr,
     BlockHashBuffer const &block_hash_buffer, BlockState &block_state,
-    boost::fibers::promise<void> &prev)
+    ParallelCommitSystem &parallel_commit_system)
 {
     TRACE_TXN_EVENT(StartTxn);
 
@@ -304,7 +304,7 @@ Result<ExecutionResult> execute(
         hdr,
         block_hash_buffer,
         block_state,
-        prev);
+        parallel_commit_system);
 }
 
 EXPLICIT_EVMC_REVISION(execute);

@@ -135,9 +135,8 @@ Result<std::vector<ExecutionResult>> execute_block(
     std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
         new std::optional<Result<ExecutionResult>>[block.transactions.size()]};
 
-    promises.reset(
-        new boost::fibers::promise<void>[block.transactions.size() + 1]);
-    promises[0].set_value();
+    ParallelCommitSystem parallel_commit_system{block.transactions.size()};
+
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         priority_pool.submit(
@@ -145,8 +144,8 @@ Result<std::vector<ExecutionResult>> execute_block(
             [&chain = chain,
              i = i,
              results = results,
-             promises = promises,
              &transaction = block.transactions[i],
+             &parallel_commit_system = parallel_commit_system,
              &sender = senders[i],
              &header = block.header,
              &block_hash_buffer = block_hash_buffer,
@@ -159,13 +158,13 @@ Result<std::vector<ExecutionResult>> execute_block(
                     header,
                     block_hash_buffer,
                     block_state,
-                    promises[i]);
-                promises[i + 1].set_value();
+                    parallel_commit_system);
+                parallel_commit_system.notifyDone(i);
             });
     }
 
     auto const last = static_cast<std::ptrdiff_t>(block.transactions.size());
-    promises[last].get_future().wait();
+    parallel_commit_system.waitForTrasactionsAccessingAddresses(last);
 
     std::vector<ExecutionResult> retvals;
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
