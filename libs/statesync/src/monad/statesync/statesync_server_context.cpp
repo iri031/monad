@@ -40,6 +40,13 @@ void on_commit(
     }
     else {
         MONAD_ASSERT(it->block_number == n);
+        if (MONAD_UNLIKELY(it->block_number != n)) {
+            MONAD_ABORT(
+                "Duplicate proposal for round %lu. Expected block %lu, got %lu",
+                round_number,
+                it->block_number,
+                n);
+        }
         it->deletion.clear(); // duplicate round always takes precedence
     }
 
