@@ -519,9 +519,9 @@ int main(int const argc, char const *argv[])
                     rlp::decode_bytes32(encoded_bft_id.value());
                 MONAD_ASSERT(bft_block_id.has_value());
                 monad_execution_event rewind_ev{
-                    .kind = MONAD_FINALIZE_BLOCK, .id = bft_block_id.value()};
+                    .kind = MONAD_PROPOSE_BLOCK, .id = bft_block_id.value()};
                 if (emitter->rewind_to_event(rewind_ev)) {
-                    emitter->next_event(); // dont replay the finalization
+                    emitter->next_event(); // skip this proposal
                 }
             }
             return {std::make_unique<MonadDevnet>(), std::move(emitter)};
