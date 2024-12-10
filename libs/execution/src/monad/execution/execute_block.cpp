@@ -13,6 +13,7 @@
 #include <monad/execution/ethereum/dao.hpp>
 #include <monad/execution/execute_block.hpp>
 #include <monad/execution/execute_transaction.hpp>
+#include <monad/execution/parallel_commit_system.hpp>
 #include <monad/execution/explicit_evmc_revision.hpp>
 #include <monad/execution/switch_evmc_revision.hpp>
 #include <monad/execution/trace/event_trace.hpp>
