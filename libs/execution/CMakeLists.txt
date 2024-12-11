@@ -148,6 +148,34 @@ target_include_directories(
   PRIVATE ${Boost_INCLUDE_DIRS}
   PUBLIC ${silkpre_SOURCE_DIR}/lib)
 
+set(BN_SOURCE_DIR "${PROJECT_SOURCE_DIR}/bn_wrapper")
+set(BN_BINARY_DIR "${CMAKE_BINARY_DIR}/libs/execution")
+
+add_library(bn_wrapper STATIC IMPORTED)
+
+set_target_properties(bn_wrapper PROPERTIES
+  IMPORTED_LOCATION "${BN_BINARY_DIR}/libbn_wrapper.a"
+  )
+
+add_custom_command(
+  OUTPUT "${BN_SOURCE_DIR}/target/release/libbn_wrapper.a"
+  COMMAND cargo build --release --manifest-path="${BN_SOURCE_DIR}/Cargo.toml"
+  WORKING_DIRECTORY "${BN_SOURCE_DIR}"
+  COMMENT "Building bn_wrapper rust project with cargo"
+)
+
+add_custom_command(
+  DEPENDS "${BN_SOURCE_DIR}/target/release/libbn_wrapper.a"
+  OUTPUT "${BN_BINARY_DIR}/libbn_wrapper.a"
+  COMMAND ${CMAKE_COMMAND} -E copy
+        "${BN_SOURCE_DIR}/target/release/libbn_wrapper.a"
+        "${BN_BINARY_DIR}/libbn_wrapper.a"
+  COMMENT "copying bn_wrapper.a to build directory"
+)
+
+add_custom_target(build_bn_wrapper DEPENDS "${BN_BINARY_DIR}/libbn_wrapper.a")
+add_dependencies(bn_wrapper build_bn_wrapper)
+
 target_link_libraries(
   monad_execution
   PUBLIC monad_core
@@ -163,6 +191,7 @@ target_link_libraries(
   PUBLIC nlohmann_json::nlohmann_json
   PUBLIC quill::quill
   PUBLIC silkpre
+  PUBLIC bn_wrapper
   PUBLIC thread_safe_lru
   PUBLIC unordered_dense
   PUBLIC TBB::tbb)
