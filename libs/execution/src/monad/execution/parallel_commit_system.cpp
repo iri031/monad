@@ -77,12 +77,42 @@ void ParallelCommitSystem::waitForPrevTransactions(txindex_t myindex) {
         }
         else {
             assert(current_status == TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED);
-            current_status = TransactionStatus::COMMITTING;
+            status_[myindex].store(TransactionStatus::COMMITTING);
         }
     }
 }
 
+bool ParallelCommitSystem::isUnblocked(TransactionStatus status) {
+    return status > TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS || status == TransactionStatus::STARTED_UNBLOCKED || status == TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED;
+}
+
+bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txindex_t index) {
+    if (isUnblocked(status)) {
+        return true;
+    }
+
+    auto all_committed_ub_ = all_committed_ub.load();
+    if (all_committed_ub_ >= index-1) {
+        unblockTransaction(status, index);
+        return true;
+    }
+}
+
 void ParallelCommitSystem::notifyDone(txindex_t myindex) {
+    status_[myindex].store(TransactionStatus::COMMITTED);
+    //TODO: update all_committed_ub
+    int num_transactions = status_.size();
+    // unblock or wake up later transactions
+    // once we hit a transaction whose footprint is not yet computed,
+    // we cannot wake up or unblock transactions after that transaction
+    // every transaction accesses at least 1 account and the uncomputed footprint may include that account.
+    for(auto index = myindex + 1; index < num_transactions; ++index) {
+        auto current_status = status_[index].load();
+        if (current_status == TransactionStatus::STARTED || current_status == TransactionStatus::STARTED_UNBLOCKED)
+            break;// footprint has not been computed yet, so it may conflict with any transaction after index
+        tryUnblockTransaction(current_status, index);
+    }
+
     // TODO: implement
 }
 

@@ -65,6 +65,20 @@ class ParallelCommitSystem
         COMMITTING=5, // committing or retrying. must be unblocked by now
         COMMITTED=6 // must be unblocked by now
     };
+    /*
+    * returns true if the transaction is unblockable, i.e. all previous transactions accessing its footprint have already committed
+    * status is expected to be a recent load from status_[index]
+    * it is just a minor optimization to avoid calling load() on status_[index] because it is already loaded in the caller
+    * 
+    */
+    bool tryUnblockTransaction(TransactionStatus status, txindex_t index);
+    static bool isUnblocked(TransactionStatus status);
+    /**
+    * status is expected to be a recent load from status_[index]
+    * it is just a minor optimization to avoid calling load() on status_[index] because it is already loaded in the caller
+    */
+    void unblockTransaction(TransactionStatus status, txindex_t index);
+
     std::vector<std::atomic<TransactionStatus>> status_;
     /**
     * all_committed_ub is the upper bound of the index of transactions that have committed their changes to block_state.
