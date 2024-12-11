@@ -9,6 +9,7 @@
 #include <set>
 #include <atomic>
 #include <unordered_map>
+#include <tbb/concurrent_unordered_set.h>
 
 #include <evmc/evmc.h>
 
@@ -17,7 +18,7 @@
 #include <cstdint>
 
 MONAD_NAMESPACE_BEGIN
-#define SEQUENTIAL 1
+#define SEQUENTIAL 0
 class ParallelCommitSystem
 {
     public:
@@ -47,12 +48,29 @@ class ParallelCommitSystem
 #if SEQUENTIAL//ideally, we should use PIMPL and move the private state to the cpp files, one for the sequential impl and one for the parallel impl
     boost::fibers::promise<void> *promises;
 #else
+    enum class TransactionStatus : uint8_t
+    {
+        STARTED,
+        FOOTPRINT_COMPUTED,
+        COMMITTED
+    };
     std::vector<std::atomic<TransactionStatus>> status_;
+    std::atomic<txindex_t> all_committed_ub; // all transactions with index <= all_committed_ub have committed their changes to block_state. this ub will not be tight as we cannot update it atomically with other fields. this field is used to optimize
     std::unordered_map<evmc::address, std::set<txindex_t>>
-        transactions_accessing_address_;
-    std::vector<std::atomic<const std::set<evmc::address> *>>
+        transactions_accessing_address_;//this excludes the transactions with "Any address" footprint
+    std::vector<const std::set<evmc::address> *>
         footprints_; // can use a shared_ptr but that will increase the
                      // memory usage. with FM, shared_ptr doesnt buy much
+                     // nullptr means "Any address" footprint (any address can be read/written)
+                     // only transaction i updates the ith element, only once. after that, it will update status_[i] from STARTED to FOOTPRINT_COMPUTED. 
+                     // other transactions will not read this until status_[i] is updated to FOOTPRINT_COMPUTED or COMMITTED.
+                     // therefore we do not need atomics.
+
+    std::vector<tbb::concurrent_unordered_set<evmc::address>>
+        pending_footprints_; // the addresses that some uncommitted transaction may still be accessing. 
+        // main invariant: any previous transaction accessing address in footprints_[i] but not in pending_footprints_[i] must committed already.
+        // pending_footprints_[i] can be updated by transaction with index less than j. such updates can only delete elements.
+        // this field is just for optimization.
 #endif
 };
 MONAD_NAMESPACE_END
