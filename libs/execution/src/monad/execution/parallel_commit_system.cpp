@@ -46,6 +46,8 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
         }
     }
 
+    tryUnblockTransactionsStartingFrom(myindex);
+
     // update status_[myindex] from STARTED to FOOTPRINT_COMPUTED, while preserving the _UNBLOCKED part which previous transactions may change concurrently when they notifyDone
     auto current_status = status_[myindex].load();
     // on non-first iterations, current_status comes from the CAS at the end of the previous iteration
@@ -138,8 +140,28 @@ void ParallelCommitSystem::tryUnblockTransactionsStartingFrom(txindex_t start) {
 
 void ParallelCommitSystem::notifyDone(txindex_t myindex) {
     status_[myindex].store(TransactionStatus::COMMITTED);
-    //TODO: update all_committed_ub
+    updateLastCommittedUb();
     tryUnblockTransactionsStartingFrom(myindex+1); // unlike before, the transaction myindex+1 cannot necesssarily be unblocked here because some transaction before myindex may not have committed and may have conflicts
+}
+
+void ParallelCommitSystem::updateLastCommittedUb() {
+    auto newUb = all_committed_ub.load() + 1;
+    while (newUb < status_.size()) {
+        if (status_[newUb].load() != TransactionStatus::COMMITTED) {
+            break;
+        }
+        newUb++;
+    }
+    advanceLastCommittedUb(newUb);
+}
+
+void ParallelCommitSystem::advanceLastCommittedUb(txindex_t minValue) {
+    txindex_t old_value = all_committed_ub.load();
+    while (old_value < minValue) {
+        if (all_committed_ub.compare_exchange_weak(old_value, minValue)) {
+            break;
+        }
+    }
 }
 
 #endif

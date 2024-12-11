@@ -75,6 +75,9 @@ class ParallelCommitSystem
     static bool isUnblocked(TransactionStatus status);
     txindex_t highestLowerIndexAccessingAddress(txindex_t index, const evmc::address& addr);
     void tryUnblockTransactionsStartingFrom(txindex_t start);
+    void updateLastCommittedUb();
+    /** update all_committed_ub so that it is at least minValue */
+    void advanceLastCommittedUb(txindex_t minValue);
     /**
     * status is expected to be a recent load from status_[index]
     * it is just a minor optimization to avoid calling load() on status_[index] because it is already loaded in the caller
