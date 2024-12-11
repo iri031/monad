@@ -73,6 +73,22 @@
         "__bit_reference": "cpp",
         "__threading_support": "cpp",
         "__verbose_abort": "cpp",
-        "ios": "cpp"
+        "ios": "cpp",
+        "any": "cpp",
+        "clocale": "cpp",
+        "codecvt": "cpp",
+        "condition_variable": "cpp",
+        "future": "cpp",
+        "iomanip": "cpp",
+        "iostream": "cpp",
+        "istream": "cpp",
+        "numeric": "cpp",
+        "ranges": "cpp",
+        "semaphore": "cpp",
+        "source_location": "cpp",
+        "sstream": "cpp",
+        "stop_token": "cpp",
+        "thread": "cpp",
+        "valarray": "cpp"
     }
 }

@@ -51,7 +51,7 @@ class ParallelCommitSystem
     * promises[i].set_value() is only called by the transaction (in call to notifyDone) that CASes status[i] 
     * from foo to foo_unblocked or WAITING_FOR_PREV_TRANSACTIONS to COMMITTING
     */
-    boost::fibers::promise<void> *promises; 
+    boost::fibers::promise<void> *promises; // TODO: make it a vector
 #if SEQUENTIAL//ideally, we should use PIMPL and move the private state to the cpp files, 
 //one for the sequential impl and one for the parallel impl. that may be a tiny bit slower due to the overhead of the indirection via the pointer.
 #else
