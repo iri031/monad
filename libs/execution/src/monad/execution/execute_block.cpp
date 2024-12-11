@@ -164,7 +164,7 @@ Result<std::vector<ExecutionResult>> execute_block(
     }
 
     auto const last = static_cast<std::ptrdiff_t>(block.transactions.size());
-    parallel_commit_system.waitForTrasactionsAccessingAddresses(last);
+    parallel_commit_system.waitForPrevTransactions(last);
 
     std::vector<ExecutionResult> retvals;
     for (unsigned i = 0; i < block.transactions.size(); ++i) {

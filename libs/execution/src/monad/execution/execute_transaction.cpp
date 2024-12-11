@@ -224,7 +224,7 @@ Result<ExecutionResult> execute_impl(
 
         {
             TRACE_TXN_EVENT(StartStall);
-            parallel_commit_system.waitForTrasactionsAccessingAddresses(i);
+            parallel_commit_system.waitForPrevTransactions(i);
         }
 
         if (block_state.can_merge(state)) {

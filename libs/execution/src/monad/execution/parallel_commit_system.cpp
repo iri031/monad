@@ -2,8 +2,7 @@
 
 MONAD_NAMESPACE_BEGIN
 
-void ParallelCommitSystem::waitForTrasactionsAccessingAddresses(
-    txindex_t myindex, std::vector<evmc::address> const) {
+void ParallelCommitSystem::waitForPrevTransactions(txindex_t myindex) {
     promises[myindex].get_future().wait();
 }
 
@@ -18,6 +17,9 @@ ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions) {
 
 ParallelCommitSystem::~ParallelCommitSystem() {
     delete[] promises;
+}
+
+void ParallelCommitSystem::declareFootprint(txindex_t, const std::set<evmc::address> *) {
 }
 
 MONAD_NAMESPACE_END
