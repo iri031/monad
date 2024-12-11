@@ -34,7 +34,7 @@ class ParallelCommitSystem
     */
     void notifyDone(txindex_t myindex);
 
-    /*
+    /** 
     * declareFootprint is a promise that this transaction will not read/write any account other than those in *footprint
     * footprint=null means that it can read/write any account, e.g. when the callchain cannot be predicted
     */
@@ -45,32 +45,53 @@ class ParallelCommitSystem
     ~ParallelCommitSystem();
 
     private:
-#if SEQUENTIAL//ideally, we should use PIMPL and move the private state to the cpp files, one for the sequential impl and one for the parallel impl
-    boost::fibers::promise<void> *promises;
+    /*
+    * promises[i].set_value() is only called by the transaction (in call to notifyDone) that CASes status[i] 
+    * from foo to foo_unblocked or WAITING_FOR_PREV_TRANSACTIONS to COMMITTING
+    */
+    boost::fibers::promise<void> *promises; 
+#if SEQUENTIAL//ideally, we should use PIMPL and move the private state to the cpp files, 
+//one for the sequential impl and one for the parallel impl. that may be a tiny bit slower due to the overhead of the indirection via the pointer.
 #else
     enum class TransactionStatus : uint8_t
     {
-        STARTED,
-        FOOTPRINT_COMPUTED,
-        COMMITTED
+        STARTED=0,
+        STARTED_UNBLOCKED=1,// unblocked iff all previous transactions have already committed
+        FOOTPRINT_COMPUTED=2, // at this stage, a transaction is speculatively executing the transaction. the footprint computation can share some computations with the transaction execution.
+        FOOTPRINT_COMPUTED_UNBLOCKED=3,
+        WAITING_FOR_PREV_TRANSACTIONS=4, // cannot be unblocked if it is waiting
+        COMMITTING=5, // committing or retrying. must be unblocked by now
+        COMMITTED=6 // must be unblocked by now
     };
     std::vector<std::atomic<TransactionStatus>> status_;
-    std::atomic<txindex_t> all_committed_ub; // all transactions with index <= all_committed_ub have committed their changes to block_state. this ub will not be tight as we cannot update it atomically with other fields. this field is used to optimize
+    /**
+    * all_committed_ub is the upper bound of the index of transactions that have committed their changes to block_state.
+    * this ub will not be tight as we cannot update it atomically with other fields. this field is used to optimize
+    * the check of whether all previous transactions have committed.
+    */
+    std::atomic<txindex_t> all_committed_ub; 
     std::unordered_map<evmc::address, std::set<txindex_t>>
         transactions_accessing_address_;//this excludes the transactions with "Any address" footprint
+    /**
+    * footprints_[i] is the footprint of transaction i.
+    * can use a shared_ptr but that will increase the
+    * memory usage. with FM, shared_ptr doesnt buy much
+    * nullptr means "Any address" footprint (any address can be read/written)
+    * only transaction i updates the ith element, only once. after that, it will update status_[i] from STARTED to FOOTPRINT_COMPUTED.
+    * other transactions will not read this until status_[i] is updated to FOOTPRINT_COMPUTED or greater.
+    * therefore we do not need atomics.
+    */
     std::vector<const std::set<evmc::address> *>
-        footprints_; // can use a shared_ptr but that will increase the
-                     // memory usage. with FM, shared_ptr doesnt buy much
-                     // nullptr means "Any address" footprint (any address can be read/written)
-                     // only transaction i updates the ith element, only once. after that, it will update status_[i] from STARTED to FOOTPRINT_COMPUTED. 
-                     // other transactions will not read this until status_[i] is updated to FOOTPRINT_COMPUTED or COMMITTED.
-                     // therefore we do not need atomics.
+        footprints_; 
 
+    /**
+    * pending_footprints_[i] is a set of addresses that some uncommitted transaction may still be accessing. 
+    * main invariant: any previous transaction accessing address in footprints_[i] but not in pending_footprints_[i] must committed already.
+    * pending_footprints_[i] can be updated by transaction with index less than j. such updates can only delete elements.
+    * this field is just for optimization, so that subseqpent notifyDone calls need to check fewer addresses.
+    */
     std::vector<tbb::concurrent_unordered_set<evmc::address>>
-        pending_footprints_; // the addresses that some uncommitted transaction may still be accessing. 
-        // main invariant: any previous transaction accessing address in footprints_[i] but not in pending_footprints_[i] must committed already.
-        // pending_footprints_[i] can be updated by transaction with index less than j. such updates can only delete elements.
-        // this field is just for optimization.
+        pending_footprints_; 
 #endif
 };
 MONAD_NAMESPACE_END
