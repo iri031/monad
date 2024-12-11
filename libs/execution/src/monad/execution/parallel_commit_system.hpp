@@ -10,6 +10,7 @@
 #include <atomic>
 #include <unordered_map>
 #include <tbb/concurrent_unordered_set.h>
+#include <tbb/concurrent_unordered_map.h>
 
 #include <evmc/evmc.h>
 
@@ -70,14 +71,14 @@ class ParallelCommitSystem
     * the check of whether all previous transactions have committed.
     */
     std::atomic<txindex_t> all_committed_ub; 
-    std::unordered_map<evmc::address, std::set<txindex_t>>
+    tbb::concurrent_unordered_map<evmc::address, tbb::concurrent_unordered_set<txindex_t>>
         transactions_accessing_address_;//this excludes the transactions with "Any address" footprint
     /**
     * footprints_[i] is the footprint of transaction i.
     * can use a shared_ptr but that will increase the
     * memory usage. with FM, shared_ptr doesnt buy much
     * nullptr means "Any address" footprint (any address can be read/written)
-    * only transaction i updates the ith element, only once. after that, it will update status_[i] from STARTED to FOOTPRINT_COMPUTED.
+    * only transaction i updates the ith element, only once. AFTER that, it will CAS status_[i] from STARTED_xxx to FOOTPRINT_COMPUTED_xxx.
     * other transactions will not read this until status_[i] is updated to FOOTPRINT_COMPUTED or greater.
     * therefore we do not need atomics.
     */
@@ -87,7 +88,7 @@ class ParallelCommitSystem
     /**
     * pending_footprints_[i] is a set of addresses that some uncommitted transaction may still be accessing. 
     * main invariant: any previous transaction accessing address in footprints_[i] but not in pending_footprints_[i] must committed already.
-    * pending_footprints_[i] can be updated by transaction with index less than j. such updates can only delete elements.
+    * pending_footprints_[i] can be (concurrently) updated by any transaction with index less than i. such updates can only delete elements.
     * this field is just for optimization, so that subseqpent notifyDone calls need to check fewer addresses.
     */
     std::vector<tbb::concurrent_unordered_set<evmc::address>>
