@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <tbb/concurrent_unordered_set.h>
 #include <tbb/concurrent_unordered_map.h>
+#include <oneapi/tbb/concurrent_unordered_map.h>
 
 #include <evmc/evmc.h>
 
@@ -71,8 +72,7 @@ class ParallelCommitSystem
     * the check of whether all previous transactions have committed.
     */
     std::atomic<txindex_t> all_committed_ub; 
-    tbb::concurrent_unordered_map<evmc::address, tbb::concurrent_unordered_set<txindex_t>>
-        transactions_accessing_address_;//this excludes the transactions with "Any address" footprint
+    tbb::concurrent_unordered_multimap<evmc::address, txindex_t> transactions_accessing_address_;
     /**
     * footprints_[i] is the footprint of transaction i.
     * can use a shared_ptr but that will increase the
