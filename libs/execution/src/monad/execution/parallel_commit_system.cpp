@@ -1,4 +1,4 @@
-#include "parallel_commit_system.hpp"
+#include <monad/execution/parallel_commit_system.hpp>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -23,12 +23,17 @@ ParallelCommitSystem::~ParallelCommitSystem() {
 void ParallelCommitSystem::declareFootprint(txindex_t, const std::set<evmc::address> *) {
 }
 #else
+
 ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions) 
-    : status_(num_transactions, TransactionStatus::STARTED)
-      ,all_committed_ub(0)
-      ,footprints_(num_transactions, nullptr)
-      //,pending_footprints_(num_transactions)// not used currently
+    : status_(num_transactions),
+      all_committed_ub(0),
+      footprints_(num_transactions, nullptr)
+        //,pending_footprints_(num_transactions)// not used currently
 {
+    for (auto& status : status_) {
+        status.store(TransactionStatus::STARTED);
+    }
+    
     promises = new boost::fibers::promise<void>[num_transactions + 1];
     promises[0].set_value();
 }
@@ -96,24 +101,45 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
         unblockTransaction(status, index);
         return true;
     }
+    //status=status_[index].load(); // get the more uptodate value, but not essential for correctness
+    if (status == TransactionStatus::STARTED) {
+        return false;
+    }
+    if (status == TransactionStatus::FOOTPRINT_COMPUTED || status==TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS) {
+        auto footprint = footprints_[index];
+        assert(footprint);
+        for (const auto& addr : *footprint) {
+            auto highest_prev = highestLowerIndexAccessingAddress(index, addr);
+            if (highest_prev == std::numeric_limits<txindex_t>::max() && status_[highest_prev].load() != TransactionStatus::COMMITTED)
+                return false;
+        }
+        unblockTransaction(status, index);
+        return true;
+    }
+    return false;
+}
+
+void ParallelCommitSystem::tryUnblockTransactionsStartingFrom(txindex_t start) {
+    for (auto index = start; index < status_.size(); ++index) {
+        tryUnblockTransaction(status_[index].load(), index);
+    }
+    // unblock or wake up later transactions
+    // once we hit a transaction whose footprint is not yet computed,
+    // we cannot wake up or unblock transactions after that transaction
+    // every transaction accesses at least 1 account and the uncomputed footprint may include that account.
+    auto num_transactions = status_.size();
+    for(auto index = start; index < num_transactions; ++index) {
+        auto current_status = status_[index].load();
+        tryUnblockTransaction(current_status, index);
+        if (current_status == TransactionStatus::STARTED || current_status == TransactionStatus::STARTED_UNBLOCKED)
+            break;// footprint has not been computed yet, so it may conflict with any transaction after index
+    }
 }
 
 void ParallelCommitSystem::notifyDone(txindex_t myindex) {
     status_[myindex].store(TransactionStatus::COMMITTED);
     //TODO: update all_committed_ub
-    int num_transactions = status_.size();
-    // unblock or wake up later transactions
-    // once we hit a transaction whose footprint is not yet computed,
-    // we cannot wake up or unblock transactions after that transaction
-    // every transaction accesses at least 1 account and the uncomputed footprint may include that account.
-    for(auto index = myindex + 1; index < num_transactions; ++index) {
-        auto current_status = status_[index].load();
-        if (current_status == TransactionStatus::STARTED || current_status == TransactionStatus::STARTED_UNBLOCKED)
-            break;// footprint has not been computed yet, so it may conflict with any transaction after index
-        tryUnblockTransaction(current_status, index);
-    }
-
-    // TODO: implement
+    tryUnblockTransactionsStartingFrom(myindex+1); // unlike before, the transaction myindex+1 cannot necesssarily be unblocked here because some transaction before myindex may not have committed and may have conflicts
 }
 
 #endif
