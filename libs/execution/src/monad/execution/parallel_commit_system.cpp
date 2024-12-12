@@ -60,7 +60,6 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
         }
     }
 
-    tryUnblockTransactionsStartingFrom(myindex);
 
     // update status_[myindex] from STARTED to FOOTPRINT_COMPUTED, while preserving the _UNBLOCKED part which previous transactions may change concurrently when they notifyDone
     auto current_status = status_[myindex].load();
@@ -77,6 +76,10 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
     if (!status_[myindex].compare_exchange_weak(current_status, new_status)) {
         assert(current_status == TransactionStatus::STARTED_UNBLOCKED);
         current_status = TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED;
+    }
+
+    if (allFootprintsDeclaredUptoExcl(myindex)) {
+        tryUnblockTransactionsStartingFrom(myindex);
     }
 }
 
@@ -153,10 +156,19 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
     return false;
 }
 
-void ParallelCommitSystem::tryUnblockTransactionsStartingFrom(txindex_t start) {
-    for (auto index = start; index < status_.size(); ++index) {
-        tryUnblockTransaction(status_[index].load(), index);
+bool ParallelCommitSystem::allFootprintsDeclaredUptoExcl(txindex_t index) {
+    auto committed_ub = all_committed_ub.load();
+    for (auto i = committed_ub; i < index; ++i) {
+        auto status = status_[i].load();
+        if (status == TransactionStatus::STARTED || status == TransactionStatus::STARTED_UNBLOCKED) {
+            return false;
+        }
     }
+    return true;
+}
+
+void ParallelCommitSystem::tryUnblockTransactionsStartingFrom(txindex_t start) {
+
     // unblock or wake up later transactions
     // once we hit a transaction whose footprint is not yet computed,
     // we cannot wake up or unblock transactions after that transaction
@@ -173,7 +185,9 @@ void ParallelCommitSystem::tryUnblockTransactionsStartingFrom(txindex_t start) {
 void ParallelCommitSystem::notifyDone(txindex_t myindex) {
     status_[myindex].store(TransactionStatus::COMMITTED);
     updateLastCommittedUb();
-    tryUnblockTransactionsStartingFrom(myindex+1); // unlike before, the transaction myindex+1 cannot necesssarily be unblocked here because some transaction before myindex may not have committed and may have conflicts
+    if (allFootprintsDeclaredUptoExcl(myindex)) {
+        tryUnblockTransactionsStartingFrom(myindex+1); // unlike before, the transaction myindex+1 cannot necesssarily be unblocked here because some transaction before myindex may not have committed and may have conflicts
+    }
 }
 
 void ParallelCommitSystem::updateLastCommittedUb() {
