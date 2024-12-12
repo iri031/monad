@@ -86,7 +86,14 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
 
 ParallelCommitSystem::~ParallelCommitSystem() {
     delete[] promises;
-    // Remove delete[] footprints_ - vectors clean up automatically
+    // Clean up the concurrent sets stored in transactions_accessing_address_
+    for (auto& pair : transactions_accessing_address_) {
+        delete pair.second;
+    }
+    // Clean up the footprints (we own these pointers)
+    for (auto footprint : footprints_) {
+        delete footprint;
+    }
 }
 
 void ParallelCommitSystem::waitForPrevTransactions(txindex_t myindex) {

@@ -38,7 +38,9 @@ class ParallelCommitSystem
 
     /** 
     * declareFootprint is a promise that this transaction will not read/write any account other than those in *footprint
-    * footprint=null means that it can read/write any account, e.g. when the callchain cannot be predicted
+    * footprint=null means that it can read/write any account, e.g. when the callchain cannot be predicted.
+    * the FULL ownership of footprint is transferred to this class: the caller should not use it after this call.
+    * the destructor of this class will delete footprint.
     */
     void declareFootprint(txindex_t myindex, const std::set<evmc::address> *footprint);
 
