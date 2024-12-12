@@ -38,11 +38,25 @@ ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions)
     promises[0].set_value();
 }
 
+void ParallelCommitSystem::registerAddressAccessedBy(const evmc::address& addr, txindex_t index) {
+    tbb::concurrent_set<txindex_t> * set;
+    {
+        auto it = transactions_accessing_address_.find(addr);
+        if (it == transactions_accessing_address_.end()) {
+            it = transactions_accessing_address_.insert({addr, new tbb::concurrent_set<txindex_t>()}).first;
+        }
+        set=it->second;
+    }
+    //because nobody will ever change the set pointer in the map, we do set->insert after `it` goes out of scope, thus releasing the lock, and allowing other threads to concurrently insert into the set.
+    // if this address was not in the map before, `it` may hold a write lock on the set, thus preventing other threads from accessing the set.
+    set->insert(index);
+}
+
 void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<evmc::address> *footprint) {
     footprints_[myindex] = footprint;
     if (footprint) {
         for (const auto& addr : *footprint) {
-            transactions_accessing_address_.insert({addr, myindex});
+            registerAddressAccessedBy(addr, myindex);
         }
     }
 
@@ -91,6 +105,19 @@ void ParallelCommitSystem::waitForPrevTransactions(txindex_t myindex) {
 
 bool ParallelCommitSystem::isUnblocked(TransactionStatus status) {
     return status > TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS || status == TransactionStatus::STARTED_UNBLOCKED || status == TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED;
+}
+
+ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerIndexAccessingAddress(txindex_t index, const evmc::address& addr) {
+    auto it = transactions_accessing_address_.find(addr);
+    if (it == transactions_accessing_address_.end()) {
+        return std::numeric_limits<txindex_t>::max();
+    }
+    auto set = it->second;
+    auto it2 = set->begin();
+    while (it2 != set->end() && *it2 < index) {
+        ++it2;
+    }
+    return *it2;
 }
 
 bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txindex_t index) {

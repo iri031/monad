@@ -9,7 +9,7 @@
 #include <set>
 #include <atomic>
 #include <unordered_map>
-#include <tbb/concurrent_unordered_set.h>
+#include <tbb/concurrent_set.h>
 #include <tbb/concurrent_unordered_map.h>
 #include <oneapi/tbb/concurrent_unordered_map.h>
 
@@ -78,6 +78,7 @@ class ParallelCommitSystem
     void updateLastCommittedUb();
     /** update all_committed_ub so that it is at least minValue */
     void advanceLastCommittedUb(txindex_t minValue);
+    void registerAddressAccessedBy(const evmc::address& addr, txindex_t index);
     /**
     * status is expected to be a recent load from status_[index]
     * it is just a minor optimization to avoid calling load() on status_[index] because it is already loaded in the caller
@@ -91,7 +92,7 @@ class ParallelCommitSystem
     * the check of whether all previous transactions have committed.
     */
     std::atomic<txindex_t> all_committed_ub; 
-    tbb::concurrent_unordered_multimap<evmc::address, txindex_t> transactions_accessing_address_;
+    tbb::concurrent_unordered_map<evmc::address, tbb::concurrent_set<txindex_t> * const> transactions_accessing_address_;
     /**
     * footprints_[i] is the footprint of transaction i.
     * can use a shared_ptr but that will increase the
@@ -109,9 +110,9 @@ class ParallelCommitSystem
     * main invariant: any previous transaction accessing address in footprints_[i] but not in pending_footprints_[i] must committed already.
     * pending_footprints_[i] can be (concurrently) updated by any transaction with index less than i. such updates can only delete elements.
     * this field is just for optimization, so that subseqpent notifyDone calls need to check fewer addresses.
-    */
     std::vector<tbb::concurrent_unordered_set<evmc::address>>
         pending_footprints_; 
+    */
 #endif
 };
 MONAD_NAMESPACE_END
