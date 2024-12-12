@@ -110,6 +110,28 @@ bool ParallelCommitSystem::isUnblocked(TransactionStatus status) {
     return status > TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS || status == TransactionStatus::STARTED_UNBLOCKED || status == TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED;
 }
 
+void ParallelCommitSystem::unblockTransaction(TransactionStatus status, txindex_t index) {
+    while (!isUnblocked(status)) {
+        TransactionStatus new_status;
+        if (status == TransactionStatus::STARTED) {
+            new_status = TransactionStatus::STARTED_UNBLOCKED;
+        } else if (status == TransactionStatus::FOOTPRINT_COMPUTED) {
+            new_status = TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED;
+        } else if (status == TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS) {
+            new_status = TransactionStatus::COMMITTING;
+            promises[index].set_value();
+        } else {
+            assert(false);
+        }
+
+        if (status_[index].compare_exchange_weak(status, new_status)) {
+            break;
+        }
+        // state[index] only transsitions to a strictly higher value. every CAS fail means some other thread did a transition to a higher value. 
+        // the increaments can only happen until COMITTED in the worst case, by which time the loop will terminate (isUnblocked(Comitted)=true).
+    }
+}
+
 ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedIndexAccessingAddress(txindex_t index, const evmc::address& addr) {
     auto it = transactions_accessing_address_.find(addr);
     if (it == transactions_accessing_address_.end()) {
@@ -204,6 +226,7 @@ void ParallelCommitSystem::updateLastCommittedUb() {
 void ParallelCommitSystem::advanceLastCommittedUb(txindex_t minValue) {
     txindex_t old_value = all_committed_ub.load();
     while (old_value < minValue) {
+        // ever update to all_committed_ub strictly increases it. so this loop will terminate
         if (all_committed_ub.compare_exchange_weak(old_value, minValue)) {
             break;
         }
