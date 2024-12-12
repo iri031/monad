@@ -107,13 +107,18 @@ bool ParallelCommitSystem::isUnblocked(TransactionStatus status) {
     return status > TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS || status == TransactionStatus::STARTED_UNBLOCKED || status == TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED;
 }
 
-ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerIndexAccessingAddress(txindex_t index, const evmc::address& addr) {
+ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedIndexAccessingAddress(txindex_t index, const evmc::address& addr) {
     auto it = transactions_accessing_address_.find(addr);
     if (it == transactions_accessing_address_.end()) {
         return std::numeric_limits<txindex_t>::max();
     }
     auto set = it->second;
-    auto it2 = set->begin();
+    
+    // Start from all_committed_ub instead of set->begin()
+    auto committed_ub = all_committed_ub.load();
+    auto it2 = set->upper_bound(committed_ub);
+    
+    // can do a binary search instead of a linear scan, but that seems tricky to do in a concurrent set
     while (it2 != set->end() && *it2 < index) {
         ++it2;
     }
@@ -138,7 +143,7 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
         auto footprint = footprints_[index];
         assert(footprint);
         for (const auto& addr : *footprint) {
-            auto highest_prev = highestLowerIndexAccessingAddress(index, addr);
+            auto highest_prev = highestLowerUncommittedIndexAccessingAddress(index, addr);
             if (highest_prev == std::numeric_limits<txindex_t>::max() && status_[highest_prev].load() != TransactionStatus::COMMITTED)
                 return false;
         }
