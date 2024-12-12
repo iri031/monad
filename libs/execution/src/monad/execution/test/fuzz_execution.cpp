@@ -14,6 +14,7 @@
 #include <monad/execution/execute_block.hpp>
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/genesis.hpp>
+#include <monad/execution/switch_evmc_revision.hpp>
 #include <monad/execution/transaction_gas.hpp>
 #include <monad/execution/validate_block.hpp>
 #include <monad/fiber/priority_pool.hpp>
@@ -22,6 +23,7 @@
 #include <monad/state2/block_state.hpp>
 #include <monad/state3/state.hpp>
 
+#include <evmc/evmc.h>
 #include <fuzzer/FuzzedDataProvider.h>
 #include <intx/intx.hpp>
 #include <quill/Quill.h>
@@ -36,6 +38,12 @@
 #include <set>
 
 using namespace monad;
+
+namespace
+{
+    constexpr uint64_t GAS_LIMIT = 60'000;
+    constexpr uint256_t BASE_FEE_PER_GAS = 1;
+}
 
 static auto ctx = []() {
     std::unique_ptr<secp256k1_context, decltype(&secp256k1_context_destroy)>
@@ -67,12 +75,16 @@ class Wallet
 {
 public:
     bytes32_t privkey_;
-    secp256k1_pubkey pubkey_;
     Address address_;
+
+    uint64_t nonce;
+    uint256_t balance;
 
 public:
     Wallet(bytes32_t const &privkey)
         : privkey_{privkey}
+        , nonce{0}
+        , balance{0}
     {
         secp256k1_pubkey pubkey{};
         if (!secp256k1_ec_pubkey_create(ctx.get(), &pubkey, privkey_.bytes)) {
@@ -130,110 +142,164 @@ public:
         s = intx::be::load<uint256_t>(s2);
         odd_y_parity = static_cast<bool>(recid);
     }
+
+    void add_to_balance(uint256_t const &amount)
+    {
+        balance += amount;
+    }
+
+    void subtract_from_balance(uint256_t const &amount)
+    {
+        if (MONAD_UNLIKELY(balance < amount)) {
+            MONAD_ABORT("fuzzer logic error")
+        }
+        balance -= amount;
+    }
+
+    void increment_nonce()
+    {
+        ++nonce;
+    }
+
+    uint64_t get_nonce() const
+    {
+        return nonce;
+    }
+
+    uint256_t get_balance() const
+    {
+        return balance;
+    }
 };
+
+using ProposalPayload = std::pair<BlockHeader, std::vector<Wallet>>;
+
+struct Proposal;
+
+struct Proposal
+{
+    ProposalPayload payload;
+    std::list<Proposal> children;
+};
+
+std::pair<Block, std::vector<Wallet>> generate_proposal(
+    FuzzedDataProvider &provider, ProposalPayload const &parent,
+    uint64_t const round_lower_bound, Chain const &chain)
+{
+    Block block;
+    std::vector<Wallet> wallets = parent.second;
+
+    auto &header = block.header;
+
+    header.round =
+        round_lower_bound + provider.ConsumeIntegralInRange<uint64_t>(0, 100);
+    header.parent_round = parent.first.round;
+    header.number = parent.first.number + 1;
+
+    header.difficulty = uint256_t{0};
+    header.gas_limit = GAS_LIMIT;
+    provider.ConsumeData(
+        header.bft_block_id.bytes, sizeof(header.bft_block_id));
+    header.beneficiary = wallets[provider.ConsumeIntegralInRange<uint64_t>(
+                                     0, wallets.size() - 1)]
+                             .address();
+    header.timestamp = parent.first.timestamp +
+                       provider.ConsumeIntegralInRange<uint64_t>(1, 1000);
+    header.base_fee_per_gas = BASE_FEE_PER_GAS;
+    provider.ConsumeData(header.prev_randao.bytes, sizeof(header.prev_randao));
+
+    block.withdrawals.emplace(std::vector<Withdrawal>{});
+
+    // auto const num_txns = provider.ConsumeIntegralInRange<uint64_t>(0, 5);
+    for (uint64_t i = 0; i < 1; ++i) {
+        auto const fi =
+            provider.ConsumeIntegralInRange<uint64_t>(0, wallets.size() - 1);
+        auto const ti =
+            provider.ConsumeIntegralInRange<uint64_t>(0, wallets.size() - 1);
+        auto &from = wallets[fi];
+        auto &to = wallets[ti];
+
+        constexpr uint256_t amount = 10;
+        Transaction tx{
+            .sc = SignatureAndChain{.chain_id = chain.get_chain_id()},
+            .nonce = from.get_nonce(),
+            .max_fee_per_gas = BASE_FEE_PER_GAS,
+            .gas_limit = GAS_LIMIT,
+            .value = amount,
+            .to = to.address(),
+            .type = TransactionType::legacy,
+            .data = byte_string{}};
+        auto const gas_cost = [&] -> uint256_t {
+            auto const rev = chain.get_revision(block.header.number);
+            SWITCH_EVMC_REVISION(intrinsic_gas, tx);
+            return UINT256_MAX;
+        }();
+        from.subtract_from_balance(gas_cost + amount);
+        from.increment_nonce();
+        to.add_to_balance(amount);
+
+        auto const hash = keccak256(rlp::encode_transaction_for_signing(tx));
+        from.sign(
+            std::bit_cast<bytes32_t>(hash),
+            tx.sc.r,
+            tx.sc.s,
+            tx.sc.odd_y_parity);
+        block.transactions.emplace_back(std::move(tx));
+    }
+
+    return std::make_pair(block, wallets);
+}
+
+ProposalPayload const &finalize_proposal(
+    TrieDb &tdb, FuzzedDataProvider &provider, BlockHashChain &chain,
+    std::list<Proposal> const &lst)
+{
+    size_t finalize_idx =
+        provider.ConsumeIntegralInRange<size_t>(0, lst.size() - 1);
+    auto it = lst.begin();
+    std::advance(it, finalize_idx);
+
+    auto const &[hdr, wallets] = it->payload;
+    tdb.finalize(hdr.number, hdr.round);
+    chain.finalize(hdr.round);
+
+    tdb.set_block_number(hdr.number);
+    for (auto const &w : wallets) {
+        auto const account = tdb.read_account(w.address());
+        MONAD_ASSERT(account.has_value());
+
+        if (MONAD_UNLIKELY(w.get_nonce() != account.value().nonce)) {
+            MONAD_ABORT(
+                "Bad nonce: Expected %lu, got %lu",
+                w.get_nonce(),
+                account.value().nonce);
+        }
+        if (MONAD_UNLIKELY(w.get_balance() != account.value().balance)) {
+            MONAD_ABORT(
+                "Bad balance. Expected %s, got %s",
+                intx::to_string(w.get_balance()).c_str(),
+                intx::to_string(account.value().balance).c_str());
+        }
+    }
+
+    if (!it->children.empty()) {
+        return finalize_proposal(tdb, provider, chain, it->children);
+    }
+    return it->payload;
+}
 
 class BlockFuzzer
 {
     TrieDb &tdb_;
     FuzzedDataProvider &provider_;
-    struct Proposal;
-
-    struct Proposal
-    {
-        std::list<Proposal>::iterator parent;
-        BlockHeader header;
-    };
 
     BlockHashBufferFinalized block_hash_buffer_;
-    BlockHashChain block_hash_chain_;
-    std::vector<Wallet> wallets_;
+    std::unique_ptr<BlockHashChain> block_hash_chain_;
     std::list<Proposal> proposals_;
     std::unique_ptr<Chain> chain_;
-    BlockHeader last_finalized_;
+    ProposalPayload last_finalized_;
     uint64_t proposed_round_lower_bound_;
     fiber::PriorityPool priority_pool_;
-
-    Block generate_proposal(
-        BlockHeader const &parent, uint64_t const round_lower_bound)
-    {
-        Block block;
-
-        auto &header = block.header;
-
-        header.round = round_lower_bound +
-                       provider_.ConsumeIntegralInRange<uint64_t>(0, 100);
-        header.parent_round = parent.round;
-        header.number = parent.number + 1;
-
-        header.difficulty = uint256_t{0};
-        header.gas_limit = 60'000;
-        provider_.ConsumeData(
-            header.bft_block_id.bytes, sizeof(header.bft_block_id));
-        header.beneficiary =
-            wallets_[provider_.ConsumeIntegralInRange<uint64_t>(
-                         0, wallets_.size() - 1)]
-                .address();
-        header.timestamp = parent.timestamp +
-                           provider_.ConsumeIntegralInRange<uint64_t>(1, 1000);
-        header.base_fee_per_gas = 1;
-        provider_.ConsumeData(
-            header.prev_randao.bytes, sizeof(header.prev_randao));
-
-        block.withdrawals.emplace(std::vector<Withdrawal>{});
-
-        tdb_.set(header.number, header.round, header.parent_round);
-
-        auto const num_txns = provider_.ConsumeIntegralInRange<uint64_t>(0, 5);
-        std::unordered_map<Address, uint64_t> nonces{};
-        for (uint64_t i = 0; i < num_txns; ++i) {
-            auto const fi = provider_.ConsumeIntegralInRange<uint64_t>(
-                0, wallets_.size() - 1);
-            auto const ti = provider_.ConsumeIntegralInRange<uint64_t>(
-                0, wallets_.size() - 1);
-            auto const &from = wallets_[fi];
-            auto const &to = wallets_[ti];
-
-            auto account = tdb_.read_account(from.address());
-            MONAD_ASSERT(account.has_value());
-            auto [it, _] = nonces.try_emplace(from.address(), account->nonce);
-            Transaction tx{
-                .sc = SignatureAndChain{.chain_id = chain_->get_chain_id()},
-                .nonce = it->second,
-                .max_fee_per_gas = 1,
-                .gas_limit = 60'000,
-                .value = 10,
-                .to = to.address(),
-                .type = TransactionType::legacy,
-                .data = byte_string{}};
-            ++it->second;
-
-            uint512_t const v0 =
-                tx.value + max_gas_cost(tx.gas_limit, tx.max_fee_per_gas);
-            if (account->balance < v0) {
-                MONAD_ABORT("fuzzer logic error");
-            }
-
-            auto const hash =
-                keccak256(rlp::encode_transaction_for_signing(tx));
-            from.sign(
-                std::bit_cast<bytes32_t>(hash),
-                tx.sc.r,
-                tx.sc.s,
-                tx.sc.odd_y_parity);
-            block.transactions.emplace_back(std::move(tx));
-        }
-        return block;
-    }
-
-    void finalize_proposal(std::list<Proposal>::iterator it)
-    {
-        if (it->parent != proposals_.end()) {
-            finalize_proposal(it->parent);
-        }
-        block_hash_chain_.finalize(it->header.round);
-        last_finalized_ = std::move(it->header);
-        proposals_.erase(it);
-    }
 
     void execute_or_fail(Block &block)
     {
@@ -261,7 +327,7 @@ class BlockFuzzer
             block.header.number, block.header.round, block.header.parent_round);
 
         auto const &block_hash_buffer =
-            block_hash_chain_.find_chain(block.header.parent_round);
+            block_hash_chain_->find_chain(block.header.parent_round);
         BlockState block_state{tdb_};
 
         auto const results = execute_block(
@@ -295,26 +361,47 @@ class BlockFuzzer
             block.transactions,
             block.ommers,
             block.withdrawals);
+
+        chain_->on_post_commit_outputs(
+            rev,
+            tdb_.state_root(),
+            tdb_.receipts_root(),
+            tdb_.transactions_root(),
+            tdb_.withdrawals_root(),
+            block.header);
+
+        auto const db_eth_header = tdb_.read_header();
+        MONAD_ASSERT(db_eth_header.has_value());
+        auto const encoded_header_mem = rlp::encode_block_header(block.header);
+        auto const encoded_header_db =
+            rlp::encode_block_header(db_eth_header.value());
+        MONAD_ASSERT(encoded_header_mem == encoded_header_db);
+        auto const eth_header_hash =
+            std::bit_cast<bytes32_t>(keccak256(encoded_header_mem));
+        block_hash_chain_->propose(
+            eth_header_hash, block.header.round, block.header.parent_round);
     }
 
 public:
     BlockFuzzer(TrieDb &tdb, FuzzedDataProvider &provider)
         : tdb_{tdb}
         , provider_{provider}
-        , block_hash_chain_{block_hash_buffer_}
         , priority_pool_{1, 1}
     {
 
         BlockState bs{tdb_};
         State state{bs, Incarnation{0, 0}};
         std::set<bytes32_t> used_keys{};
-        while (wallets_.size() < 10) {
+        std::vector<Wallet> wallets;
+        while (wallets.size() < 10) {
             bytes32_t key;
             provider_.ConsumeData(key.bytes, sizeof(bytes32_t));
             if (!used_keys.contains(key)) {
                 used_keys.insert(key);
-                auto const &w = wallets_.emplace_back(key);
-                state.add_to_balance(w.address(), 1'000'000'000'000);
+                auto &w = wallets.emplace_back(key);
+                constexpr uint256_t b = 1'000'000'000'000;
+                w.add_to_balance(b);
+                state.add_to_balance(w.address(), b);
             }
         }
         bs.merge(state);
@@ -327,7 +414,10 @@ public:
             0,
             std::bit_cast<bytes32_t>(
                 keccak256(rlp::encode_block_header(genesis_header.value()))));
-
+        last_finalized_.first = genesis_header.value();
+        last_finalized_.second = wallets;
+        block_hash_chain_ =
+            std::make_unique<BlockHashChain>(block_hash_buffer_);
         proposed_round_lower_bound_ = 1;
 
         chain_ = std::make_unique<MonadDevnet>();
@@ -337,49 +427,38 @@ public:
     {
         if (provider_.ConsumeBool()) {
             if (provider_.ConsumeProbability<float>() <= 0.2f) {
-                Block next_block = generate_proposal(
-                    last_finalized_, proposed_round_lower_bound_);
-                proposals_.push_back(Proposal{
-                    .parent = proposals_.end(), .header = next_block.header});
-                proposed_round_lower_bound_ =
-                    proposals_.back().header.round + 1;
-                execute_or_fail(next_block);
+                auto [block, wallet] = generate_proposal(
+                    provider_,
+                    last_finalized_,
+                    proposed_round_lower_bound_,
+                    *chain_);
+                execute_or_fail(block);
+                auto const &next = proposals_.emplace_back(Proposal{
+                    .payload = std::make_pair(block.header, std::move(wallet)),
+                    .children = {}});
+                proposed_round_lower_bound_ = next.payload.first.round + 1;
             }
             else if (!proposals_.empty() && provider_.ConsumeBool()) {
                 size_t parent_idx = provider_.ConsumeIntegralInRange<size_t>(
                     0, proposals_.size() - 1);
                 auto it = proposals_.begin();
                 std::advance(it, parent_idx);
-                Block next_block =
-                    generate_proposal(it->header, proposed_round_lower_bound_);
-                proposals_.push_back(
-                    Proposal{.parent = it, .header = next_block.header});
-                proposed_round_lower_bound_ =
-                    proposals_.back().header.round + 1;
-                execute_or_fail(next_block);
+                auto [block, wallet] = generate_proposal(
+                    provider_,
+                    it->payload,
+                    proposed_round_lower_bound_,
+                    *chain_);
+                execute_or_fail(block);
+                auto const &next = it->children.emplace_back(Proposal{
+                    .payload = std::make_pair(block.header, std::move(wallet)),
+                    .children = {}});
+                proposed_round_lower_bound_ = next.payload.first.round + 1;
             }
         }
         else if (!proposals_.empty()) {
-            size_t finalize_idx = provider_.ConsumeIntegralInRange<size_t>(
-                0, proposals_.size() - 1);
-            auto it = proposals_.begin();
-            std::advance(it, finalize_idx);
-            finalize_proposal(std::move(it));
-
-            // GC old proposals
-            for (auto it = proposals_.begin(); it != proposals_.end(); ++it) {
-                if (it->header.parent_round <= last_finalized_.round) {
-                    it->parent = proposals_.end();
-                }
-            }
-            for (auto it = proposals_.begin(); it != proposals_.end();) {
-                if (it->header.round <= last_finalized_.round) {
-                    it = proposals_.erase(it);
-                }
-                else {
-                    ++it;
-                }
-            }
+            last_finalized_ = finalize_proposal(
+                tdb_, provider_, *block_hash_chain_, proposals_);
+            proposals_.clear();
         }
     }
 };
