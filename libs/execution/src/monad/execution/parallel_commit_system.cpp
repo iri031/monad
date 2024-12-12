@@ -47,7 +47,8 @@ void ParallelCommitSystem::registerAddressAccessedBy(const evmc::address& addr, 
         }
         set=it->second;
     }
-    //because nobody will ever change the set pointer in the map, we do set->insert after `it` goes out of scope, thus releasing the lock, and allowing other threads to concurrently insert into the set.
+    // because nobody will ever change the set pointer in the map, we do set->insert after `it` goes out of scope, 
+    // thus releasing the lock, and allowing other threads to concurrently insert into the set.
     // if this address was not in the map before, `it` may hold a write lock on the set, thus preventing other threads from accessing the set.
     set->insert(index);
 }
@@ -211,6 +212,7 @@ void ParallelCommitSystem::tryUnblockTransactionsStartingFrom(txindex_t start) {
 }
 
 void ParallelCommitSystem::notifyDone(txindex_t myindex) {
+    assert(status_[myindex].load() == TransactionStatus::COMMITTING);
     status_[myindex].store(TransactionStatus::COMMITTED);
     updateLastCommittedUb();
     if (allFootprintsDeclaredUptoExcl(myindex)) {
@@ -219,9 +221,9 @@ void ParallelCommitSystem::notifyDone(txindex_t myindex) {
 }
 
 void ParallelCommitSystem::updateLastCommittedUb() {
-    auto newUb = all_committed_ub.load() + 1;
-    while (newUb < status_.size()) {
-        if (status_[newUb].load() != TransactionStatus::COMMITTED) {
+    auto newUb = all_committed_ub.load();
+    while (newUb + 1< status_.size()) {
+        if (status_[newUb+1].load() != TransactionStatus::COMMITTED) {
             break;
         }
         newUb++;
