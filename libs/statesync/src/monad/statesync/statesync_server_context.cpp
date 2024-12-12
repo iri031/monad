@@ -34,20 +34,11 @@ void on_commit(
             return p.round == round_number;
         });
 
-    if (it == proposals.end()) {
-        proposals.emplace_back(DeletionProposal{
-            .block_number = n, .round = round_number, .deletion = {}});
+    if (MONAD_UNLIKELY(it != proposals.end())) {
+        proposals.erase(it);
     }
-    else {
-        if (MONAD_UNLIKELY(it->block_number != n)) {
-            MONAD_ABORT(
-                "Duplicate proposal for round %lu. Expected block %lu, got %lu",
-                round_number,
-                it->block_number,
-                n);
-        }
-        it->deletion.clear(); // duplicate round always takes precedence
-    }
+    proposals.emplace_back(DeletionProposal{
+        .block_number = n, .round = round_number, .deletion = {}});
 
     for (auto const &[addr, delta] : state_deltas) {
         auto const &account = delta.account.second;
