@@ -90,19 +90,22 @@ ParallelCommitSystem::~ParallelCommitSystem() {
 
 void ParallelCommitSystem::waitForPrevTransactions(txindex_t myindex) {
     auto current_status = status_[myindex].load();
-    assert(current_status == TransactionStatus::FOOTPRINT_COMPUTED ||
-        current_status == TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED);
 
     if (current_status == TransactionStatus::FOOTPRINT_COMPUTED) {
         // Attempt to change the status to WAITING_FOR_PREV_TRANSACTIONS
         if (status_[myindex].compare_exchange_weak(current_status, TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS)) {
             promises[myindex].get_future().wait();
-            //status_[myindex].store(TransactionStatus::COMMITTING); this will be done by the previous transaction who wakes this one up
+            //status_[myindex].store(TransactionStatus::COMMITTING); this will be done by the previous transaction who wakes this one up. 
+            //many transactions may try to wake this one up but only the one whose CAS to COMITTING succeeds do the set_value() (multiple calls to set_value() on the same promise is UB?)
         }
         else {
             assert(current_status == TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED);
             status_[myindex].store(TransactionStatus::COMMITTING);
         }
+    }
+    else {
+        assert(current_status == TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED);
+        status_[myindex].store(TransactionStatus::COMMITTING);
     }
 }
 
@@ -125,6 +128,9 @@ void ParallelCommitSystem::unblockTransaction(TransactionStatus status, txindex_
         }
 
         if (status_[index].compare_exchange_weak(status, new_status)) {
+            if (new_status == TransactionStatus::COMMITTING) {
+                promises[index].set_value();
+            }
             break;
         }
         // state[index] only transsitions to a strictly higher value. every CAS fail means some other thread did a transition to a higher value. 
