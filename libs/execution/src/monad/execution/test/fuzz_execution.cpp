@@ -210,8 +210,8 @@ std::pair<Block, std::vector<Wallet>> generate_proposal(
 
     block.withdrawals.emplace(std::vector<Withdrawal>{});
 
-    // auto const num_txns = provider.ConsumeIntegralInRange<uint64_t>(0, 5);
-    for (uint64_t i = 0; i < 1; ++i) {
+    auto const num_txns = provider.ConsumeIntegralInRange<uint64_t>(0, 5);
+    for (uint64_t i = 0; i < num_txns; ++i) {
         auto const fi =
             provider.ConsumeIntegralInRange<uint64_t>(0, wallets.size() - 1);
         auto const ti =
@@ -393,7 +393,7 @@ public:
         State state{bs, Incarnation{0, 0}};
         std::set<bytes32_t> used_keys{};
         std::vector<Wallet> wallets;
-        while (wallets.size() < 10) {
+        while (wallets.size() < 100) {
             bytes32_t key;
             provider_.ConsumeData(key.bytes, sizeof(bytes32_t));
             if (!used_keys.contains(key)) {
@@ -425,7 +425,7 @@ public:
 
     void next()
     {
-        if (provider_.ConsumeBool()) {
+        if (provider_.ConsumeProbability<float>() <= 0.67f) {
             if (provider_.ConsumeProbability<float>() <= 0.2f) {
                 auto [block, wallet] = generate_proposal(
                     provider_,
@@ -465,7 +465,6 @@ public:
 
 struct __attribute__((packed)) FuzzParams
 {
-    uint64_t num_accounts;
     uint16_t num_events;
     uint32_t seed;
 };
