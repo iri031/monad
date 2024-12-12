@@ -295,7 +295,8 @@ class BlockFuzzer
 
     BlockHashBufferFinalized block_hash_buffer_;
     std::unique_ptr<BlockHashChain> block_hash_chain_;
-    std::list<Proposal> proposals_;
+    std::list<Proposal> proposals_tree_;
+    std::vector<std::list<Proposal>::iterator> flat_proposals_;
     std::unique_ptr<Chain> chain_;
     ProposalPayload last_finalized_;
     uint64_t proposed_round_lower_bound_;
@@ -423,42 +424,42 @@ public:
         chain_ = std::make_unique<MonadDevnet>();
     }
 
-    void next()
+    void propose()
     {
-        if (provider_.ConsumeProbability<float>() <= 0.67f) {
-            if (provider_.ConsumeProbability<float>() <= 0.2f) {
-                auto [block, wallet] = generate_proposal(
-                    provider_,
-                    last_finalized_,
-                    proposed_round_lower_bound_,
-                    *chain_);
-                execute_or_fail(block);
-                auto const &next = proposals_.emplace_back(Proposal{
-                    .payload = std::make_pair(block.header, std::move(wallet)),
-                    .children = {}});
-                proposed_round_lower_bound_ = next.payload.first.round + 1;
-            }
-            else if (!proposals_.empty() && provider_.ConsumeBool()) {
-                size_t parent_idx = provider_.ConsumeIntegralInRange<size_t>(
-                    0, proposals_.size() - 1);
-                auto it = proposals_.begin();
-                std::advance(it, parent_idx);
-                auto [block, wallet] = generate_proposal(
-                    provider_,
-                    it->payload,
-                    proposed_round_lower_bound_,
-                    *chain_);
-                execute_or_fail(block);
-                auto const &next = it->children.emplace_back(Proposal{
-                    .payload = std::make_pair(block.header, std::move(wallet)),
-                    .children = {}});
-                proposed_round_lower_bound_ = next.payload.first.round + 1;
-            }
+        if (proposals_tree_.empty()) {
+            auto [block, wallet] = generate_proposal(
+                provider_,
+                last_finalized_,
+                proposed_round_lower_bound_,
+                *chain_);
+            execute_or_fail(block);
+            auto const &next = proposals_tree_.emplace_back(Proposal{
+                .payload = std::make_pair(block.header, std::move(wallet)),
+                .children = {}});
+            flat_proposals_.emplace_back(std::prev(proposals_tree_.end()));
+            proposed_round_lower_bound_ = next.payload.first.round + 1;
         }
-        else if (!proposals_.empty()) {
+        else {
+            auto it = flat_proposals_[provider_.ConsumeIntegralInRange<size_t>(
+                0, flat_proposals_.size() - 1)];
+            auto [block, wallet] = generate_proposal(
+                provider_, it->payload, proposed_round_lower_bound_, *chain_);
+            execute_or_fail(block);
+            auto const &next = it->children.emplace_back(Proposal{
+                .payload = std::make_pair(block.header, std::move(wallet)),
+                .children = {}});
+            flat_proposals_.emplace_back(std::prev(it->children.end()));
+            proposed_round_lower_bound_ = next.payload.first.round + 1;
+        }
+    }
+
+    void finalize()
+    {
+        if (!proposals_tree_.empty()) {
             last_finalized_ = finalize_proposal(
-                tdb_, provider_, *block_hash_chain_, proposals_);
-            proposals_.clear();
+                tdb_, provider_, *block_hash_chain_, proposals_tree_);
+            proposals_tree_.clear();
+            flat_proposals_.clear();
         }
     }
 };
@@ -466,6 +467,7 @@ public:
 struct __attribute__((packed)) FuzzParams
 {
     uint16_t num_events;
+    float proposal_prob;
     uint32_t seed;
 };
 
@@ -496,8 +498,14 @@ extern "C" int LLVMFuzzerTestOneInput(uint8_t const *data, size_t size)
     BlockFuzzer fuzzer(tdb, provider);
 
     for (uint16_t e = 0; e < params.num_events; ++e) {
-        fuzzer.next();
+        if (params.proposal_prob >= provider.ConsumeProbability<float>()) {
+            fuzzer.propose();
+        }
+        else {
+            fuzzer.finalize();
+        }
     }
+    fuzzer.finalize();
 
     return 0;
 }
