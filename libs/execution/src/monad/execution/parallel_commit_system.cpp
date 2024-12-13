@@ -79,7 +79,7 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
         current_status = TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED;
     }
 
-    if (allFootprintsDeclaredUptoExcl(myindex)) {
+    if (notrivFootprintsDeclaredUptoExcl(myindex)) {
         tryUnblockTransactionsStartingFrom(myindex);
     }
 }
@@ -192,13 +192,14 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
     return false;
 }
 
-bool ParallelCommitSystem::allFootprintsDeclaredUptoExcl(txindex_t index) {
+bool ParallelCommitSystem::notrivFootprintsDeclaredUptoExcl(txindex_t index) {
     auto committed_ub = all_committed_ub.load();
     for (auto i = committed_ub; i < index; ++i) {
         auto status = status_[i].load();
         if (status == TransactionStatus::STARTED || status == TransactionStatus::STARTED_UNBLOCKED) {
             return false;
         }
+        also check that the footprint is not nullptr, which means INF footprint
     }
     return true;
 }
@@ -215,6 +216,7 @@ void ParallelCommitSystem::tryUnblockTransactionsStartingFrom(txindex_t start) {
         tryUnblockTransaction(current_status, index);
         if (current_status == TransactionStatus::STARTED || current_status == TransactionStatus::STARTED_UNBLOCKED)
             break;// footprint has not been computed yet, so it may conflict with any transaction after index
+        also break if the footprint is nullptr, which means INF footprint
     }
 }
 
@@ -222,7 +224,7 @@ void ParallelCommitSystem::notifyDone(txindex_t myindex) {
     assert(status_[myindex].load() == TransactionStatus::COMMITTING);
     status_[myindex].store(TransactionStatus::COMMITTED);
     updateLastCommittedUb();
-    if (allFootprintsDeclaredUptoExcl(myindex)) {
+    if (notrivFootprintsDeclaredUptoExcl(myindex)) {
         tryUnblockTransactionsStartingFrom(myindex+1); // unlike before, the transaction myindex+1 cannot necesssarily be unblocked here because some transaction before myindex may not have committed and may have conflicts
     }
 }
