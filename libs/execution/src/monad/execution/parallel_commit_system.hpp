@@ -82,7 +82,7 @@ class ParallelCommitSystem
     /** update all_committed_ub so that it is at least minValue */
     void advanceLastCommittedUb(txindex_t minValue);
     void registerAddressAccessedBy(const evmc::address& addr, txindex_t index);
-    bool noBlockersUptoExcl(txindex_t index);
+    bool existsBlockerBefore(txindex_t index);
     void waitForAllTransactionsToCommit();
     bool blocksAllLaterTransactions(txindex_t index);
     /**

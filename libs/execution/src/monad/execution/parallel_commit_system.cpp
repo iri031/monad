@@ -83,7 +83,7 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
         current_status = TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED;
     }
 
-    if (noBlockersUptoExcl(myindex)) {
+    if (!existsBlockerBefore(myindex)) {
         tryUnblockTransactionsStartingFrom(myindex);
     }
 }
@@ -196,14 +196,14 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
     return false;
 }
 
-bool ParallelCommitSystem::noBlockersUptoExcl(txindex_t index) {
+bool ParallelCommitSystem::existsBlockerBefore(txindex_t index) {
     auto committed_ub = all_committed_ub.load();// transactiosn before this index cannot be blockers
     for (auto i = committed_ub; i < index; ++i) {
         if (blocksAllLaterTransactions(i)) {
-            return false;
+            return true;
         }
     }
-    return true;
+    return false;
 }
 
 bool ParallelCommitSystem::blocksAllLaterTransactions(txindex_t index) {
@@ -241,7 +241,7 @@ void ParallelCommitSystem::notifyDone(txindex_t myindex) {
     assert(status_[myindex].load() == TransactionStatus::COMMITTING);
     status_[myindex].store(TransactionStatus::COMMITTED);
     updateLastCommittedUb();
-    if (noBlockersUptoExcl(myindex)) {
+    if (!existsBlockerBefore(myindex)) {
         tryUnblockTransactionsStartingFrom(myindex+1); // unlike before, the transaction myindex+1 cannot necesssarily be unblocked here because some transaction before myindex may not have committed and may have conflicts
     }
 }
