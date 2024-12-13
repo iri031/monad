@@ -47,6 +47,7 @@ class ParallelCommitSystem
     ParallelCommitSystem(txindex_t num_transactions);
 
     ~ParallelCommitSystem();
+    void waitForAllTransactionsToCommit();
 
     private:
     /*
@@ -83,7 +84,6 @@ class ParallelCommitSystem
     void advanceLastCommittedUb(txindex_t minValue);
     void registerAddressAccessedBy(const evmc::address& addr, txindex_t index);
     bool existsBlockerBefore(txindex_t index);
-    void waitForAllTransactionsToCommit();
     bool blocksAllLaterTransactions(txindex_t index);
     /**
     * status is expected to be a recent load from status_[index]

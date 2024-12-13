@@ -14,7 +14,7 @@ void ParallelCommitSystem::notifyDone(txindex_t myindex) {
 ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions) {
     promises = new boost::fibers::promise<void>[num_transactions + 1];
     promises[0].set_value();
-    num_transactions_ = num_transactions;
+    this->num_transactions = num_transactions;
 }
 
 ParallelCommitSystem::~ParallelCommitSystem() {
@@ -23,8 +23,9 @@ ParallelCommitSystem::~ParallelCommitSystem() {
 
 void ParallelCommitSystem::declareFootprint(txindex_t, const std::set<evmc::address> *) {
 }
-void waitForAllTransactionsToCommit() {
-    promises[num_transactions_].get_future().wait();
+
+void ParallelCommitSystem::waitForAllTransactionsToCommit() {
+    promises[num_transactions].get_future().wait();
 }
 #else
 
