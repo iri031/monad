@@ -97,7 +97,9 @@ ParallelCommitSystem::~ParallelCommitSystem() {
     }
     // Clean up the footprints (we own these pointers)
     for (auto footprint : footprints_) {
-        delete footprint;
+        if (footprint != nullptr) {
+            delete footprint;
+        }
     }
 }
 

@@ -150,6 +150,9 @@ Result<std::vector<ExecutionResult>> execute_block(
              &header = block.header,
              &block_hash_buffer = block_hash_buffer,
              &block_state] {
+                #if !SEQUENTIAL
+                parallel_commit_system.declareFootprint(i, nullptr);
+                #endif
                 results[i] = execute<rev>(
                     chain,
                     i,
