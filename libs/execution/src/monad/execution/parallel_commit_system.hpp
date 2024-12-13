@@ -56,6 +56,7 @@ class ParallelCommitSystem
     boost::fibers::promise<void> *promises; // TODO: make it a vector
 #if SEQUENTIAL//ideally, we should use PIMPL and move the private state to the cpp files, 
 //one for the sequential impl and one for the parallel impl. that may be a tiny bit slower due to the overhead of the indirection via the pointer.
+    txindex_t num_transactions;
 #else
     enum class TransactionStatus : uint8_t
     {
@@ -81,8 +82,9 @@ class ParallelCommitSystem
     /** update all_committed_ub so that it is at least minValue */
     void advanceLastCommittedUb(txindex_t minValue);
     void registerAddressAccessedBy(const evmc::address& addr, txindex_t index);
-    bool notrivFootprintsDeclaredUptoExcl(txindex_t index);
+    bool noBlockersUptoExcl(txindex_t index);
     void waitForAllTransactionsToCommit();
+    bool blocksAllLaterTransactions(txindex_t index);
     /**
     * status is expected to be a recent load from status_[index]
     * it is just a minor optimization to avoid calling load() on status_[index] because it is already loaded in the caller

@@ -14,6 +14,7 @@ void ParallelCommitSystem::notifyDone(txindex_t myindex) {
 ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions) {
     promises = new boost::fibers::promise<void>[num_transactions + 1];
     promises[0].set_value();
+    num_transactions_ = num_transactions;
 }
 
 ParallelCommitSystem::~ParallelCommitSystem() {
@@ -21,6 +22,9 @@ ParallelCommitSystem::~ParallelCommitSystem() {
 }
 
 void ParallelCommitSystem::declareFootprint(txindex_t, const std::set<evmc::address> *) {
+}
+void waitForAllTransactionsToCommit() {
+    promises[num_transactions_].get_future().wait();
 }
 #else
 
@@ -79,7 +83,7 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
         current_status = TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED;
     }
 
-    if (notrivFootprintsDeclaredUptoExcl(myindex)) {
+    if (noBlockersUptoExcl(myindex)) {
         tryUnblockTransactionsStartingFrom(myindex);
     }
 }
@@ -192,16 +196,29 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
     return false;
 }
 
-bool ParallelCommitSystem::notrivFootprintsDeclaredUptoExcl(txindex_t index) {
-    auto committed_ub = all_committed_ub.load();
+bool ParallelCommitSystem::noBlockersUptoExcl(txindex_t index) {
+    auto committed_ub = all_committed_ub.load();// transactiosn before this index cannot be blockers
     for (auto i = committed_ub; i < index; ++i) {
-        auto status = status_[i].load();
-        if (status == TransactionStatus::STARTED || status == TransactionStatus::STARTED_UNBLOCKED) {
+        if (blocksAllLaterTransactions(i)) {
             return false;
         }
-        also check that the footprint is not nullptr, which means INF footprint
     }
     return true;
+}
+
+bool ParallelCommitSystem::blocksAllLaterTransactions(txindex_t index) {
+    auto status = status_[index].load();
+    if (status == TransactionStatus::STARTED || status == TransactionStatus::STARTED_UNBLOCKED) {
+        return true;
+    }
+    if (footprints_[index] == nullptr /* INF footprint */ && status != TransactionStatus::COMMITTED) {
+        return true;
+    }
+    return false;
+}
+
+void ParallelCommitSystem::waitForAllTransactionsToCommit() {
+    promises[status_.size()].get_future().wait();
 }
 
 void ParallelCommitSystem::tryUnblockTransactionsStartingFrom(txindex_t start) {
@@ -214,9 +231,9 @@ void ParallelCommitSystem::tryUnblockTransactionsStartingFrom(txindex_t start) {
     for(auto index = start; index < num_transactions; ++index) {
         auto current_status = status_[index].load();
         tryUnblockTransaction(current_status, index);
-        if (current_status == TransactionStatus::STARTED || current_status == TransactionStatus::STARTED_UNBLOCKED)
-            break;// footprint has not been computed yet, so it may conflict with any transaction after index
-        also break if the footprint is nullptr, which means INF footprint
+        if (blocksAllLaterTransactions(index)) {
+            break;
+        }
     }
 }
 
@@ -224,7 +241,7 @@ void ParallelCommitSystem::notifyDone(txindex_t myindex) {
     assert(status_[myindex].load() == TransactionStatus::COMMITTING);
     status_[myindex].store(TransactionStatus::COMMITTED);
     updateLastCommittedUb();
-    if (notrivFootprintsDeclaredUptoExcl(myindex)) {
+    if (noBlockersUptoExcl(myindex)) {
         tryUnblockTransactionsStartingFrom(myindex+1); // unlike before, the transaction myindex+1 cannot necesssarily be unblocked here because some transaction before myindex may not have committed and may have conflicts
     }
 }
@@ -237,7 +254,12 @@ void ParallelCommitSystem::updateLastCommittedUb() {
         }
         newUb++;
     }
-    advanceLastCommittedUb(newUb);
+    if(newUb == status_.size()-1) {
+        promises[status_.size()].set_value();
+    }
+    else { 
+        advanceLastCommittedUb(newUb); // there is no use of doing it in the then case, but it is safe+clean to do it there as well
+    }
 }
 
 void ParallelCommitSystem::advanceLastCommittedUb(txindex_t minValue) {
