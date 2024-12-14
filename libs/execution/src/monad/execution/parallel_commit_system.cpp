@@ -1,7 +1,4 @@
 #include <monad/execution/parallel_commit_system.hpp>
-#ifdef NDEBUG
-#error "Assertions are disabled!"
-#endif
 
 MONAD_NAMESPACE_BEGIN
 

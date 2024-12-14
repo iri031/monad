@@ -24,7 +24,7 @@ function(monad_compile_options target)
   set_property(TARGET ${target} PROPERTY CXX_STANDARD 23)
   set_property(TARGET ${target} PROPERTY CXX_STANDARD_REQUIRED ON)
 
-  target_compile_options(${target} PRIVATE -Wall -Wextra -Wconversion -Werror -O0)
+  target_compile_options(${target} PRIVATE -Wall -Wextra -Wconversion -Werror)
   target_compile_definitions(${target} PUBLIC "_GNU_SOURCE")
 
   target_compile_options(
