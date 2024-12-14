@@ -38,12 +38,20 @@ ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions)
       footprints_(num_transactions, nullptr)
         //,pending_footprints_(num_transactions)// not used currently
 {
-    for (auto& status : status_) {
-        status.store(TransactionStatus::STARTED);
+    // promises[0] is guaranteed to be unused. so we can allocate one less in the promises array and use i-1 as the index into array.
+    promises = new boost::fibers::promise<void>[num_transactions + 1];
+
+    // Initialize first transaction as STARTED_UNBLOCKED, rest as STARTED
+    if (num_transactions > 0) {
+        status_[0].store(TransactionStatus::STARTED_UNBLOCKED);
+    }
+    else {
+        promises[0].set_value();
+    }
+    for (size_t i = 1; i < status_.size(); i++) {
+        status_[i].store(TransactionStatus::STARTED);
     }
     
-    promises = new boost::fibers::promise<void>[num_transactions + 1];
-    promises[0].set_value();
 }
 
 void ParallelCommitSystem::registerAddressAccessedBy(const evmc::address& addr, txindex_t index) {
@@ -140,7 +148,6 @@ void ParallelCommitSystem::unblockTransaction(TransactionStatus status, txindex_
             new_status = TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED;
         } else if (status == TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS) {
             new_status = TransactionStatus::COMMITTING;
-            promises[index].set_value();
         } else {
             assert(false);
         }
@@ -190,7 +197,9 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
     }
     if (status == TransactionStatus::FOOTPRINT_COMPUTED || status==TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS) {
         auto footprint = footprints_[index];
-        assert(footprint);
+        if (footprint == nullptr) {
+            return false;
+        }
         for (const auto& addr : *footprint) {
             auto highest_prev = highestLowerUncommittedIndexAccessingAddress(index, addr);
             if (highest_prev == std::numeric_limits<txindex_t>::max() && status_[highest_prev].load() != TransactionStatus::COMMITTED)
@@ -243,8 +252,24 @@ void ParallelCommitSystem::tryUnblockTransactionsStartingFrom(txindex_t start) {
     }
 }
 
+std::string ParallelCommitSystem::status_to_string(TransactionStatus status) {
+    switch (status) {
+        case TransactionStatus::STARTED: return "STARTED";
+        case TransactionStatus::STARTED_UNBLOCKED: return "STARTED_UNBLOCKED";
+        case TransactionStatus::FOOTPRINT_COMPUTED: return "FOOTPRINT_COMPUTED";
+        case TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED: return "FOOTPRINT_COMPUTED_UNBLOCKED";
+        case TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS: return "WAITING_FOR_PREV_TRANSACTIONS";
+        case TransactionStatus::COMMITTING: return "COMMITTING";
+        case TransactionStatus::COMMITTED: return "COMMITTED";
+        default: assert(false);
+        return "INVALID";
+    }
+}
+
 void ParallelCommitSystem::notifyDone(txindex_t myindex) {
-    assert(status_[myindex].load() == TransactionStatus::COMMITTING);
+    auto status = status_[myindex].load();
+    //std::cout << "notifyDone: status of " << myindex << " is " << status_to_string(status) << std::endl;
+    assert(status == TransactionStatus::COMMITTING);
     status_[myindex].store(TransactionStatus::COMMITTED);
     updateLastCommittedUb();
     if (!existsBlockerBefore(myindex)) {
