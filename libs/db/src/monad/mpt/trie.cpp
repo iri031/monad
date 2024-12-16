@@ -101,11 +101,6 @@ Node::UniquePtr upsert(
     Node::UniquePtr old, UpdateList &&updates)
 {
     auto impl = [&] {
-        if (aux.is_on_disk()) {
-            aux.min_version_after_upsert =
-                static_cast<int64_t>(version) -
-                static_cast<int64_t>(aux.version_history_length()) + 1;
-        }
         aux.reset_stats();
         auto sentinel = make_tnode(1 /*mask*/);
         ChildData &entry = sentinel->children[0];
@@ -710,7 +705,7 @@ std::pair<bool, Node::UniquePtr> create_node_with_expired_branches(
         node->set_min_offset_fast(j, orig->min_offset_fast(orig_j));
         node->set_min_offset_slow(j, orig->min_offset_slow(orig_j));
         MONAD_DEBUG_ASSERT(
-            orig->subtrie_min_version(orig_j) >= aux.min_version_after_upsert);
+            orig->subtrie_min_version(orig_j) >= aux.auto_expire_min_version);
         node->set_subtrie_min_version(j, orig->subtrie_min_version(orig_j));
         if (tnode->cache_mask & (1u << orig_j)) {
             node->set_next(j, orig->move_next(orig_j));
@@ -817,7 +812,7 @@ void create_node_compute_data_possibly_async(
         entry.finalize(std::move(node), sm.get_compute(), sm.cache());
         if (sm.auto_expire()) {
             MONAD_DEBUG_ASSERT(
-                entry.subtrie_min_version >= aux.min_version_after_upsert);
+                entry.subtrie_min_version >= aux.auto_expire_min_version);
         }
     }
     else {
@@ -916,7 +911,7 @@ void create_new_trie_(
                 sm.cache());
             if (sm.auto_expire()) {
                 MONAD_DEBUG_ASSERT(
-                    entry.subtrie_min_version >= aux.min_version_after_upsert);
+                    entry.subtrie_min_version >= aux.auto_expire_min_version);
             }
             parent_version = std::max(parent_version, entry.ptr->version);
         }
@@ -987,7 +982,7 @@ void create_new_trie_from_requests_(
     entry.finalize(std::move(node), sm.get_compute(), sm.cache());
     if (sm.auto_expire()) {
         MONAD_DEBUG_ASSERT(
-            entry.subtrie_min_version >= aux.min_version_after_upsert);
+            entry.subtrie_min_version >= aux.auto_expire_min_version);
     }
 }
 
@@ -1162,7 +1157,7 @@ void dispatch_updates_impl_(
             child.copy_old_child(old, i);
             if (aux.is_on_disk()) {
                 if (sm.auto_expire() &&
-                    child.subtrie_min_version < aux.min_version_after_upsert) {
+                    child.subtrie_min_version < aux.auto_expire_min_version) {
                     // expire_() is similar to dispatch_updates() except that it
                     // can cut off some branches for data expiration
                     auto expire_tnode = ExpireTNode::make(
@@ -1323,7 +1318,7 @@ void mismatch_handler_(
             sm.up(path_suffix.nibble_size() + 1);
             if (aux.is_on_disk()) {
                 if (sm.auto_expire() &&
-                    child.subtrie_min_version < aux.min_version_after_upsert) {
+                    child.subtrie_min_version < aux.auto_expire_min_version) {
                     auto expire_tnode = ExpireTNode::make(
                         tnode.get(), i, j, std::move(child.ptr));
                     expire_(aux, sm, std::move(expire_tnode), INVALID_OFFSET);
@@ -1376,11 +1371,11 @@ void expire_(
     }
     auto *const parent = tnode->parent;
     // expire subtries whose subtrie_min_version(branch) <
-    // aux.min_version_after_upsert, check for compaction on the rest of the
+    // aux.auto_expire_min_version, check for compaction on the rest of the
     // subtries
     MONAD_ASSERT(sm.auto_expire() == true && sm.compact() == true);
     auto &node = *tnode->node;
-    if (node.version < aux.min_version_after_upsert) { // early stop
+    if (node.version < aux.auto_expire_min_version) { // early stop
         // this branch is expired, erase it from parent
         parent->mask &= static_cast<uint16_t>(~(1u << tnode->branch));
         if (parent->type == tnode_type::update) {
@@ -1396,7 +1391,7 @@ void expire_(
     for (unsigned i = 0, j = 0, bit = 1; j < node.number_of_children();
          ++i, bit <<= 1) {
         if (bit & node.mask) {
-            if (node.subtrie_min_version(j) < aux.min_version_after_upsert) {
+            if (node.subtrie_min_version(j) < aux.auto_expire_min_version) {
                 auto child_tnode =
                     ExpireTNode::make(tnode.get(), i, j, node.move_next(j));
                 expire_(aux, sm, std::move(child_tnode), node.fnext(j));
@@ -1439,7 +1434,7 @@ void fillin_parent_after_expiration(
         auto const &[min_offset_fast, min_offset_slow] =
             calc_min_offsets(*new_node, INVALID_VIRTUAL_OFFSET);
         auto const min_version = calc_min_version(*new_node);
-        MONAD_DEBUG_ASSERT(min_version >= aux.min_version_after_upsert);
+        MONAD_DEBUG_ASSERT(min_version >= aux.auto_expire_min_version);
         if (parent->type == tnode_type::update) {
             auto &child = ((UpdateTNode *)parent)->children[index];
             MONAD_ASSERT(!child.ptr); // been transferred to tnode

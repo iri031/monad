@@ -835,6 +835,8 @@ public:
                             old_metadata->latest_finalized_version;
                         metadata->latest_verified_version =
                             old_metadata->latest_verified_version;
+                        metadata->auto_expire_min_version =
+                            old_metadata->auto_expire_min_version;
                     });
                     fast_list_base_insertion_count =
                         old_metadata->fast_list_begin()->insertion_count();
