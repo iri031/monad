@@ -179,6 +179,10 @@ class UpdateAuxImpl
 
     void erase_version(uint64_t const version);
 
+    int64_t calc_min_auto_expire_version() noexcept;
+    int64_t get_min_auto_expire_version_ondisk() const noexcept;
+    void set_min_auto_expire_version_ondisk(int64_t) noexcept;
+
     /******** Compaction ********/
     uint32_t chunks_to_remove_before_count_fast_{0};
     uint32_t chunks_to_remove_before_count_slow_{0};
@@ -350,7 +354,7 @@ protected:
     };
 
 public:
-    int64_t min_version_after_upsert{0};
+    int64_t auto_expire_min_version{0};
 
     compact_virtual_chunk_offset_t compact_offset_fast{
         MIN_COMPACT_VIRTUAL_OFFSET};
