@@ -122,8 +122,8 @@ namespace
         return static_cast<ssize_t>(len);
     }
 
-    void statesync_server_send_upsert(
-        monad_statesync_server_network *const net, monad_sync_type const type,
+    bool statesync_server_send_upsert(
+        monad_statesync_server_network *net, monad_sync_type const type,
         unsigned char const *const v1, uint64_t const size1,
         unsigned char const *const v2, uint64_t const size2)
     {
@@ -137,6 +137,7 @@ namespace
         // TODO: prefixes have different protocols
         MONAD_ASSERT(monad_statesync_client_handle_upsert(
             net->cctx, 0, type, net->buf.data(), net->buf.size()));
+        return true;
     }
 
     void statesync_server_send_done(
