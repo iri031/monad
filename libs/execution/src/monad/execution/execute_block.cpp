@@ -89,6 +89,8 @@ inline void set_beacon_root(BlockState &block_state, Block &block)
         block_state.merge(state);
     }
 }
+template <typename T>
+using vanilla_ptr = T*;
 
 template <evmc_revision rev>
 Result<std::vector<Receipt>> execute_block(
@@ -109,10 +111,10 @@ Result<std::vector<Receipt>> execute_block(
         }
     }
 
-    std::shared_ptr<std::optional<Address>[]> const senders{
+    vanilla_ptr<std::optional<Address>> const senders{
         new std::optional<Address>[block.transactions.size()]};
 
-    std::shared_ptr<boost::fibers::promise<void>[]> promises{
+    vanilla_ptr<boost::fibers::promise<void>> promises{
         new boost::fibers::promise<void>[block.transactions.size()]};
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
@@ -131,11 +133,11 @@ Result<std::vector<Receipt>> execute_block(
         promises[i].get_future().wait();
     }
 
-    std::shared_ptr<std::optional<Result<Receipt>>[]> const results{
+    vanilla_ptr<std::optional<Result<Receipt>>> const results{
         new std::optional<Result<Receipt>>[block.transactions.size()]};
 
-    promises.reset(
-        new boost::fibers::promise<void>[block.transactions.size() + 1]);
+    delete[] promises;
+    promises = new boost::fibers::promise<void>[block.transactions.size() + 1];
     promises[0].set_value();
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
@@ -202,6 +204,10 @@ Result<std::vector<Receipt>> execute_block(
 
     MONAD_ASSERT(block_state.can_merge(state));
     block_state.merge(state);
+
+    delete[] senders;
+    delete[] results;
+    delete[] promises;
 
     return receipts;
 }
