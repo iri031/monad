@@ -65,40 +65,85 @@ evmc_revision EthereumMainnet::get_revision(
 }
 
 Result<void>
-EthereumMainnet::static_validate_header(BlockHeader const &header) const
+EthereumMainnet::static_validate_header(BlockHeader const &hdr) const
 {
     // EIP-779
     if (MONAD_UNLIKELY(
-            header.number >= dao::dao_block_number &&
-            header.number <= dao::dao_block_number + 9 &&
-            header.extra_data != dao::extra_data)) {
+            hdr.number >= dao::dao_block_number &&
+            hdr.number <= dao::dao_block_number + 9 &&
+            hdr.extra_data != dao::extra_data)) {
         return BlockError::WrongDaoExtraData;
     }
+
+    auto const rev = get_revision(hdr.number, hdr.timestamp);
+
+    // EIP-4895
+    if (rev < EVMC_SHANGHAI) {
+        if (MONAD_UNLIKELY(hdr.withdrawals_root.has_value())) {
+            return BlockError::FieldBeforeFork;
+        }
+    }
+    else if (MONAD_UNLIKELY(!hdr.withdrawals_root.has_value())) {
+        return BlockError::MissingField;
+    }
+
+    if (rev >= EVMC_PARIS) {
+        if (MONAD_UNLIKELY(hdr.ommers_hash != NULL_LIST_HASH)) {
+            return BlockError::WrongOmmersHash;
+        }
+    }
+
     return success();
 }
 
-Result<void> EthereumMainnet::validate_header(
-    std::vector<Receipt> const &receipts, BlockHeader const &hdr) const
+Result<void> EthereumMainnet::on_pre_commit_outputs(
+    std::vector<Receipt> const &receipts,
+    std::vector<BlockHeader> const &ommers, bytes32_t const &parent_hash,
+    BlockHeader &hdr) const
 {
     // YP eq. 33
     if (MONAD_UNLIKELY(compute_bloom(receipts) != hdr.logs_bloom)) {
         return BlockError::WrongLogsBloom;
     }
+    if (MONAD_UNLIKELY(compute_ommers_hash(ommers) != hdr.ommers_hash)) {
+        return BlockError::WrongOmmersHash;
+    }
+
+    if (MONAD_UNLIKELY(parent_hash != hdr.parent_hash)) {
+        if (get_revision(hdr.number, hdr.timestamp) >= EVMC_BYZANTIUM) {
+            return BlockError::WrongParentHash;
+        }
+    }
+
+    uint64_t const gas_used = receipts.empty() ? 0 : receipts.back().gas_used;
 
     // YP eq. 170
-    if (MONAD_UNLIKELY(
-            !receipts.empty() && receipts.back().gas_used != hdr.gas_used)) {
+    if (MONAD_UNLIKELY(gas_used != hdr.gas_used)) {
+        LOG_ERROR(
+            "Block: {}, Computed gas used: {}, Expected gas used: {}",
+            hdr.number,
+            gas_used,
+            hdr.gas_used);
         return BlockError::InvalidGasUsed;
+    }
+
+    // YP eq. 56
+    if (MONAD_UNLIKELY(gas_used > hdr.gas_limit)) {
+        LOG_ERROR(
+            "Block: {}, Computed gas used {} greater than limit {}",
+            hdr.number,
+            gas_used,
+            hdr.gas_limit);
+        return BlockError::GasAboveLimit;
     }
 
     return success();
 }
 
-bool EthereumMainnet::validate_root(
-    evmc_revision const rev, BlockHeader const &hdr,
-    bytes32_t const &state_root, bytes32_t const &receipts_root,
-    bytes32_t const &transactions_root,
-    std::optional<bytes32_t> const &withdrawals_root) const
+bool EthereumMainnet::on_post_commit_outputs(
+    evmc_revision const rev, bytes32_t const &state_root,
+    bytes32_t const &receipts_root, bytes32_t const &transactions_root,
+    std::optional<bytes32_t> const &withdrawals_root, BlockHeader &hdr) const
 {
     if (MONAD_UNLIKELY(state_root != hdr.state_root)) {
         LOG_ERROR(
@@ -137,6 +182,7 @@ bool EthereumMainnet::validate_root(
             hdr.withdrawals_root);
         return false;
     }
+
     return true;
 }
 

@@ -45,14 +45,17 @@ Receipt::Bloom compute_bloom(std::vector<Receipt> const &receipts)
     return bloom;
 }
 
+bytes32_t compute_ommers_hash(std::vector<BlockHeader> const &ommers)
+{
+    if (ommers.empty()) {
+        return NULL_LIST_HASH;
+    }
+    return to_bytes(keccak256(rlp::encode_ommers(ommers)));
+}
+
 template <evmc_revision rev>
 Result<void> static_validate_header(BlockHeader const &header)
 {
-    // YP eq. 56
-    if (MONAD_UNLIKELY(header.gas_used > header.gas_limit)) {
-        return BlockError::GasAboveLimit;
-    }
-
     // YP eq. 56
     if (MONAD_UNLIKELY(header.gas_limit < 5000)) {
         return BlockError::InvalidGasLimit;
@@ -95,16 +98,6 @@ Result<void> static_validate_header(BlockHeader const &header)
         return BlockError::MissingField;
     }
 
-    // EIP-4895
-    if constexpr (rev < EVMC_SHANGHAI) {
-        if (MONAD_UNLIKELY(header.withdrawals_root.has_value())) {
-            return BlockError::FieldBeforeFork;
-        }
-    }
-    else if (MONAD_UNLIKELY(!header.withdrawals_root.has_value())) {
-        return BlockError::MissingField;
-    }
-
     // EIP-3675
     if constexpr (rev >= EVMC_PARIS) {
         if (MONAD_UNLIKELY(header.difficulty != 0)) {
@@ -116,24 +109,12 @@ Result<void> static_validate_header(BlockHeader const &header)
         if (MONAD_UNLIKELY(header.nonce != empty_nonce)) {
             return BlockError::InvalidNonce;
         }
-
-        if (MONAD_UNLIKELY(header.ommers_hash != NULL_LIST_HASH)) {
-            return BlockError::WrongOmmersHash;
-        }
     }
 
     return success();
 }
 
 EXPLICIT_EVMC_REVISION(static_validate_header);
-
-bytes32_t compute_ommers_hash(std::vector<BlockHeader> const &ommers)
-{
-    if (ommers.empty()) {
-        return NULL_LIST_HASH;
-    }
-    return to_bytes(keccak256(rlp::encode_ommers(ommers)));
-}
 
 template <evmc_revision rev>
 constexpr Result<void> static_validate_ommers(Block const &block)
@@ -223,6 +204,7 @@ quick_status_code_from_enum<monad::BlockError>::value_mappings()
         {BlockError::InvalidGasLimit, "invalid gas limit", {}},
         {BlockError::ExtraDataTooLong, "extra data too long", {}},
         {BlockError::WrongOmmersHash, "wrong ommers hash", {}},
+        {BlockError::WrongParentHash, "wrong parent hash", {}},
         {BlockError::FieldBeforeFork, "field before fork", {}},
         {BlockError::MissingField, "missing field", {}},
         {BlockError::PowBlockAfterMerge, "pow block after merge", {}},

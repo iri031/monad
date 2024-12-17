@@ -12,13 +12,15 @@ struct BlockHeader;
 
 struct MonadChain : Chain
 {
-    Result<void> validate_header(
-        std::vector<Receipt> const &, BlockHeader const &) const override;
+    virtual Result<void> on_pre_commit_outputs(
+        std::vector<Receipt> const &, std::vector<BlockHeader> const &,
+        bytes32_t const &, BlockHeader &) const override;
 
-    virtual bool validate_root(
-        evmc_revision, BlockHeader const &, bytes32_t const &state_root,
+    virtual bool on_post_commit_outputs(
+        evmc_revision, bytes32_t const &state_root,
         bytes32_t const &receipts_root, bytes32_t const &transactions_root,
-        std::optional<bytes32_t> const &withdrawals_root) const override;
+        std::optional<bytes32_t> const &withdrawals_root,
+        BlockHeader &) const override;
 };
 
 MONAD_NAMESPACE_END
