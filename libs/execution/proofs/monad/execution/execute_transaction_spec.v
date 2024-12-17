@@ -34,12 +34,15 @@ void h()
 *)
 #[local] Open Scope Z_scope.
 
-Require Import EVMOpSem.evmfull.
+(*
+Require Import EVMOpSem.evmfull. *)
 Require Import stdpp.gmap.
-
+Axiom GlobalState: Set.
 Notation StateOfAccounts := GlobalState.
-Definition Transaction := Message.t. (* TODO: refine *)
-
+Axiom Transaction : Set.
+Module evm.
+  Axiom log_entry: Set.
+End evm.
 Definition BlockHeader: Type. Admitted.
 Record TransactionResult :=
   {
@@ -177,7 +180,7 @@ Section with_Sigma.
     \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
     \arg "rev" (valOfRev Shanghai)
     \arg{blockp: ptr} "block" (Vref blockp)
-    \prepost{(block: Block)} blockp |-> BlockR 1 block (* is this modified? if so, fix this line, else make it const in C++ code? *)
+    \prepost{qb (block: Block)} blockp |-> BlockR qb block
     \arg{block_statep: ptr} "block_state" (Vref block_statep)
     \pre{(preBlockState: StateOfAccounts)}
       block_statep |-> BlockState.R block preBlockState preBlockState
@@ -189,6 +192,48 @@ Section with_Sigma.
       retp |-> VectorR ReceiptR receipts
       ** block_statep |-> BlockState.R block preBlockState actual_final_state.
 
+Require Import bedrock_auto.tests.data_class.exb.
+Import namemap.
+Locate symbols.
+Import translation_unit.
+Check (NM.elements module.(symbols)).
+Require Import List.
+Locate BS.String.
+Import bytestring_core.
+Definition xx:=
+  (bytestring_core.BS.String "s"
+                                 (bytestring_core.BS.String "t"
+                                    (bytestring_core.BS.String "d" bytestring_core.BS.EmptyString))).
+Require Import bedrock.auto.cpp.
+Require Import bedrock.auto.cpp.specs.
+
+Context  {MOD : exb.module ⊧ CU}.
+(* Node::Node(Node*,int) *)
+Check exb.module.
+
+#[ignore_errors]
+cpp.spec (Ninst
+   "monad::execute_block(const monad::Chain&, monad::Block&, monad::BlockState&, const monad::BlockHashBuffer&, monad::fiber::PriorityPool&)"
+   [Avalue (Eint 12 "enum evmc_revision")]) as exb_spec with (execute_block_simpler).
+
+Lemma prf: denoteModule module |-- exb_spec.
+Proof using.
+  
+Compute (lengthN defns).
+Check defns.
+Import NM.
+Compute (nth_error defns 0).
+Search NM.key.
+Print defns.
+(* this is the entry we need to verify:
+ Ninst
+   "monad::execute_block(const monad::Chain&, monad::Block&, monad::BlockState&, const monad::BlockHashBuffer&, monad::fiber::PriorityPool&)"
+   [Avalue (Eint 12 "enum evmc_revision")];
+
+*)
+  
+
+  
   Definition TransactionR (q: Qp) (t: Transaction): Rep. Proof. Admitted.
 
   Definition optionAddressR (q:Qp) (oaddr: option evm.address): Rep. Proof. Admitted.
