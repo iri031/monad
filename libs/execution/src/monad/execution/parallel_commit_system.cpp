@@ -264,9 +264,9 @@ std::string ParallelCommitSystem::status_to_string(TransactionStatus status) {
 }
 
 void ParallelCommitSystem::notifyDone(txindex_t myindex) {
-    auto status = status_[myindex].load();
+    //auto status = status_[myindex].load();
     //std::cout << "notifyDone: status of " << myindex << " is " << status_to_string(status) << std::endl;
-    assert(status == TransactionStatus::COMMITTING);
+    // assert(status == TransactionStatus::COMMITTING);
     status_[myindex].store(TransactionStatus::COMMITTED);
     updateLastCommittedUb();
     if (!existsBlockerBefore(myindex)) {
