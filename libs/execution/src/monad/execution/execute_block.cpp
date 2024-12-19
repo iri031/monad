@@ -91,32 +91,10 @@ inline void set_beacon_root(BlockState &block_state, Block &block)
 }
 template <typename T>
 using vanilla_ptr = T*;
-
-template <evmc_revision rev>
-Result<std::vector<Receipt>> execute_block(
-    Chain const &chain, Block &block, BlockState &block_state,
-    BlockHashBuffer const &block_hash_buffer,
-    fiber::PriorityPool &priority_pool)
-{
-    TRACE_BLOCK_EVENT(StartBlock);
-
-    if constexpr (rev >= EVMC_CANCUN) {
-        set_beacon_root(block_state, block);
-    }
-
-    if constexpr (rev == EVMC_HOMESTEAD) {
-        if (MONAD_UNLIKELY(block.header.number == dao::dao_block_number)) {
-            transfer_balance_dao(
-                block_state, Incarnation{block.header.number, 0});
-        }
-    }
-
-    vanilla_ptr<std::optional<Address>> const senders{
-        new (std::nothrow) std::optional<Address>[block.transactions.size()]};
-
+template <evmc_revision rev> 
+void compute_senders(vanilla_ptr<std::optional<Address>> const senders, Block const &block, fiber::PriorityPool &priority_pool){
     vanilla_ptr<boost::fibers::promise<void>> promises{
         new (std::nothrow) boost::fibers::promise<void>[block.transactions.size()]};
-    MONAD_ASSERT(senders != nullptr);
     MONAD_ASSERT(promises != nullptr);
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
@@ -134,12 +112,15 @@ Result<std::vector<Receipt>> execute_block(
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         promises[i].get_future().wait();
     }
-
-    vanilla_ptr<std::optional<Result<Receipt>>> const results{
-        new (std::nothrow) std::optional<Result<Receipt>>[block.transactions.size()]};
-    MONAD_ASSERT(results != nullptr);
     delete[] promises;
-    promises = new boost::fibers::promise<void>[block.transactions.size() + 1];
+}
+
+template <evmc_revision rev>
+void execute_transactions(vanilla_ptr<std::optional<Address>> const senders, Block const &block, vanilla_ptr<std::optional<Result<Receipt>>> const results, 
+fiber::PriorityPool &priority_pool, Chain const &chain, BlockHashBuffer const &block_hash_buffer, BlockState &block_state){
+    vanilla_ptr<boost::fibers::promise<void>> promises{
+        new (std::nothrow) boost::fibers::promise<void>[block.transactions.size() + 1]};
+    MONAD_ASSERT(promises != nullptr);
     promises[0].set_value();
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
@@ -169,6 +150,38 @@ Result<std::vector<Receipt>> execute_block(
 
     auto const last = static_cast<std::ptrdiff_t>(block.transactions.size());
     promises[last].get_future().wait();
+
+}
+
+template <evmc_revision rev>
+Result<std::vector<Receipt>> execute_block(
+    Chain const &chain, Block &block, BlockState &block_state,
+    BlockHashBuffer const &block_hash_buffer,
+    fiber::PriorityPool &priority_pool)
+{
+    TRACE_BLOCK_EVENT(StartBlock);
+
+    if constexpr (rev >= EVMC_CANCUN) {
+        set_beacon_root(block_state, block);
+    }
+
+    if constexpr (rev == EVMC_HOMESTEAD) {
+        if (MONAD_UNLIKELY(block.header.number == dao::dao_block_number)) {
+            transfer_balance_dao(
+                block_state, Incarnation{block.header.number, 0});
+        }
+    }
+
+    vanilla_ptr<std::optional<Address>> const senders{
+        new (std::nothrow) std::optional<Address>[block.transactions.size()]};
+    MONAD_ASSERT(senders != nullptr);
+    compute_senders<rev>(senders, block, priority_pool);
+
+
+    vanilla_ptr<std::optional<Result<Receipt>>> const results{
+        new (std::nothrow) std::optional<Result<Receipt>>[block.transactions.size()]};
+    MONAD_ASSERT(results != nullptr);
+    execute_transactions<rev>(senders, block, results, priority_pool, chain, block_hash_buffer, block_state);
 
     std::vector<Receipt> receipts;
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
@@ -209,7 +222,6 @@ Result<std::vector<Receipt>> execute_block(
 
     delete[] senders;
     delete[] results;
-    delete[] promises;
 
     return receipts;
 }

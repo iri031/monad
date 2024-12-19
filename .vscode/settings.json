@@ -31,6 +31,13 @@
         "string_view": "cpp",
         "unordered_map": "cpp",
         "unordered_set": "cpp",
-        "vector": "cpp"
+        "vector": "cpp",
+        "typeindex": "cpp",
+        "typeinfo": "cpp",
+        "text_encoding": "cpp",
+        "future": "cpp",
+        "system_error": "cpp",
+        "ios": "cpp",
+        "optional": "cpp"
     }
 }
