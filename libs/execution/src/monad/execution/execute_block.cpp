@@ -112,10 +112,12 @@ Result<std::vector<Receipt>> execute_block(
     }
 
     vanilla_ptr<std::optional<Address>> const senders{
-        new std::optional<Address>[block.transactions.size()]};
+        new (std::nothrow) std::optional<Address>[block.transactions.size()]};
 
     vanilla_ptr<boost::fibers::promise<void>> promises{
-        new boost::fibers::promise<void>[block.transactions.size()]};
+        new (std::nothrow) boost::fibers::promise<void>[block.transactions.size()]};
+    MONAD_ASSERT(senders != nullptr);
+    MONAD_ASSERT(promises != nullptr);
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         priority_pool.submit(
@@ -134,8 +136,8 @@ Result<std::vector<Receipt>> execute_block(
     }
 
     vanilla_ptr<std::optional<Result<Receipt>>> const results{
-        new std::optional<Result<Receipt>>[block.transactions.size()]};
-
+        new (std::nothrow) std::optional<Result<Receipt>>[block.transactions.size()]};
+    MONAD_ASSERT(results != nullptr);
     delete[] promises;
     promises = new boost::fibers::promise<void>[block.transactions.size() + 1];
     promises[0].set_value();

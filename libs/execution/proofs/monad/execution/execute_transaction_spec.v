@@ -123,7 +123,9 @@ Inductive Revision := Shanghai | Frontier.
 
 Definition valOfRev (r : Revision) : val := Vint 0. (* TODO: fix *)
 
-
+Require Import bedrock_auto.tests.data_class.exb.
+Require Import bedrock_auto.tests.data_class.exb_names.
+Open Scope cpp_name.
 Section with_Sigma.
   Context `{Sigma:cpp_logic} {CU: genv} {hh: HasOwn mpredI fracR}. (* some standard assumptions about the c++ logic *)
 
@@ -153,10 +155,13 @@ Section with_Sigma.
   (* defines how [c] is represented in memory as an object of class Chain *)
   Definition PriorityPoolR (q: Qp) (c: PriorityPool): Rep. Proof. Admitted.
 
-  Definition BlockR (q: Qp) (c: Block): Rep. Proof. Admitted.
+  Definition VectorR {ElemType} (cppType: type) (elemRep: ElemType -> Rep) (q:Qp) (t:list ElemType): Rep. Proof. Admitted.
+  Definition TransactionR (t: Transaction) : Rep. Proof using. Admitted.
+  Definition BlockR (q: Qp) (c: Block): Rep :=
+    _field ``::monad::Block::transactions`` |-> VectorR (Tnamed ``::monad::Transaction``) TransactionR q (transactions c)
+    ** structR ``::monad::Block`` q.
   Definition ResultR {T} (trep: T -> Rep) (t:T): Rep. Proof. Admitted.
   Definition ReceiptR (t: TransactionResult): Rep. Admitted.
-  Definition VectorR {ElemType} (elemRep: ElemType -> Rep) (t:list ElemType): Rep. Proof. Admitted.
   
 
 (*  
@@ -178,7 +183,7 @@ Section with_Sigma.
   Definition execute_block_simpler : WpSpec mpredI val val :=
     \arg{chainp :ptr} "chain" (Vref chainp)
     \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
-    \arg "rev" (valOfRev Shanghai)
+(*     \arg "rev" (valOfRev Shanghai) *)
     \arg{blockp: ptr} "block" (Vref blockp)
     \prepost{qb (block: Block)} blockp |-> BlockR qb block
     \arg{block_statep: ptr} "block_state" (Vref block_statep)
@@ -189,10 +194,9 @@ Section with_Sigma.
     \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool (* TODO: write a spec of priority_pool.submit() *)
     \post{retp}[Vptr retp]
       let (actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (transactions block) in
-      retp |-> VectorR ReceiptR receipts
+      retp |-> VectorR (Tnamed ``::monad::Receipt``) ReceiptR 1 receipts
       ** block_statep |-> BlockState.R block preBlockState actual_final_state.
 
-Require Import bedrock_auto.tests.data_class.exb.
 Import namemap.
 Locate symbols.
 Import translation_unit.
@@ -211,13 +215,47 @@ Context  {MOD : exb.module ⊧ CU}.
 (* Node::Node(Node*,int) *)
 Check exb.module.
 
-#[ignore_errors]
 cpp.spec (Ninst
    "monad::execute_block(const monad::Chain&, monad::Block&, monad::BlockState&, const monad::BlockHashBuffer&, monad::fiber::PriorityPool&)"
-   [Avalue (Eint 12 "enum evmc_revision")]) as exb_spec with (execute_block_simpler).
+   [Avalue (Eint 11 "enum evmc_revision")]) as exb_spec with (execute_block_simpler).
 
-Lemma prf: denoteModule module |-- exb_spec.
+Require Import bedrock.auto.cpp.tactics4.
+
+Ltac slauto :=                                                                                                        go; (* TODO: hide evars *)                                                                                        try name_locals;                                                                                                  tryif progress(try (ego; eagerUnifyU; go; fail); try (apply False_rect; try contradiction; try congruence; try nia; fail); try autorewrite with syntactic equiv iff slbwd in *; try rewrite left_id (* in equiv rw db but doesnt work *))                  
+  then slauto  else idtac.
+
+
+  cpp.spec
+    "std::vector<monad::Transaction, std::allocator<monad::Transaction>>::size() const"
+    as tvector_spec with
+      (fun (this:ptr) =>
+         \prepost{q ts} this |-> VectorR (Tnamed ``::monad::Transaction``) TransactionR q (ts)
+         \post[Vn (lengthN ts)] (emp:mpred)
+      ).
+
+Lemma prf: denoteModule module ** tvector_spec |-- exb_spec.
 Proof using.
+  verify_spec'.
+  name_locals.
+  unfold BlockR.
+  slauto.
+  ego.
+  provePure.
+  Print pointer_size.
+  hnf.
+
+  invoke.wp_minvoke_O.body module Direct
+    "const std::vector<monad::Transaction, std::allocator<monad::Transaction>>" "unsigned long"%cpp_type
+    "unsigned long()()" "std::vector<monad::Transaction, std::allocator<monad::Transaction>>::size() const"
+    (blockp ,, o_field CU "monad::Block::transactions") [] None
+    (λ x : val,
+        ∃ array_sizeN : N, [| x = Vn array
+                                     
+  ego.
+  name_locals.
+  rewrite <- wp_operand_array_new.
+  work.
+  go.
   
 Compute (lengthN defns).
 Check defns.
