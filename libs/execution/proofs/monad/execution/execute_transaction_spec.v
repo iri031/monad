@@ -239,9 +239,31 @@ Proof using.
   name_locals.
   unfold BlockR.
   slauto.
+  iExists _.
+  iExists _.
+  go.
+  erewrite sizeof.size_of_compat; try eauto.
+  simpl.
+  go.
+  
+  assert ((lengthN (transactions block)< 100000)%N) as Hl.
+  provePure.
+  work.
+  go.
+  provePure.
+  hnf.
+  2:{ go.
+  2:{
+  Search glob_def  GlobDecl_size_of .
+  ego.
+  Search Enew.
+  
+  slauto.
   ego.
   provePure.
   Print pointer_size.
+ 
+  Show Proof.
   hnf.
 
   invoke.wp_minvoke_O.body module Direct
@@ -250,6 +272,28 @@ Proof using.
     (blockp ,, o_field CU "monad::Block::transactions") [] None
     (λ x : val,
         ∃ array_sizeN : N, [| x = Vn array
+
+
+        Sdecl
+          [Dvar "senders" "std::optional<evmc::address>* const"
+             (Some
+                (Enew
+                   ("operator new[](unsigned long, const std::nothrow_t&)"%cpp_name,
+                    "void*()(unsigned long, const std::nothrow_t&)"%cpp_type)
+                   [Eglobal "std::nothrow" "const std::nothrow_t"] (new_form.Allocating false)
+                   "std::optional<evmc::address>"
+                   (Some
+                      (Emember_call false
+                         (inl
+                            ("std::vector<monad::Transaction, std::allocator<monad::Transaction>>::size() const"%cpp_name,
+                             Direct, "unsigned long()()"%cpp_type))
+                         (Ecast
+                            (Cnoop "const std::vector<monad::Transaction, std::allocator<monad::Transaction>>&")
+                            (Emember false (Evar "block" "monad::Block&") (Nid "transactions") false
+                               "std::vector<monad::Transaction, std::allocator<monad::Transaction>>"))
+                         []))
+                   (Some
+                      (Econstructor "std::optional<evmc::address>::optional()" [] "std::optional<evmc::address>[]")                                     
                                      
   ego.
   name_locals.
