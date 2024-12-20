@@ -110,13 +110,18 @@ inline ::evmc::address hex_to_address(const std::string& hex_str) {
 
 inline bytes32_t hex_to_bytes32(const std::string& hex_str) {
     std::string s = hex_str;
-    if (s.size() >= 2 && s.compare(0, 2, "0x") == 0) {
-        s = s.substr(2);
-    }
+    s.erase(0, s.find_first_not_of(" \n\r\t"));
+    s.erase(s.find_last_not_of(" \n\r\t") + 1);
 
     assert(s.size() == 64);
 
     unsigned char bytes[32];
+    std::cout << "unhexing: " << s << std::endl;
+for (char c : s) {
+    if (!std::isxdigit(c)) {
+        std::cout << "Invalid character found: " << c << std::endl;
+        }
+    }    
     boost::algorithm::unhex(s.begin(), s.end(), bytes);
 
     bytes32_t hash{};
@@ -146,16 +151,10 @@ void parseCodeHashes(std::unordered_map<Address, bytes32_t> &code_hashes) {
         std::string addr_str = line.substr(0, comma_pos);
         std::string hash_str = line.substr(comma_pos + 1);
 
-        try {
-            // Parse address and hash from hex strings
-            Address addr = hex_to_address(addr_str);
-            bytes32_t hash = hex_to_bytes32(hash_str);
-            std::cout << "Address: " << fmt::format("{}", addr) << ", Hash: " << fmt::format("{}", intx::hex(intx::be::load<intx::uint256>(hash.bytes))) << std::endl;
-            code_hashes.emplace(addr, hash);
-        } catch (std::exception& e) {
-            LOG_ERROR("Failed to parse line: {}", line);
-            continue;
-        }
+        Address addr = hex_to_address(addr_str);
+        bytes32_t hash = hex_to_bytes32(hash_str);
+        std::cout << "Address: " << fmt::format("{}", addr) << ", Hash: " << fmt::format("{}", intx::hex(intx::be::load<intx::uint256>(hash.bytes))) << std::endl;
+        code_hashes.emplace(addr, hash);
     }
 }
 
