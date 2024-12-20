@@ -24,14 +24,15 @@
 #include <monad/statesync/statesync_server.h>
 #include <monad/statesync/statesync_server_context.hpp>
 #include <monad/statesync/statesync_server_network.hpp>
-
+#include <boost/algorithm/hex.hpp>
 #include <CLI/CLI.hpp>
 
 #include <quill/LogLevel.h>
 #include <quill/Quill.h>
 #include <quill/detail/LogMacros.h>
 #include <quill/handlers/FileHandler.h>
-
+#include <monad/core/basic_formatter.hpp>
+#include <monad/core/fmt/address_fmt.hpp>
 #include <boost/outcome/try.hpp>
 
 #include <algorithm>
@@ -90,6 +91,74 @@ void log_tps(
         monad_procfs_self_resident() / (1L << 20));
 };
 
+inline ::evmc::address hex_to_address(const std::string& hex_str) {
+    std::string s = hex_str;
+    if (s.size() >= 2 && s.compare(0, 2, "0x") == 0) {
+        s = s.substr(2);
+    }
+
+    assert(s.size() == 40);
+
+    unsigned char bytes[20];
+    boost::algorithm::unhex(s.begin(), s.end(), bytes);
+
+    ::evmc::address addr{};
+    std::copy(bytes, bytes + 20, addr.bytes);
+    return addr;
+}
+
+
+inline bytes32_t hex_to_bytes32(const std::string& hex_str) {
+    std::string s = hex_str;
+    if (s.size() >= 2 && s.compare(0, 2, "0x") == 0) {
+        s = s.substr(2);
+    }
+
+    assert(s.size() == 64);
+
+    unsigned char bytes[32];
+    boost::algorithm::unhex(s.begin(), s.end(), bytes);
+
+    bytes32_t hash{};
+    std::copy(bytes, bytes + 32, hash.bytes);
+    return hash;
+}
+
+void parseCodeHashes(std::unordered_map<Address, bytes32_t> &code_hashes) {
+    std::ifstream file("/home/abhishek/contracts0t/hashes.txt");
+    
+    if (!file.is_open()) {
+        LOG_ERROR("Could not open code hashes file");
+        return;
+    }
+
+    std::string line;
+    // Skip header line
+    std::getline(file, line);
+    
+    while (std::getline(file, line)) {
+        if (line.empty()) continue;
+        
+        // Split line into address and hash
+        auto comma_pos = line.find(',');
+        if (comma_pos == std::string::npos) continue;
+        
+        std::string addr_str = line.substr(0, comma_pos);
+        std::string hash_str = line.substr(comma_pos + 1);
+
+        try {
+            // Parse address and hash from hex strings
+            Address addr = hex_to_address(addr_str);
+            bytes32_t hash = hex_to_bytes32(hash_str);
+            std::cout << "Address: " << fmt::format("{}", addr) << ", Hash: " << fmt::format("{}", intx::hex(intx::be::load<intx::uint256>(hash.bytes))) << std::endl;
+            code_hashes.emplace(addr, hash);
+        } catch (std::exception& e) {
+            LOG_ERROR("Failed to parse line: {}", line);
+            continue;
+        }
+    }
+}
+
 Result<std::pair<uint64_t, uint64_t>> run_monad(
     Chain const &chain, Db &db, TryGet const &try_get,
     fiber::PriorityPool &priority_pool, uint64_t &block_num,
@@ -108,6 +177,8 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     auto batch_begin = std::chrono::steady_clock::now();
     uint64_t ntxs = 0;
 
+    std::unordered_map<Address, bytes32_t> code_hashes;
+    parseCodeHashes(code_hashes);
     BlockHashBuffer block_hash_buffer;
     for (uint64_t i = block_num < 256 ? 1 : block_num - 255;
          i < block_num && stop == 0;) {
