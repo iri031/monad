@@ -13,6 +13,7 @@
 #include <monad/db/util.hpp>
 #include <monad/execution/block_hash_buffer.hpp>
 #include <monad/execution/execute_block.hpp>
+#include <monad/execution/expr.hpp>
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/genesis.hpp>
 #include <monad/execution/trace/event_trace.hpp>
@@ -180,7 +181,7 @@ void parse_indices(const std::string& indices_str, std::vector<uint32_t> & indic
     }
 }
 
-void parse_callees(std::map<evmc::bytes32, std::vector<uint32_t>> &result) {
+void parse_callees(std::map<evmc::bytes32, std::vector<uint32_t>> &result, ExpressionPool &epool) {
     std::ifstream file("/home/abhishek/contracts0t/callees.csv");
     MONAD_ASSERT(file.is_open());
 
@@ -207,10 +208,12 @@ void parse_callees(std::map<evmc::bytes32, std::vector<uint32_t>> &result) {
         evmc::bytes32 key = hex_to_bytes32(hash_hex);
         std::vector<uint32_t> values;
         parse_indices(indices_str, values);
-        std::cout << "Parsed line: " << hash_hex << ": " <<"size: " << values.size();
+        std::cout << "Parsed line: " << hash_hex << ": " <<"size: " << values.size() << ", exprs:  ";
         for (auto const &val : values) {
-            std::cout << val << ",";
+            epool.printExpression(std::cout, val);
+            std::cout << ";";
         }
+
         result[key] = std::move(values);
         std::cout << std::endl;
     }
@@ -237,9 +240,11 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     uint64_t ntxs = 0;
 
     std::unordered_map<Address, bytes32_t> code_hashes;
-    //parseCodeHashes(code_hashes);
+    parseCodeHashes(code_hashes);
+    ExpressionPool epool;
+    epool.deserialize("/home/abhishek/contracts0t/epool.bin");
     std::map<evmc::bytes32, std::vector<uint32_t>> callees;
-    parse_callees(callees);
+    parse_callees(callees, epool);
     std::terminate();
     BlockHashBuffer block_hash_buffer;
     for (uint64_t i = block_num < 256 ? 1 : block_num - 255;
