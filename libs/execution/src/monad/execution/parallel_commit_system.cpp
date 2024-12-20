@@ -223,7 +223,7 @@ bool ParallelCommitSystem::blocksAllLaterTransactions(txindex_t index) {
     if (status == TransactionStatus::STARTED || status == TransactionStatus::STARTED_UNBLOCKED) {
         return true;
     }
-    if (footprints_[index] == nullptr /* INF footprint */ && status != TransactionStatus::COMMITTED) {
+    if (footprints_.at(index) == nullptr /* INF footprint */ && status != TransactionStatus::COMMITTED) {
         return true;
     }
     return false;

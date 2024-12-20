@@ -97,7 +97,7 @@ inline ::evmc::address hex_to_address(const std::string& hex_str) {
         s = s.substr(2);
     }
 
-    assert(s.size() == 40);
+    MONAD_ASSERT(s.size() == 40);
 
     unsigned char bytes[20];
     boost::algorithm::unhex(s.begin(), s.end(), bytes);
@@ -107,21 +107,24 @@ inline ::evmc::address hex_to_address(const std::string& hex_str) {
     return addr;
 }
 
+void trim(std::string &s) {
+    s.erase(0, s.find_first_not_of(" \n\r\t"));
+    s.erase(s.find_last_not_of(" \n\r\t") + 1);
+}
+
+void prepad_hex(std::string &s) {
+    if (s.size() < 64) {
+        s = std::string(64 - s.size(), '0') + s;
+    }
+}
 
 inline bytes32_t hex_to_bytes32(const std::string& hex_str) {
     std::string s = hex_str;
-    s.erase(0, s.find_first_not_of(" \n\r\t"));
-    s.erase(s.find_last_not_of(" \n\r\t") + 1);
+    trim(s);
 
-    assert(s.size() == 64);
+    prepad_hex(s);
 
     unsigned char bytes[32];
-    std::cout << "unhexing: " << s << std::endl;
-for (char c : s) {
-    if (!std::isxdigit(c)) {
-        std::cout << "Invalid character found: " << c << std::endl;
-        }
-    }    
     boost::algorithm::unhex(s.begin(), s.end(), bytes);
 
     bytes32_t hash{};
@@ -153,10 +156,67 @@ void parseCodeHashes(std::unordered_map<Address, bytes32_t> &code_hashes) {
 
         Address addr = hex_to_address(addr_str);
         bytes32_t hash = hex_to_bytes32(hash_str);
-        std::cout << "Address: " << fmt::format("{}", addr) << ", Hash: " << fmt::format("{}", intx::hex(intx::be::load<intx::uint256>(hash.bytes))) << std::endl;
+        //std::cout << "Address: " << fmt::format("{}", addr) << ", Hash: " << fmt::format("{}", intx::hex(intx::be::load<intx::uint256>(hash.bytes))) << std::endl;
         code_hashes.emplace(addr, hash);
     }
 }
+// Parse a semicolon-separated list of numbers into a vector<uint32_t>
+void parse_indices(const std::string& indices_str, std::vector<uint32_t> & indices) {
+    std::cout << "parsing indices: " << indices_str << std::endl;
+    if (indices_str.empty()) {
+        return; // Empty vector
+    }
+
+    std::stringstream ss(indices_str);
+    std::string token;
+    while (std::getline(ss, token, ';')) {
+        // Trim whitespace if needed
+        trim(token);
+        std::cout << "token: " << token << std::endl;
+        if (!token.empty()) {
+            uint32_t val = static_cast<uint32_t>(std::stoul(token));
+            indices.push_back(val);
+        }
+    }
+}
+
+void parse_callees(std::map<evmc::bytes32, std::vector<uint32_t>> &result) {
+    std::ifstream file("/home/abhishek/contracts0t/callees.csv");
+    MONAD_ASSERT(file.is_open());
+
+    std::string line;
+    // Skip header line
+    MONAD_ASSERT(std::getline(file, line));// header line must exist
+
+    while (std::getline(file, line)) {
+        MONAD_ASSERT(!line.empty());
+        std::cout << "processing line: " << line << std::endl;
+
+        auto comma_pos = line.find(',');
+        MONAD_ASSERT(comma_pos != std::string::npos);
+
+
+        std::string hash_hex = line.substr(0, comma_pos);
+        std::string indices_str = line.substr(comma_pos + 1);
+
+        // Trim whitespace from hash_hex and indices_str if needed
+        trim(hash_hex);
+        trim(indices_str);
+
+
+        evmc::bytes32 key = hex_to_bytes32(hash_hex);
+        std::vector<uint32_t> values;
+        parse_indices(indices_str, values);
+        std::cout << "Parsed line: " << hash_hex << ": " <<"size: " << values.size();
+        for (auto const &val : values) {
+            std::cout << val << ",";
+        }
+        result[key] = std::move(values);
+        std::cout << std::endl;
+    }
+}
+
+
 
 Result<std::pair<uint64_t, uint64_t>> run_monad(
     Chain const &chain, Db &db, TryGet const &try_get,
@@ -177,7 +237,10 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     uint64_t ntxs = 0;
 
     std::unordered_map<Address, bytes32_t> code_hashes;
-    parseCodeHashes(code_hashes);
+    //parseCodeHashes(code_hashes);
+    std::map<evmc::bytes32, std::vector<uint32_t>> callees;
+    parse_callees(callees);
+    std::terminate();
     BlockHashBuffer block_hash_buffer;
     for (uint64_t i = block_num < 256 ? 1 : block_num - 255;
          i < block_num && stop == 0;) {
