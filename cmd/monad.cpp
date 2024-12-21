@@ -47,8 +47,14 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <evmc/utils.h>
 
 #include <sys/sysinfo.h>
+
+#include <intx/intx.hpp>
+#include <evmc/bytes.hpp>
+#include <evmc/evmc.h>
+#include <evmc/utils.h>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -163,7 +169,6 @@ void parseCodeHashes(std::unordered_map<Address, bytes32_t> &code_hashes) {
 }
 // Parse a semicolon-separated list of numbers into a vector<uint32_t>
 void parse_indices(const std::string& indices_str, std::vector<uint32_t> & indices) {
-    std::cout << "parsing indices: " << indices_str << std::endl;
     if (indices_str.empty()) {
         return; // Empty vector
     }
@@ -173,7 +178,6 @@ void parse_indices(const std::string& indices_str, std::vector<uint32_t> & indic
     while (std::getline(ss, token, ';')) {
         // Trim whitespace if needed
         trim(token);
-        std::cout << "token: " << token << std::endl;
         if (!token.empty()) {
             uint32_t val = static_cast<uint32_t>(std::stoul(token));
             indices.push_back(val);
@@ -181,7 +185,38 @@ void parse_indices(const std::string& indices_str, std::vector<uint32_t> & indic
     }
 }
 
-void parse_callees(std::map<evmc::bytes32, std::vector<uint32_t>> &result, ExpressionPool &epool) {
+intx::uint256 ofBoost(const Word256& word) {
+    uint64_t words[4];
+    to_uint64_array(word, words);
+
+    // Construct intx::uint256 from the uint64_t array
+    intx::uint256 result{words[0], words[1], words[2], words[3]};
+
+    // For debugging: log the Word256 and the intx::uint256 values
+    //LOG_INFO("Converting Word256 to intx::uint256");
+    LOG_INFO("Word256:       0x{}", word.str(0, std::ios_base::hex));
+    //LOG_INFO("intx::uint256: 0x{}", intx::to_string(result, 16));
+
+    return result;
+}
+
+const std::set<evmc::address> * get_footprint(const std::vector<uint32_t> &indices, ExpressionPool &epool) {
+    std::set<evmc::address> *footprint = new std::set<evmc::address>();
+    if (!epool.allConstants(indices)) {
+        return nullptr;
+    }
+
+    for (auto const &val : indices) {
+        Word256 word = epool.getConst(val);
+        if (word < 10) {//precompiled contract address
+            continue;
+        }
+        auto truncated = intx::be::trunc<evmc::address>(ofBoost(word));
+        footprint->insert(truncated);
+    }
+    return footprint;
+}
+void parse_callees(std::map<evmc::bytes32, const  std::set<evmc::address> * > &result, ExpressionPool &epool) {
     std::ifstream file("/home/abhishek/contracts0t/callees.csv");
     MONAD_ASSERT(file.is_open());
 
@@ -191,7 +226,6 @@ void parse_callees(std::map<evmc::bytes32, std::vector<uint32_t>> &result, Expre
 
     while (std::getline(file, line)) {
         MONAD_ASSERT(!line.empty());
-        std::cout << "processing line: " << line << std::endl;
 
         auto comma_pos = line.find(',');
         MONAD_ASSERT(comma_pos != std::string::npos);
@@ -208,14 +242,12 @@ void parse_callees(std::map<evmc::bytes32, std::vector<uint32_t>> &result, Expre
         evmc::bytes32 key = hex_to_bytes32(hash_hex);
         std::vector<uint32_t> values;
         parse_indices(indices_str, values);
-        std::cout << "Parsed line: " << hash_hex << ": " <<"size: " << values.size() << ", exprs:  ";
-        for (auto const &val : values) {
-            epool.printExpression(std::cout, val);
-            std::cout << ";";
+    //  std::cout << "Parsed line: " << hash_hex << ": " <<"size: " << values.size() << ", exprs:  ";
+        auto footprint = get_footprint(values, epool);
+        if (footprint) {
+            result[key] = footprint;
         }
-
-        result[key] = std::move(values);
-        std::cout << std::endl;
+        //std::cout << std::endl;
     }
 }
 
@@ -243,7 +275,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     parseCodeHashes(code_hashes);
     ExpressionPool epool;
     epool.deserialize("/home/abhishek/contracts0t/epool.bin");
-    std::map<evmc::bytes32, std::vector<uint32_t>> callees;
+    std::map<evmc::bytes32, const std::set<evmc::address> *> callees;
     parse_callees(callees, epool);
     std::terminate();
     BlockHashBuffer block_hash_buffer;
