@@ -183,8 +183,12 @@ Result<evmc::Result> execute_impl2(
 {
     auto const sender_account = state.recent_account(sender);
     auto const result = validate_transaction(tx, sender_account);
-    std::cout << "result: " << result << std::endl;
-    BOOST_OUTCOME_TRY(result);
+    if (result.has_error()) {
+        std::cout << "transaction validation failed with error: " << result.error().message().c_str() << std::endl;
+        assert(false);
+        BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
+    }
+   // BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
 
     auto const tx_context =
         get_tx_context<rev>(tx, sender, hdr, chain.get_chain_id());
