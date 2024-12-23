@@ -86,6 +86,7 @@ class ParallelCommitSystem
     bool existsBlockerBefore(txindex_t index);
     bool blocksAllLaterTransactions(txindex_t index);
     static std::string status_to_string(TransactionStatus status);
+    void notifyAllDone();
 
     /**
     * status is expected to be a recent load from status_[index]
@@ -112,6 +113,9 @@ class ParallelCommitSystem
     */
     std::vector<const std::set<evmc::address> *>
         footprints_; 
+
+    std::atomic<bool> all_done=false;
+
 
     /**
     * pending_footprints_[i] is a set of addresses that some uncommitted transaction may still be accessing. 

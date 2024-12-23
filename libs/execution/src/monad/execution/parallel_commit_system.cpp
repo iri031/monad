@@ -274,6 +274,13 @@ void ParallelCommitSystem::notifyDone(txindex_t myindex) {
     }
 }
 
+void ParallelCommitSystem::notifyAllDone() {
+    bool old_value = false;
+    if (all_done.compare_exchange_strong(old_value, true)) {
+        promises[status_.size()].set_value();
+    }
+}
+
 void ParallelCommitSystem::updateLastCommittedUb() {
     auto newUb = all_committed_ub.load();
     while (newUb + 1< status_.size()) {
@@ -283,7 +290,7 @@ void ParallelCommitSystem::updateLastCommittedUb() {
         newUb++;
     }
     if(newUb == status_.size()-1) {
-        promises[status_.size()].set_value();// other promises are protected from multiple set_value() calls by the status array. this one isnt.
+        notifyAllDone();
     }
     else { 
         advanceLastCommittedUb(newUb); // there is no use of doing it in the then case, but it is safe+clean to do it there as well
