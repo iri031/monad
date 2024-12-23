@@ -182,7 +182,9 @@ Result<evmc::Result> execute_impl2(
     BlockHashBuffer const &block_hash_buffer, State &state)
 {
     auto const sender_account = state.recent_account(sender);
-    BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
+    auto const result = validate_transaction(tx, sender_account);
+    std::cout << "result: " << result << std::endl;
+    BOOST_OUTCOME_TRY(result);
 
     auto const tx_context =
         get_tx_context<rev>(tx, sender, hdr, chain.get_chain_id());
