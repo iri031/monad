@@ -31,7 +31,7 @@ void ParallelCommitSystem::waitForAllTransactionsToCommit() {
 
 ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions) 
     : status_(num_transactions),
-      all_committed_ub(0),
+      all_committed_below_index(0),
       footprints_(num_transactions, nullptr)
         //,pending_footprints_(num_transactions)// not used currently
 {
@@ -167,9 +167,9 @@ ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedInd
     }
     auto set = it->second;
     
-    // Start from all_committed_ub instead of set->begin()
-    auto committed_ub = all_committed_ub.load();
-    auto it2 = set->upper_bound(committed_ub);
+    // Start from all_committed_below_index instead of set->begin()
+    auto committed_ub = all_committed_below_index.load();
+    auto it2 = set->lower_bound(committed_ub);
     
     // can do a binary search instead of a linear scan, but that seems tricky to do in a concurrent set
     while (it2 != set->end() && *it2 < index) {
@@ -183,8 +183,9 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
         return true;
     }
 
-    auto all_committed_ub_ = all_committed_ub.load();
-    if (all_committed_ub_ >= index-1) {
+    auto all_committed_ub_ = all_committed_below_index.load();
+    if (index-1<all_committed_ub_) { // index-1<all_committed_ub_ <-> index -1 + 1<=all_committed_ub_ <-> index<=all_committed_ub_ <-> (index == all_committed_ub_ || index < all_committed_ub_). in the latter case, the transaction at index has already commited so we do not need to unblock it. so we can drop the last disjunct.
+
         unblockTransaction(status, index);
         return true;
     }
@@ -209,7 +210,7 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
 }
 
 bool ParallelCommitSystem::existsBlockerBefore(txindex_t index) {
-    auto committed_ub = all_committed_ub.load();// transactiosn before this index cannot be blockers
+    auto committed_ub = all_committed_below_index.load();// transactiosn before this index cannot be blockers
     for (auto i = committed_ub; i < index; ++i) {
         if (blocksAllLaterTransactions(i)) {
             return true;
@@ -282,14 +283,14 @@ void ParallelCommitSystem::notifyAllDone() {
 }
 
 void ParallelCommitSystem::updateLastCommittedUb() {
-    auto newUb = all_committed_ub.load();
-    while (newUb + 1< status_.size()) {
-        if (status_[newUb+1].load() != TransactionStatus::COMMITTED) {
+    auto newUb = all_committed_below_index.load();
+    while (newUb< status_.size()) {
+        if (status_[newUb].load() != TransactionStatus::COMMITTED) {
             break;
         }
         newUb++;
     }
-    if(newUb == status_.size()-1) {
+    if(newUb == status_.size()) {
         notifyAllDone();
     }
     else { 
@@ -298,10 +299,10 @@ void ParallelCommitSystem::updateLastCommittedUb() {
 }
 
 void ParallelCommitSystem::advanceLastCommittedUb(txindex_t minValue) {
-    txindex_t old_value = all_committed_ub.load();
+    txindex_t old_value = all_committed_below_index.load();
     while (old_value < minValue) {
-        // ever update to all_committed_ub strictly increases it. so this loop will terminate
-        if (all_committed_ub.compare_exchange_weak(old_value, minValue)) {
+        // ever update to all_committed_below_index strictly increases it. so this loop will terminate
+        if (all_committed_below_index.compare_exchange_weak(old_value, minValue)) {
             break;
         }
     }

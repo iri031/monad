@@ -80,7 +80,7 @@ class ParallelCommitSystem
     txindex_t highestLowerUncommittedIndexAccessingAddress(txindex_t index, const evmc::address& addr);
     void tryUnblockTransactionsStartingFrom(txindex_t start);
     void updateLastCommittedUb();
-    /** update all_committed_ub so that it is at least minValue */
+    /** update all_committed_below_index so that it is at least minValue */
     void advanceLastCommittedUb(txindex_t minValue);
     void registerAddressAccessedBy(const evmc::address& addr, txindex_t index);
     bool existsBlockerBefore(txindex_t index);
@@ -96,11 +96,11 @@ class ParallelCommitSystem
 
     std::vector<std::atomic<TransactionStatus>> status_;
     /**
-    * all_committed_ub is the upper bound of the index of transactions that have committed their changes to block_state.
+    * all_committed_below_index is the upper bound of the index of transactions that have committed their changes to block_state.
     * this ub will not be tight as we cannot update it atomically with other fields. this field is used to optimize
     * the check of whether all previous transactions have committed.
     */
-    std::atomic<txindex_t> all_committed_ub; 
+    std::atomic<txindex_t> all_committed_below_index; 
     tbb::concurrent_unordered_map<evmc::address, tbb::concurrent_set<txindex_t> * const> transactions_accessing_address_;
     /**
     * footprints_[i] is the footprint of transaction i.
