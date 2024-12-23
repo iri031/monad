@@ -13,7 +13,6 @@
 #include <monad/db/util.hpp>
 #include <monad/execution/block_hash_buffer.hpp>
 #include <monad/execution/execute_block.hpp>
-#include <monad/execution/expr.hpp>
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/genesis.hpp>
 #include <monad/execution/trace/event_trace.hpp>
@@ -185,21 +184,7 @@ void parse_indices(const std::string& indices_str, std::vector<uint32_t> & indic
     }
 }
 
-intx::uint256 ofBoost(const Word256& word) {
-    uint64_t words[4];
-    to_uint64_array(word, words);
-
-    // Construct intx::uint256 from the uint64_t array
-    intx::uint256 result{words[0], words[1], words[2], words[3]};
-
-    // For debugging: log the Word256 and the intx::uint256 values
-    //LOG_INFO("Converting Word256 to intx::uint256");
-    LOG_INFO("Word256:       0x{}", word.str(0, std::ios_base::hex));
-    //LOG_INFO("intx::uint256: 0x{}", intx::to_string(result, 16));
-
-    return result;
-}
-
+/** deprecated */
 const std::set<evmc::address> * get_footprint(const std::vector<uint32_t> &indices, ExpressionPool &epool) {
     std::set<evmc::address> *footprint = new std::set<evmc::address>();
     if (!epool.allConstants(indices)) {
@@ -211,12 +196,33 @@ const std::set<evmc::address> * get_footprint(const std::vector<uint32_t> &indic
         if (word < 10) {//precompiled contract address
             continue;
         }
-        auto truncated = intx::be::trunc<evmc::address>(ofBoost(word));
-        footprint->insert(truncated);
+        footprint->insert(get_address(word));
     }
     return footprint;
 }
-void parse_callees(std::map<evmc::bytes32, const  std::set<evmc::address> * > &result, ExpressionPool &epool) {
+
+/**
+ * check if there is any unsupported expression in the footprint
+ * also remove precompiled contract address from the footprint
+ * false means INF footprint as some unsupported expression is found
+ */
+bool filter_footprint(std::vector<uint32_t> &indices, ExpressionPool &epool) {
+    if (!epool.allConstants(indices)) {
+        return false;
+    }
+    std::vector<uint32_t> filtered;
+    for (auto const &val : indices) {
+        Word256 word = epool.getConst(val);
+        if (word < 10) {//precompiled contract address
+            continue;
+        }
+        filtered.push_back(val);
+    }
+    indices=filtered;
+    return true;
+}
+
+void parse_callees(std::map<evmc::bytes32, std::vector<uint32_t>> &result, ExpressionPool &epool) {
     std::ifstream file("/home/abhishek/contracts0t/callees.csv");
     MONAD_ASSERT(file.is_open());
 
@@ -242,12 +248,10 @@ void parse_callees(std::map<evmc::bytes32, const  std::set<evmc::address> * > &r
         evmc::bytes32 key = hex_to_bytes32(hash_hex);
         std::vector<uint32_t> values;
         parse_indices(indices_str, values);
-    //  std::cout << "Parsed line: " << hash_hex << ": " <<"size: " << values.size() << ", exprs:  ";
-        auto footprint = get_footprint(values, epool);
-        if (footprint) {
-            result[key] = footprint;
+        if (!filter_footprint(values, epool)) {
+            continue;
         }
-        //std::cout << std::endl;
+        result[key] = values;
     }
 }
 
@@ -271,12 +275,10 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     auto batch_begin = std::chrono::steady_clock::now();
     uint64_t ntxs = 0;
 
-    std::unordered_map<Address, bytes32_t> code_hashes;
-    parseCodeHashes(code_hashes);
-    ExpressionPool epool;
-    epool.deserialize("/home/abhishek/contracts0t/epool.bin");
-    std::map<evmc::bytes32, const std::set<evmc::address> *> callees;
-    parse_callees(callees, epool);
+    CalleePredInfo cinfo;
+    parseCodeHashes(cinfo.code_hashes);
+    cinfo.epool.deserialize("/home/abhishek/contracts0t/epool.bin");
+    parse_callees(cinfo.callees, cinfo.epool);
     std::terminate();
     BlockHashBuffer block_hash_buffer;
     for (uint64_t i = block_num < 256 ? 1 : block_num - 255;
