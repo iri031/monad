@@ -228,7 +228,7 @@ Result<ExecutionResult> execute_impl(
         }
 
         if (block_state.can_merge(state)) {
-            MONAD_ASSERT(result.has_value());
+            assert(result.has_value());
             if (result.has_error()) {
                 return std::move(result.error());
             }
@@ -263,7 +263,7 @@ Result<ExecutionResult> execute_impl(
             call_tracer, chain, tx, sender, hdr, block_hash_buffer, state);
 
         MONAD_ASSERT(block_state.can_merge(state));
-        MONAD_ASSERT(result.has_value());
+        assert(result.has_value());
         if (result.has_error()) {
             return std::move(result.error());
         }
@@ -293,7 +293,7 @@ Result<ExecutionResult> execute(
     ParallelCommitSystem &parallel_commit_system)
 {
     TRACE_TXN_EVENT(StartTxn);
-
+    assert(sender.has_value());
     if (MONAD_UNLIKELY(!sender.has_value())) {
         return TransactionError::MissingSender;
     }
