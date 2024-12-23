@@ -21,6 +21,14 @@ struct CalleePredInfo {
     std::unordered_map<Address, bytes32_t> code_hashes;
     ExpressionPool epool;
     std::map<evmc::bytes32, std::vector<uint32_t>> callees;
+    std::optional<std::vector<uint32_t>*> lookup_callee(evmc::address runningAddress) {
+        bytes32_t code_hash = code_hashes[runningAddress];
+        auto it = callees.find(code_hash);
+        if(it == callees.end()) {
+            return std::nullopt;
+        }
+        return &(it->second);
+    }
 };
 
 inline intx::uint256 ofBoost(const Word256& word) {
