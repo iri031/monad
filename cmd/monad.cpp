@@ -282,7 +282,6 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     parseCodeHashes(cinfo.code_hashes);
     cinfo.epool.deserialize("/home/abhishek/contracts0t/epool.bin");
     parse_callees(cinfo.callees, cinfo.epool);
-    std::terminate();
     BlockHashBuffer block_hash_buffer;
     for (uint64_t i = block_num < 256 ? 1 : block_num - 255;
          i < block_num && stop == 0;) {
