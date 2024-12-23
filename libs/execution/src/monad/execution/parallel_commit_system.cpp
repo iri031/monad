@@ -283,7 +283,7 @@ void ParallelCommitSystem::updateLastCommittedUb() {
         newUb++;
     }
     if(newUb == status_.size()-1) {
-        promises[status_.size()].set_value();
+        promises[status_.size()].set_value();// other promises are protected from multiple set_value() calls by the status array. this one isnt.
     }
     else { 
         advanceLastCommittedUb(newUb); // there is no use of doing it in the then case, but it is safe+clean to do it there as well
