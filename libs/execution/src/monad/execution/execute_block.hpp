@@ -59,10 +59,10 @@ inline evmc::address get_address(uint32_t index, ExpressionPool &epool) {
 template <evmc_revision rev>
 Result<std::vector<ExecutionResult>> execute_block(
     Chain const &, Block &, BlockState &, BlockHashBuffer const &,
-    fiber::PriorityPool &);
+    fiber::PriorityPool &, CalleePredInfo &);
 
 Result<std::vector<ExecutionResult>> execute_block(
     Chain const &, evmc_revision, Block &, BlockState &,
-    BlockHashBuffer const &, fiber::PriorityPool &);
+    BlockHashBuffer const &, fiber::PriorityPool &, CalleePredInfo &);
 
 MONAD_NAMESPACE_END

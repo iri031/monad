@@ -248,7 +248,10 @@ void parse_callees(std::map<evmc::bytes32, std::vector<uint32_t>> &result, Expre
         evmc::bytes32 key = hex_to_bytes32(hash_hex);
         std::vector<uint32_t> values;
         parse_indices(indices_str, values);
-        if (!filter_footprint(values, epool)) {
+        //  cases with incomplete callee prediction are not in the file anyway, so they wont be in the map => INF footprint
+        // cases with unsupported expressions will also not be inserted in the map
+        bool all_supported=filter_footprint(values, epool);
+        if (!all_supported) {
             continue;
         }
         result[key] = values;
@@ -321,7 +324,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
                 block,
                 block_state,
                 block_hash_buffer,
-                priority_pool));
+                priority_pool, cinfo));
 
         std::vector<Receipt> receipts(results.size());
         std::vector<std::vector<CallFrame>> call_frames(results.size());

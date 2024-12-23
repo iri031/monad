@@ -100,13 +100,14 @@ bool insert_footprint(std::set<evmc::address> *footprint,  std::vector<evmc::add
     }
 
     auto calles=callee_pred_info.lookup_callee(runningAddress);
-    if(calles.has_value()) {
-        for (uint32_t index : *calles.value()) {
-            evmc::address callee_addr=get_address(index, callee_pred_info.epool);
-            auto res=footprint->insert(callee_addr);
-            if(res.second) {
-                new_members.push_back(callee_addr);
-            }
+    if(!calles.has_value()) {
+        return true;// absense in map means callee prediction failed. the empty callee set is denoted by an empty vector
+    }
+    for (uint32_t index : *calles.value()) {
+        evmc::address callee_addr=get_address(index, callee_pred_info.epool);
+        auto res=footprint->insert(callee_addr);
+        if(res.second) {
+            new_members.push_back(callee_addr);
         }
     }
     return false;
@@ -138,7 +139,7 @@ template <evmc_revision rev>
 Result<std::vector<ExecutionResult>> execute_block(
     Chain const &chain, Block &block, BlockState &block_state,
     BlockHashBuffer const &block_hash_buffer,
-    fiber::PriorityPool &priority_pool)
+    fiber::PriorityPool &priority_pool, CalleePredInfo &callee_pred_info)
 {
     TRACE_BLOCK_EVENT(StartBlock);
 
@@ -192,9 +193,10 @@ Result<std::vector<ExecutionResult>> execute_block(
              &sender = senders[i],
              &header = block.header,
              &block_hash_buffer = block_hash_buffer,
-             &block_state] {
+             &block_state, &callee_pred_info] {
                 #if !SEQUENTIAL
-                parallel_commit_system.declareFootprint(i, nullptr);
+                std::set<evmc::address> *footprint=compute_footprint(transaction, callee_pred_info);
+                parallel_commit_system.declareFootprint(i, footprint);
                 #endif
                 results[i] = execute<rev>(
                     chain,
@@ -256,7 +258,7 @@ EXPLICIT_EVMC_REVISION(execute_block);
 Result<std::vector<ExecutionResult>> execute_block(
     Chain const &chain, evmc_revision const rev, Block &block,
     BlockState &block_state, BlockHashBuffer const &block_hash_buffer,
-    fiber::PriorityPool &priority_pool)
+    fiber::PriorityPool &priority_pool, CalleePredInfo &callee_pred_info)
 {
     SWITCH_EVMC_REVISION(
         execute_block,
@@ -264,7 +266,7 @@ Result<std::vector<ExecutionResult>> execute_block(
         block,
         block_state,
         block_hash_buffer,
-        priority_pool);
+        priority_pool, callee_pred_info);
     MONAD_ASSERT(false);
 }
 
