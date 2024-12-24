@@ -87,7 +87,7 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
                     TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED :
                     current_status;
         
-    if (!status_[myindex].compare_exchange_weak(current_status, new_status)) {
+    if (!status_[myindex].compare_exchange_strong(current_status, new_status)) {
         assert(current_status == TransactionStatus::STARTED_UNBLOCKED);
         current_status = TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED;
     }
@@ -116,7 +116,7 @@ void ParallelCommitSystem::waitForPrevTransactions(txindex_t myindex) {
 
     if (current_status == TransactionStatus::FOOTPRINT_COMPUTED) {
         // Attempt to change the status to WAITING_FOR_PREV_TRANSACTIONS
-        if (status_[myindex].compare_exchange_weak(current_status, TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS)) {
+        if (status_[myindex].compare_exchange_strong(current_status, TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS)) {
             promises[myindex].get_future().wait();
             //status_[myindex].store(TransactionStatus::COMMITTING); this will be done by the previous transaction who wakes this one up. 
             //many transactions may try to wake this one up but only the one whose CAS to COMITTING succeeds do the set_value() (multiple calls to set_value() on the same promise is UB?)
@@ -149,7 +149,7 @@ void ParallelCommitSystem::unblockTransaction(TransactionStatus status, txindex_
             assert(false);
         }
 
-        if (status_[index].compare_exchange_weak(status, new_status)) {
+        if (status_[index].compare_exchange_strong(status, new_status)) {
             if (new_status == TransactionStatus::COMMITTING) {
                 promises[index].set_value();
             }
