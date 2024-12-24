@@ -219,7 +219,7 @@ Result<std::vector<ExecutionResult>> execute_block(
              &block_hash_buffer = block_hash_buffer,
              &block_state, &callee_pred_info] {
                 #if !SEQUENTIAL
-                std::set<evmc::address> *footprint=compute_footprint(transaction, callee_pred_info);
+                std::set<evmc::address> *footprint=compute_footprint(block_state, transaction, callee_pred_info);
                 insert_to_footprint(footprint, sender.value());
                 parallel_commit_system.declareFootprint(i, footprint);
                 #endif
