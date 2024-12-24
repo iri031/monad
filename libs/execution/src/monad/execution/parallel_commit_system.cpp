@@ -1,4 +1,7 @@
 #include <monad/execution/parallel_commit_system.hpp>
+#include <monad/core/basic_formatter.hpp>
+#include <monad/core/fmt/address_fmt.hpp>
+
 
 MONAD_NAMESPACE_BEGIN
 
@@ -171,6 +174,11 @@ ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedInd
         return std::numeric_limits<txindex_t>::max();
     }
     auto set = it->second;
+    std::cout << "indicesAccessingAddress[" << fmt::format("{}", addr) << "]: ";
+    for (auto const &i : *set) {
+        std::cout << i << ", ";
+    }
+    std::cout << std::endl;
     
     // Start from all_committed_below_index instead of set->begin()
     auto committed_ub = all_committed_below_index.load();
@@ -181,9 +189,10 @@ ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedInd
     while (it2 != set->end() && *it2 < index) {
         ++it2;
     }
-    return *it2;
+    return *it2;// WRONG: this may be higher than index. 
 }
 
+//pre: blocksAllLaterTransactions(i) is false for all i<index
 bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txindex_t index) {
     if (isUnblocked(status)) {
         return true;
@@ -207,7 +216,7 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
         for (const auto& addr : *footprint) {
             auto highest_prev = highestLowerUncommittedIndexAccessingAddress(index, addr);
             if (highest_prev == std::numeric_limits<txindex_t>::max() && status_[highest_prev].load() != TransactionStatus::COMMITTED)
-                return false;// not correct. the access map may not have all entries yet. thus we need to double check by a linear scan.
+                return false;// the access map may not have all entries yet. actually, it will have all relevant entries because of a precondition of this function: see comment
 
         }
         unblockTransaction(status, index);
@@ -241,6 +250,7 @@ void ParallelCommitSystem::waitForAllTransactionsToCommit() {
     promises[status_.size()].get_future().wait();
 }
 
+//pre: blocksAllLaterTransactions(i) is false for all i<start
 void ParallelCommitSystem::tryUnblockTransactionsStartingFrom(txindex_t start) {
 
     // unblock or wake up later transactions
