@@ -20,7 +20,7 @@
 #include <cstdint>
 
 MONAD_NAMESPACE_BEGIN
-#define SEQUENTIAL 0
+#define SEQUENTIAL 1
 class ParallelCommitSystem
 {
     public:
