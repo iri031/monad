@@ -45,6 +45,7 @@ class ParallelCommitSystem
     void declareFootprint(txindex_t myindex, const std::set<evmc::address> *footprint);
 
     ParallelCommitSystem(txindex_t num_transactions);
+    ParallelCommitSystem() = delete;
 
     ~ParallelCommitSystem();
     void waitForAllTransactionsToCommit();
