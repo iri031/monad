@@ -90,6 +90,10 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
     if (!status_[myindex].compare_exchange_strong(current_status, new_status)) {
         assert(current_status == TransactionStatus::STARTED_UNBLOCKED);
         current_status = TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED;
+        std::cout << "declareFootprint: status[" << myindex << "] changed from STARTED_UNBLOCKED to FOOTPRINT_COMPUTED_UNBLOCKED" << std::endl;
+    }
+    else {
+        std::cout << "declareFootprint: status[" << myindex << "] changed from " << status_to_string(current_status) << " to " << status_to_string(new_status) << std::endl;
     }
 
     if (!existsBlockerBefore(myindex)) {
@@ -150,6 +154,7 @@ void ParallelCommitSystem::unblockTransaction(TransactionStatus status, txindex_
         }
 
         if (status_[index].compare_exchange_strong(status, new_status)) {
+            std::cout << "unblockTransaction: status[" << index << "] changed from " << status_to_string(status) << " to " << status_to_string(new_status) << std::endl;
             if (new_status == TransactionStatus::COMMITTING) {
                 promises[index].set_value();
             }
@@ -169,6 +174,7 @@ ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedInd
     
     // Start from all_committed_below_index instead of set->begin()
     auto committed_ub = all_committed_below_index.load();
+    // Finds the first element in the container that is >= committed_ub.
     auto it2 = set->lower_bound(committed_ub);
     
     // can do a binary search instead of a linear scan, but that seems tricky to do in a concurrent set
@@ -184,7 +190,7 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
     }
 
     auto all_committed_ub_ = all_committed_below_index.load();
-    if (index-1<all_committed_ub_) { // index-1<all_committed_ub_ <-> index -1 + 1<=all_committed_ub_ <-> index<=all_committed_ub_ <-> (index == all_committed_ub_ || index < all_committed_ub_). in the latter case, the transaction at index has already commited so we do not need to unblock it. so we can drop the last disjunct.
+    if (index==all_committed_ub_) { // index-1<all_committed_ub_ <-> index -1 + 1<=all_committed_ub_ <-> index<=all_committed_ub_ <-> (index == all_committed_ub_ || index < all_committed_ub_). in the latter case, the transaction at index has already commited so we do not need to unblock it. so we can drop the last disjunct.
 
         unblockTransaction(status, index);
         return true;
@@ -201,7 +207,8 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
         for (const auto& addr : *footprint) {
             auto highest_prev = highestLowerUncommittedIndexAccessingAddress(index, addr);
             if (highest_prev == std::numeric_limits<txindex_t>::max() && status_[highest_prev].load() != TransactionStatus::COMMITTED)
-                return false;
+                return false;// not correct. the access map may not have all entries yet. thus we need to double check by a linear scan.
+
         }
         unblockTransaction(status, index);
         return true;
