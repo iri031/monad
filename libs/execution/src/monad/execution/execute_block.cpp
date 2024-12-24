@@ -156,6 +156,18 @@ void insert_to_footprint(std::set<evmc::address> *footprint, evmc::address addre
     footprint->insert(address);
 }
 
+void print_footprint(std::set<evmc::address> *footprint) {
+    std::cout << "footprint: ";
+    if(footprint==nullptr) {
+        std::cout << "INF"<<std::endl;
+        return;
+    }
+    for(auto const &addr: *footprint) {
+        std::cout << fmt::format("{}", addr) << ", ";
+    }
+    std::cout << std::endl;
+}
+
 template <evmc_revision rev>
 Result<std::vector<ExecutionResult>> execute_block(
     Chain const &chain, Block &block, BlockState &block_state,
@@ -222,6 +234,8 @@ Result<std::vector<ExecutionResult>> execute_block(
                 std::set<evmc::address> *footprint=compute_footprint(block_state, transaction, callee_pred_info);
                 insert_to_footprint(footprint, sender.value());
                 parallel_commit_system.declareFootprint(i, footprint);
+                std::cout << "footprint[" << i << "]: ";
+                print_footprint(footprint);
                 #endif
                 results[i] = execute<rev>(
                     chain,
