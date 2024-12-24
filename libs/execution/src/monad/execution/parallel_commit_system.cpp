@@ -7,28 +7,26 @@ MONAD_NAMESPACE_BEGIN
 
 #if SEQUENTIAL
 void ParallelCommitSystem::waitForPrevTransactions(txindex_t myindex) {
-    promises[myindex].get_future().wait();
+    promises.at(myindex).get_future().wait();
 }
 
 void ParallelCommitSystem::notifyDone(txindex_t myindex) {
-    promises[myindex + 1].set_value();
+    promises.at(myindex + 1).set_value();
 }
 
-ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions) {
-    promises = new boost::fibers::promise<void>[num_transactions + 1];
-    promises[0].set_value();
+ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions) :promises(num_transactions+1) {
+    promises.at(0).set_value();
     this->num_transactions = num_transactions;
 }
 
 ParallelCommitSystem::~ParallelCommitSystem() {
-    delete[] promises;
 }
 
 void ParallelCommitSystem::declareFootprint(txindex_t, const std::set<evmc::address> *) {
 }
 
 void ParallelCommitSystem::waitForAllTransactionsToCommit() {
-    promises[num_transactions].get_future().wait();
+    promises.at(num_transactions).get_future().wait();
 }
 #else
 

@@ -45,7 +45,6 @@ class ParallelCommitSystem
     void declareFootprint(txindex_t myindex, const std::set<evmc::address> *footprint);
 
     ParallelCommitSystem(txindex_t num_transactions);
-    ParallelCommitSystem() = delete;
 
     ~ParallelCommitSystem();
     void waitForAllTransactionsToCommit();
@@ -55,7 +54,7 @@ class ParallelCommitSystem
     * promises[i].set_value() is only called by the transaction (in call to notifyDone) that CASes status[i] 
     * from foo to foo_unblocked or WAITING_FOR_PREV_TRANSACTIONS to COMMITTING
     */
-    boost::fibers::promise<void> *promises; // TODO: make it a vector
+    std::vector<boost::fibers::promise<void>> promises;
 #if SEQUENTIAL//ideally, we should use PIMPL and move the private state to the cpp files, 
 //one for the sequential impl and one for the parallel impl. that may be a tiny bit slower due to the overhead of the indirection via the pointer.
     txindex_t num_transactions;
