@@ -59,7 +59,7 @@ TEST(TransactionProcessor, irrevocable_gas_and_refund_new_contract)
     };
 
     BlockHeader const header{.beneficiary = bene};
-    BlockHashBuffer const block_hash_buffer;
+    BlockHashBufferFinalized const block_hash_buffer;
 
     ParallelCommitSystem parallel_commit_system{1};
 

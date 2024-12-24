@@ -8,7 +8,6 @@
 #include <monad/core/log_level_map.hpp>
 #include <monad/core/rlp/block_rlp.hpp>
 #include <monad/db/block_db.hpp>
-#include <monad/db/db_cache.hpp>
 #include <monad/db/trie_db.hpp>
 #include <monad/db/util.hpp>
 #include <monad/execution/block_hash_buffer.hpp>
@@ -261,9 +260,9 @@ void parse_callees(std::map<evmc::bytes32, std::vector<uint32_t>> &result, Expre
 
 
 Result<std::pair<uint64_t, uint64_t>> run_monad(
-    Chain const &chain, Db &db, TryGet const &try_get,
-    fiber::PriorityPool &priority_pool, uint64_t &block_num,
-    uint64_t const nblocks)
+    Chain const &chain, Db &db, BlockHashBufferFinalized &block_hash_buffer,
+    TryGet const &try_get, fiber::PriorityPool &priority_pool,
+    uint64_t &block_num, uint64_t const nblocks)
 {
     constexpr auto SLEEP_TIME = std::chrono::microseconds(100);
     signal(SIGINT, signal_handler);
@@ -282,22 +281,12 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     parseCodeHashes(cinfo.code_hashes);
     cinfo.epool.deserialize("/home/abhishek/contracts0t/epool.bin");
     parse_callees(cinfo.callees, cinfo.epool);
-    BlockHashBuffer block_hash_buffer;
-    for (uint64_t i = block_num < 256 ? 1 : block_num - 255;
-         i < block_num && stop == 0;) {
-        auto const block = try_get(i);
-        if (!block.has_value()) {
-            std::this_thread::sleep_for(SLEEP_TIME);
-            continue;
-        }
-        block_hash_buffer.set(i - 1, block.value().header.parent_hash);
-        ++i;
-    }
-
+    
     uint64_t const end_block_num =
         (std::numeric_limits<uint64_t>::max() - block_num + 1) <= nblocks
             ? std::numeric_limits<uint64_t>::max()
             : block_num + nblocks - 1;
+    uint64_t const init_block_num = block_num;
     while (block_num <= end_block_num && stop == 0) {
         auto opt_block = try_get(block_num);
         if (!opt_block.has_value()) {
@@ -306,14 +295,21 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
         }
         auto &block = opt_block.value();
 
-        block_hash_buffer.set(block_num - 1, block.header.parent_hash);
-
         BOOST_OUTCOME_TRY(chain.static_validate_header(block.header));
 
-        evmc_revision const rev = chain.get_revision(block.header);
+        evmc_revision const rev =
+            chain.get_revision(block.header.number, block.header.timestamp);
 
         BOOST_OUTCOME_TRY(static_validate_block(rev, block));
 
+        // Ethereum: always execute off of the parent proposal round, commit to
+        // `round = block_number`, and finalize immediately after that.
+        // TODO: get round number from event emitter
+        db.set_block_and_round(
+            block.header.number - 1,
+            (block.header.number == init_block_num)
+                ? std::nullopt
+                : std::make_optional(block.header.number - 1));
         BlockState block_state(db);
         BOOST_OUTCOME_TRY(
             auto const results,
@@ -341,7 +337,9 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
             call_frames,
             block.transactions,
             block.ommers,
-            block.withdrawals);
+            block.withdrawals,
+            block.header.number);
+        db.finalize(block.header.number, block.header.number);
 
         if (!chain.validate_root(
                 rev,
@@ -352,6 +350,11 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
                 db.withdrawals_root())) {
             return BlockError::WrongMerkleRoot;
         }
+        db.update_verified_block(block.header.number);
+
+        auto const h =
+            to_bytes(keccak256(rlp::encode_block_header(block.header)));
+        block_hash_buffer.set(block_num, h);
 
         ntxs += block.transactions.size();
         batch_num_txs += block.transactions.size();
@@ -495,6 +498,7 @@ int main(int const argc, char const *argv[])
         "event_trace", quill::file_handler(trace_log, handler_cfg));
 #endif
 
+    auto const db_in_memory = dbname_paths.empty();
     auto const load_start_time = std::chrono::steady_clock::now();
 
     std::optional<monad_statesync_server_network> net;
@@ -503,7 +507,7 @@ int main(int const argc, char const *argv[])
     }
     std::unique_ptr<mpt::StateMachine> machine;
     mpt::Db db = [&] {
-        if (!dbname_paths.empty()) {
+        if (!db_in_memory) {
             machine = std::make_unique<OnDiskMachine>();
             return mpt::Db{
                 *machine,
@@ -520,6 +524,7 @@ int main(int const argc, char const *argv[])
         return mpt::Db{*machine};
     }();
 
+    TrieDb triedb{db}; // init block number to latest finalized block
     // Note: in memory db block number is always zero
     uint64_t const init_block_num = [&] {
         if (!snapshot.empty()) {
@@ -540,9 +545,8 @@ int main(int const argc, char const *argv[])
             TrieDb tdb{db};
             read_genesis(genesis, tdb);
         }
-        return db.get_latest_block_id();
+        return triedb.get_block_number();
     }();
-    TrieDb triedb{db};
 
     std::optional<monad_statesync_server_context> ctx;
     std::jthread sync_thread;
@@ -568,21 +572,13 @@ int main(int const argc, char const *argv[])
         });
     }
 
-    if (snapshot.empty()) {
-        auto const start_time = std::chrono::steady_clock::now();
-        auto const nodes_loaded = triedb.prefetch_current_root();
-        LOG_INFO(
-            "Finish loading current root into memory, time_elapsed = {}, "
-            "nodes_loaded = {}",
-            std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::steady_clock::now() - start_time),
-            nodes_loaded);
-    }
-
     LOG_INFO(
-        "Finished initializing db at block = {}, state root = {}, time elapsed "
+        "Finished initializing db at block = {}, last finalized block = {}, "
+        "last verified block = {}, state root = {}, time elapsed "
         "= {}",
         init_block_num,
+        db.get_latest_finalized_block_id(),
+        db.get_latest_verified_block_id(),
         triedb.state_root(),
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - load_start_time));
@@ -599,8 +595,6 @@ int main(int const argc, char const *argv[])
     fiber::PriorityPool priority_pool{nthreads, nfibers};
 
     auto const start_time = std::chrono::steady_clock::now();
-
-    auto db_cache = ctx ? DbCache{*ctx} : DbCache{triedb};
 
     auto chain = [chain_config] -> std::unique_ptr<Chain> {
         switch (chain_config) {
@@ -655,9 +649,37 @@ int main(int const argc, char const *argv[])
         MONAD_ASSERT(false);
     }();
 
+    BlockHashBufferFinalized block_hash_buffer;
+    bool initialized_headers_from_triedb = false;
+
+    // We need to init from BlockDb if rev <= BYZANTIUM. Before EIP-658,
+    // receipts root was calculated using a transaction status code and
+    // intermediate state root. TrieDb only supports EIP-658 calculation of
+    // recipts root. Therefore, before EIP-658, our eth header hashes will
+    // not match the expected results when replaying ethereum history.
+    if (chain->get_revision(init_block_num, 0) > EVMC_BYZANTIUM &&
+        !db_in_memory) {
+        mpt::Db rodb{mpt::ReadOnlyOnDiskDbConfig{
+            .sq_thread_cpu = ro_sq_thread_cpu, .dbname_paths = dbname_paths}};
+        initialized_headers_from_triedb = init_block_hash_buffer_from_triedb(
+            rodb, start_block_num, block_hash_buffer);
+    }
+    if (!initialized_headers_from_triedb) {
+        BlockDb block_db{block_db_path};
+        MONAD_ASSERT(chain_config == ChainConfig::EthereumMainnet);
+        MONAD_ASSERT(init_block_hash_buffer_from_blockdb(
+            block_db, start_block_num, block_hash_buffer));
+    }
+
     uint64_t block_num = start_block_num;
-    auto const result =
-        run_monad(*chain, db_cache, try_get, priority_pool, block_num, nblocks);
+    auto const result = run_monad(
+        *chain,
+        ctx ? static_cast<Db &>(*ctx) : static_cast<Db &>(triedb),
+        block_hash_buffer,
+        try_get,
+        priority_pool,
+        block_num,
+        nblocks);
 
     if (MONAD_UNLIKELY(result.has_error())) {
         LOG_ERROR(

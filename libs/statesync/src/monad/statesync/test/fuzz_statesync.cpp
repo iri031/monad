@@ -311,9 +311,8 @@ LLVMFuzzerTestOneInput(uint8_t const *const data, size_t const size)
         client.mask = raw.size() < sizeof(uint64_t)
                           ? std::numeric_limits<uint64_t>::max()
                           : n;
-        stdb.increment_block_number();
         hdr.parent_hash = to_bytes(keccak256(rlp::encode_block_header(hdr)));
-        hdr.number = stdb.get_block_number();
+        hdr.number = stdb.get_block_number() + 1;
         sctx.commit(deltas, {}, hdr);
         BlockHeader tgrt{hdr};
         tgrt.state_root = sctx.state_root();
