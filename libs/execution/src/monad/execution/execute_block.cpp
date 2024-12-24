@@ -93,7 +93,7 @@ inline void set_beacon_root(BlockState &block_state, Block &block)
 
 #define MAX_FOOTPRINT_SIZE 10
 /** returns true iff the footprint has been overapproximated to INF. in that case, footprint is deleted */
-bool insert_footprint(std::set<evmc::address> *footprint,  std::vector<evmc::address> & new_members, evmc::address runningAddress, CalleePredInfo &callee_pred_info) {
+bool insert_callees(std::set<evmc::address> *footprint,  std::vector<evmc::address> & new_members, evmc::address runningAddress, CalleePredInfo &callee_pred_info) {
     if(footprint->size()>MAX_FOOTPRINT_SIZE) {
         delete footprint;
         return true;
@@ -113,20 +113,34 @@ bool insert_footprint(std::set<evmc::address> *footprint,  std::vector<evmc::add
     return false;
 }
 
+// if this returns true, then the address MUST be a non-contract account. for correctness, it can always return false, but for performance, it should do that only for addresses created in this block.
+bool address_known_to_be_non_contract(BlockState &block_state, evmc::address address) {
+    auto const account = block_state.read_account(address);
+    if(!account.has_value()) {
+        return false;
+    }
+    return account.value().code_hash==NULL_HASH;
+}
+
+// sender address is later added to the footprint by the caller, because sender.nonce is updated by the transaction
 // for now, we assume that no transaction calls a contract created by a previous transaction in this very block. need to extend static analysis to look at predicted stacks at CREATE/CREATE2
- std::set<evmc::address> * compute_footprint(Transaction const &transaction, CalleePredInfo &callee_pred_info) {
+ std::set<evmc::address> * compute_footprint(BlockState &block_state, Transaction const &transaction, CalleePredInfo &callee_pred_info) {
     if(!transaction.to.has_value()) {
         return new std::set<Address>();//FIX. add a way for the ParallelCommitSystem to  know that this is creating a NEW contract, so that we know that there is no conflict with block-pre-existing contracts
     }
     evmc::address runningAddress = transaction.to.value();
     std::set<evmc::address> *footprint=new std::set<evmc::address>();
+    footprint->insert(runningAddress);
+    if(address_known_to_be_non_contract(block_state, runningAddress)) {
+        return footprint;
+    }
     std::vector<evmc::address> new_members;
     new_members.push_back(runningAddress);
     bool overapproximated=false;
     while((!overapproximated)&&(new_members.size()>0)) {
         evmc::address runningAddress=new_members.back();
         new_members.pop_back();
-        overapproximated=insert_footprint(footprint, new_members, runningAddress, callee_pred_info);
+        overapproximated=insert_callees(footprint, new_members, runningAddress, callee_pred_info);
     }
     if(overapproximated) {
         delete footprint;
@@ -179,8 +193,11 @@ Result<std::vector<ExecutionResult>> execute_block(
             });
     }
 
+    std::cout << "block number: " << block.header.number << std::endl;
+
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         promises[i].get_future().wait();
+        std::cout << "sender[" << i << "]: " << fmt::format("{}", senders[i].value()) << std::endl;
     }
 
     std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
