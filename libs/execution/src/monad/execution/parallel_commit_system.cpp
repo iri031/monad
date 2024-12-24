@@ -335,11 +335,9 @@ void ParallelCommitSystem::updateLastCommittedUb() {
         }
         newUb++;
     }
+    advanceLastCommittedUb(newUb); // there is no use of doing it in the then case, but it is safe+clean to do it there as well
     if(newUb == status_.size()) {
         notifyAllDone();
-    }
-    else { 
-        advanceLastCommittedUb(newUb); // there is no use of doing it in the then case, but it is safe+clean to do it there as well
     }
 }
 

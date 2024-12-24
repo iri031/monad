@@ -161,7 +161,7 @@ void print_footprint(std::set<evmc::address> *footprint, uint64_t index) {
         LOG_INFO("footprint[{}]: INF", index);
         return;
     }
-    std::string footprint_str = "footprint: ";
+    std::string footprint_str = "";
     for(auto const &addr: *footprint) {
         footprint_str += fmt::format("{}, ", addr);
     }
