@@ -184,11 +184,28 @@ ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedInd
     auto committed_ub = all_committed_below_index.load();
     // Finds the first element in the container that is >= committed_ub.
     auto it2 = set->lower_bound(committed_ub);
+    if(it2==set->end()) {
+        return std::numeric_limits<txindex_t>::max();
+    }
+    if(*it2>=index) {
+        return std::numeric_limits<txindex_t>::max();
+    }
+
+    auto prev=*it2;
     
     // can do a binary search instead of a linear scan, but that seems tricky to do in a concurrent set
-    while (it2 != set->end() && *it2 < index) {
+    while (true) {
         ++it2;
+        if(it2==set->end()) {
+            return prev;
+        }
+        if(*it2>=index) {
+            return prev;
+        }
+        prev=*it2;
+
     }
+    assert(false);
     return *it2;// WRONG: this may be higher than index. 
 }
 
@@ -215,7 +232,8 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
         }
         for (const auto& addr : *footprint) {
             auto highest_prev = highestLowerUncommittedIndexAccessingAddress(index, addr);
-            if (highest_prev == std::numeric_limits<txindex_t>::max() && status_[highest_prev].load() != TransactionStatus::COMMITTED)
+            assert(highest_prev<index || highest_prev == std::numeric_limits<txindex_t>::max());
+            if (highest_prev != std::numeric_limits<txindex_t>::max() && status_[highest_prev].load() != TransactionStatus::COMMITTED)
                 return false;// the access map may not have all entries yet. actually, it will have all relevant entries because of a precondition of this function: see comment
 
         }
