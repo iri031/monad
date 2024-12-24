@@ -156,16 +156,16 @@ void insert_to_footprint(std::set<evmc::address> *footprint, evmc::address addre
     footprint->insert(address);
 }
 
-void print_footprint(std::set<evmc::address> *footprint) {
-    std::cout << "footprint: ";
+void print_footprint(std::set<evmc::address> *footprint, uint64_t index) {
     if(footprint==nullptr) {
-        std::cout << "INF"<<std::endl;
+        LOG_INFO("footprint[{}]: INF", index);
         return;
     }
+    std::string footprint_str = "footprint: ";
     for(auto const &addr: *footprint) {
-        std::cout << fmt::format("{}", addr) << ", ";
+        footprint_str += fmt::format("{}, ", addr);
     }
-    std::cout << std::endl;
+    LOG_INFO("footprint[{}]: {}", index, footprint_str);
 }
 
 template <evmc_revision rev>
@@ -205,11 +205,11 @@ Result<std::vector<ExecutionResult>> execute_block(
             });
     }
 
-    std::cout << "block number: " << block.header.number << std::endl;
+    LOG_INFO("block number: {}", block.header.number);
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         promises[i].get_future().wait();
-        std::cout << "sender[" << i << "]: " << fmt::format("{}", senders[i].value()) << std::endl;
+        LOG_INFO("sender[{}]: {}", i, fmt::format("{}", senders[i].value()));
     }
 
     std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
@@ -234,8 +234,7 @@ Result<std::vector<ExecutionResult>> execute_block(
                 std::set<evmc::address> *footprint=compute_footprint(block_state, transaction, callee_pred_info);
                 insert_to_footprint(footprint, sender.value());
                 parallel_commit_system.declareFootprint(i, footprint);
-                std::cout << "footprint[" << i << "]: ";
-                print_footprint(footprint);
+                print_footprint(footprint, i);
                 #endif
                 results[i] = execute<rev>(
                     chain,

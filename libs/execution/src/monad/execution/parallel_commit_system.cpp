@@ -93,10 +93,13 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
     if (!status_[myindex].compare_exchange_strong(current_status, new_status)) {
         assert(current_status == TransactionStatus::STARTED_UNBLOCKED);
         current_status = TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED;
-        std::cout << "declareFootprint: status[" << myindex << "] changed from STARTED_UNBLOCKED to FOOTPRINT_COMPUTED_UNBLOCKED" << std::endl;
+        LOG_INFO("declareFootprint: status[{}] changed from STARTED_UNBLOCKED to FOOTPRINT_COMPUTED_UNBLOCKED", myindex);
     }
     else {
-        std::cout << "declareFootprint: status[" << myindex << "] changed from " << status_to_string(current_status) << " to " << status_to_string(new_status) << std::endl;
+        LOG_INFO("declareFootprint: status[{}] changed from {} to {}", 
+            myindex, 
+            status_to_string(current_status), 
+            status_to_string(new_status));
     }
 
     if (!existsBlockerBefore(myindex)) {
@@ -157,7 +160,10 @@ void ParallelCommitSystem::unblockTransaction(TransactionStatus status, txindex_
         }
 
         if (status_[index].compare_exchange_strong(status, new_status)) {
-            std::cout << "unblockTransaction: status[" << index << "] changed from " << status_to_string(status) << " to " << status_to_string(new_status) << std::endl;
+            LOG_INFO("unblockTransaction: status[{}] changed from {} to {}", 
+                index, 
+                status_to_string(status), 
+                status_to_string(new_status));
             if (new_status == TransactionStatus::COMMITTING) {
                 promises[index].set_value();
             }
@@ -174,11 +180,15 @@ ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedInd
         return std::numeric_limits<txindex_t>::max();
     }
     auto set = it->second;
-    std::cout << "indicesAccessingAddress[" << fmt::format("{}", addr) << "]: ";
-    for (auto const &i : *set) {
-        std::cout << i << ", ";
-    }
-    std::cout << std::endl;
+    LOG_INFO("indicesAccessingAddress[{}]: {}", 
+        fmt::format("{}", addr),
+        [&set]() {
+            std::string result;
+            for (auto const &i : *set) {
+                result += std::to_string(i) + ", ";
+            }
+            return result;
+        }());
     
     // Start from all_committed_below_index instead of set->begin()
     auto committed_ub = all_committed_below_index.load();
@@ -206,7 +216,7 @@ ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedInd
 
     }
     assert(false);
-    return *it2;// WRONG: this may be higher than index. 
+    return *it2;
 }
 
 //pre: blocksAllLaterTransactions(i) is false for all i<index
