@@ -185,6 +185,7 @@ Result<evmc::Result> execute_impl2(
     auto const result = validate_transaction(tx, sender_account);
     if (result.has_error()) {
         std::cout << "transaction validation failed with error: " << result.error().message().c_str() << std::endl;
+        std::cout << "sender: " << fmt::format("{}", sender) << std::endl;
         assert(false);
         BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
     }

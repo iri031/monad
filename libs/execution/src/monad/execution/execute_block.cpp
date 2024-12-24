@@ -135,6 +135,13 @@ bool insert_footprint(std::set<evmc::address> *footprint,  std::vector<evmc::add
     return footprint;
 }
 
+void insert_to_footprint(std::set<evmc::address> *footprint, evmc::address address) {
+    if(footprint==nullptr) {
+        return; // footprint is INF, so the address is already a part of it
+    }
+    footprint->insert(address);
+}
+
 template <evmc_revision rev>
 Result<std::vector<ExecutionResult>> execute_block(
     Chain const &chain, Block &block, BlockState &block_state,
@@ -196,6 +203,7 @@ Result<std::vector<ExecutionResult>> execute_block(
              &block_state, &callee_pred_info] {
                 #if !SEQUENTIAL
                 std::set<evmc::address> *footprint=compute_footprint(transaction, callee_pred_info);
+                insert_to_footprint(footprint, sender.value());
                 parallel_commit_system.declareFootprint(i, footprint);
                 #endif
                 results[i] = execute<rev>(

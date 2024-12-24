@@ -8,6 +8,7 @@
 #include <monad/execution/explicit_evmc_revision.hpp>
 #include <monad/execution/transaction_gas.hpp>
 #include <monad/execution/validate_transaction.hpp>
+#include <iostream>
 
 #include <evmc/evmc.h>
 
@@ -142,6 +143,7 @@ Result<void> validate_transaction(
 
     // YP (71)
     if (MONAD_UNLIKELY(sender_account->nonce != tx.nonce)) {
+        std::cout << "sender_account->nonce: " << sender_account->nonce << " tx.nonce: " << tx.nonce << std::endl;
         return TransactionError::BadNonce;
     }
 
