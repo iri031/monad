@@ -43,6 +43,7 @@ class ParallelCommitSystem
     * the destructor of this class will delete footprint.
     */
     void declareFootprint(txindex_t myindex, const std::set<evmc::address> *footprint);
+    std::set<evmc::address> *getFootprint(txindex_t myindex);
 
     ParallelCommitSystem(txindex_t num_transactions);
 

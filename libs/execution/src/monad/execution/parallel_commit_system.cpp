@@ -28,6 +28,7 @@ void ParallelCommitSystem::declareFootprint(txindex_t, const std::set<evmc::addr
 void ParallelCommitSystem::waitForAllTransactionsToCommit() {
     promises.at(num_transactions).get_future().wait();
 }
+std::set<evmc::address> *ParallelCommitSystem::getFootprint(txindex_t myindex) { return nullptr; }
 #else
 
 ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions) 
@@ -51,6 +52,8 @@ ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions)
     }
     
 }
+// pre: footprint has been declared already
+std::set<evmc::address> *ParallelCommitSystem::getFootprint(txindex_t myindex) { return footprints_[myindex]; }
 
 void ParallelCommitSystem::registerAddressAccessedBy(const evmc::address& addr, txindex_t index) {
     tbb::concurrent_set<txindex_t> * set;

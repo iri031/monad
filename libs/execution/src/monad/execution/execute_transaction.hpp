@@ -49,7 +49,8 @@ template <evmc_revision rev>
 Result<ExecutionResult> execute(
     Chain const &, uint64_t i, Transaction const &,
     std::optional<Address> const &, BlockHeader const &,
-    BlockHashBuffer const &, BlockState &, ParallelCommitSystem &);
+    BlockHashBuffer const &, BlockState &, ParallelCommitSystem &,
+    std::set<evmc::address> *footprint = nullptr);
 
 MONAD_NAMESPACE_END
 

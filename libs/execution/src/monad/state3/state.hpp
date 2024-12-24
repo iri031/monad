@@ -48,6 +48,7 @@ class State
 
     VersionStack<std::vector<Receipt::Log>> logs_{{}};
 
+    // cache of the maps from code hash to code analysis
     Map<bytes32_t, std::shared_ptr<CodeAnalysis>> code_{};
 
     unsigned version_{0};
