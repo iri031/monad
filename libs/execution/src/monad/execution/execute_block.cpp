@@ -91,7 +91,6 @@ inline void set_beacon_root(BlockState &block_state, Block &block)
 }
 template <typename T>
 using vanilla_ptr = T*;
-template <evmc_revision rev> 
 void compute_senders(vanilla_ptr<std::optional<Address>> const senders, Block const &block, fiber::PriorityPool &priority_pool){
     vanilla_ptr<boost::fibers::promise<void>> promises{
         new (std::nothrow) boost::fibers::promise<void>[block.transactions.size()]};
@@ -152,6 +151,48 @@ fiber::PriorityPool &priority_pool, Chain const &chain, BlockHashBuffer const &b
     promises[last].get_future().wait();
 
 }
+template <evmc_revision rev>
+Result<std::vector<Receipt>> finalize_block(Block const &block, vanilla_ptr<std::optional<Result<Receipt>>> const results, BlockState &block_state) {
+    std::vector<Receipt> receipts;
+
+    for (unsigned i = 0; i < block.transactions.size(); ++i) {
+        MONAD_ASSERT(results[i].has_value());
+        if (MONAD_UNLIKELY(results[i].value().has_error())) {
+            LOG_ERROR(
+                "tx {} {} validation failed: {}",
+                i,
+                block.transactions[i],
+                results[i].value().assume_error().message().c_str());
+            delete[] results;
+        }
+        BOOST_OUTCOME_TRY(Receipt receipt, std::move(results[i].value()));
+        receipts.push_back(std::move(receipt));
+    }
+    // YP eq. 22
+    uint64_t cumulative_gas_used = 0;
+    for (auto &receipt : receipts) {
+        cumulative_gas_used += receipt.gas_used;
+        receipt.gas_used = cumulative_gas_used;
+    }
+
+    State state{
+        block_state, Incarnation{block.header.number, Incarnation::LAST_TX}};
+
+    if constexpr (rev >= EVMC_SHANGHAI) {
+        process_withdrawal(state, block.withdrawals);
+    }
+
+    apply_block_reward<rev>(state, block);
+
+    if constexpr (rev >= EVMC_SPURIOUS_DRAGON) {
+        state.destruct_touched_dead();
+    }
+
+    MONAD_ASSERT(block_state.can_merge(state));
+    block_state.merge(state);
+    delete[] results;
+    return receipts;
+}
 
 template <evmc_revision rev>
 Result<std::vector<Receipt>> execute_block(
@@ -175,55 +216,16 @@ Result<std::vector<Receipt>> execute_block(
     vanilla_ptr<std::optional<Address>> const senders{
         new (std::nothrow) std::optional<Address>[block.transactions.size()]};
     MONAD_ASSERT(senders != nullptr);
-    compute_senders<rev>(senders, block, priority_pool);
+    compute_senders(senders, block, priority_pool);
 
 
     vanilla_ptr<std::optional<Result<Receipt>>> const results{
         new (std::nothrow) std::optional<Result<Receipt>>[block.transactions.size()]};
     MONAD_ASSERT(results != nullptr);
     execute_transactions<rev>(senders, block, results, priority_pool, chain, block_hash_buffer, block_state);
-
-    std::vector<Receipt> receipts;
-    for (unsigned i = 0; i < block.transactions.size(); ++i) {
-        MONAD_ASSERT(results[i].has_value());
-        if (MONAD_UNLIKELY(results[i].value().has_error())) {
-            LOG_ERROR(
-                "tx {} {} validation failed: {}",
-                i,
-                block.transactions[i],
-                results[i].value().assume_error().message().c_str());
-        }
-        BOOST_OUTCOME_TRY(Receipt receipt, std::move(results[i].value()));
-        receipts.push_back(std::move(receipt));
-    }
-
-    // YP eq. 22
-    uint64_t cumulative_gas_used = 0;
-    for (auto &receipt : receipts) {
-        cumulative_gas_used += receipt.gas_used;
-        receipt.gas_used = cumulative_gas_used;
-    }
-
-    State state{
-        block_state, Incarnation{block.header.number, Incarnation::LAST_TX}};
-
-    if constexpr (rev >= EVMC_SHANGHAI) {
-        process_withdrawal(state, block.withdrawals);
-    }
-
-    apply_block_reward<rev>(state, block);
-
-    if constexpr (rev >= EVMC_SPURIOUS_DRAGON) {
-        state.destruct_touched_dead();
-    }
-
-    MONAD_ASSERT(block_state.can_merge(state));
-    block_state.merge(state);
-
     delete[] senders;
-    delete[] results;
 
-    return receipts;
+    return finalize_block<rev>(block, results, block_state);
 }
 
 EXPLICIT_EVMC_REVISION(execute_block);

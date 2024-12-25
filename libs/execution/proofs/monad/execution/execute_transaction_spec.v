@@ -211,6 +211,12 @@ Definition xx:=
 Require Import bedrock.auto.cpp.
 Require Import bedrock.auto.cpp.specs.
 
+(*
+                         (Ninst
+                            "monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)"
+                            [Avalue (Eint 0 "enum evmc_revision")])
+
+*)
 Context  {MOD : exb.module ⊧ CU}.
 (* Node::Node(Node*,int) *)
 Check exb.module.
@@ -232,7 +238,89 @@ Ltac slauto :=                                                                  
          \prepost{q ts} this |-> VectorR (Tnamed ``::monad::Transaction``) TransactionR q (ts)
          \post[Vn (lengthN ts)] (emp:mpred)
       ).
+Print lt.
+    Definition compute_senders_spec : WpSpec mpredI val val :=
+    \arg{chainp :ptr} "chain" (Vref chainp)
+    \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
+(*     \arg "rev" (valOfRev Shanghai) *)
+    \arg{blockp: ptr} "block" (Vref blockp)
+    \prepost{qb (block: Block)} blockp |-> BlockR qb block
+    \arg{block_statep: ptr} "block_state" (Vref block_statep)
+    \pre{(preBlockState: StateOfAccounts)}
+      block_statep |-> BlockState.R block preBlockState preBlockState
+    \post{retp}[Vptr retp]
+      let (actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (transactions block) in
+      retp |-> VectorR (Tnamed ``::monad::Receipt``) ReceiptR 1 receipts
+      ** block_statep |-> BlockState.R block preBlockState actual_final_state.
 
+
+cpp.spec
+  "monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)"
+ as csenders_spec with (compute_senders_spec).
+    
+  cpp.spec
+    "std::vector<monad::Transaction, std::allocator<monad::Transaction>>::size() const"
+    as csector_spec with
+      (fun (this:ptr) =>
+         \prepost{q ts} this |-> VectorR (Tnamed ``::monad::Transaction``) TransactionR q (ts)
+         \post[Vn (lengthN ts)] (emp:mpred)
+      ).
+
+  Definition lamName :name :=
+    "monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0".
+
+  Definition lamBody :option GlobDecl :=
+    NM.map_lookup lamName (types module).
+
+  Compute lamBody.
+
+  (*
+     = Some
+         (Gstruct
+            {|
+              s_bases := [];
+              s_fields :=
+                [{| mem_name := Nid "i"; mem_type := "unsigned int"; mem_mutable := false; mem_init := None; mem_layout := {| li_offset := 0 |} |};
+                 {| mem_name := Nid "senders"; mem_type := "std::optional<evmc::address>*"; mem_mutable := false; mem_init := None; mem_layout := {| li_offset := 64 |} |};
+                 {| mem_name := Nid "promises"; mem_type := "boost::fibers::promise<void>*"; mem_mutable := false; mem_init := None; mem_layout := {| li_offset := 128 |} |};
+                 {| mem_name := Nid "transaction"; mem_type := "const monad::Transaction&"; mem_mutable := false; mem_init := None; mem_layout := {| li_offset := 192 |} |}];
+              s_virtuals := [];
+              s_overrides := [];
+              s_dtor :=
+                Nscoped "monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0" (Nfunction function_qualifiers.N Ndtor []);
+              s_trivially_destructible := true;
+              s_delete := None;
+              s_layout := Unspecified;
+              s_size := 32;
+              s_alignment := 8
+            |})
+     : option GlobDecl
+
+*)  
+
+  Eval vm_compute in (map fst (NM.elements (symbols module))).
+    as lam_spec.
+
+        "std::_Function_handler<void()(), monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0>::_S_nothrow_init<monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0>()"%cpp_name;
+
+        "std::function<void()()>::function<monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0, void>(monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0&&)"%cpp_name;
+        
+        
+Lemma prf: denoteModule module ** tvector_spec |-- csenders_spec.
+Proof using.
+  verify_spec'.
+
+  
+  Definition lamName :name :=
+                                      (Nscoped
+                                     (Ninst
+                                        "monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)"
+                                        [Avalue (Eint 0 "enum evmc_revision")])
+                                     (Nanon 0)).
+
+  Search NM.t.
+
+  Compute lamBody.
 Lemma prf: denoteModule module ** tvector_spec |-- exb_spec.
 Proof using.
   verify_spec'.
@@ -242,11 +330,20 @@ Proof using.
   iExists _.
   iExists _.
   go.
-  erewrite sizeof.size_of_compat; try eauto.
-  simpl.
-  go.
+  erewrite sizeof.size_of_compat;[| eauto; fail| vm_compute; reflexivity].
+  assert ((lengthN (transactions block)< 10000000)%N) as Hl by admit.
+  slauto.
+  {
+    (* out of memory error, maybe the code should return an error result here instead of throwing which the logic doesnt support yet *)
+    admit.
+  }
+  {
+    go.
+    go.
+    go.
   
-  assert ((lengthN (transactions block)< 100000)%N) as Hl.
+    
+  
   provePure.
   work.
   go.
