@@ -32,13 +32,12 @@ std::set<evmc::address> *ParallelCommitSystem::getFootprint(txindex_t myindex) {
 #else
 
 ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions) 
-    : status_(num_transactions),
-      all_committed_below_index(0),
-      footprints_(num_transactions, nullptr)
-        //,pending_footprints_(num_transactions)// not used currently
+    : promises(num_transactions+1),
+        status_(num_transactions),
+        all_committed_below_index(0),
+        footprints_(num_transactions, nullptr)
+      //,pending_footprints_(num_transactions)// not used currently
 {
-    // promises[0] is guaranteed to be unused. so we can allocate one less in the promises array and use i-1 as the index into array.
-    promises = new boost::fibers::promise<void>[num_transactions + 1];
 
     // Initialize first transaction as STARTED_UNBLOCKED, rest as STARTED
     if (num_transactions > 0) {
@@ -53,7 +52,7 @@ ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions)
     
 }
 // pre: footprint has been declared already
-std::set<evmc::address> *ParallelCommitSystem::getFootprint(txindex_t myindex) { return footprints_[myindex]; }
+const std::set<evmc::address>* ParallelCommitSystem::getFootprint(txindex_t myindex) { return footprints_[myindex]; }
 
 void ParallelCommitSystem::registerAddressAccessedBy(const evmc::address& addr, txindex_t index) {
     tbb::concurrent_set<txindex_t> * set;
@@ -109,7 +108,6 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
 }
 
 ParallelCommitSystem::~ParallelCommitSystem() {
-    delete[] promises;
     // Clean up the concurrent sets stored in transactions_accessing_address_
     for (auto& pair : transactions_accessing_address_) {
         delete pair.second;
@@ -355,3 +353,33 @@ void ParallelCommitSystem::advanceLastCommittedUb(txindex_t minValue) {
 #endif
 
 MONAD_NAMESPACE_END
+
+/**
+ *  steps to debug:
+ * 1) run with valgrind
+ * 2) implement change_within_footprint
+ * 3) if change_within_footpring asserts are not violated, then only 2 possibilities: 1) BlockState::merge cannot be run concurrently even for disjoing footprints, 2) there is some catastrophic memory corruption in ParallelCommitSystem. debug it
+ * 4) to confirm 3.1 (blockstate::merge), in the main branch, insert minimal code to drop promises.wait for blocks whose transactions are completely disjoint. run many times until that block. block 47219 is an example (see below)
+ * 5) if 3.1 is not confirmed, investigate 3.2 (memory corruption in ParallelCommitSystem). else tweak BlockState so that merge and car_merge can be run more concurrently
+ * 
+ * 
+ * 2024-12-24 23:22:06.177577979 [1085296] execute_block.cpp:208 LOG_INFO	block number: 47219
+2024-12-24 23:22:06.177685659 [1085296] execute_block.cpp:212 LOG_INFO	sender[0]: 0xe6a7a1d47ff21b6321162aea7c6cb457d5476bca
+2024-12-24 23:22:06.177688239 [1085296] execute_block.cpp:212 LOG_INFO	sender[1]: 0xf9a19aea1193d9b9e4ef2f5b8c9ec8df93a22356
+2024-12-24 23:22:06.177908411 [1085306] parallel_commit_system.cpp:99 LOG_INFO	declareFootprint: status[1] changed from STARTED to FOOTPRINT_COMPUTED
+2024-12-24 23:22:06.177915781 [1085306] execute_block.cpp:168 LOG_INFO	footprint[1]: 0x32be343b94f860124dc4fee278fdcbd38c102d88, 0xf9a19aea1193d9b9e4ef2f5b8c9ec8df93a22356,
+2024-12-24 23:22:06.177939611 [1085306] parallel_commit_system.cpp:99 LOG_INFO	declareFootprint: status[0] changed from STARTED_UNBLOCKED to FOOTPRINT_COMPUTED_UNBLOCKED
+2024-12-24 23:22:06.177943681 [1085306] parallel_commit_system.cpp:182 LOG_INFO	indicesAccessingAddress[0x32be343b94f860124dc4fee278fdcbd38c102d88]: 1,
+2024-12-24 23:22:06.177946581 [1085306] parallel_commit_system.cpp:182 LOG_INFO	indicesAccessingAddress[0xf9a19aea1193d9b9e4ef2f5b8c9ec8df93a22356]: 1,
+2024-12-24 23:22:06.177947161 [1085306] parallel_commit_system.cpp:162 LOG_INFO	unblockTransaction: status[1] changed from FOOTPRINT_COMPUTED to FOOTPRINT_COMPUTED_UNBLOCKED
+2024-12-24 23:22:06.177951761 [1085306] execute_block.cpp:168 LOG_INFO	footprint[0]: 0xe25e3a1947405a1f82dd8e3048a9ca471dc782e1, 0xe6a7a1d47ff21b6321162aea7c6cb457d5476bca,
+2024-12-24 23:22:06.179921012 [1085296] ethereum_mainnet.cpp:104 LOG_ERROR	Block: 47219, Computed State Root: 0x80b2ce33f14791b03d34ea19000059aa7a6215d2757ddca392273cf26bf9196f, Expected State Root: 0x05a16e52dbacec805dc881439ef54338e8324ee133a4dbbb8ab17f8c73290054
+2024-12-24 23:22:06.182764379 [1085296] monad.cpp:685 LOG_ERROR	block 47219 failed with: wrong merkle root
+[Thread 0x7fffed6006c0 (LWP 1085308) exited]
+[Thread 0x7fffee0006c0 (LWP 1085307) exited]
+[Thread 0x7fffeea006c0 (LWP 1085306) exited]
+[Thread 0x7fffef4006c0 (LWP 1085305) exited]
+[Thread 0x7ffff6a006c0 (LWP 1085302) exited]
+[Thread 0x7ffff74006c0 (LWP 1085301) exited]
+[Inferior 1 (process 1085296) exited with code 01]
+ *  */

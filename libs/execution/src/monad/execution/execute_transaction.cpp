@@ -204,7 +204,7 @@ Result<evmc::Result> execute_impl2(
         hdr.beneficiary);
 }
 
-bool change_within_footprint(std::set<evmc::address> *footprint, State &state) {
+bool change_within_footprint(const std::set<evmc::address>*, State &) {
     return true;
 }
 
