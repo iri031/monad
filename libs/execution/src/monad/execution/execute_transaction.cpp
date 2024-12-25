@@ -204,10 +204,6 @@ Result<evmc::Result> execute_impl2(
         hdr.beneficiary);
 }
 
-bool change_within_footprint(const std::set<evmc::address>*, State &) {
-    return true;
-}
-
 template <evmc_revision rev>
 Result<ExecutionResult> execute_impl(
     Chain const &chain, uint64_t const i, Transaction const &tx,
@@ -235,7 +231,7 @@ Result<ExecutionResult> execute_impl(
 
         {
             TRACE_TXN_EVENT(StartStall);
-            assert(change_within_footprint(parallel_commit_system.getFootprint(i), state));
+            assert(state.change_within_footprint(parallel_commit_system.getFootprint(i)));
             parallel_commit_system.waitForPrevTransactions(i);
         }
 

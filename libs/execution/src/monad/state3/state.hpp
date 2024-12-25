@@ -30,7 +30,7 @@
 #include <memory>
 #include <optional>
 #include <utility>
-
+#include <set>
 MONAD_NAMESPACE_BEGIN
 
 class State
@@ -100,6 +100,17 @@ public:
         , incarnation_{incarnation}
     {
     }
+
+    inline bool change_within_footprint(const std::set<evmc::address>*footprint) {
+        for (auto const &[address, stack] : current_) {
+            assert(stack.size() >= 1);
+            if (footprint && footprint->find(address) == footprint->end()) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
 
     State(State &&) = delete;
     State(State const &) = delete;

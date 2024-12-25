@@ -356,6 +356,7 @@ MONAD_NAMESPACE_END
 
 /**
  *  steps to debug:
+ * 0) check the meaning of wrong merkle root error. does it indicate a problem of the execition of the last block or n-2th block? can test it by instrumenting the execution to do something wrong based on block number.
  * 1) run with valgrind
  * 2) implement change_within_footprint
  * 3) if change_within_footpring asserts are not violated, then only 2 possibilities: 1) BlockState::merge cannot be run concurrently even for disjoing footprints, 2) there is some catastrophic memory corruption in ParallelCommitSystem. debug it
