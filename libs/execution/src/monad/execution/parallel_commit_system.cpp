@@ -383,4 +383,25 @@ MONAD_NAMESPACE_END
 [Thread 0x7ffff6a006c0 (LWP 1085302) exited]
 [Thread 0x7ffff74006c0 (LWP 1085301) exited]
 [Inferior 1 (process 1085296) exited with code 01]
+
+
+it seems the issue is that I forgot to take into account that ever transacton implicity updates the balance 
+of the block miner's designated beneficiary account by adding a reward to it.
+the current handling of it would require adding beneeficiary to every footprint and thus completely spoil any parallelism.
+So, we need to do a special case handling of it.
+We can add the following array to  BlockState:
+beneficiary_balance_deltas_[transactions.size ()].
+beneficiary_balance_deltas_[i] can only be updated by the transaction i: BlockState:merge will just set this field.
+But it can be read by any transaction. 
+It will only be ready by transactions that explicitly access the beneficiary account, e.g. if the beneficiary
+account is a contract and the code calls SELFBALANCE.
+
+`ParalllelCommitSystem` will work mostly the same. beneficially account will not be added to footprints unless
+they are explicitly accessed by the transaction. waitForPrevTransactions[i] will change as follows in case
+the transactiion i explicitly accesses the beneficiary account:
+wait for all transactions before i to commit.
+
+
+BlockState::can_merge will change to add up the array of deltas until the index in places where it reads the beneficiary account.
+
  *  */
