@@ -248,6 +248,7 @@ Result<ExecutionResult> execute_impl(
                 result.value(),
                 hdr.beneficiary);
             call_tracer.on_receipt(receipt);
+            assert(state.change_within_footprint(parallel_commit_system.getFootprint(i)));
             block_state.merge(state);
 
             auto const frames = call_tracer.get_frames();
@@ -283,6 +284,8 @@ Result<ExecutionResult> execute_impl(
             result.value(),
             hdr.beneficiary);
         call_tracer.on_receipt(receipt);
+        assert(state.change_within_footprint(parallel_commit_system.getFootprint(i)));
+
         block_state.merge(state);
 
         auto const frames = call_tracer.get_frames();
