@@ -298,6 +298,23 @@ public:
         account_state.touch();
     }
 
+    inline void set_balance(Address const &address, uint256_t const &balance)
+    {
+        auto &account_state = current_account_state(address);
+        auto &account = account_state.account_;
+        if (MONAD_UNLIKELY(!account.has_value())) {
+            account = Account{.incarnation = incarnation_};// TODO: understand whether this is needed here
+        }
+
+        account.value().balance = balance;
+        account_state.touch();
+    }
+
+    inline void finalize_block_beneficiary_balance(uint256_t miner_reward){
+        uint256_t balance=block_state_.beneficiary_balance_just_after_last_tx();
+        set_balance(block_state_.get_block_beneficiary(), balance+miner_reward);
+    }
+
     void subtract_from_balance(Address const &address, uint256_t const &delta)
     {
         auto &account_state = current_account_state(address);

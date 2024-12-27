@@ -207,6 +207,8 @@ Result<std::vector<ExecutionResult>> execute_block(
 
     LOG_INFO("block number: {}", block.header.number);
 
+    block_state.set_block_beneficiary(block.header.beneficiary);
+    block_state.load_preblock_beneficiary_balance();
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         promises[i].get_future().wait();
         LOG_INFO("sender[{}]: {}", i, fmt::format("{}", senders[i].value()));

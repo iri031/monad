@@ -67,7 +67,7 @@ void apply_block_reward(State &state, Block const &block)
 
     // reward block beneficiary, YP Eqn. 172
     if (MONAD_LIKELY(miner_reward)) {
-        state.add_to_balance(block.header.beneficiary, miner_reward);
+        state.finalize_block_beneficiary_balance(miner_reward);
     }
 
     // reward ommers, YP Eqn. 175

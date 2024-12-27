@@ -92,6 +92,7 @@
         "valarray": "cpp",
         "latch": "cpp",
         "queue": "cpp",
-        "stack": "cpp"
+        "stack": "cpp",
+        "*.def": "cpp"
     }
 }

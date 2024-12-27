@@ -141,7 +141,7 @@ template <evmc_revision rev>
 Receipt execute_final(
     State &state, Transaction const &tx, Address const &sender,
     uint256_t const &base_fee_per_gas, evmc::Result const &result,
-    Address const &beneficiary, bool /*beneficiary_touched*/=true)
+    Address const &beneficiary, bool beneficiary_touched, std::optional<uint256_t> & block_beneficiary_reward)
 {
     MONAD_ASSERT(result.gas_left >= 0);
     MONAD_ASSERT(result.gas_refund >= 0);
@@ -156,7 +156,11 @@ Receipt execute_final(
     auto const gas_used = tx.gas_limit - gas_remaining;
     auto const reward =
         calculate_txn_award<rev>(tx, base_fee_per_gas, gas_used);
-    state.add_to_balance(beneficiary, reward); // TODO: add a shortcut for the case the beneficiary_touched is false: directly update the array instead
+    if (beneficiary_touched || sender == beneficiary) {
+        state.add_to_balance(beneficiary, reward);
+    } else {
+        block_beneficiary_reward = reward;
+    }
 
     // finalize state, Eqn. 77-79
     state.destruct_suicides<rev>();
@@ -234,22 +238,25 @@ Result<ExecutionResult> execute_impl(
             assert(state.change_within_footprint(parallel_commit_system.getFootprint(i)));
             parallel_commit_system.waitForPrevTransactions(i);
         }
-
-        if (block_state.can_merge(state)) {
+        bool beneficiary_touched = false;
+        if (block_state.can_merge(state, i, beneficiary_touched)) {
             assert(result.has_value());
             if (result.has_error()) {
                 return std::move(result.error());
             }
+            std::optional<uint256_t> block_beneficiary_reward = std::nullopt;
             auto const receipt = execute_final<rev>(
                 state,
                 tx,
                 sender,
                 hdr.base_fee_per_gas.value_or(0),
                 result.value(),
-                hdr.beneficiary);
+                hdr.beneficiary,
+                beneficiary_touched,
+                block_beneficiary_reward);
             call_tracer.on_receipt(receipt);
             assert(state.change_within_footprint(parallel_commit_system.getFootprint(i)));
-            block_state.merge(state);
+            block_state.merge(state, i, block_beneficiary_reward);
 
             auto const frames = call_tracer.get_frames();
             return ExecutionResult{

@@ -189,7 +189,7 @@ void BlockchainTest::TestBody()
             BlockState bs{tdb};
             State state{bs, Incarnation{0, 0}};
             load_state_from_json(j_contents.at("pre"), state);
-            bs.merge(state);
+            bs.merge(state,0,std::nullopt);// 0 id dead code because of std::nullopt
             bs.commit({}, {}, {}, {}, {}, std::nullopt);
         }
 

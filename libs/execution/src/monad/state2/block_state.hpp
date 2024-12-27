@@ -18,16 +18,26 @@
 MONAD_NAMESPACE_BEGIN
 
 class State;
-
 class BlockState final
 {
     Db &db_;
     StateDeltas state_{};
     Code code_{};
-    std::vector<::intx::int256> beneficiary_balance_deltas;
+    std::vector<std::pair<::intx::uint256,bool>> beneficiary_balance_updates;//bool true represents increment by ith transaction, false represents absolute value at the end of ith transaction
     monad::Address block_beneficiary;
+    uint256_t preblock_beneficiary_balance;
 
 public:
+    constexpr static bool BENEFICIARY_BALANCE_INCREMENT=true;
+    constexpr static bool BENEFICIARY_BALANCE_ABSOLUTE=false;
+
+    const monad::Address& get_block_beneficiary() const{
+        return block_beneficiary;
+    }
+    void set_block_beneficiary(monad::Address const &beneficiary){
+        block_beneficiary=beneficiary;
+    }
+
     BlockState(Db &);
 
     std::optional<Account> read_account(Address const &);
@@ -36,11 +46,20 @@ public:
 
     std::shared_ptr<CodeAnalysis> read_code(bytes32_t const &);
 
-    inline uint256_t sum_beneficiary_balance_deltas_upto(uint64_t tx_index) const
+    inline uint256_t beneficiary_balance_just_after_tx_index(uint64_t tx_index) const
     {
-        return std::accumulate(beneficiary_balance_deltas.begin(),
-                               beneficiary_balance_deltas.begin() + tx_index,
-                               uint256_t{0});
+        uint256_t increments_sum{0};
+        // Process transactions in reverse order
+        for (int64_t i = tx_index; i >= 0; --i) {
+            if (beneficiary_balance_updates[i].second==BENEFICIARY_BALANCE_ABSOLUTE) {
+                return beneficiary_balance_updates[i].first+increments_sum;
+            }
+            increments_sum += beneficiary_balance_updates[i].first;
+        }
+        return preblock_beneficiary_balance+increments_sum;
+    }
+    inline uint256_t beneficiary_balance_just_after_last_tx() const{
+        return beneficiary_balance_just_after_tx_index(beneficiary_balance_updates.size()-1);
     }
     inline bool eq_beneficiary_ac_at_index(Account const &other, uint64_t tx_index) const
     {
@@ -49,10 +68,8 @@ public:
         assert(it->second.account.second.has_value());
         const monad::Account &beneficiary_account =
             it->second.account.second.value();
-        uint256_t preblock_balance = beneficiary_account.balance;
         uint256_t beneficiary_balance =
-            sum_beneficiary_balance_deltas_upto(tx_index) +
-            beneficiary_account.balance;
+            beneficiary_balance_just_after_tx_index(tx_index);
         if (beneficiary_balance != other.balance) {
             return false;
         }
@@ -61,8 +78,16 @@ public:
 
     bool can_merge(State const &, uint64_t tx_index);
 
-    void merge(State const &, uint64_t tx_index);
+    // block_beneficiary_reward.has_value iff the transaction only changed the beneficiary's balance by adding the fee reward
+    void merge(State const &, uint64_t tx_index, std::optional<uint256_t> block_beneficiary_reward);
     void update_beneficiary_delta(uint64_t tx_index, intx::uint256 delta);
+
+    //must be called before any transaction calls can_merge
+    inline void load_preblock_beneficiary_balance(){
+        auto const beneficiary_account = read_account(block_beneficiary);
+        assert(beneficiary_account.has_value());
+        preblock_beneficiary_balance=beneficiary_account.value().balance;
+    }
 
     // TODO: remove round_number parameter, retrieve it from header instead once
     // we add the monad fields in BlockHeader

@@ -25,8 +25,8 @@
 
 MONAD_NAMESPACE_BEGIN
 
-BlockState::BlockState(Db &db)
-    : db_{db}
+BlockState::BlockState(Db &db, Address const &block_beneficiary)
+    : db_{db}, block_beneficiary(block_beneficiary)
 {
 }
 
@@ -161,7 +161,7 @@ bool BlockState::can_merge(
     return true;
 }
 
-void BlockState::merge(State const &state, uint64_t tx_index)
+void BlockState::merge(State const &state, uint64_t tx_index, std::optional<uint256_t> block_beneficiary_reward)
 {
     ankerl::unordered_dense::segmented_set<bytes32_t> code_hashes;
 
@@ -206,17 +206,17 @@ void BlockState::merge(State const &state, uint64_t tx_index)
             it->second.storage.clear();
         }
     }
-    auto const beneficiary_it = state.current_.find(block_beneficiary);
-    if (beneficiary_it != state.current_.end()) {
-        auto const &beneficiary_stack = beneficiary_it->second;
-        auto const &beneficiary_account_new = beneficiary_stack.recent().account_;
-        uint256_t new_balance=beneficiary_account_new.value().balance;
-        auto it = state.original_.find(block_beneficiary);
-        assert(it != state.original_.end());
-        auto &original_state = it->second;
-        auto const &beneficiary_account_old = original_state.account_;
-        uint256_t old_balance=beneficiary_account_old.value().balance;
-        update_beneficiary_delta(tx_index, new_balance-old_balance);
+    if (block_beneficiary_reward.has_value()){
+        beneficiary_balance_updates[tx_index].first=block_beneficiary_reward.value();
+        beneficiary_balance_updates[tx_index].second=BENEFICIARY_BALANCE_INCREMENT;
+    }
+    else{
+        beneficiary_balance_updates[tx_index].second=BENEFICIARY_BALANCE_ABSOLUTE;
+        auto const beneficiary_it = state.current_.find(block_beneficiary);
+        assert (beneficiary_it != state.current_.end());
+        auto const &beneficiary_account_new = beneficiary_it->second.recent().account_;
+        assert(beneficiary_account_new.has_value());
+        beneficiary_balance_updates[tx_index].first=beneficiary_account_new.value().balance;
     }
 }
 
