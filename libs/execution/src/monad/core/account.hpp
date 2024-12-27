@@ -18,6 +18,10 @@ struct Account
     Incarnation incarnation{0, 0};
 
     friend bool operator==(Account const &, Account const &) = default;
+    inline bool equal_except_balance(Account const &other) const{
+        return code_hash == other.code_hash && nonce == other.nonce &&
+               incarnation == other.incarnation;
+    }
 };
 
 static_assert(sizeof(Account) == 80);

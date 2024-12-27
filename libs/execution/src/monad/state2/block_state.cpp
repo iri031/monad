@@ -116,15 +116,32 @@ std::shared_ptr<CodeAnalysis> BlockState::read_code(bytes32_t const &code_hash)
     }
 }
 
-bool BlockState::can_merge(State const &state)
+/**
+ * \pre the transactin's gas reward has not been added to the block_beneficiary's account yet 
+ *   (thus if beneficiary is in state.original_, the transaction must have explicitly accessed the beneficiary's account, e.g. an explicit transfer transaction to the beneficiary)
+ * \pre in case block_beneficiary is in state.original_, all the transactions before this one must have committed already. ParallelCommitSystem must ensure this.
+ *  (thus the array members until this index are correct)
+ */
+bool BlockState::can_merge(
+    State const &state, uint64_t tx_index, bool & beneficiary_touched)
 {
+    bool beneficiary_touched = false;
     for (auto const &[address, account_state] : state.original_) {
         auto const &account = account_state.account_;
         auto const &storage = account_state.storage_;
         StateDeltas::const_accessor it{};
-        MONAD_ASSERT(state_.find(it, address));
-        if (account != it->second.account.second) {
-            return false;
+        if (address==block_beneficiary){
+            assert(account.has_value());
+            if (!eq_beneficiary_ac_at_index(account.value(), tx_index)){
+                return false;
+            }
+            beneficiary_touched = true;
+        }
+        else{
+            MONAD_ASSERT(state_.find(it, address));
+            if (account != it->second.account.second) {
+                return false;
+            }
         }
         // TODO account.has_value()???
         for (auto const &[key, value] : storage) {
@@ -144,7 +161,7 @@ bool BlockState::can_merge(State const &state)
     return true;
 }
 
-void BlockState::merge(State const &state)
+void BlockState::merge(State const &state, uint64_t tx_index)
 {
     ankerl::unordered_dense::segmented_set<bytes32_t> code_hashes;
 
@@ -188,6 +205,18 @@ void BlockState::merge(State const &state)
         else {
             it->second.storage.clear();
         }
+    }
+    auto const beneficiary_it = state.current_.find(block_beneficiary);
+    if (beneficiary_it != state.current_.end()) {
+        auto const &beneficiary_stack = beneficiary_it->second;
+        auto const &beneficiary_account_new = beneficiary_stack.recent().account_;
+        uint256_t new_balance=beneficiary_account_new.value().balance;
+        auto it = state.original_.find(block_beneficiary);
+        assert(it != state.original_.end());
+        auto &original_state = it->second;
+        auto const &beneficiary_account_old = original_state.account_;
+        uint256_t old_balance=beneficiary_account_old.value().balance;
+        update_beneficiary_delta(tx_index, new_balance-old_balance);
     }
 }
 

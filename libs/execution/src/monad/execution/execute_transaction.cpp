@@ -141,7 +141,7 @@ template <evmc_revision rev>
 Receipt execute_final(
     State &state, Transaction const &tx, Address const &sender,
     uint256_t const &base_fee_per_gas, evmc::Result const &result,
-    Address const &beneficiary)
+    Address const &beneficiary, bool /*beneficiary_touched*/=true)
 {
     MONAD_ASSERT(result.gas_left >= 0);
     MONAD_ASSERT(result.gas_refund >= 0);
@@ -156,7 +156,7 @@ Receipt execute_final(
     auto const gas_used = tx.gas_limit - gas_remaining;
     auto const reward =
         calculate_txn_award<rev>(tx, base_fee_per_gas, gas_used);
-    state.add_to_balance(beneficiary, reward);
+    state.add_to_balance(beneficiary, reward); // TODO: add a shortcut for the case the beneficiary_touched is false: directly update the array instead
 
     // finalize state, Eqn. 77-79
     state.destruct_suicides<rev>();
