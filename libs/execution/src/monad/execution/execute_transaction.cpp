@@ -239,7 +239,7 @@ Result<ExecutionResult> execute_impl(
             parallel_commit_system.waitForPrevTransactions(i);
         }
         bool beneficiary_touched = false;
-        if (block_state.can_merge(state, i, beneficiary_touched)) {
+        if (block_state.can_merge_par(state, i, beneficiary_touched)) {
             assert(result.has_value());
             if (result.has_error()) {
                 return std::move(result.error());
@@ -256,7 +256,7 @@ Result<ExecutionResult> execute_impl(
                 block_beneficiary_reward);
             call_tracer.on_receipt(receipt);
             assert(state.change_within_footprint(parallel_commit_system.getFootprint(i)));
-            block_state.merge(state, i, block_beneficiary_reward);
+            block_state.merge_par(state, i, block_beneficiary_reward);
 
             auto const frames = call_tracer.get_frames();
             return ExecutionResult{
@@ -278,22 +278,26 @@ Result<ExecutionResult> execute_impl(
         auto result = execute_impl2<rev>(
             call_tracer, chain, tx, sender, hdr, block_hash_buffer, state);
 
-        MONAD_ASSERT(block_state.can_merge(state));
+        bool beneficiary_touched=false;
+        MONAD_ASSERT(block_state.can_merge_par(state,i,beneficiary_touched)); //TODO: remove this assert and compute beneficiary_touched separately
         assert(result.has_value());
         if (result.has_error()) {
             return std::move(result.error());
         }
+        std::optional<uint256_t> block_beneficiary_reward = std::nullopt;
         auto const receipt = execute_final<rev>(
             state,
             tx,
             sender,
             hdr.base_fee_per_gas.value_or(0),
             result.value(),
-            hdr.beneficiary);
+            hdr.beneficiary,
+            beneficiary_touched,
+            block_beneficiary_reward);
         call_tracer.on_receipt(receipt);
         assert(state.change_within_footprint(parallel_commit_system.getFootprint(i)));
 
-        block_state.merge(state);
+        block_state.merge_par(state,i,block_beneficiary_reward);
 
         auto const frames = call_tracer.get_frames();
         return ExecutionResult{

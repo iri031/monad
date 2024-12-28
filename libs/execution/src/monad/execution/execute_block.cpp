@@ -62,8 +62,9 @@ transfer_balance_dao(BlockState &block_state, Incarnation const incarnation)
         state.subtract_from_balance(addr, balance);
     }
 
-    MONAD_ASSERT(block_state.can_merge(state));
-    block_state.merge(state);
+    bool beneficiary_touched=false;
+    MONAD_ASSERT(block_state.can_merge_par(state,0,beneficiary_touched));
+    block_state.merge_par(state,0,std::nullopt);
 }
 
 inline void set_beacon_root(BlockState &block_state, Block &block)
@@ -86,8 +87,9 @@ inline void set_beacon_root(BlockState &block_state, Block &block)
             k2,
             block.header.parent_beacon_block_root.value());
 
-        MONAD_ASSERT(block_state.can_merge(state));
-        block_state.merge(state);
+        bool beneficiary_touched=false;
+        MONAD_ASSERT(block_state.can_merge_par(state,0,beneficiary_touched));
+        block_state.merge_par(state,0,std::nullopt);
     }
 }
 
@@ -175,6 +177,9 @@ Result<std::vector<ExecutionResult>> execute_block(
     fiber::PriorityPool &priority_pool, CalleePredInfo &callee_pred_info)
 {
     TRACE_BLOCK_EVENT(StartBlock);
+    block_state.set_block_beneficiary(block.header.beneficiary);
+    block_state.load_preblock_beneficiary_balance();
+    block_state.set_transactions_finished(false);
 
     if constexpr (rev >= EVMC_CANCUN) {
         set_beacon_root(block_state, block);
@@ -207,8 +212,6 @@ Result<std::vector<ExecutionResult>> execute_block(
 
     LOG_INFO("block number: {}", block.header.number);
 
-    block_state.set_block_beneficiary(block.header.beneficiary);
-    block_state.load_preblock_beneficiary_balance();
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         promises[i].get_future().wait();
         LOG_INFO("sender[{}]: {}", i, fmt::format("{}", senders[i].value()));
@@ -252,6 +255,7 @@ Result<std::vector<ExecutionResult>> execute_block(
     }
 
     parallel_commit_system.waitForAllTransactionsToCommit();
+    block_state.set_transactions_finished(true);
 
     std::vector<ExecutionResult> retvals;
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
@@ -287,8 +291,9 @@ Result<std::vector<ExecutionResult>> execute_block(
         state.destruct_touched_dead();
     }
 
-    MONAD_ASSERT(block_state.can_merge(state));
-    block_state.merge(state);
+    bool beneficiary_touched=false;
+    MONAD_ASSERT(block_state.can_merge_par(state,0,beneficiary_touched));
+    block_state.merge_par(state,0,std::nullopt);
 
     return retvals;
 }

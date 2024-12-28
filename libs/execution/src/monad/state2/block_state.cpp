@@ -25,8 +25,8 @@
 
 MONAD_NAMESPACE_BEGIN
 
-BlockState::BlockState(Db &db, Address const &block_beneficiary)
-    : db_{db}, block_beneficiary(block_beneficiary)
+BlockState::BlockState(Db &db)
+    : db_{db}
 {
 }
 
@@ -122,15 +122,15 @@ std::shared_ptr<CodeAnalysis> BlockState::read_code(bytes32_t const &code_hash)
  * \pre in case block_beneficiary is in state.original_, all the transactions before this one must have committed already. ParallelCommitSystem must ensure this.
  *  (thus the array members until this index are correct)
  */
-bool BlockState::can_merge(
+bool BlockState::can_merge_par(
     State const &state, uint64_t tx_index, bool & beneficiary_touched)
 {
-    bool beneficiary_touched = false;
+    beneficiary_touched = false;
     for (auto const &[address, account_state] : state.original_) {
         auto const &account = account_state.account_;
         auto const &storage = account_state.storage_;
         StateDeltas::const_accessor it{};
-        if (address==block_beneficiary){
+        if ((!transactions_finished) && address==block_beneficiary){
             assert(account.has_value());
             if (!eq_beneficiary_ac_at_index(account.value(), tx_index)){
                 return false;
@@ -161,7 +161,7 @@ bool BlockState::can_merge(
     return true;
 }
 
-void BlockState::merge(State const &state, uint64_t tx_index, std::optional<uint256_t> block_beneficiary_reward)
+void BlockState::merge_par(State const &state, uint64_t tx_index, std::optional<uint256_t> block_beneficiary_reward)
 {
     ankerl::unordered_dense::segmented_set<bytes32_t> code_hashes;
 
@@ -210,7 +210,7 @@ void BlockState::merge(State const &state, uint64_t tx_index, std::optional<uint
         beneficiary_balance_updates[tx_index].first=block_beneficiary_reward.value();
         beneficiary_balance_updates[tx_index].second=BENEFICIARY_BALANCE_INCREMENT;
     }
-    else{
+    else if (!transactions_finished){
         beneficiary_balance_updates[tx_index].second=BENEFICIARY_BALANCE_ABSOLUTE;
         auto const beneficiary_it = state.current_.find(block_beneficiary);
         assert (beneficiary_it != state.current_.end());
