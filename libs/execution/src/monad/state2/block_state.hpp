@@ -92,8 +92,13 @@ public:
     //must be called before any transaction calls can_merge
     inline void load_preblock_beneficiary_balance(){
         auto const beneficiary_account = read_account(block_beneficiary);
-        assert(beneficiary_account.has_value());
-        preblock_beneficiary_balance=beneficiary_account.value().balance;
+        //assert(beneficiary_account.has_value());
+        if(beneficiary_account.has_value()){
+            preblock_beneficiary_balance=beneficiary_account.value().balance;
+        }
+        else{
+            preblock_beneficiary_balance=0;
+        }
     }
 
     // TODO: remove round_number parameter, retrieve it from header instead once
