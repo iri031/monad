@@ -54,7 +54,7 @@ public:
 
     BlockState(Db &);
 
-    std::optional<Account> read_account(Address const &, bool parallel_beneficiary=false);
+    std::optional<Account> read_account(Address const &, const std::optional<uint64_t> & txindex=std::nullopt);
 
     bytes32_t read_storage(Address const &, Incarnation, bytes32_t const &key);
 

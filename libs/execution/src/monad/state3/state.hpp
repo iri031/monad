@@ -58,7 +58,7 @@ class State
         auto it = original_.find(address);
         if (it == original_.end()) {
             // block state
-            auto const account = block_state_.read_account(address);
+            auto const account = block_state_.read_account(address, txindex_);
             it = original_.try_emplace(address, account).first;
         }
         return it->second;
@@ -93,11 +93,13 @@ class State
     }
 
     friend class BlockState; // TODO
+    std::optional<uint64_t> txindex_;// not None only when were are running transactions in parallel. this index is necessary to compute the beneficiary balance (need to ignore increments by later transactions even if they have finished)
 
 public:
-    State(BlockState &block_state, Incarnation const incarnation)
+    State(BlockState &block_state, Incarnation const incarnation, std::optional<uint64_t> txindex=std::nullopt)
         : block_state_{block_state}
         , incarnation_{incarnation}
+        , txindex_{txindex}
     {
     }
 

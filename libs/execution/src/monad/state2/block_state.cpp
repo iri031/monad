@@ -30,13 +30,20 @@ BlockState::BlockState(Db &db)
 {
 }
 
-std::optional<Account> BlockState::read_account(Address const &address, bool)
+std::optional<Account> BlockState::read_account(Address const &address, const std::optional<uint64_t> & txindex)
 {
     // block state
     {
         StateDeltas::const_accessor it{};
         if (MONAD_LIKELY(state_.find(it, address))) {
-            return it->second.account.second;
+            auto account = it->second.account.second;
+            if ((!txindex.has_value()) || address!=block_beneficiary){
+                return account;// reduce copying?
+            }
+            else{
+                account.value().balance=beneficiary_balance_just_before_tx_index(txindex.value());
+                return account;
+            }
         }
     }
     // database

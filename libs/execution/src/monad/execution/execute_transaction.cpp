@@ -221,7 +221,7 @@ Result<ExecutionResult> execute_impl(
     {
         TRACE_TXN_EVENT(StartExecution);
 
-        State state{block_state, Incarnation{hdr.number, i + 1}};
+        State state{block_state, Incarnation{hdr.number, i + 1}, i};
         state.set_original_nonce(sender, tx.nonce);
 
 #ifdef ENABLE_CALL_TRACING
@@ -267,7 +267,7 @@ Result<ExecutionResult> execute_impl(
     {
         TRACE_TXN_EVENT(StartRetry);
 
-        State state{block_state, Incarnation{hdr.number, i + 1}};
+        State state{block_state, Incarnation{hdr.number, i + 1}, i};
 
 #ifdef ENABLE_CALL_TRACING
         CallTracer call_tracer{tx};
