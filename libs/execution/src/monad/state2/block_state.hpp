@@ -34,8 +34,10 @@ public:
     const monad::Address& get_block_beneficiary() const{
         return block_beneficiary;
     }
-    void set_block_beneficiary(monad::Address const &beneficiary){
+    void init(monad::Address const &beneficiary, uint64_t num_txs){
         block_beneficiary=beneficiary;
+        beneficiary_balance_updates.clear();// TODO(aa): preallocate statically
+        beneficiary_balance_updates.resize(num_txs,std::make_pair(0,BENEFICIARY_BALANCE_INCREMENT));
     }
 
     BlockState(Db &);
