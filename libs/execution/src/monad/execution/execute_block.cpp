@@ -175,7 +175,7 @@ Result<std::vector<ExecutionResult>> execute_block(
     fiber::PriorityPool &priority_pool, CalleePredInfo &callee_pred_info)
 {
     TRACE_BLOCK_EVENT(StartBlock);
-    block_state.set_block_beneficiary(block.header.beneficiary);
+    block_state.init(block.header.beneficiary, block.transactions.size());
     block_state.load_preblock_beneficiary_balance();
 
     if constexpr (rev >= EVMC_CANCUN) {
