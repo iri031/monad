@@ -37,7 +37,7 @@ ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions, monad::Ad
         status_(num_transactions),
         all_committed_below_index(0),
         footprints_(num_transactions, nullptr),
-        footprint_contains_beneficiary(num_transactions, false)
+        nontriv_footprint_contains_beneficiary(num_transactions, false)
       //,pending_footprints_(num_transactions)// not used currently
 {
 
@@ -79,7 +79,7 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
         }
     }
     if(footprint && footprint->find(beneficiary)!=footprint->end()){
-        footprint_contains_beneficiary[myindex]=true;
+        nontriv_footprint_contains_beneficiary[myindex]=true;
     }
 
 
@@ -251,7 +251,7 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
                 return false;// the access map may not have all entries yet. actually, it will have all relevant entries because of a precondition of this function: see comment
 
         }
-        if(footprint_contains_beneficiary[index]) {
+        if(nontriv_footprint_contains_beneficiary[index]) {
             return false;// above, we observed that the previous transacton hasn't committed yet. this transaction may read the exact beneficiary balance, so we need to wait for all previous transactions to commit so that the rewards get finalized.
         }
         unblockTransaction(status, index);

@@ -116,7 +116,7 @@ class ParallelCommitSystem
     std::vector<const std::set<evmc::address> *>
         footprints_; 
     std::vector<bool>
-        footprint_contains_beneficiary; // just a cache, can be computed from footprints_
+        nontriv_footprint_contains_beneficiary; // just a cache, can be computed from footprints_
 
     std::atomic<bool> all_done=false;
 
