@@ -30,7 +30,7 @@ BlockState::BlockState(Db &db)
 {
 }
 
-std::optional<Account> BlockState::read_account(Address const &address)
+std::optional<Account> BlockState::read_account(Address const &address, bool)
 {
     // block state
     {

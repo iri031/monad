@@ -114,26 +114,36 @@ bool insert_callees(std::set<evmc::address> *footprint,  std::vector<evmc::addre
 }
 
 // if this returns true, then the address MUST be a non-contract account. for correctness, it can always return false, but for performance, it should do that only for addresses created in this block.
-bool address_known_to_be_non_contract(BlockState &block_state, evmc::address address) {
-    auto const account = block_state.read_account(address);
-    if(!account.has_value()) {
+bool to_address_known_to_be_non_contract(BlockState &block_state, Transaction const &transaction) {
+    auto const to_account = block_state.read_account(transaction.to.value());
+    if(!to_account.has_value()) {// an account that is first seen in this block.
+
+        /* there is no reliable way to determine if this is account is a contract account or not. a previous contract transaction in this block may create a contract at this address. we cannot wait to run to find out. if a static analysis finds that all prev transactions in this block has no CREATE2 opcode THEN we can return true
+        if(transaction.data.empty()) {
+            return true;// new EOA account creation
+        }
+        */
         return false;
     }
-    return account.value().code_hash==NULL_HASH;
+    return to_account.value().code_hash==NULL_HASH;
 }
 
 // sender address is later added to the footprint by the caller, because sender.nonce is updated by the transaction
 // for now, we assume that no transaction calls a contract created by a previous transaction in this very block. need to extend static analysis to look at predicted stacks at CREATE/CREATE2
- std::set<evmc::address> * compute_footprint(BlockState &block_state, Transaction const &transaction, CalleePredInfo &callee_pred_info) {
+ std::set<evmc::address> * compute_footprint(BlockState &block_state, Transaction const &transaction, CalleePredInfo &callee_pred_info, uint64_t tx_index=0) {
     if(!transaction.to.has_value()) {
+        LOG_INFO("compute_footprint: tx_index: {} has no empty to value", tx_index);
         return nullptr;//this is sound but not optimal for performance. add a way for the ParallelCommitSystem to  know that this is creating a NEW contract, so that we know that there is no conflict with block-pre-existing contracts
     }
     evmc::address runningAddress = transaction.to.value();
     std::set<evmc::address> *footprint=new std::set<evmc::address>();
     footprint->insert(runningAddress);
-    if(address_known_to_be_non_contract(block_state, runningAddress)) {
+    if(to_address_known_to_be_non_contract(block_state, transaction)) {
+        LOG_INFO("compute_footprint: tx_index: {} address_known_to_be_non_contract: {}", tx_index, runningAddress);
         return footprint;
     }
+    LOG_INFO("compute_footprint: tx_index: {} address NOT known_to_be_non_contract: {}", tx_index, runningAddress);
+
     std::vector<evmc::address> new_members;
     new_members.push_back(runningAddress);
     bool overapproximated=false;
