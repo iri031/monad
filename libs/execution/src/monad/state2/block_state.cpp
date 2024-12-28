@@ -123,14 +123,14 @@ std::shared_ptr<CodeAnalysis> BlockState::read_code(bytes32_t const &code_hash)
  *  (thus the array members until this index are correct)
  */
 bool BlockState::can_merge_par(
-    State const &state, uint64_t tx_index, bool & beneficiary_touched)
+    State const &state, uint64_t tx_index, bool & beneficiary_touched, bool parallel_beneficiary)
 {
     beneficiary_touched = false;
     for (auto const &[address, account_state] : state.original_) {
         auto const &account = account_state.account_;
         auto const &storage = account_state.storage_;
         StateDeltas::const_accessor it{};
-        if ((!transactions_finished) && address==block_beneficiary){
+        if (parallel_beneficiary && address==block_beneficiary){
             assert(account.has_value());
             if (!eq_beneficiary_ac_at_index(account.value(), tx_index)){
                 return false;
@@ -161,7 +161,7 @@ bool BlockState::can_merge_par(
     return true;
 }
 
-void BlockState::merge_par(State const &state, uint64_t tx_index, std::optional<uint256_t> block_beneficiary_reward)
+void BlockState::merge_par(State const &state, uint64_t tx_index, std::optional<uint256_t> block_beneficiary_reward, bool parallel_beneficiary)
 {
     ankerl::unordered_dense::segmented_set<bytes32_t> code_hashes;
 
@@ -210,7 +210,7 @@ void BlockState::merge_par(State const &state, uint64_t tx_index, std::optional<
         beneficiary_balance_updates[tx_index].first=block_beneficiary_reward.value();
         beneficiary_balance_updates[tx_index].second=BENEFICIARY_BALANCE_INCREMENT;
     }
-    else if (!transactions_finished){
+    else if (parallel_beneficiary){
         beneficiary_balance_updates[tx_index].second=BENEFICIARY_BALANCE_ABSOLUTE;
         auto const beneficiary_it = state.current_.find(block_beneficiary);
         assert (beneficiary_it != state.current_.end());

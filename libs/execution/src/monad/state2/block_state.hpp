@@ -26,7 +26,6 @@ class BlockState final
     std::vector<std::pair<::intx::uint256,bool>> beneficiary_balance_updates;//bool true represents increment by ith transaction, false represents absolute value at the end of ith transaction
     monad::Address block_beneficiary;
     uint256_t preblock_beneficiary_balance;
-    bool transactions_finished=false;
 
 public:
     constexpr static bool BENEFICIARY_BALANCE_INCREMENT=true;
@@ -37,9 +36,6 @@ public:
     }
     void set_block_beneficiary(monad::Address const &beneficiary){
         block_beneficiary=beneficiary;
-    }
-    void set_transactions_finished(bool value){
-        transactions_finished=value;
     }
 
     BlockState(Db &);
@@ -80,18 +76,16 @@ public:
         return beneficiary_account.equal_except_balance(other);
     }
 
-    bool can_merge_par(State const &, uint64_t tx_index, bool & beneficiary_touched);
+    bool can_merge_par(State const &, uint64_t tx_index, bool & beneficiary_touched, bool parallel_beneficiary=false);
     inline bool can_merge(State const &state){
-        transactions_finished=true;
         bool beneficiary_touched=false;
-        return can_merge_par(state,0,beneficiary_touched);
+        return can_merge_par(state,0,beneficiary_touched,false);
     }
 
     // block_beneficiary_reward.has_value iff the transaction only changed the beneficiary's balance by adding the fee reward
-    void merge_par(State const &, uint64_t tx_index, std::optional<uint256_t> block_beneficiary_reward);
+    void merge_par(State const &, uint64_t tx_index, std::optional<uint256_t> block_beneficiary_reward, bool parallel_beneficiary=false);
     inline void merge(State const & state){
-        transactions_finished=true;
-        merge_par(state,0,std::nullopt);
+        merge_par(state,0,std::nullopt,false);
     }
     void update_beneficiary_delta(uint64_t tx_index, intx::uint256 delta);
 
