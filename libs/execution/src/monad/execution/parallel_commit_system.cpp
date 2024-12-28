@@ -322,6 +322,7 @@ void ParallelCommitSystem::notifyDone(txindex_t myindex) {
     //std::cout << "notifyDone: status of " << myindex << " is " << status_to_string(status) << std::endl;
     // assert(status == TransactionStatus::COMMITTING);
     status_[myindex].store(TransactionStatus::COMMITTED);
+    LOG_INFO("notifyDone: status[{}] changed from {} to {}", myindex, status_to_string(TransactionStatus::COMMITTING), status_to_string(TransactionStatus::COMMITTED));
     updateLastCommittedUb();
     if (!existsBlockerBefore(myindex)) {
         tryUnblockTransactionsStartingFrom(myindex+1); // unlike before, the transaction myindex+1 cannot necesssarily be unblocked here because some transaction before myindex may not have committed and may have conflicts
