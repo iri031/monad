@@ -45,12 +45,13 @@ class ParallelCommitSystem
     void declareFootprint(txindex_t myindex, const std::set<evmc::address> *footprint);
     const std::set<evmc::address> *getFootprint(txindex_t myindex);
 
-    ParallelCommitSystem(txindex_t num_transactions);
+    ParallelCommitSystem(txindex_t num_transactions, monad::Address const &beneficiary);
 
     ~ParallelCommitSystem();
     void waitForAllTransactionsToCommit();
 
     private:
+    monad::Address beneficiary;
     /*
     * promises[i].set_value() is only called by the transaction (in call to notifyDone) that CASes status[i] 
     * from foo to foo_unblocked or WAITING_FOR_PREV_TRANSACTIONS to COMMITTING
@@ -114,6 +115,8 @@ class ParallelCommitSystem
     */
     std::vector<const std::set<evmc::address> *>
         footprints_; 
+    std::vector<bool>
+        footprint_contains_beneficiary; // just a cache, can be computed from footprints_
 
     std::atomic<bool> all_done=false;
 

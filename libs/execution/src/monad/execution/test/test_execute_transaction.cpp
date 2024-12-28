@@ -61,7 +61,7 @@ TEST(TransactionProcessor, irrevocable_gas_and_refund_new_contract)
     BlockHeader const header{.beneficiary = bene};
     BlockHashBufferFinalized const block_hash_buffer;
 
-    ParallelCommitSystem parallel_commit_system{1};
+    ParallelCommitSystem parallel_commit_system{1,bene};
 
 
     auto const result = execute_impl<EVMC_SHANGHAI>(

@@ -217,7 +217,7 @@ Result<std::vector<ExecutionResult>> execute_block(
     std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
         new std::optional<Result<ExecutionResult>>[block.transactions.size()]};
 
-    ParallelCommitSystem parallel_commit_system(block.transactions.size());
+    ParallelCommitSystem parallel_commit_system(block.transactions.size(), block.header.beneficiary);
 
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {

@@ -31,11 +31,13 @@ void ParallelCommitSystem::waitForAllTransactionsToCommit() {
 std::set<evmc::address> *ParallelCommitSystem::getFootprint(txindex_t myindex) { return nullptr; }
 #else
 
-ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions) 
-    : promises(num_transactions+1),
+ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions, monad::Address const &beneficiary) 
+    : beneficiary(beneficiary),
+        promises(num_transactions+1),
         status_(num_transactions),
         all_committed_below_index(0),
-        footprints_(num_transactions, nullptr)
+        footprints_(num_transactions, nullptr),
+        footprint_contains_beneficiary(num_transactions, false)
       //,pending_footprints_(num_transactions)// not used currently
 {
 
@@ -75,6 +77,9 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
         for (const auto& addr : *footprint) {
             registerAddressAccessedBy(addr, myindex);
         }
+    }
+    if(footprint && footprint->find(beneficiary)!=footprint->end()){
+        footprint_contains_beneficiary[myindex]=true;
     }
 
 
@@ -245,6 +250,9 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
             if (highest_prev != std::numeric_limits<txindex_t>::max() && status_[highest_prev].load() != TransactionStatus::COMMITTED)
                 return false;// the access map may not have all entries yet. actually, it will have all relevant entries because of a precondition of this function: see comment
 
+        }
+        if(footprint_contains_beneficiary[index]) {
+            return false;// above, we observed that the previous transacton hasn't committed yet. this transaction may read the exact beneficiary balance, so we need to wait for all previous transactions to commit so that the rewards get finalized.
         }
         unblockTransaction(status, index);
         return true;
