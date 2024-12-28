@@ -5,12 +5,24 @@
 #include <monad/core/bytes.hpp>
 #include <monad/core/receipt.hpp>
 #include <monad/core/transaction.hpp>
+#include <monad/config.hpp>
+#include <monad/core/account.hpp>
+#include <monad/core/address.hpp>
+#include <monad/core/assert.h>
+#include <monad/core/byte_string.hpp>
+#include <monad/core/bytes.hpp>
+#include <monad/core/fmt/address_fmt.hpp>
+#include <monad/core/fmt/bytes_fmt.hpp>
+#include <monad/core/fmt/int_fmt.hpp>
+#include <monad/core/keccak.hpp>
+#include <monad/core/receipt.hpp>
 #include <monad/db/db.hpp>
 #include <monad/execution/code_analysis.hpp>
 #include <monad/execution/trace/call_tracer.hpp>
 #include <monad/state2/state_deltas.hpp>
 #include <monad/types/incarnation.hpp>
 #include <intx/intx.hpp>
+#include <quill/detail/LogMacros.h>
 
 #include <memory>
 #include <vector>
@@ -73,6 +85,7 @@ public:
         uint256_t beneficiary_balance =
             beneficiary_balance_just_after_tx_index(tx_index);
         if (beneficiary_balance != other.balance) {
+            LOG_INFO("eq_beneficiary_ac_at_index: beneficiary_balance {} != other.balance {}, preblock_beneficiary_balance {}", beneficiary_balance, other.balance, preblock_beneficiary_balance);
             return false;
         }
         return beneficiary_account.equal_except_balance(other);
