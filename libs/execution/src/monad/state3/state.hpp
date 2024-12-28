@@ -105,6 +105,9 @@ public:
 
     inline bool change_within_footprint(const std::set<evmc::address>*footprint) {
         for (auto const &[address, stack] : current_) {
+            if(address.to_uint64()<=10){
+                LOG_INFO("address: {}", address);
+            }
             assert(stack.size() >= 1);
             if (footprint && footprint->find(address) == footprint->end()) {
                 LOG_INFO("address not in footprint: {}", address);
