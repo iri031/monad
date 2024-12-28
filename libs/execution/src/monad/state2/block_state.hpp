@@ -60,11 +60,11 @@ public:
 
     std::shared_ptr<CodeAnalysis> read_code(bytes32_t const &);
 
-    inline uint256_t beneficiary_balance_just_after_tx_index(uint64_t tx_index) const
+    inline uint256_t beneficiary_balance_just_before_tx_index(uint64_t tx_index) const
     {
         uint256_t increments_sum{0};
         // Process transactions in reverse order
-        for (int64_t i = tx_index; i >= 0; --i) {
+        for (int64_t i = tx_index-1; i >= 0; --i) {
             if (beneficiary_balance_updates[i].second==BENEFICIARY_BALANCE_ABSOLUTE) {
                 return beneficiary_balance_updates[i].first+increments_sum;
             }
@@ -73,9 +73,9 @@ public:
         return preblock_beneficiary_balance+increments_sum;
     }
     inline uint256_t beneficiary_balance_just_after_last_tx() const{
-        return beneficiary_balance_just_after_tx_index(beneficiary_balance_updates.size()-1);
+        return beneficiary_balance_just_before_tx_index(beneficiary_balance_updates.size());
     }
-    inline bool eq_beneficiary_ac_at_index(Account const &other, uint64_t tx_index) const
+    inline bool eq_beneficiary_ac_before_txindex(Account const &other, uint64_t tx_index) const
     {
         StateDeltas::const_accessor it{};
         MONAD_ASSERT(state_.find(it, block_beneficiary));// TODO: drop?
@@ -83,9 +83,9 @@ public:
         const monad::Account &beneficiary_account =
             it->second.account.second.value();
         uint256_t beneficiary_balance =
-            beneficiary_balance_just_after_tx_index(tx_index);
+            beneficiary_balance_just_before_tx_index(tx_index);
         if (beneficiary_balance != other.balance) {
-            LOG_INFO("eq_beneficiary_ac_at_index: beneficiary_balance {} != other.balance {}, preblock_beneficiary_balance {}", beneficiary_balance, other.balance, preblock_beneficiary_balance);
+            LOG_INFO("eq_beneficiary_ac_before_txindex: beneficiary_balance {} != other.balance {}, preblock_beneficiary_balance {}", beneficiary_balance, other.balance, preblock_beneficiary_balance);
             return false;
         }
         return beneficiary_account.equal_except_balance(other);

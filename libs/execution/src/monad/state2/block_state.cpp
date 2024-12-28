@@ -132,7 +132,7 @@ bool BlockState::can_merge_par(
         StateDeltas::const_accessor it{};
         if (parallel_beneficiary && address==block_beneficiary){
             assert(account.has_value());
-            if (!eq_beneficiary_ac_at_index(account.value(), tx_index)){
+            if (!eq_beneficiary_ac_before_txindex(account.value(), tx_index)){
                 return false;
             }
             beneficiary_touched = true;
