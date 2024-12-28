@@ -107,6 +107,7 @@ public:
         for (auto const &[address, stack] : current_) {
             assert(stack.size() >= 1);
             if (footprint && footprint->find(address) == footprint->end()) {
+                LOG_INFO("address not in footprint: {}", address);
                 return false;
             }
         }
