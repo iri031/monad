@@ -111,21 +111,4 @@ read_genesis(std::filesystem::path const &genesis_file, Db &db)
     return block_header;
 }
 
-inline void verify_genesis(BlockDb &block_db, BlockHeader const &block_header)
-{
-    Block block{};
-    bool const status = block_db.get(0u, block);
-    MONAD_ASSERT(status);
-    // There should be no txn/receipt for the genesis block, so just asserting
-    // on state root for now
-    MONAD_ASSERT(block_header.state_root == block.header.state_root);
-}
-
-inline void read_and_verify_genesis(
-    BlockDb &block_db, Db &db, std::filesystem::path const &genesis_file_path)
-{
-    auto const block_header = read_genesis(genesis_file_path, db);
-    verify_genesis(block_db, block_header);
-}
-
 MONAD_NAMESPACE_END
