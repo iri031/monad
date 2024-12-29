@@ -105,6 +105,7 @@ read_genesis(std::filesystem::path const &genesis_file, Db &db)
     StateDeltas state_deltas;
     read_genesis_state(genesis_json, state_deltas);
     db.commit(state_deltas, Code{}, block_header);
+    db.finalize(0, block_header.number);
 
     block_header.state_root = db.state_root();
 
