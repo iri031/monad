@@ -34,7 +34,7 @@ std::set<evmc::address> *ParallelCommitSystem::getFootprint(txindex_t myindex) {
 ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions, monad::Address const &beneficiary) 
     : beneficiary(beneficiary),
         promises(num_transactions+1),
-        status_(num_transactions),
+        status_(num_transactions),// TODO(aa): allocate these to a static array. template arg will be max number of transactions.
         all_committed_below_index(0),
         footprints_(num_transactions, nullptr),
         nontriv_footprint_contains_beneficiary(num_transactions, false)
@@ -348,7 +348,7 @@ void ParallelCommitSystem::updateLastCommittedUb() {
     }
     advanceLastCommittedUb(newUb); // there is no use of doing it in the then case, but it is safe+clean to do it there as well
     if(newUb == status_.size()) {
-        notifyAllDone();
+        notifyAllDone(); // one problem is that this unblocks execute_block, which can destruct the this object, even though more calls are done on it, e.g. in notifyDone
     }
 }
 
