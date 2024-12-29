@@ -80,7 +80,7 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
     }
     if(footprint && footprint->find(beneficiary)!=footprint->end()){
         nontriv_footprint_contains_beneficiary[myindex]=true;
-        LOG_INFO("declareFootprint: nontriv_footprint_contains_beneficiary[{}] set to true", myindex);
+        //LOG_INFO("declareFootprint: nontriv_footprint_contains_beneficiary[{}] set to true", myindex);
     }
 
 
@@ -185,7 +185,7 @@ ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedInd
         return std::numeric_limits<txindex_t>::max();
     }
     auto set = it->second;
-    LOG_INFO("indicesAccessingAddress[{}]: {}", 
+    /*LOG_INFO("indicesAccessingAddress[{}]: {}", 
         fmt::format("{}", addr),
         [&set]() {
             std::string result;
@@ -193,7 +193,7 @@ ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedInd
                 result += std::to_string(i) + ", ";
             }
             return result;
-        }());
+        }()); */
     
     // Start from all_committed_below_index instead of set->begin()
     auto committed_ub = all_committed_below_index.load();
@@ -263,10 +263,13 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
 
 bool ParallelCommitSystem::existsBlockerBefore(txindex_t index) {
     auto committed_ub = all_committed_below_index.load();// transactiosn before this index cannot be blockers
-    for (auto i = committed_ub; i < index; ++i) {
+    txindex_t i=committed_ub;
+    while(i < index) {
         if (blocksAllLaterTransactions(i)) {
             return true;
         }
+        ++i;
+        i=std::max(i, all_committed_below_index.load());
     }
     return false;
 }
@@ -296,12 +299,16 @@ void ParallelCommitSystem::tryUnblockTransactionsStartingFrom(txindex_t start) {
     // we cannot wake up or unblock transactions after that transaction
     // every transaction accesses at least 1 account and the uncomputed footprint may include that account.
     auto num_transactions = status_.size();
-    for(auto index = start; index < num_transactions; ++index) {
+    txindex_t index=start;
+    index=std::max(index, all_committed_below_index.load());
+    while(index < num_transactions) {
         auto current_status = status_[index].load();
         tryUnblockTransaction(current_status, index);
         if (blocksAllLaterTransactions(index)) {
             break;
         }
+        ++index;
+        index=std::max(index, all_committed_below_index.load());
     }
 }
 
@@ -326,6 +333,9 @@ void ParallelCommitSystem::notifyDone(txindex_t myindex) {
     status_[myindex].store(TransactionStatus::COMMITTED);
     LOG_INFO("notifyDone: status[{}] changed from {} to {}", myindex, status_to_string(TransactionStatus::COMMITTING), status_to_string(TransactionStatus::COMMITTED));
     updateLastCommittedUb();
+    if(all_done.load()) {// there is currently a rare bug here. this object may have been deallocated by now. using shared_ptr can fix. static allocation of this object may be better if we can compute a not-too-loose bound on #transactions.
+        return;
+    }
     if (!existsBlockerBefore(myindex)) {
         tryUnblockTransactionsStartingFrom(myindex+1); // unlike before, the transaction myindex+1 cannot necesssarily be unblocked here because some transaction before myindex may not have committed and may have conflicts
     }
