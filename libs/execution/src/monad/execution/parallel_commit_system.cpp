@@ -272,6 +272,8 @@ bool ParallelCommitSystem::existsBlockerBefore(txindex_t index) {
 }
 
 bool ParallelCommitSystem::blocksAllLaterTransactions(txindex_t index) {
+    assert(index<status_.size());
+    assert(footprints_.size()==status_.size());
     auto status = status_[index].load();
     if (status == TransactionStatus::STARTED || status == TransactionStatus::STARTED_UNBLOCKED) {
         return true;

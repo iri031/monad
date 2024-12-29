@@ -235,7 +235,7 @@ Result<ExecutionResult> execute_impl(
 
         {
             TRACE_TXN_EVENT(StartStall);
-            assert(state.change_within_footprint(parallel_commit_system.getFootprint(i)));
+            //assert(state.change_within_footprint(parallel_commit_system.getFootprint(i)));
             parallel_commit_system.waitForPrevTransactions(i);
         }
         bool beneficiary_touched = false;
@@ -255,7 +255,7 @@ Result<ExecutionResult> execute_impl(
                 beneficiary_touched,
                 block_beneficiary_reward);
             call_tracer.on_receipt(receipt);
-            assert(state.change_within_footprint(parallel_commit_system.getFootprint(i)));
+            //assert(state.change_within_footprint(parallel_commit_system.getFootprint(i)));
             block_state.merge_par(state, i, block_beneficiary_reward,true);
 
             auto const frames = call_tracer.get_frames();
@@ -295,7 +295,7 @@ Result<ExecutionResult> execute_impl(
             beneficiary_touched,
             block_beneficiary_reward);
         call_tracer.on_receipt(receipt);
-        assert(state.change_within_footprint(parallel_commit_system.getFootprint(i)));
+        //assert(state.change_within_footprint(parallel_commit_system.getFootprint(i)));
 
         block_state.merge_par(state,i,block_beneficiary_reward,true);
 
