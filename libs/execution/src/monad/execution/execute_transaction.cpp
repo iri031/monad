@@ -193,7 +193,7 @@ Result<evmc::Result> execute_impl2(
     //     assert(false);
     //     BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
     // }
-    BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
+    BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));// is this the only way this functon returns a failing result? can we move it out to the caller to log it only in cases when the failure is fatal?
 
     auto const tx_context =
         get_tx_context<rev>(tx, sender, hdr, chain.get_chain_id());
