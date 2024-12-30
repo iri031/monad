@@ -217,7 +217,7 @@ Result<std::vector<ExecutionResult>> execute_block(
             });
     }
 
-    LOG_INFO("block number: {}", block.header.number);
+    LOG_INFO("block number: {}, block beneficiary: {}", block.header.number, block.header.beneficiary);
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         promises[i].get_future().wait();
