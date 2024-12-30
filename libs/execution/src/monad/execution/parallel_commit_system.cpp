@@ -426,4 +426,10 @@ wait for all transactions before i to commit.
 
 BlockState::can_merge will change to add up the array of deltas until the index in places where it reads the beneficiary account.
 
+
+
+TODO(aa):
+- handle CREATE2: if a footprint has an account not seen before, set the footprint to INF: the account could be a concract which can call anything.
+- expand callee prediction to expressions. first add CALLDATA(const)/SENDER/COINBASE. then add binops over them, and maybe CALLDATA(*) 
+
  *  */

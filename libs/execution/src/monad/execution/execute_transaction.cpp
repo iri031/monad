@@ -186,14 +186,14 @@ Result<evmc::Result> execute_impl2(
     BlockHashBuffer const &block_hash_buffer, State &state)
 {
     auto const sender_account = state.recent_account(sender);
-    // auto const result = validate_transaction(tx, sender_account);
-    // if (result.has_error()) {
-    //     std::cout << "transaction validation failed with error: " << result.error().message().c_str() << std::endl;
-    //     std::cout << "sender: " << fmt::format("{}", sender) << std::endl;
-    //     assert(false);
-    //     BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
-    // }
-    BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));// is this the only way this functon returns a failing result? can we move it out to the caller to log it only in cases when the failure is fatal?
+    auto const result = validate_transaction(tx, sender_account);
+    if (result.has_error()) {
+        LOG_INFO("transaction validation failed with error: {}", result.error().message().c_str());
+        LOG_INFO("sender: {}", fmt::format("{}", sender));
+        //assert(false);
+        BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
+    }
+    //BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));// is this the only way this functon returns a failing result? can we move it out to the caller to log it only in cases when the failure is fatal?
 
     auto const tx_context =
         get_tx_context<rev>(tx, sender, hdr, chain.get_chain_id());
