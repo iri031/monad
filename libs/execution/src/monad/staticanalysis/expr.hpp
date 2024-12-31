@@ -602,7 +602,7 @@ public:
         return nodes[index];
     }
 
-    const Word256& getConstant(uint32_t constIndex) const {
+    const Word256& getBigConstant(uint32_t constIndex) const {
         return constants.getConstant(constIndex);
     }
 
@@ -642,7 +642,7 @@ public:
         const ExpressionNode& node = getNode(index);
         switch (node.type) {
         case ExpressionNode::Type::Const: {
-            const Word256& w = getConstant(node.constantIndex);
+            const Word256& w = getBigConstant(node.constantIndex);
             os << w.str();
             break;
         }
@@ -895,8 +895,8 @@ inline int expressionCompare(const ExpressionPool& pool, uint32_t idx1, uint32_t
     // Types are equal; compare based on type
     switch (node1.type) {
         case ExpressionNode::Type::Const: {
-            const Word256& w1 = pool.getConstant(node1.constantIndex);
-            const Word256& w2 = pool.getConstant(node2.constantIndex);
+            const Word256& w1 = pool.getBigConstant(node1.constantIndex);
+            const Word256& w2 = pool.getBigConstant(node2.constantIndex);
             if (w1 < w2) return -1;
             if (w1 > w2) return 1;
             return 0;
