@@ -1845,15 +1845,15 @@ int main() {
         bool predictionSuccess=allCallesSupported && createCounts.reachableCount==0;// in future, we can supporte create/create2 by computing the address of the created contract. for create2, we just need a prediction for the salt argument. for create, we to add nonce expressions in addition to stack elements.
         if (allCallesSupported) {
             ::evmc::bytes32 hash=hex_to_bytes32(filename);
-            auto it = predictions.emplace(hash, Prediction{}).first; // Insert or find the entry in the map
-
+            Prediction pred;
             for (uint32_t nodeIndex : calleeExprsIndices) {
-                it->second.callees.push_back(epool.getConstant(nodeIndex)); // Push back to the callee vector
+                pred.callees.push_back(epool.getConst(nodeIndex)); // Push back to the callee vector
             }   
 
             for (uint32_t nodeIndex : delegateCallExprsIndices) {
-                it->second.delegateCallees.push_back(epool.getConstant(nodeIndex)); // Push back to the delegate callee vector
+                pred.delegateCallees.push_back(epool.getConst(nodeIndex)); // Push back to the delegate callee vector
             }
+            predictions[hash]=pred;
         }   
 
 

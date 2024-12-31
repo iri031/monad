@@ -212,5 +212,8 @@ target_link_libraries(
   PUBLIC TBB::tbb)
 
 #monad_compile_options(sanalysis)
+#monad_compile_options(sanalysis)
+#target_compile_options(sanalysis PRIVATE -Ofast)
+
 
 target_link_options(sanalysis PRIVATE LINKER:-z,defs)

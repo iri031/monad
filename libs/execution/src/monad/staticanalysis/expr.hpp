@@ -351,7 +351,7 @@ inline void from_uint64_array(Word256& result, const uint64_t in[4]) {
 }
 
     // Function to serialize a Word256 constant to a file
-void serializeConstant(std::ofstream &file, Word256 const &constant) const
+inline void serializeConstant(std::ofstream &file, Word256 const &constant)
 {
     std::array<uint64_t, 4> bits;
     to_uint64_array(constant, bits.data());
@@ -377,7 +377,7 @@ void serializeConstant(std::ofstream &file, Word256 const &constant) const
 }
 
 // Function to deserialize a Word256 constant from a file
-void deserializeConstant(std::ifstream &file, Word256 &constant)
+inline void deserializeConstant(std::ifstream &file, Word256 &constant)
 {
     std::array<uint64_t, 4> bits;
     file.read(reinterpret_cast<char *>(bits.data()), sizeof(bits));
