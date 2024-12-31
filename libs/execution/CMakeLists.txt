@@ -11,7 +11,7 @@ project(monad_execution)
 # ##############################################################################
 # libs
 # ##############################################################################
-
+add_executable(sanalysis src/monad/staticanalysis/inst_kildall.cpp)
 add_library(
   monad_execution STATIC
   "src/monad/config.hpp"

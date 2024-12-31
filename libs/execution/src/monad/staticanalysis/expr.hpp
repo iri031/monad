@@ -1,0 +1,1045 @@
+#include <iostream>
+#include <vector>
+#include <unordered_map>
+#include <functional>
+#include <cassert>
+#include <boost/multiprecision/cpp_int.hpp>
+#include <optional>
+#include <fstream>
+#include <unordered_set>
+#include <evmc/evmc.hpp>
+
+namespace mp = boost::multiprecision;
+using Word256 = mp::uint256_t;
+
+// Forward declaration
+struct ExpressionNode;
+
+// Equality function and hash function will be updated accordingly
+
+// ExpressionPool class declaration
+class ExpressionPool;
+
+// ConstantPool class to manage unique constants
+class ConstantPool {
+public:
+    std::vector<Word256> constants;
+    std::unordered_map<Word256, uint32_t> constantMap;
+
+    uint32_t getConstantIndex(const Word256& w) {
+        auto it = constantMap.find(w);
+        if (it != constantMap.end()) {
+            return it->second;
+        }
+        auto size = constants.size();
+        uint32_t index = static_cast<uint32_t>(size);
+        constants.push_back(w);
+        constantMap[w] = index;
+        return index;
+    }
+
+    const Word256& getConstant(uint32_t index) const {
+        return constants[index];
+    }
+
+    void reset() {
+        constants.clear();
+        constantMap.clear();
+    }
+};
+
+// ExpressionNode struct
+struct ExpressionNode {
+    enum class Type : uint8_t {
+        Const, // constantIndex
+        SmallConst, // smallConst
+
+        CallData, // offset
+        CallDataSize,
+        Caller,
+        Address,
+        Coinbase,
+        Origin,
+        Create,// newly created contract
+        ReturndataSize,
+        Selfbalance,
+        Callvalue,
+
+        Sload, // exprIndex
+        Mload, // exprIndex
+        // binary ops:
+        Add,
+        Mul,
+        Sub,
+        Shl,
+        Shr,
+        And,
+        Or,
+        Xor,
+        Div,
+        Mod,
+        Exp,
+
+        // unary ops:
+        Not,
+
+        Any
+    };
+
+    Type type;
+
+    union {
+        uint32_t constantIndex;               // For Const
+        uint32_t exprIndex;                   // For mload, sload, unary ops, calldata
+        struct { uint32_t leftIndex, rightIndex; } binaryOp; // For binary operations
+        uint64_t smallConst;// if we change this to uint32_t, we can save 4 bytes per node
+    };
+
+    ExpressionNode() : type(Type::Any) {}
+
+    void mkConst(uint32_t constIdx) {
+        type = Type::Const;
+        constantIndex = constIdx;
+    }
+
+    void mkCallData(uint32_t exprIndex) {
+        type = Type::CallData;
+        this->exprIndex = exprIndex;
+    }
+
+    void mkSload(uint32_t exprIndex) {
+        type = Type::Sload;
+        this->exprIndex = exprIndex;
+    }
+
+    void mkMload(uint32_t exprIndex) {
+        type = Type::Mload;
+        this->exprIndex = exprIndex;
+    }
+
+    void mkBinaryOp(Type op, uint32_t leftIndex, uint32_t rightIndex) {
+        assert(op == Type::Add || op == Type::Mul || op == Type::Sub || op == Type::Shl || op == Type::Shr || op == Type::And || op == Type::Or || op == Type::Xor || op == Type::Div || op == Type::Mod || op == Type::Exp);
+        type = op;
+        binaryOp.leftIndex = leftIndex;
+        binaryOp.rightIndex = rightIndex;
+    }
+
+    void mkUnaryOp(Type op, uint32_t exprIndex) {
+        assert(op == Type::Not);
+        type = op;
+        this->exprIndex = exprIndex;
+    }
+
+    void mkSmallConst(uint64_t val) {
+        type = Type::SmallConst;
+        smallConst = val;
+    }
+
+    void mkCaller() {
+        type = Type::Caller;
+    }
+
+    void mkCoinbase() {
+        type = Type::Coinbase;
+    }
+
+    void mkOrigin() {
+        type = Type::Origin;
+    }
+
+    void mkReturndataSize() {
+        type = Type::ReturndataSize;
+    }
+
+    void mkCallDataSize() {
+        type = Type::CallDataSize;
+    }
+
+    void mkAddress() {
+        type = Type::Address;
+    }
+    void mkCreate(){
+        type = Type::Create;
+    }
+    void mkSelfbalance(){
+        type = Type::Selfbalance;
+    }
+    void mkCallvalue(){
+        type = Type::Callvalue;
+    }
+
+    // Copy constructor
+    ExpressionNode(const ExpressionNode& other) : type(other.type) {
+        switch (type) {
+            case Type::Const:
+                constantIndex = other.constantIndex;
+                break;
+            case Type::CallData:
+                exprIndex = other.exprIndex;
+                break;
+            case Type::Sload:
+            case Type::Mload:
+            case Type::Not:
+                exprIndex = other.exprIndex;
+                break;
+            case Type::Add:
+            case Type::Mul:
+            case Type::Sub:
+            case Type::Shl:
+            case Type::Shr:
+            case Type::And:
+            case Type::Or:
+            case Type::Xor:
+            case Type::Div:
+            case Type::Mod:
+            case Type::Exp:
+                binaryOp = other.binaryOp;
+                break;
+            case Type::Caller:
+            case Type::Coinbase:
+            case Type::Origin:
+            case Type::CallDataSize:
+            case Type::Address:
+            case Type::Create:
+            case Type::ReturndataSize:
+            case Type::Selfbalance:
+            case Type::Callvalue:
+            case Type::Any:
+                // No additional data
+                break;
+            case Type::SmallConst:
+                smallConst = other.smallConst;
+                break;
+            default:
+                assert(false);
+        }
+    }
+
+    // Copy assignment operator
+    inline ExpressionNode& operator=(const ExpressionNode& other) {
+        if (this != &other) {
+            // Destroy existing union member
+            this->~ExpressionNode();
+            // Placement new copy constructor
+            new (this) ExpressionNode(other);
+        }
+        return *this;
+    }
+
+    friend class ExpressionPool; // Allow ExpressionPool to access constructors
+};
+
+// Equality function
+inline bool operator==(const ExpressionNode& lhs, const ExpressionNode& rhs) {
+    if (lhs.type != rhs.type)
+        return false;
+
+    switch (lhs.type) {
+        case ExpressionNode::Type::Const:
+            return lhs.constantIndex == rhs.constantIndex;
+        case ExpressionNode::Type::Caller:
+        case ExpressionNode::Type::Coinbase:
+        case ExpressionNode::Type::CallDataSize:
+        case ExpressionNode::Type::Origin:
+        case ExpressionNode::Type::Address:
+        case ExpressionNode::Type::Create:
+        case ExpressionNode::Type::ReturndataSize:
+        case ExpressionNode::Type::Selfbalance:
+        case ExpressionNode::Type::Callvalue:
+        case ExpressionNode::Type::Any:
+            return true; // These have no additional data
+        case ExpressionNode::Type::Sload:
+        case ExpressionNode::Type::Mload:
+        case ExpressionNode::Type::Not:
+        case ExpressionNode::Type::CallData:
+            return lhs.exprIndex == rhs.exprIndex;
+        case ExpressionNode::Type::Add:
+        case ExpressionNode::Type::Mul:
+        case ExpressionNode::Type::Sub:
+        case ExpressionNode::Type::Shl:
+        case ExpressionNode::Type::Shr:
+        case ExpressionNode::Type::And:
+        case ExpressionNode::Type::Or:
+        case ExpressionNode::Type::Xor:
+        case ExpressionNode::Type::Div:
+        case ExpressionNode::Type::Mod:
+        case ExpressionNode::Type::Exp:
+            return lhs.binaryOp.leftIndex == rhs.binaryOp.leftIndex &&
+                   lhs.binaryOp.rightIndex == rhs.binaryOp.rightIndex;
+        case ExpressionNode::Type::SmallConst:
+            return lhs.smallConst == rhs.smallConst;
+        default:
+            assert(false);
+            return false;
+    }
+}
+
+// Hash function
+struct ExpressionNodeHash {
+    std::size_t operator()(const ExpressionNode& node) const {
+        using std::hash;
+        size_t h = hash<int>()(static_cast<int>(node.type));
+        switch (node.type) {
+            case ExpressionNode::Type::Const:
+                h ^= hash<uint32_t>()(node.constantIndex);
+                break;
+            case ExpressionNode::Type::CallData:
+                h ^= hash<uint32_t>()(node.exprIndex);
+                break;
+            case ExpressionNode::Type::Caller:
+            case ExpressionNode::Type::Coinbase:
+            case ExpressionNode::Type::Origin:
+            case ExpressionNode::Type::CallDataSize:
+            case ExpressionNode::Type::Address:
+            case ExpressionNode::Type::Create:
+            case ExpressionNode::Type::ReturndataSize:
+            case ExpressionNode::Type::Selfbalance:
+            case ExpressionNode::Type::Callvalue:
+            case ExpressionNode::Type::Any:
+                // Nothing to add; types are already considered
+                break;
+            case ExpressionNode::Type::Sload:
+            case ExpressionNode::Type::Mload:
+            case ExpressionNode::Type::Not:
+                h ^= hash<uint32_t>()(node.exprIndex);
+                break;
+            case ExpressionNode::Type::Add:
+            case ExpressionNode::Type::Mul:
+            case ExpressionNode::Type::Sub:
+            case ExpressionNode::Type::Shl:
+            case ExpressionNode::Type::Shr:
+            case ExpressionNode::Type::And:
+            case ExpressionNode::Type::Or:
+            case ExpressionNode::Type::Xor:
+            case ExpressionNode::Type::Div:
+            case ExpressionNode::Type::Mod:
+            case ExpressionNode::Type::Exp:
+                h ^= hash<uint32_t>()(node.binaryOp.leftIndex);
+                h ^= hash<uint32_t>()(node.binaryOp.rightIndex);
+                break;
+            case ExpressionNode::Type::SmallConst:
+                h ^= hash<uint64_t>()(node.smallConst);
+                break;
+            default:
+                assert(false);
+        }
+        return h;
+    }
+};
+
+// Forward declaration of expressionCompare
+int expressionCompare(const ExpressionPool& pool, uint32_t idx1, uint32_t idx2);
+
+
+inline void to_uint64_array(const Word256& value, uint64_t out[4]) {
+    // Extract the bits in 64-bit chunks.
+    // value & 0xFFFFFFFFFFFFFFFFULL extracts the low 64 bits.
+    out[0] = static_cast<uint64_t>(value & 0xFFFFFFFFFFFFFFFFULL);
+    out[1] = static_cast<uint64_t>((value >> 64) & 0xFFFFFFFFFFFFFFFFULL);
+    out[2] = static_cast<uint64_t>((value >> 128) & 0xFFFFFFFFFFFFFFFFULL);
+    out[3] = static_cast<uint64_t>((value >> 192) & 0xFFFFFFFFFFFFFFFFULL);
+}
+
+inline void from_uint64_array(Word256& result, const uint64_t in[4]) {
+    result = 0;
+    result |= Word256(in[0]);
+    result |= (Word256(in[1]) << 64);
+    result |= (Word256(in[2]) << 128);
+    result |= (Word256(in[3]) << 192);
+}
+
+// ExpressionPool class definition
+class ExpressionPool {
+public:
+    ConstantPool constants; // Manages unique Word256 constants
+    std::vector<ExpressionNode> nodes;
+    std::unordered_map<ExpressionNode, uint32_t, ExpressionNodeHash> nodeMap;
+    uint32_t e0;
+    uint32_t e1;
+
+    uint32_t addNodeToPool(ExpressionNode& node) {
+        auto it = nodeMap.find(node);
+        if (it != nodeMap.end())
+            return it->second;
+
+        nodes.push_back(node);
+        uint32_t index = static_cast<uint32_t>(nodes.size() - 1);
+        nodeMap[node] = index;
+        return index;
+    }
+
+    uint32_t createSmallConst(uint64_t val) {
+        ExpressionNode node;
+        node.mkSmallConst(val);
+        return addNodeToPool(node);
+    }
+
+    std::optional<Word256> getConstMaybe(uint32_t index) const {
+        if (nodes[index].type != ExpressionNode::Type::Const && nodes[index].type != ExpressionNode::Type::SmallConst)
+            return std::nullopt;
+        if (nodes[index].type == ExpressionNode::Type::SmallConst)
+            return Word256(nodes[index].smallConst);
+        return constants.getConstant(nodes[index].constantIndex);
+    }
+
+    Word256 getConst(uint32_t index) const {
+        assert(nodes[index].type == ExpressionNode::Type::Const || nodes[index].type == ExpressionNode::Type::SmallConst);
+        if (nodes[index].type == ExpressionNode::Type::SmallConst)
+            return Word256(nodes[index].smallConst);
+        return constants.getConstant(nodes[index].constantIndex);
+    }
+
+    std::optional<uint64_t> getSmallConstMaybe(uint32_t index) const {
+        if (nodes[index].type != ExpressionNode::Type::SmallConst)
+            return std::nullopt;
+        return nodes[index].smallConst;
+    }
+
+    uint64_t getSmallConst(uint32_t index) const {
+        assert(nodes[index].type == ExpressionNode::Type::SmallConst);
+        return nodes[index].smallConst;
+    }
+
+    template<size_t N>
+    bool allConstants(const std::array<uint32_t, N>& indices, size_t size) const {
+        for (size_t i=0; i<size; i++) {
+            if (getType(indices[i]) != ExpressionNode::Type::Const && getType(indices[i]) != ExpressionNode::Type::SmallConst)
+                return false;
+        }
+        return true;
+    }
+
+    bool allConstants(const std::vector<uint32_t>& indices) const {
+        for (size_t i=0; i<indices.size(); i++) {
+            if (getType(indices[i]) != ExpressionNode::Type::Const && getType(indices[i]) != ExpressionNode::Type::SmallConst)
+                return false;
+        }
+        return true;
+    }
+
+    bool allConstants(const std::unordered_set<uint32_t>& indices) const {
+        for (uint32_t index : indices) {
+            if (getType(index) != ExpressionNode::Type::Const && getType(index) != ExpressionNode::Type::SmallConst)
+                return false;
+        }
+        return true;
+    }
+
+    template<size_t N>
+    bool allSmallConstants(const std::array<uint32_t, N>& indices, size_t size) const {
+        for (size_t i=0; i<size; i++) {
+            if (getType(indices[i]) != ExpressionNode::Type::SmallConst)
+                return false;
+        }
+        return true;
+    }
+
+    ExpressionNode::Type getType(uint32_t index) const {
+        return nodes[index].type;
+    }
+
+    uint32_t createConst(const Word256& w) {
+        if (w <= std::numeric_limits<uint64_t>::max()) {
+            return createSmallConst(static_cast<uint64_t>(w));
+        }
+        uint32_t constIdx = constants.getConstantIndex(w);
+        ExpressionNode node;
+        node.mkConst(constIdx);
+        return addNodeToPool(node);
+    }
+
+    uint32_t createCallData(uint64_t offset) {
+        ExpressionNode node;
+        node.mkCallData(static_cast<uint32_t>(offset));
+        return addNodeToPool(node);
+    }
+
+    uint32_t createCallDataSize() {
+        ExpressionNode node;
+        node.mkCallDataSize();
+        return addNodeToPool(node);
+    }
+
+    uint32_t createSelfbalance() {
+        ExpressionNode node;
+        node.mkSelfbalance();
+        return addNodeToPool(node);
+    }
+
+    uint32_t createCallvalue() {
+        ExpressionNode node;
+        node.mkCallvalue();
+        return addNodeToPool(node);
+    }
+
+    uint32_t createAddress() {
+        ExpressionNode node;
+        node.mkAddress();
+        return addNodeToPool(node);
+    }
+
+    uint32_t createReturndataSize() {
+        ExpressionNode node;
+        node.mkReturndataSize();
+        return addNodeToPool(node);
+    }
+
+    uint32_t createCaller() {
+        ExpressionNode node;
+        node.mkCaller();
+        return addNodeToPool(node);
+    }
+
+    uint32_t createCreate() {
+        ExpressionNode node;
+        node.mkCreate();
+        return addNodeToPool(node);
+    }
+
+    //optimize this to pre-create in reset()
+    uint32_t createCoinbase() {
+        ExpressionNode node;
+        node.mkCoinbase();
+        return addNodeToPool(node);
+    }
+
+    uint32_t createOrigin() {
+        ExpressionNode node;
+        node.mkOrigin();
+        return addNodeToPool(node);
+    }
+
+    uint32_t createSload(uint32_t exprIndex) {
+        ExpressionNode node;
+        node.mkSload(exprIndex);
+        return addNodeToPool(node);
+    }
+
+    uint32_t createAny(){
+        ExpressionNode node;
+        return addNodeToPool(node);
+    }
+
+    uint32_t createMload(uint32_t exprIndex) {
+        ExpressionNode node;
+        node.mkMload(exprIndex);
+        return addNodeToPool(node);
+    }
+
+private:
+    uint32_t createCommutativeBinaryOp(ExpressionNode::Type op, uint32_t leftIndex, uint32_t rightIndex) {
+        // Operands are already canonical and come from the pool.
+
+        // Ensure left >= right
+        if (expressionCompare(*this, leftIndex, rightIndex) < 0) {
+            std::swap(leftIndex, rightIndex);
+        }
+        ExpressionNode node;
+        node.mkBinaryOp(op, leftIndex, rightIndex);
+        return addNodeToPool(node);
+    }
+
+    uint32_t createNonCommutativeBinaryOp(ExpressionNode::Type op, uint32_t leftIndex, uint32_t rightIndex) {
+        // Operands are already canonical and come from the pool.
+
+        // Construct the node
+        ExpressionNode node;
+        node.mkBinaryOp(op, leftIndex, rightIndex);
+        return addNodeToPool(node);
+    }
+
+public:
+    uint32_t createBinaryOp(ExpressionNode::Type op, uint32_t leftIndex, uint32_t rightIndex) {
+        if (op == ExpressionNode::Type::And || op == ExpressionNode::Type::Or || op == ExpressionNode::Type::Xor || op == ExpressionNode::Type::Add || op == ExpressionNode::Type::Mul)
+            return createCommutativeBinaryOp(op, leftIndex, rightIndex);
+        return createNonCommutativeBinaryOp(op, leftIndex, rightIndex);
+    }
+
+    uint32_t createUnaryOp(ExpressionNode::Type op, uint32_t exprIndex) {
+        ExpressionNode node;
+        assert(op == ExpressionNode::Type::Not);
+        node.mkUnaryOp(op, exprIndex);
+        return addNodeToPool(node);
+    }
+
+    const ExpressionNode& getNode(uint32_t index) const {
+        return nodes[index];
+    }
+
+    const Word256& getConstant(uint32_t constIndex) const {
+        return constants.getConstant(constIndex);
+    }
+
+    void reset_core() {
+        constants.reset();
+        nodes.clear();
+        nodeMap.clear();
+    }
+
+    void reset() {
+        reset_core();
+        
+        e0 = createSmallConst(0);
+        e1 = createSmallConst(1);
+    }
+
+    std::string stringOfBinaryOp(ExpressionNode::Type op) const {
+        switch (op) {
+            case ExpressionNode::Type::Add: return "+";
+            case ExpressionNode::Type::Mul: return "*";
+            case ExpressionNode::Type::Sub: return "-";
+            case ExpressionNode::Type::Shl: return "<<";
+            case ExpressionNode::Type::Shr: return ">>";
+            case ExpressionNode::Type::And: return "&";
+            case ExpressionNode::Type::Or: return "|";
+            case ExpressionNode::Type::Xor: return "^";
+            case ExpressionNode::Type::Div: return "/";
+            case ExpressionNode::Type::Mod: return "%";
+            case ExpressionNode::Type::Exp: return "**";
+            default:
+                assert(false);// not a binary op
+                return "";
+        }
+    }
+
+    void printExpression(std::ostream& os, uint32_t index) const {
+        const ExpressionNode& node = getNode(index);
+        switch (node.type) {
+        case ExpressionNode::Type::Const: {
+            const Word256& w = getConstant(node.constantIndex);
+            os << w.str();
+            break;
+        }
+        case ExpressionNode::Type::CallData:
+            os << "callData(";
+            printExpression(os, node.exprIndex);
+            os << ")";
+            break;
+        case ExpressionNode::Type::Caller:
+            os << "caller";
+            break;
+        case ExpressionNode::Type::Create:
+            os << "create";
+            break;
+        case ExpressionNode::Type::CallDataSize:
+            os << "CDSize";
+            break;
+        case ExpressionNode::Type::ReturndataSize:
+            os << "RDSize";
+            break;
+        case ExpressionNode::Type::Address:
+            os << "address";
+            break;
+        case ExpressionNode::Type::Coinbase:
+            os << "coinbase";
+            break;
+        case ExpressionNode::Type::Sload: {
+            os << "sload(";
+            printExpression(os, node.exprIndex);
+            os << ")";
+            break;
+        }
+        case ExpressionNode::Type::Mload: {
+            os << "mload(";
+            printExpression(os, node.exprIndex);
+            os << ")";
+            break;
+        }
+        case ExpressionNode::Type::Add: 
+        case ExpressionNode::Type::Mul:
+        case ExpressionNode::Type::Sub:
+        case ExpressionNode::Type::And:
+        case ExpressionNode::Type::Or:
+        case ExpressionNode::Type::Xor:
+        case ExpressionNode::Type::Div:
+        case ExpressionNode::Type::Mod:
+        case ExpressionNode::Type::Exp:
+        {
+            os << "(";
+            printExpression(os, node.binaryOp.leftIndex);
+            os << stringOfBinaryOp(node.type);
+            printExpression(os, node.binaryOp.rightIndex);
+            os << ")";
+            break;
+        }
+        case ExpressionNode::Type::Shl:
+        case ExpressionNode::Type::Shr:
+        {
+            os << "(";
+            printExpression(os, node.binaryOp.rightIndex);
+            os << stringOfBinaryOp(node.type);
+            printExpression(os, node.binaryOp.leftIndex);
+            os << ")";
+            break;
+        }
+        case ExpressionNode::Type::SmallConst:
+            os << node.smallConst;
+            break;
+        case ExpressionNode::Type::Origin:
+            os << "origin";
+            break;
+        case ExpressionNode::Type::Selfbalance:
+            os << "selfbal";
+            break;
+        case ExpressionNode::Type::Callvalue:
+            os << "callval";
+            break;
+        case ExpressionNode::Type::Not:
+            os << "!";
+            printExpression(os, node.exprIndex);
+            break;
+        case ExpressionNode::Type::Any:
+            os << "*";
+            break;
+        default:
+            assert(false);
+        }
+    }   
+
+    void serialize(const std::string& filename) const {
+        std::ofstream file(filename, std::ios::binary);
+        if (!file) {
+            throw std::runtime_error("Cannot open file for writing: " + filename);
+        }
+
+        // Write constants
+        uint32_t constantsSize = static_cast<uint32_t>(constants.constants.size());
+        file.write(reinterpret_cast<const char*>(&constantsSize), sizeof(constantsSize));
+        for (const auto& constant : constants.constants) {
+            // Export Word256 to array of uint64_t (256 bits = 4 * 64 bits)
+            std::array<uint64_t, 4> bits;
+            to_uint64_array(constant, bits.data());
+
+
+            /*
+            // Debugging: Print the bits array
+            std::cout << "Exported bits: ";
+            for (const auto& bit : bits) {
+                std::cout << std::hex << bit << " ";
+            }
+            std::cout << std::endl;
+            // Import bits back to verify serialization
+            Word256 verify;
+            mp::import_bits(verify, bits.begin(), bits.end(), 64);
+
+            // Debugging: Print the verify value
+            std::cout << "Original: " << constant.str() << ", Imported: " << verify.str() << std::endl;
+
+            assert(verify == constant);
+            */
+            file.write(reinterpret_cast<const char*>(bits.data()), sizeof(bits));
+        }
+
+        // Write nodes
+        uint32_t nodesSize = static_cast<uint32_t>(nodes.size());
+        file.write(reinterpret_cast<const char*>(&nodesSize), sizeof(nodesSize));
+        for (const auto& node : nodes) {
+            // Write type
+            file.write(reinterpret_cast<const char*>(&node.type), sizeof(node.type));
+
+            // Write the appropriate union member based on type
+            switch (node.type) {
+                case ExpressionNode::Type::Const:
+                    file.write(reinterpret_cast<const char*>(&node.constantIndex), sizeof(node.constantIndex));
+                    break;
+                case ExpressionNode::Type::SmallConst:
+                    file.write(reinterpret_cast<const char*>(&node.smallConst), sizeof(node.smallConst));
+                    break;
+                case ExpressionNode::Type::CallData:
+                case ExpressionNode::Type::Sload:
+                case ExpressionNode::Type::Mload:
+                case ExpressionNode::Type::Not:
+                    file.write(reinterpret_cast<const char*>(&node.exprIndex), sizeof(node.exprIndex));
+                    break;
+                case ExpressionNode::Type::Add:
+                case ExpressionNode::Type::Mul:
+                case ExpressionNode::Type::Sub:
+                case ExpressionNode::Type::Shl:
+                case ExpressionNode::Type::Shr:
+                case ExpressionNode::Type::And:
+                case ExpressionNode::Type::Or:
+                case ExpressionNode::Type::Xor:
+                case ExpressionNode::Type::Div:
+                case ExpressionNode::Type::Mod:
+                case ExpressionNode::Type::Exp:
+                    file.write(reinterpret_cast<const char*>(&node.binaryOp), sizeof(node.binaryOp));
+                    break;
+                // Other types don't have additional data
+                default:
+                    break;
+            }
+        }
+
+        // Write e0 and e1
+        file.write(reinterpret_cast<const char*>(&e0), sizeof(e0));
+        file.write(reinterpret_cast<const char*>(&e1), sizeof(e1));
+    }
+
+    void deserialize(const std::string& filename) {
+        std::ifstream file(filename, std::ios::binary);
+        if (!file) {
+            throw std::runtime_error("Cannot open file for reading: " + filename);
+        }
+
+        // Clear current state
+        reset_core();
+
+        // Read constants
+        uint32_t constantsSize;
+        file.read(reinterpret_cast<char*>(&constantsSize), sizeof(constantsSize));
+        for (uint32_t i = 0; i < constantsSize; i++) {
+            std::array<uint64_t, 4> bits;
+            file.read(reinterpret_cast<char*>(bits.data()), sizeof(bits));
+            Word256 constant;
+            from_uint64_array(constant, bits.data());
+            constants.constants.push_back(constant);
+            constants.constantMap[constant] = i;
+        }
+
+        // Read nodes
+        uint32_t nodesSize;
+        file.read(reinterpret_cast<char*>(&nodesSize), sizeof(nodesSize));
+        nodes.reserve(nodesSize);
+        
+        for (uint32_t i = 0; i < nodesSize; i++) {
+            ExpressionNode node;
+            
+            // Read type
+            file.read(reinterpret_cast<char*>(&node.type), sizeof(node.type));
+
+            // Read the appropriate union member based on type
+            switch (node.type) {
+                case ExpressionNode::Type::Const:
+                    file.read(reinterpret_cast<char*>(&node.constantIndex), sizeof(node.constantIndex));
+                    break;
+                case ExpressionNode::Type::SmallConst:
+                    file.read(reinterpret_cast<char*>(&node.smallConst), sizeof(node.smallConst));
+                    break;
+                case ExpressionNode::Type::CallData:
+                case ExpressionNode::Type::Sload:
+                case ExpressionNode::Type::Mload:
+                case ExpressionNode::Type::Not:
+                    file.read(reinterpret_cast<char*>(&node.exprIndex), sizeof(node.exprIndex));
+                    break;
+                case ExpressionNode::Type::Add:
+                case ExpressionNode::Type::Mul:
+                case ExpressionNode::Type::Sub:
+                case ExpressionNode::Type::Shl:
+                case ExpressionNode::Type::Shr:
+                case ExpressionNode::Type::And:
+                case ExpressionNode::Type::Or:
+                case ExpressionNode::Type::Xor:
+                case ExpressionNode::Type::Div:
+                case ExpressionNode::Type::Mod:
+                case ExpressionNode::Type::Exp:
+                    file.read(reinterpret_cast<char*>(&node.binaryOp), sizeof(node.binaryOp));
+                    break;
+                default:
+                    break;
+            }
+
+            nodes.push_back(node);
+            nodeMap[node] = i;
+        }
+
+        // Read e0 and e1
+        file.read(reinterpret_cast<char*>(&e0), sizeof(e0));
+        file.read(reinterpret_cast<char*>(&e1), sizeof(e1));
+    }
+
+    void printToFile(const std::string& filename) const {
+        // Print constants array
+        std::ofstream file(filename);
+        file << "Constants:\n";
+        for (uint32_t i = 0; i < constants.constants.size(); i++) {
+            file << i << ": " << constants.getConstant(i).str() << "\n";
+        }
+        file << "\nExpressions:\n";
+        if (!file) {
+            throw std::runtime_error("Cannot open file for writing: " + filename);
+        }
+
+        // Print each expression in the pool
+        for (uint32_t i = 0; i < nodes.size(); i++) {
+            printExpression(file, i);
+            file << "\n";
+        }
+        file.close();
+    }
+};
+
+// Implement expressionCompare
+inline int expressionCompare(const ExpressionPool& pool, uint32_t idx1, uint32_t idx2) {
+    if (idx1 == idx2) return 0;
+
+    const ExpressionNode& node1 = pool.getNode(idx1);
+    const ExpressionNode& node2 = pool.getNode(idx2);
+
+    // Compare types
+    if (node1.type != node2.type)
+        return static_cast<int>(node1.type) - static_cast<int>(node2.type);
+
+    // Types are equal; compare based on type
+    switch (node1.type) {
+        case ExpressionNode::Type::Const: {
+            const Word256& w1 = pool.getConstant(node1.constantIndex);
+            const Word256& w2 = pool.getConstant(node2.constantIndex);
+            if (w1 < w2) return -1;
+            if (w1 > w2) return 1;
+            return 0;
+        }
+        case ExpressionNode::Type::Caller:
+        case ExpressionNode::Type::Coinbase:
+        case ExpressionNode::Type::Origin:
+        case ExpressionNode::Type::CallDataSize:
+        case ExpressionNode::Type::Address:
+        case ExpressionNode::Type::Create:
+        case ExpressionNode::Type::ReturndataSize:
+        case ExpressionNode::Type::Any:
+        case ExpressionNode::Type::Selfbalance:
+        case ExpressionNode::Type::Callvalue:
+            return 0; // No additional data
+        case ExpressionNode::Type::Sload:
+        case ExpressionNode::Type::Mload:
+        case ExpressionNode::Type::Not:
+        case ExpressionNode::Type::CallData:
+            if (node1.exprIndex < node2.exprIndex) return -1;
+            if (node1.exprIndex > node2.exprIndex) return 1;
+            return 0;
+        case ExpressionNode::Type::Add:
+        case ExpressionNode::Type::Mul:
+        case ExpressionNode::Type::Sub: 
+        case ExpressionNode::Type::Shl:
+        case ExpressionNode::Type::Shr:
+        case ExpressionNode::Type::And:
+        case ExpressionNode::Type::Or:
+        case ExpressionNode::Type::Xor:
+        case ExpressionNode::Type::Div:
+        case ExpressionNode::Type::Mod:
+        case ExpressionNode::Type::Exp:
+        {
+            int cmpLeft = expressionCompare(pool, node1.binaryOp.leftIndex, node2.binaryOp.leftIndex);
+            if (cmpLeft != 0) return cmpLeft;
+            return expressionCompare(pool, node1.binaryOp.rightIndex, node2.binaryOp.rightIndex);
+        }
+        case ExpressionNode::Type::SmallConst: {
+            if (node1.smallConst < node2.smallConst) return -1;
+            if (node1.smallConst > node2.smallConst) return 1;
+            return 0;
+        }
+        default:
+            assert(false);
+            return 0;
+    }
+}
+
+// Implement isCanonical for assertions
+inline bool isCanonical(const ExpressionPool& pool, uint32_t idx) {
+    const ExpressionNode& node = pool.getNode(idx);
+
+    switch (node.type) {
+        case ExpressionNode::Type::Const:
+        case ExpressionNode::Type::Caller:
+        case ExpressionNode::Type::Coinbase:
+        case ExpressionNode::Type::Origin:
+        case ExpressionNode::Type::SmallConst:
+        case ExpressionNode::Type::CallDataSize:
+        case ExpressionNode::Type::Address:
+        case ExpressionNode::Type::Create:
+        case ExpressionNode::Type::ReturndataSize:
+        case ExpressionNode::Type::Any:
+        case ExpressionNode::Type::Selfbalance:
+        case ExpressionNode::Type::Callvalue:
+            return true; // Base cases
+
+        case ExpressionNode::Type::Sload:
+        case ExpressionNode::Type::Mload:
+        case ExpressionNode::Type::Not:
+        case ExpressionNode::Type::CallData:
+            return isCanonical(pool, node.exprIndex);
+
+        case ExpressionNode::Type::Add:
+        case ExpressionNode::Type::Mul: 
+        case ExpressionNode::Type::And:
+        case ExpressionNode::Type::Or:
+        case ExpressionNode::Type::Xor:
+        case ExpressionNode::Type::Div:
+        case ExpressionNode::Type::Mod:
+        case ExpressionNode::Type::Exp:
+        {
+            // Check operands are canonical
+            if (!isCanonical(pool, node.binaryOp.leftIndex)) return false;
+            if (!isCanonical(pool, node.binaryOp.rightIndex)) return false;
+
+            // Ensure left >= right
+            return expressionCompare(pool, node.binaryOp.leftIndex, node.binaryOp.rightIndex) >= 0;
+        }
+
+        case ExpressionNode::Type::Sub:
+        case ExpressionNode::Type::Shl:
+        case ExpressionNode::Type::Shr:
+        {
+            // Check operands are canonical
+            return isCanonical(pool, node.binaryOp.leftIndex) && isCanonical(pool, node.binaryOp.rightIndex);
+        }
+
+        default:
+            assert(false);
+            return false;
+    }
+}
+
+
+// Function to print expressions
+
+/*
+int main() {
+    ExpressionPool pool;
+
+    // Create constants
+    auto const5 = pool.createConst(5);
+    auto const10 = pool.createConst(10);
+    auto const5_dup = pool.createConst(5);
+
+    // Verify that const5 and const5_dup are the same due to hash-consing
+    assert(const5 == const5_dup);
+
+    // Create addition expressions
+    auto expr1 = pool.createAdd(const5, const10); // Should create (10 + 5) after operand ordering
+    auto expr2 = pool.createAdd(const10, const5); // Also (10 + 5)
+    auto expr3 = pool.createAdd(const5, const5);  // Should create (5 + 5)
+
+    // Verify that expr1 and expr2 are the same due to canonicalization
+    assert(expr1 == expr2);
+
+    // Verify that expr1 and expr3 are different
+    assert(expr1 != expr3);
+
+    // Print expressions
+    Expression e1(expr1, &pool);
+    Expression e3(expr3, &pool);
+
+    std::cout << "Expression e1: ";
+    printExpression(e1); // Outputs: (10 + 5)
+    std::cout << std::endl;
+
+    std::cout << "Expression e3: ";
+    printExpression(e3); // Outputs: (5 + 5)
+    std::cout << std::endl;
+
+    // Verify that expressions are canonical
+    assert(isCanonical(pool, expr1));
+    assert(isCanonical(pool, expr3));
+
+    std::cout << "All expressions are canonical and hash-consing works correctly." << std::endl;
+
+    return 0;
+}
+*/
+
+struct Prediction {
+    std::vector<Word256> callees;
+    std::vector<Word256> delegateCallees;
+};
+
+using Predictions = std::unordered_map<::evmc::bytes32, Prediction>;
