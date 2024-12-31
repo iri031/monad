@@ -8,6 +8,8 @@
 #include <fstream>
 #include <unordered_set>
 #include <evmc/evmc.hpp>
+#include <algorithm>
+#include <boost/algorithm/hex.hpp>
 
 namespace mp = boost::multiprecision;
 using Word256 = mp::uint256_t;
@@ -1043,3 +1045,46 @@ struct Prediction {
 };
 
 using Predictions = std::unordered_map<::evmc::bytes32, Prediction>;
+
+
+inline ::evmc::address hex_to_address(const std::string& hex_str) {
+    std::string s = hex_str;
+    if (s.size() >= 2 && s.compare(0, 2, "0x") == 0) {
+        s = s.substr(2);
+    }
+
+    assert(s.size() == 40);
+
+    unsigned char bytes[20];
+    boost::algorithm::unhex(s.begin(), s.end(), bytes);
+
+    ::evmc::address addr{};
+    std::copy(bytes, bytes + 20, addr.bytes);
+    return addr;
+}
+
+inline void trim(std::string &s) {
+    s.erase(0, s.find_first_not_of(" \n\r\t"));
+    s.erase(s.find_last_not_of(" \n\r\t") + 1);
+}
+
+inline void prepad_hex(std::string &s) {
+    if (s.size() < 64) {
+        s = std::string(64 - s.size(), '0') + s;
+    }
+}
+
+inline ::evmc::bytes32 hex_to_bytes32(const std::string& hex_str) {
+    std::string s = hex_str;
+    trim(s);
+
+    prepad_hex(s);// this should not be needed but there is a bug in the code that generated the string (filename=code has 64 characters)
+    assert(s.size() == 64);
+
+    unsigned char bytes[32];
+    boost::algorithm::unhex(s.begin(), s.end(), bytes);
+
+    ::evmc::bytes32 hash{};
+    std::copy(bytes, bytes + 32, hash.bytes);
+    return hash;
+}

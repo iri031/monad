@@ -184,3 +184,33 @@ monad_add_test_folder("src/monad/execution")
 monad_add_test_folder("src/monad/rlp")
 monad_add_test_folder("src/monad/state2")
 monad_add_test_folder("src/monad/trie")
+
+target_include_directories(
+  sanalysis
+  PUBLIC ${PROJECT_SOURCE_DIR}/src
+  PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/test
+  PRIVATE ${Boost_INCLUDE_DIRS}
+  PUBLIC ${silkpre_SOURCE_DIR}/lib)
+
+target_link_libraries(
+  sanalysis
+  PUBLIC monad_core
+  PUBLIC monad_trie
+  PRIVATE Boost::fiber
+  PRIVATE Boost::graph
+  PRIVATE Boost::json
+  PRIVATE PkgConfig::brotli
+  PUBLIC ethash::keccak
+  PUBLIC evmc
+  PUBLIC evmone
+  PUBLIC intx::intx
+  PUBLIC nlohmann_json::nlohmann_json
+  PUBLIC quill::quill
+  PUBLIC silkpre
+  PUBLIC thread_safe_lru
+  PUBLIC unordered_dense
+  PUBLIC TBB::tbb)
+
+#monad_compile_options(sanalysis)
+
+target_link_options(sanalysis PRIVATE LINKER:-z,defs)

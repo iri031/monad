@@ -1612,6 +1612,7 @@ size_t instrSize(const Instruction& instr) {
     return std::visit(InstructionSizeVisitor{}, instr);
 }
 
+
 std::unordered_set<uint32_t> calleeExprsIndices;
 std::unordered_set<uint32_t> delegateCallExprsIndices;
 std::unordered_set<uint32_t> allCalleeExprIndices;
@@ -1623,21 +1624,33 @@ struct Counts {
     bool allReachablePredicted() {
         return reachableCount==predictedCount;
     }
+    void reset() {
+        occurrencesCount=0;
+        predictedCount=0;
+        reachableCount=0;
+    }
 };
+
+Counts callCounts;
+Counts delegateCallCounts;
+Counts createCounts;
+
+static Predictions predictions;
+
 // Define `fineGrainedSolns` to print solutions for every program point in all basic blocks
 void fineGrainedSolns(const ParsedBytecode<MAX_BYTECODESIZE, MAX_BBLOCKS>& parsedBytecode, const SparseMap<StackValues, MAX_BYTECODESIZE, MAX_BBLOCKS>& solns) {
     std::cout << "\noffset:instr:stackvalsB4"<<std::endl;
     calleeExprsIndices.clear();
     delegateCallExprsIndices.clear();
+    callCounts.reset();
+    delegateCallCounts.reset();
+    createCounts.reset();
 
     NodeID currentOffset = 0;
     bool prevSolnAvailable = false;
     StackValues prevInstrSoln;
     bool printSoln=false;
     bool isCall=false;
-    Counts callCounts;
-    Counts delegateCallCounts;
-    Counts createCounts;
     // Process instructions in order
     InsTerm prevInsTerm;// because soln is avaulable for 0, the first iteration will not use this value. future iterations will set this value
     while (currentOffset < parsedBytecode.bytes.size) {
@@ -1752,10 +1765,6 @@ void fineGrainedSolns(const ParsedBytecode<MAX_BYTECODESIZE, MAX_BBLOCKS>& parse
     std::cout<<std::endl;
 
     std::cout<<"\ncreateCount,createReachableCount:"<<createCounts.occurrencesCount<<","<<createCounts.reachableCount<<std::endl;
-    allCalleeExprIndices = calleeExprsIndices;
-    allCalleeExprIndices.insert(delegateCallExprsIndices.begin(), delegateCallExprsIndices.end());
-    bool allCallesSupported=epool.allConstants(allCalleeExprIndices);
-    bool predictionSuccess=allCallesSupported && createCounts.reachableCount==0;// in future, we can supporte create/create2 by computing the address of the created contract. for create2, we just need a prediction for the salt argument. for create, we to add nonce expressions in addition to stack elements.
 }
 
 
@@ -1767,7 +1776,6 @@ void fineGrainedSolns(const ParsedBytecode<MAX_BYTECODESIZE, MAX_BBLOCKS>& parse
 static DataflowSolver<StackValues, NodeSetType, Semilattice<StackValues>, 
     NodeSet<NodeSetType>, MAX_BYTECODESIZE, MAX_BBLOCKS, Cutoff> 
         solver(transferSucc,fineGrainedSolns);
-
 
 int main() {
     //epool.deserialize("epool.bin");
@@ -1831,6 +1839,23 @@ int main() {
 
         // Print results
         fineGrainedSolns(solver.parsedBytecode, result);
+        allCalleeExprIndices = calleeExprsIndices;
+        allCalleeExprIndices.insert(delegateCallExprsIndices.begin(), delegateCallExprsIndices.end());
+        bool allCallesSupported=epool.allConstants(allCalleeExprIndices);
+        bool predictionSuccess=allCallesSupported && createCounts.reachableCount==0;// in future, we can supporte create/create2 by computing the address of the created contract. for create2, we just need a prediction for the salt argument. for create, we to add nonce expressions in addition to stack elements.
+        if (allCallesSupported) {
+            ::evmc::bytes32 hash=hex_to_bytes32(filename);
+            auto it = predictions.emplace(hash, Prediction{}).first; // Insert or find the entry in the map
+
+            for (uint32_t nodeIndex : calleeExprsIndices) {
+                it->second.callees.push_back(epool.getConstant(nodeIndex)); // Push back to the callee vector
+            }   
+
+            for (uint32_t nodeIndex : delegateCallExprsIndices) {
+                it->second.delegateCallees.push_back(epool.getConstant(nodeIndex)); // Push back to the delegate callee vector
+            }
+        }   
+
 
         // Restore cout
         std::cout.rdbuf(cout_buf);
