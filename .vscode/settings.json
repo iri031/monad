@@ -93,6 +93,7 @@
         "latch": "cpp",
         "queue": "cpp",
         "stack": "cpp",
-        "*.def": "cpp"
+        "*.def": "cpp",
+        "coroutine": "cpp"
     }
 }
