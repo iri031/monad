@@ -12,6 +12,7 @@
 #include <unordered_set>
 #include <boost/container_hash/hash.hpp>
 #include "expr.hpp"
+
 //#include "evm.hpp"
 
 static constexpr size_t MAX_BYTECODESIZE = 24600;
@@ -1613,9 +1614,9 @@ size_t instrSize(const Instruction& instr) {
 }
 
 
-std::unordered_set<uint32_t> calleeExprsIndices;
-std::unordered_set<uint32_t> delegateCallExprsIndices;
-std::unordered_set<uint32_t> allCalleeExprIndices;
+std::set<uint32_t> calleeExprsIndices;
+std::set<uint32_t> delegateCallExprsIndices;
+std::set<uint32_t> allCalleeExprIndices;
 
 struct Counts {
     uint16_t occurrencesCount=0;
@@ -1711,7 +1712,7 @@ void fineGrainedSolns(const ParsedBytecode<MAX_BYTECODESIZE, MAX_BBLOCKS>& parse
 
         if (isCall) {
             callCounts.occurrencesCount++;
-            if (prevSolnAvailable && prevInstrSoln.size>6)
+            if (prevSolnAvailable && prevInstrSoln.size>6)//CALL has 7 stack args
             {
                 callCounts.reachableCount++;
                 const ValueSet& calleeSoln=prevInstrSoln[1];
@@ -1727,7 +1728,7 @@ void fineGrainedSolns(const ParsedBytecode<MAX_BYTECODESIZE, MAX_BBLOCKS>& parse
 
         if (isDelegateCall) {
             delegateCallCounts.occurrencesCount++;
-            if (prevSolnAvailable && prevInstrSoln.size>6)
+            if (prevSolnAvailable && prevInstrSoln.size>5)//CALLCODE has 7 stack args, DELEGATECALL has 6. we can make this check more precise
             {
                 delegateCallCounts.reachableCount++;
                 const ValueSet& calleeSoln=prevInstrSoln[1];
@@ -1743,7 +1744,7 @@ void fineGrainedSolns(const ParsedBytecode<MAX_BYTECODESIZE, MAX_BBLOCKS>& parse
 
         if (isCreate) {
             createCounts.occurrencesCount++;
-            if (prevSolnAvailable && prevInstrSoln.size>2) {
+            if (prevSolnAvailable && prevInstrSoln.size>2) {//CREATE has 3 stack args, CREATE2 has 4. we can make this more precise
                 createCounts.reachableCount++;
             }
         }
@@ -1842,8 +1843,8 @@ int main() {
         allCalleeExprIndices = calleeExprsIndices;
         allCalleeExprIndices.insert(delegateCallExprsIndices.begin(), delegateCallExprsIndices.end());
         bool allCallesSupported=epool.allConstants(allCalleeExprIndices);
-        bool predictionSuccess=allCallesSupported && createCounts.reachableCount==0;// in future, we can supporte create/create2 by computing the address of the created contract. for create2, we just need a prediction for the salt argument. for create, we to add nonce expressions in addition to stack elements.
-        if (allCallesSupported) {
+        bool predictionSuccess=allCallesSupported && (createCounts.reachableCount==0);// in future, we can supporte create/create2 by computing the address of the created contract. for create2, we just need a prediction for the salt argument. for create, we to add nonce expressions in addition to stack elements.
+        if (predictionSuccess) {
             ::evmc::bytes32 hash=hex_to_bytes32(filename);
             Prediction pred;
             pred.callees.reserve(calleeExprsIndices.size());

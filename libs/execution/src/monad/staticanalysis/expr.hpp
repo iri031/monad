@@ -10,7 +10,7 @@
 #include <evmc/evmc.hpp>
 #include <algorithm>
 #include <boost/algorithm/hex.hpp>
-
+#include <set>
 namespace mp = boost::multiprecision;
 using Word256 = mp::uint256_t;
 
@@ -453,7 +453,7 @@ public:
         return true;
     }
 
-    bool allConstants(const std::unordered_set<uint32_t>& indices) const {
+    bool allConstants(const std::set<uint32_t>& indices) const {
         for (uint32_t index : indices) {
             if (getType(index) != ExpressionNode::Type::Const && getType(index) != ExpressionNode::Type::SmallConst)
                 return false;
