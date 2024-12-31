@@ -186,7 +186,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     parseCodeHashes(cinfo.code_hashes);
     cinfo.epool.deserialize("/home/abhishek/contracts0t/epool.bin");
     unserializePredictions(cinfo.predictions, "/home/abhishek/contracts0t/predictions.bin");
-    printPredictions(cinfo.predictions);
+    printPredictions(cinfo.epool, cinfo.predictions, "predictions.txt");
     std::terminate();
     
     uint64_t const end_block_num =

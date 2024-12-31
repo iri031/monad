@@ -1183,10 +1183,11 @@ inline void unserializePredictions(Predictions &predictions, const std::string &
         predictions.emplace(key, std::move(pred));
     }
 }
-inline void printPredictions(const Predictions& predictions, std::ostream& out = std::cout) {
+inline void printPredictions(const ExpressionPool& epool, const Predictions& predictions, std::string filename) {
+    std::ofstream out(filename);
     out << "Predictions (" << predictions.size() << " entries):\n";
-    
-    for (const auto& [key, pred] : predictions) {
+    std::map<::evmc::bytes32, Prediction> sorted_predictions(predictions.begin(), predictions.end());
+    for (const auto& [key, pred] : sorted_predictions) {
         // Print key
         out << "Key: 0x";
         for (uint8_t b : key.bytes) {
@@ -1197,13 +1198,13 @@ inline void printPredictions(const Predictions& predictions, std::ostream& out =
         // Print callees
         out << "  Callees (" << pred.callees.size() << "):\n";
         for (const auto& callee : pred.callees) {
-            out << "    " << callee << "\n";
+            out << "    " << epool.getConst(callee).str() << "\n";
         }
 
         // Print delegate callees
         out << "  Delegate Callees (" << pred.delegateCallees.size() << "):\n"; 
         for (const auto& dCallee : pred.delegateCallees) {
-            out << "    " << dCallee << "\n";
+            out << "    " << epool.getConst(dCallee).str() << "\n";
         }
         out << "\n";
     }
