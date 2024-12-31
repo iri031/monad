@@ -1051,8 +1051,8 @@ int main() {
 */
 
 struct Prediction {
-    std::vector<Word256> callees;
-    std::vector<Word256> delegateCallees;
+    std::vector<uint32_t> callees;
+    std::vector<uint32_t> delegateCallees;
 };
 
 
@@ -1125,7 +1125,7 @@ inline void serializePredictions(const Predictions &predictions, const std::stri
             size_t calleesCount = prediction.callees.size();
             out.write(reinterpret_cast<const char*>(&calleesCount), sizeof(calleesCount));
             for (auto const &callee : prediction.callees) {
-                serializeConstant(out, callee);
+                out.write(reinterpret_cast<const char*>(&callee), sizeof(callee));
             }
         }
 
@@ -1134,7 +1134,7 @@ inline void serializePredictions(const Predictions &predictions, const std::stri
             size_t delegateCount = prediction.delegateCallees.size();
             out.write(reinterpret_cast<const char*>(&delegateCount), sizeof(delegateCount));
             for (auto const &dCallee : prediction.delegateCallees) {
-                serializeConstant(out, dCallee);
+                out.write(reinterpret_cast<const char*>(&dCallee), sizeof(dCallee));
             }
         }
     }
@@ -1166,7 +1166,7 @@ inline void unserializePredictions(Predictions &predictions, const std::string &
             in.read(reinterpret_cast<char*>(&calleesCount), sizeof(calleesCount));
             pred.callees.resize(calleesCount);
             for (size_t j = 0; j < calleesCount; ++j) {
-                deserializeConstant(in, pred.callees[j]);
+                in.read(reinterpret_cast<char*>(&pred.callees[j]), sizeof(pred.callees[j]));
             }
         }
 
@@ -1176,10 +1176,35 @@ inline void unserializePredictions(Predictions &predictions, const std::string &
             in.read(reinterpret_cast<char*>(&delegateCount), sizeof(delegateCount));
             pred.delegateCallees.resize(delegateCount);
             for (size_t j = 0; j < delegateCount; ++j) {
-                deserializeConstant(in, pred.delegateCallees[j]);
+                in.read(reinterpret_cast<char*>(&pred.delegateCallees[j]), sizeof(pred.delegateCallees[j]));
             }
         }
 
         predictions.emplace(key, std::move(pred));
+    }
+}
+inline void printPredictions(const Predictions& predictions, std::ostream& out = std::cout) {
+    out << "Predictions (" << predictions.size() << " entries):\n";
+    
+    for (const auto& [key, pred] : predictions) {
+        // Print key
+        out << "Key: 0x";
+        for (uint8_t b : key.bytes) {
+            out << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(b);
+        }
+        out << std::dec << "\n";
+
+        // Print callees
+        out << "  Callees (" << pred.callees.size() << "):\n";
+        for (const auto& callee : pred.callees) {
+            out << "    " << callee << "\n";
+        }
+
+        // Print delegate callees
+        out << "  Delegate Callees (" << pred.delegateCallees.size() << "):\n"; 
+        for (const auto& dCallee : pred.delegateCallees) {
+            out << "    " << dCallee << "\n";
+        }
+        out << "\n";
     }
 }

@@ -1846,13 +1846,10 @@ int main() {
         if (allCallesSupported) {
             ::evmc::bytes32 hash=hex_to_bytes32(filename);
             Prediction pred;
-            for (uint32_t nodeIndex : calleeExprsIndices) {
-                pred.callees.push_back(epool.getConst(nodeIndex)); // Push back to the callee vector
-            }   
-
-            for (uint32_t nodeIndex : delegateCallExprsIndices) {
-                pred.delegateCallees.push_back(epool.getConst(nodeIndex)); // Push back to the delegate callee vector
-            }
+            pred.callees.reserve(calleeExprsIndices.size());
+            pred.delegateCallees.reserve(delegateCallExprsIndices.size());
+            pred.callees.insert(pred.callees.end(), calleeExprsIndices.begin(), calleeExprsIndices.end());
+            pred.delegateCallees.insert(pred.delegateCallees.end(), delegateCallExprsIndices.begin(), delegateCallExprsIndices.end());
             predictions[hash]=pred;
         }   
 

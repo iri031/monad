@@ -124,23 +124,6 @@ void parseCodeHashes(std::unordered_map<Address, bytes32_t> &code_hashes) {
         code_hashes.emplace(addr, hash);
     }
 }
-// Parse a semicolon-separated list of numbers into a vector<uint32_t>
-void parse_indices(const std::string& indices_str, std::vector<uint32_t> & indices) {
-    if (indices_str.empty()) {
-        return; // Empty vector
-    }
-
-    std::stringstream ss(indices_str);
-    std::string token;
-    while (std::getline(ss, token, ';')) {
-        // Trim whitespace if needed
-        trim(token);
-        if (!token.empty()) {
-            uint32_t val = static_cast<uint32_t>(std::stoul(token));
-            indices.push_back(val);
-        }
-    }
-}
 
 /** deprecated */
 const std::set<evmc::address> * get_footprint(const std::vector<uint32_t> &indices, ExpressionPool &epool) {
@@ -180,43 +163,6 @@ bool filter_footprint(std::vector<uint32_t> &indices, ExpressionPool &epool) {
     return true;
 }
 
-void parse_callees(std::map<evmc::bytes32, std::vector<uint32_t>> &result, ExpressionPool &epool) {
-    std::ifstream file("/home/abhishek/contracts0t/callees.csv");
-    MONAD_ASSERT(file.is_open());
-
-    std::string line;
-    // Skip header line
-    MONAD_ASSERT(std::getline(file, line));// header line must exist
-
-    while (std::getline(file, line)) {
-        MONAD_ASSERT(!line.empty());
-
-        auto comma_pos = line.find(',');
-        MONAD_ASSERT(comma_pos != std::string::npos);
-
-
-        std::string hash_hex = line.substr(0, comma_pos);
-        std::string indices_str = line.substr(comma_pos + 1);
-
-        // Trim whitespace from hash_hex and indices_str if needed
-        trim(hash_hex);
-        trim(indices_str);
-
-
-        evmc::bytes32 key = hex_to_bytes32(hash_hex);
-        std::vector<uint32_t> values;
-        parse_indices(indices_str, values);
-        //  cases with incomplete callee prediction are not in the file anyway, so they wont be in the map => INF footprint
-        // cases with unsupported expressions will also not be inserted in the map
-        bool all_supported=filter_footprint(values, epool);
-        if (!all_supported) {
-            continue;
-        }
-        result[key] = values;
-    }
-}
-
-
 
 Result<std::pair<uint64_t, uint64_t>> run_monad(
     Chain const &chain, Db &db, BlockHashBufferFinalized &block_hash_buffer,
@@ -239,7 +185,9 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     CalleePredInfo cinfo;
     parseCodeHashes(cinfo.code_hashes);
     cinfo.epool.deserialize("/home/abhishek/contracts0t/epool.bin");
-    parse_callees(cinfo.callees, cinfo.epool);
+    unserializePredictions(cinfo.predictions, "/home/abhishek/contracts0t/predictions.bin");
+    printPredictions(cinfo.predictions);
+    std::terminate();
     
     uint64_t const end_block_num =
         (std::numeric_limits<uint64_t>::max() - block_num + 1) <= nblocks

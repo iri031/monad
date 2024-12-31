@@ -93,7 +93,7 @@ inline void set_beacon_root(BlockState &block_state, Block &block)
 
 #define MAX_FOOTPRINT_SIZE 10
 /** returns true iff the footprint has been overapproximated to INF. in that case, footprint is deleted */
-bool insert_callees(std::set<evmc::address> *footprint,  std::vector<evmc::address> & new_members, evmc::address runningAddress, CalleePredInfo &callee_pred_info) {
+bool insert_callees(std::set<evmc::address> *footprint, std::vector<evmc::address> & to_be_explored, std::set<evmc::address> & seen_delegate_callees, evmc::address runningAddress, CalleePredInfo &callee_pred_info) {
     if(footprint->size()>MAX_FOOTPRINT_SIZE) {
         delete footprint;
         return true;
@@ -103,11 +103,21 @@ bool insert_callees(std::set<evmc::address> *footprint,  std::vector<evmc::addre
     if(!calles.has_value()) {
         return true;// absense in map means callee prediction failed. the empty callee set is denoted by an empty vector
     }
-    for (uint32_t index : *calles.value()) {
+    for (uint32_t index : calles.value()->callees) {
         evmc::address callee_addr=get_address(index, callee_pred_info.epool);
         auto res=footprint->insert(callee_addr);
         if(res.second) {
-            new_members.push_back(callee_addr);
+            to_be_explored.push_back(callee_addr);
+        }
+    }
+    for (uint32_t index : calles.value()->delegateCallees) {
+        evmc::address callee_addr=get_address(index, callee_pred_info.epool);
+        if (footprint->find(callee_addr)!=footprint->end()) {
+            continue;
+        }
+        auto res=seen_delegate_callees.insert(callee_addr);// we do not insert into footprint, because DELEGATECALL/CALLCODE does not directly change callee's account. we insert it here to avoid infinite loops
+        if(res.second) {
+            to_be_explored.push_back(callee_addr);// the called code, even though it runs in the context of the caller, can do CALL(foo) and then change the account of foo. so we need to recursively analyze callee_addr for CALL
         }
     }
     return false;
@@ -144,13 +154,14 @@ bool to_address_known_to_be_non_contract(BlockState &block_state, Transaction co
     }
     LOG_INFO("compute_footprint: tx_index: {} address NOT known_to_be_non_contract: {}", tx_index, runningAddress);
 
-    std::vector<evmc::address> new_members;
-    new_members.push_back(runningAddress);
+    std::vector<evmc::address> to_be_explored;
+    std::set<evmc::address> seen_delegate_callees;// a delegate/callcode-only callee is not itself a part of footprint but we look for its CALLees
+    to_be_explored.push_back(runningAddress);
     bool overapproximated=false;
-    while((!overapproximated)&&(new_members.size()>0)) {
-        evmc::address runningAddress=new_members.back();
-        new_members.pop_back();
-        overapproximated=insert_callees(footprint, new_members, runningAddress, callee_pred_info);
+    while((!overapproximated)&&(to_be_explored.size()>0)) {
+        evmc::address runningAddress=to_be_explored.back();
+        to_be_explored.pop_back();
+        overapproximated=insert_callees(footprint, to_be_explored, seen_delegate_callees, runningAddress, callee_pred_info);
     }
     if(overapproximated) {
         delete footprint;
