@@ -643,7 +643,7 @@ public:
         switch (node.type) {
         case ExpressionNode::Type::Const: {
             const Word256& w = getBigConstant(node.constantIndex);
-            os << w.str();
+            os << w.str(16);
             break;
         }
         case ExpressionNode::Type::CallData:
