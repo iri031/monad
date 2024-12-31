@@ -1864,6 +1864,7 @@ int main() {
     }
     epool.serialize("epool.bin");
     epool.printToFile("epool.txt");
+    serializePredictions(predictions, "predictions.bin");
 
     return 0;
 }

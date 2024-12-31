@@ -350,6 +350,40 @@ inline void from_uint64_array(Word256& result, const uint64_t in[4]) {
     result |= (Word256(in[3]) << 192);
 }
 
+    // Function to serialize a Word256 constant to a file
+void serializeConstant(std::ofstream &file, Word256 const &constant) const
+{
+    std::array<uint64_t, 4> bits;
+    to_uint64_array(constant, bits.data());
+
+    /*
+    // Debugging: Print the bits array
+    std::cout << "Exported bits: ";
+    for (const auto& bit : bits) {
+        std::cout << std::hex << bit << " ";
+    }
+    std::cout << std::endl;
+    // Import bits back to verify serialization
+    Word256 verify;
+    mp::import_bits(verify, bits.begin(), bits.end(), 64);
+
+    // Debugging: Print the verify value
+    std::cout << "Original: " << constant.str() << ", Imported: " <<
+    verify.str() << std::endl;
+
+    assert(verify == constant);
+    */
+    file.write(reinterpret_cast<char const *>(bits.data()), sizeof(bits));
+}
+
+// Function to deserialize a Word256 constant from a file
+void deserializeConstant(std::ifstream &file, Word256 &constant)
+{
+    std::array<uint64_t, 4> bits;
+    file.read(reinterpret_cast<char *>(bits.data()), sizeof(bits));
+    from_uint64_array(constant, bits.data());
+}
+
 // ExpressionPool class definition
 class ExpressionPool {
 public:
@@ -708,28 +742,7 @@ public:
         uint32_t constantsSize = static_cast<uint32_t>(constants.constants.size());
         file.write(reinterpret_cast<const char*>(&constantsSize), sizeof(constantsSize));
         for (const auto& constant : constants.constants) {
-            // Export Word256 to array of uint64_t (256 bits = 4 * 64 bits)
-            std::array<uint64_t, 4> bits;
-            to_uint64_array(constant, bits.data());
-
-
-            /*
-            // Debugging: Print the bits array
-            std::cout << "Exported bits: ";
-            for (const auto& bit : bits) {
-                std::cout << std::hex << bit << " ";
-            }
-            std::cout << std::endl;
-            // Import bits back to verify serialization
-            Word256 verify;
-            mp::import_bits(verify, bits.begin(), bits.end(), 64);
-
-            // Debugging: Print the verify value
-            std::cout << "Original: " << constant.str() << ", Imported: " << verify.str() << std::endl;
-
-            assert(verify == constant);
-            */
-            file.write(reinterpret_cast<const char*>(bits.data()), sizeof(bits));
+            serializeConstant(file, constant);
         }
 
         // Write nodes
@@ -790,10 +803,8 @@ public:
         uint32_t constantsSize;
         file.read(reinterpret_cast<char*>(&constantsSize), sizeof(constantsSize));
         for (uint32_t i = 0; i < constantsSize; i++) {
-            std::array<uint64_t, 4> bits;
-            file.read(reinterpret_cast<char*>(bits.data()), sizeof(bits));
             Word256 constant;
-            from_uint64_array(constant, bits.data());
+            deserializeConstant(file, constant);
             constants.constants.push_back(constant);
             constants.constantMap[constant] = i;
         }
@@ -1044,8 +1055,6 @@ struct Prediction {
     std::vector<Word256> delegateCallees;
 };
 
-using Predictions = std::unordered_map<::evmc::bytes32, Prediction>;
-
 
 inline ::evmc::address hex_to_address(const std::string& hex_str) {
     std::string s = hex_str;
@@ -1087,4 +1096,90 @@ inline ::evmc::bytes32 hex_to_bytes32(const std::string& hex_str) {
     ::evmc::bytes32 hash{};
     std::copy(bytes, bytes + 32, hash.bytes);
     return hash;
+}
+using Predictions = std::unordered_map<::evmc::bytes32, Prediction>;
+
+
+// Start Generation Here
+inline void serializePredictions(const Predictions &predictions, const std::string &filename) {
+    std::ofstream out(filename, std::ios::binary);
+    if (!out) {
+        // Could handle error silently or throw
+        return;
+    }
+
+    // Write how many entries in predictions map
+    size_t mapSize = predictions.size();
+    out.write(reinterpret_cast<const char*>(&mapSize), sizeof(mapSize));
+
+    // For each entry, write the key (bytes32) then the vectors
+    for (auto const &kv : predictions) {
+        auto const &key = kv.first;
+        auto const &prediction = kv.second;
+
+        // write key (32 bytes)
+        out.write(reinterpret_cast<const char*>(key.bytes), sizeof(key.bytes));
+
+        // write callees
+        {
+            size_t calleesCount = prediction.callees.size();
+            out.write(reinterpret_cast<const char*>(&calleesCount), sizeof(calleesCount));
+            for (auto const &callee : prediction.callees) {
+                serializeConstant(out, callee);
+            }
+        }
+
+        // write delegateCallees
+        {
+            size_t delegateCount = prediction.delegateCallees.size();
+            out.write(reinterpret_cast<const char*>(&delegateCount), sizeof(delegateCount));
+            for (auto const &dCallee : prediction.delegateCallees) {
+                serializeConstant(out, dCallee);
+            }
+        }
+    }
+}
+
+inline void unserializePredictions(Predictions &predictions, const std::string &filename) {
+    std::ifstream in(filename, std::ios::binary);
+    if (!in) {
+        // Could handle error silently or throw
+        return;
+    }
+
+    size_t mapSize = 0;
+    in.read(reinterpret_cast<char*>(&mapSize), sizeof(mapSize));
+
+    // Clear existing predictions then reserve if possible
+    predictions.clear();
+    predictions.reserve(mapSize);
+
+    for (size_t i = 0; i < mapSize; ++i) {
+        ::evmc::bytes32 key{};
+        in.read(reinterpret_cast<char*>(key.bytes), sizeof(key.bytes));
+
+        Prediction pred;
+
+        // read callees
+        {
+            size_t calleesCount = 0;
+            in.read(reinterpret_cast<char*>(&calleesCount), sizeof(calleesCount));
+            pred.callees.resize(calleesCount);
+            for (size_t j = 0; j < calleesCount; ++j) {
+                deserializeConstant(in, pred.callees[j]);
+            }
+        }
+
+        // read delegateCallees
+        {
+            size_t delegateCount = 0;
+            in.read(reinterpret_cast<char*>(&delegateCount), sizeof(delegateCount));
+            pred.delegateCallees.resize(delegateCount);
+            for (size_t j = 0; j < delegateCount; ++j) {
+                deserializeConstant(in, pred.delegateCallees[j]);
+            }
+        }
+
+        predictions.emplace(key, std::move(pred));
+    }
 }
