@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <boost/algorithm/hex.hpp>
 #include <set>
+#include <intx/intx.hpp>
 namespace mp = boost::multiprecision;
 using Word256 = mp::uint256_t;
 
@@ -1183,6 +1184,32 @@ inline void unserializePredictions(Predictions &predictions, const std::string &
         predictions.emplace(key, std::move(pred));
     }
 }
+
+inline intx::uint256 ofBoost(const Word256& word) {
+    uint64_t words[4];
+    to_uint64_array(word, words);
+
+    // Construct intx::uint256 from the uint64_t array
+    intx::uint256 result{words[0], words[1], words[2], words[3]};
+
+    // For debugging: log the Word256 and the intx::uint256 values
+    //LOG_INFO("Converting Word256 to intx::uint256");
+    // LOG_INFO("Word256:       0x{}", word.str(0, std::ios_base::hex));
+    //LOG_INFO("intx::uint256: 0x{}", intx::to_string(result, 16));
+
+    return result;
+}
+
+inline evmc::address get_address(const Word256& word) {
+    auto truncated = intx::be::trunc<evmc::address>(ofBoost(word));
+    return truncated;
+}
+
+inline evmc::address get_address(uint32_t index, ExpressionPool &epool) {
+    Word256 word = epool.getConst(index);
+    return get_address(word);
+}
+
 inline void printPredictions(const ExpressionPool& epool, const Predictions& predictions, std::string filename) {
     std::ofstream out(filename);
     out << "Predictions (" << predictions.size() << " entries):\n";
@@ -1198,13 +1225,13 @@ inline void printPredictions(const ExpressionPool& epool, const Predictions& pre
         // Print callees
         out << "  Callees (" << pred.callees.size() << "):\n";
         for (const auto& callee : pred.callees) {
-            out << "    " << epool.getConst(callee).str() << "\n";
+            out << "    " << epool.getConst(callee).str(0, std::ios_base::hex) << "\n";
         }
 
         // Print delegate callees
         out << "  Delegate Callees (" << pred.delegateCallees.size() << "):\n"; 
         for (const auto& dCallee : pred.delegateCallees) {
-            out << "    " << epool.getConst(dCallee).str() << "\n";
+            out << "    " << epool.getConst(dCallee).str(0, std::ios_base::hex) << "\n";
         }
         out << "\n";
     }
