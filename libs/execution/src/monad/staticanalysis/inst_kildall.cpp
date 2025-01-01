@@ -1840,20 +1840,25 @@ int main() {
 
         // Print results
         fineGrainedSolns(solver.parsedBytecode, result);
-        allCalleeExprIndices = calleeExprsIndices;
-        allCalleeExprIndices.insert(delegateCallExprsIndices.begin(), delegateCallExprsIndices.end());
-        bool allCallesSupported=epool.allConstants(allCalleeExprIndices);
-        bool predictionSuccess=allCallesSupported && (createCounts.reachableCount==0);// in future, we can supporte create/create2 by computing the address of the created contract. for create2, we just need a prediction for the salt argument. for create, we to add nonce expressions in addition to stack elements.
-        if (predictionSuccess) {
-            ::evmc::bytes32 hash=hex_to_bytes32(filename);
-            Prediction pred;
-            pred.callees.reserve(calleeExprsIndices.size());
-            pred.delegateCallees.reserve(delegateCallExprsIndices.size());
-            pred.callees.insert(pred.callees.end(), calleeExprsIndices.begin(), calleeExprsIndices.end());
-            pred.delegateCallees.insert(pred.delegateCallees.end(), delegateCallExprsIndices.begin(), delegateCallExprsIndices.end());
-            predictions[hash]=pred;
-        }   
-
+        if (callCounts.allReachablePredicted() && delegateCallCounts.allReachablePredicted()) {
+            allCalleeExprIndices = calleeExprsIndices;
+            allCalleeExprIndices.insert(delegateCallExprsIndices.begin(),delegateCallExprsIndices.end());
+            bool allCallesSupported = epool.allConstants(allCalleeExprIndices);
+            bool predictionSuccess = allCallesSupported && (createCounts.reachableCount == 0); // in future, we can supporte create/create2 by computing
+                     // the address of the created contract. for create2, we
+                     // just need a prediction for the salt argument. for
+                     // create, we to add nonce expressions in addition to stack
+                     // elements.
+            if (predictionSuccess) {
+                ::evmc::bytes32 hash = hex_to_bytes32(filename);
+                Prediction pred;
+                pred.callees.reserve(calleeExprsIndices.size());
+                pred.delegateCallees.reserve(delegateCallExprsIndices.size());
+                pred.callees.insert(pred.callees.end(), calleeExprsIndices.begin(),calleeExprsIndices.end());
+                pred.delegateCallees.insert(pred.delegateCallees.end(),delegateCallExprsIndices.begin(),delegateCallExprsIndices.end());
+                predictions[hash] = pred;
+            }
+        }
 
         // Restore cout
         std::cout.rdbuf(cout_buf);
