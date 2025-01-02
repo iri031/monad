@@ -36,6 +36,7 @@ void ParallelCommitSystem::reset(txindex_t num_transactions_, monad::Address con
     this->num_transactions=num_transactions_;
     this->beneficiary=beneficiary;
     all_committed_below_index.store(0);
+    transactions_accessing_address_.clear();
     for (size_t i = 0; i < num_transactions; i++) {// TODO(aa): do not initialize here, except promises. ensure declareFootprint initializes all these, in parallel.
         status_[i].store(TransactionStatus::STARTED);
         footprints_[i]=nullptr;
