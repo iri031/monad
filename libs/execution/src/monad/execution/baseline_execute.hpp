@@ -6,8 +6,11 @@
 
 #include <evmc/evmc.h>
 #include <evmc/evmc.hpp>
+#include <monad/db/db.hpp>
 
 MONAD_NAMESPACE_BEGIN
+
+void dump_contracts(Db &db, uint64_t threshold);
 
 evmc::Result baseline_execute(
     evmc_message const &, evmc_revision, evmc::Host *, CodeAnalysis const &, uint64_t);

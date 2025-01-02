@@ -41,21 +41,64 @@
 #include <monad/core/keccak.hpp>
 #include <monad/core/basic_formatter.hpp>
 #include <monad/core/fmt/address_fmt.hpp>
-
-
 namespace fs = std::filesystem;
 
 MONAD_NAMESPACE_BEGIN
 
-using ContractTable = tbb::concurrent_hash_map<evmc::address,int, tbb::tbb_hash_compare<evmc::address>>;
+using ContractTable = tbb::concurrent_hash_map<evmc::address,uint64_t, tbb::tbb_hash_compare<evmc::address>>;
 
 ContractTable call_counter;
-const int CONTRACT_CALL_THRESHOLD = 5;
+
+std::shared_ptr<CodeAnalysis> read_code(Db &db, evmc::address addr)
+{
+    auto ac= db.read_account(addr);
+    return db.read_code(ac->code_hash);
+}
+
+void dump_contract(evmc::address addr, std::string contracts_dir_var, Db &db)
+{
+    auto code_analysisp = read_code(db, addr);
+    assert(code_analysisp);
+    // content addressable path for the contract using keccak of the actual code
+    auto const code_hash = keccak256(code_analysisp->executable_code);
+
+    auto code_hash_dir = fs::path(contracts_dir_var) / "code_hash";
+    fs::create_directories(code_hash_dir);
+
+    auto contract_path =
+        code_hash_dir /
+        fmt::format(
+            "{}", intx::hex(intx::be::load<intx::uint256>(code_hash.bytes)));
+
+    auto os = std::ofstream(contract_path);
+    os.write(
+        reinterpret_cast<char const *>(code_analysisp->executable_code.data()),
+        static_cast<std::streamsize>(code_analysisp->executable_code.size()));
+
+
+    auto code_address_dir = fs::path(contracts_dir_var) / "code_address";
+
+    fs::create_directories(code_address_dir);
+
+    auto contract_address_path = code_address_dir / fmt::format("{}", addr);
+
+    fs::create_symlink(contract_path, contract_address_path);
+}
+
+void dump_contracts(Db &db, uint64_t threshold){
+    auto contracts_dir_var = std::getenv("CONTRACTS_DIR");
+    MONAD_ASSERT(contracts_dir_var);
+    for (auto const &addr : call_counter) {
+        if (addr.second >= threshold) {
+            dump_contract(addr.first, contracts_dir_var, db);
+        }
+    }
+}
 
 
 evmc::Result baseline_execute(
     evmc_message const &msg, evmc_revision const rev, evmc::Host *const host,
-    CodeAnalysis const &code_analysis, uint64_t block
+    CodeAnalysis const &code_analysis, uint64_t
     )
 {
     std::unique_ptr<evmc_vm> const vm{evmc_create_evmone()};
@@ -95,45 +138,7 @@ evmc::Result baseline_execute(
             accessor->second = 1;
         }
         else {
-            const int call_count = accessor->second;
-            if (call_count != -1) {
-                if (call_count > CONTRACT_CALL_THRESHOLD) {
-                    // mark for insertion into the contracts dump
-                    accessor->second = -1;
-                    auto contracts_dir_var = std::getenv("CONTRACTS_DIR");
-                    MONAD_ASSERT(contracts_dir_var);
-
-                    // content addressable path for the contract using keccak of the actual code
-                    auto const code_hash = keccak256(code_analysis.executable_code);
-
-                    auto code_hash_dir = fs::path(contracts_dir_var) / "code_hash";
-                    fs::create_directories(code_hash_dir);
-
-                    auto contract_path = code_hash_dir / fmt::format("{}", intx::hex(intx::be::load<intx::uint256>(code_hash.bytes)));
-
-                    auto os = std::ofstream(contract_path);
-                    os.write(
-                        reinterpret_cast<char const *>(code_analysis.executable_code.data()),
-                        static_cast<std::streamsize>(code_analysis.executable_code.size()));
-
-                    auto block_prefix =
-                        fmt::format("{}M", block / 1'000'000);
-
-                    auto code_address_dir = fs::path(contracts_dir_var) / "code_address" / block_prefix /
-                            fmt::format("{:02x}", msg.code_address.bytes[0]) /
-                            fmt::format("{:02x}", msg.code_address.bytes[1]);
-
-                    fs::create_directories(code_address_dir);
-
-                    const Address& addr = msg.code_address;
-                    auto contract_address_path = code_address_dir / fmt::format("{}", addr);
-
-                    fs::create_symlink(contract_path, contract_address_path);
-                } 
-                else {
-                    accessor->second = call_count + 1;
-                }
-            }
+            accessor->second = accessor->second + 1;
         }
         accessor.release();
     }

@@ -23,6 +23,7 @@
 #include <monad/statesync/statesync_server.h>
 #include <monad/statesync/statesync_server_context.hpp>
 #include <monad/statesync/statesync_server_network.hpp>
+#include <monad/execution/baseline_execute.hpp>
 
 #include <CLI/CLI.hpp>
 
@@ -187,6 +188,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
         log_tps(
             block_num, batch_num_blocks, batch_num_txs, batch_gas, batch_begin);
     }
+    dump_contracts(db, 0);
     return {ntxs, total_gas};
 }
 
