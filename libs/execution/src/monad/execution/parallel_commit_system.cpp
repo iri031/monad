@@ -48,6 +48,7 @@ void ParallelCommitSystem::reset(txindex_t num_transactions, monad::Address cons
         footprints_[i]=nullptr;
         nontriv_footprint_contains_beneficiary[i]=false;
     }
+    all_done.store(false);
     
 }
 // pre: footprint has been declared already
@@ -344,27 +345,33 @@ void ParallelCommitSystem::notifyAllDone() {
 }
 
 void ParallelCommitSystem::updateLastCommittedUb() {
+    bool changed=false;
     auto newUb = all_committed_below_index.load();
     while (newUb< num_transactions) {
         if (status_[newUb].load() != TransactionStatus::COMMITTED) {
             break;
         }
         newUb++;
+        changed=true;
     }
-    advanceLastCommittedUb(newUb); // there is no use of doing it in the then case, but it is safe+clean to do it there as well
-    if(newUb == num_transactions) {
+    if(!changed) {
+        return;
+    }
+    changed=advanceLastCommittedUb(newUb); // there is no use of doing it in the then case, but it is safe+clean to do it there as well
+    if(changed && newUb == num_transactions) {
         notifyAllDone(); // one problem is that this unblocks execute_block, which can destruct the this object, even though more calls are done on it, e.g. in notifyDone
     }
 }
 
-void ParallelCommitSystem::advanceLastCommittedUb(txindex_t minValue) {
+bool ParallelCommitSystem::advanceLastCommittedUb(txindex_t minValue) {
     txindex_t old_value = all_committed_below_index.load();
     while (old_value < minValue) {
         // ever update to all_committed_below_index strictly increases it. so this loop will terminate
         if (all_committed_below_index.compare_exchange_weak(old_value, minValue)) {
-            break;
+            return true;
         }
     }
+    return false;
 }
 
 #endif

@@ -199,6 +199,7 @@ void print_footprint(std::set<evmc::address> *footprint, uint64_t index) {
     LOG_INFO("footprint[{}]: {}", index, footprint_str);
 }
 
+ParallelCommitSystem parallel_commit_system;
 template <evmc_revision rev>
 Result<std::vector<ExecutionResult>> execute_block(
     Chain const &chain, Block &block, BlockState &block_state,
@@ -248,7 +249,7 @@ Result<std::vector<ExecutionResult>> execute_block(
     std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
         new std::optional<Result<ExecutionResult>>[block.transactions.size()]};
 
-    ParallelCommitSystem parallel_commit_system(block.transactions.size(), block.header.beneficiary);
+    parallel_commit_system.reset(block.transactions.size(), block.header.beneficiary);
 
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
