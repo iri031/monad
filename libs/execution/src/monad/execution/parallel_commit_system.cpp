@@ -98,7 +98,7 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
         
     if (!status_[myindex].compare_exchange_strong(current_status, new_status)) {
         assert(current_status == TransactionStatus::STARTED_UNBLOCKED);
-        current_status = TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED;
+        status_[myindex].store(TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED);
         LOG_INFO("declareFootprint: status[{}] changed from STARTED_UNBLOCKED to FOOTPRINT_COMPUTED_UNBLOCKED", myindex);
     }
     else {
