@@ -1,4 +1,5 @@
 #include <monad/core/block.hpp>
+#include <monad/core/rlp/block_rlp.hpp>
 #include <monad/db/util.hpp>
 #include <monad/mpt/ondisk_db_config.hpp>
 #include <monad/mpt/update.hpp>
@@ -31,9 +32,8 @@ monad_statesync_client_context::monad_statesync_client_context(
           monad_statesync_client_prefixes(),
           {db.get_latest_block_id(), db.get_latest_block_id()})
     , protocol(monad_statesync_client_prefixes())
-    , target{db.get_latest_block_id()}
+    , tgrt{BlockHeader{.number = mpt::INVALID_BLOCK_ID}}
     , current{db.get_latest_block_id() == mpt::INVALID_BLOCK_ID ? 0 : db.get_latest_block_id() + 1}
-    , expected_root{NULL_ROOT}
     , n_upserts{0}
     , genesis{genesis}
     , sync{sync}
@@ -100,9 +100,17 @@ void monad_statesync_client_context::commit()
         .incarnation = false,
         .next = std::move(code_updates),
         .version = static_cast<int64_t>(current)};
+    auto const rlp = rlp::encode_block_header(tgrt);
+    auto block_header_update = Update{
+        .key = block_header_nibbles,
+        .value = rlp,
+        .incarnation = true,
+        .next = UpdateList{},
+        .version = static_cast<int64_t>(current)};
     UpdateList updates;
     updates.push_front(state_update);
     updates.push_front(code_update);
+    updates.push_front(block_header_update);
 
     UpdateList finalized_updates;
     Update finalized{
@@ -114,7 +122,7 @@ void monad_statesync_client_context::commit()
     finalized_updates.push_front(finalized);
 
     db.upsert(std::move(finalized_updates), current, false, false);
-    tdb.set_block_number(current);
+    tdb.set_block_and_round(current);
     for (auto const &hash : upserted) {
         MONAD_ASSERT(this->upserted.emplace(hash).second);
         MONAD_ASSERT(pending.erase(hash) == 1);

@@ -3,6 +3,7 @@
 #include <memory>
 
 #include <monad/async/concepts.hpp>
+#include <monad/async/config.hpp>
 #include <monad/async/io.hpp>
 #include <monad/async/storage_pool.hpp>
 #include <monad/core/result.hpp>
@@ -58,9 +59,19 @@ public:
 
     NodeCursor load_root_for_version(uint64_t block_id) const;
 
+    void copy_trie(
+        uint64_t src_version, NibblesView src, uint64_t dest_version,
+        NibblesView dest, bool blocked_by_write = true);
+
     void upsert(
         UpdateList, uint64_t block_id, bool enable_compaction = true,
         bool can_write_to_fast = true);
+
+    void update_finalized_block(uint64_t);
+    void update_verified_block(uint64_t);
+    uint64_t get_latest_finalized_block_id() const;
+    uint64_t get_latest_verified_block_id() const;
+
     // Traverse APIs: return value indicates if we have finished the full
     // traversal or not.
     // Parallel traversal is a single threaded out of order traverse using async
@@ -68,8 +79,6 @@ public:
     // traverse run on RWDb should not do any blocking i/o because that will
     // block the fiber and hang. If you have to do blocking i/o during the
     // traversal on RWDb, use the `traverse_blocking` api below.
-    // TODO: fix the excessive memory issue by pausing traverse when there are N
-    // outstanding requests
     bool traverse(
         NodeCursor, TraverseMachine &, uint64_t block_id,
         size_t concurrency_limit = 4096);
@@ -100,7 +109,8 @@ struct AsyncContext
 {
     using inflight_root_t = unordered_dense_map<
         uint64_t, std::vector<std::function<void(std::shared_ptr<Node>)>>>;
-    using TrieRootCache = static_lru_cache<uint64_t, std::shared_ptr<Node>>;
+    using TrieRootCache = static_lru_cache<
+        chunk_offset_t, std::shared_ptr<Node>, chunk_offset_t_hasher>;
 
     UpdateAux<> &aux;
     TrieRootCache root_cache;

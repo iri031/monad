@@ -149,7 +149,10 @@ public:
 };
 
 chunk_offset_t
-async_write_node_set_spare(UpdateAuxImpl &aux, Node &node, bool is_fast);
+async_write_node_set_spare(UpdateAuxImpl &, Node &, bool is_fast);
+
+chunk_offset_t
+write_new_root_node(UpdateAuxImpl &, Node &root, uint64_t version);
 
 node_writer_unique_ptr_type
 replace_node_writer(UpdateAuxImpl &, node_writer_unique_ptr_type const &);
@@ -170,12 +173,11 @@ class UpdateAuxImpl
 
     void reset_node_writers();
 
-    void advance_compact_offsets();
-
-    std::pair<uint32_t, uint32_t>
-    min_offsets_of_version(uint64_t version) const;
+    void advance_compact_offsets(Node &prev_root, uint64_t version);
 
     void free_compacted_chunks();
+
+    void erase_version(uint64_t const version);
 
     /******** Compaction ********/
     uint32_t chunks_to_remove_before_count_fast_{0};
@@ -368,12 +370,6 @@ public:
     {
         if (io_) {
             set_io(io_, history_len);
-            // reset offsets
-            auto const &db_offsets = db_metadata()->db_offsets;
-            compact_offset_fast = db_offsets.last_compact_offset_fast;
-            compact_offset_slow = db_offsets.last_compact_offset_slow;
-            compact_offset_range_fast_ = db_offsets.last_compact_offset_fast;
-            compact_offset_range_slow_ = db_offsets.last_compact_offset_slow;
         }
     }
 
@@ -698,6 +694,10 @@ public:
     void fast_forward_next_version(uint64_t version) noexcept;
 
     void update_history_length_metadata(uint64_t history_len) noexcept;
+    void set_latest_finalized_version(uint64_t) noexcept;
+    void set_latest_verified_version(uint64_t) noexcept;
+    uint64_t get_latest_finalized_version() const noexcept;
+    uint64_t get_latest_verified_version() const noexcept;
 
     // WARNING: These are destructive, they discard immediately any extraneous
     // data.
@@ -981,6 +981,16 @@ Node::UniquePtr upsert(
     UpdateAuxImpl &, uint64_t, StateMachine &, Node::UniquePtr old,
     UpdateList &&);
 
+// Performs a deep copy of a subtrie from `src_root` trie at
+// `src_prefix` to the `dest_root` trie at `dest_prefix`.
+// Note that `src_root` may be of a different version than `dest_root`.
+// Any pre-existing trie at `dest_prefix` will be overwritten.
+// The in-memory effect is similar to a move operation.
+Node::UniquePtr copy_trie_to_dest(
+    UpdateAuxImpl &, Node &src_root, NibblesView src_prefix,
+    Node::UniquePtr dest_root, NibblesView dest_prefx,
+    uint64_t const dest_version, bool must_write_to_disk);
+
 // load all nodes as far as caching policy would allow
 size_t load_all(UpdateAuxImpl &, StateMachine &, NodeCursor);
 
@@ -1024,10 +1034,11 @@ static_assert(std::is_trivially_copyable_v<fiber_find_request_t> == true);
 void find_notify_fiber_future(
     UpdateAuxImpl &, inflight_map_t &inflights, fiber_find_request_t);
 
-/*! \brief blocking find node indexed by key from root, It works for bothon-disk
-and in-memory trie. When node along key is not yet in memory, it load node
-through blocking read.
- \warning Should only invoke it from the triedb owning
+/*! \brief blocking find node indexed by key from root, It works for both
+on-disk and in-memory trie. When node along key is not yet in memory, it loads
+the node through blocking read.
+
+\warning Should only invoke it from the triedb owning
 thread, as no synchronization is provided, and user code should make sure no
 other place is modifying trie. */
 find_result_type

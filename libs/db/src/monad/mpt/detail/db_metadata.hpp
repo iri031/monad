@@ -47,7 +47,7 @@ namespace detail
     // For the memory map of the first conventional chunk
     struct db_metadata
     {
-        static constexpr char const *MAGIC = "MONAD003";
+        static constexpr char const *MAGIC = "MONAD005";
         static constexpr unsigned MAGIC_STRING_LEN = 8;
 
         friend class MONAD_MPT_NAMESPACE::UpdateAuxImpl;
@@ -110,10 +110,6 @@ namespace detail
             // should be rewound if restart.
             chunk_offset_t start_of_wip_offset_fast;
             chunk_offset_t start_of_wip_offset_slow;
-            compact_virtual_chunk_offset_t last_compact_offset_fast;
-            compact_virtual_chunk_offset_t last_compact_offset_slow;
-            compact_virtual_chunk_offset_t last_compact_offset_range_fast;
-            compact_virtual_chunk_offset_t last_compact_offset_range_slow;
 
             db_offsets_info_t() = delete;
             db_offsets_info_t(db_offsets_info_t const &) = delete;
@@ -125,19 +121,9 @@ namespace detail
 
             constexpr db_offsets_info_t(
                 chunk_offset_t start_of_wip_offset_fast_,
-                chunk_offset_t start_of_wip_offset_slow_,
-                compact_virtual_chunk_offset_t last_compact_offset_fast_,
-                compact_virtual_chunk_offset_t last_compact_offset_slow_,
-                compact_virtual_chunk_offset_t last_compact_offset_range_fast_,
-                compact_virtual_chunk_offset_t last_compact_offset_range_slow_)
+                chunk_offset_t start_of_wip_offset_slow_)
                 : start_of_wip_offset_fast(start_of_wip_offset_fast_)
                 , start_of_wip_offset_slow(start_of_wip_offset_slow_)
-                , last_compact_offset_fast(last_compact_offset_fast_)
-                , last_compact_offset_slow(last_compact_offset_slow_)
-                , last_compact_offset_range_fast(
-                      last_compact_offset_range_fast_)
-                , last_compact_offset_range_slow(
-                      last_compact_offset_range_slow_)
             {
             }
 
@@ -145,12 +131,6 @@ namespace detail
             {
                 start_of_wip_offset_fast = o.start_of_wip_offset_fast;
                 start_of_wip_offset_slow = o.start_of_wip_offset_slow;
-                last_compact_offset_fast = o.last_compact_offset_fast;
-                last_compact_offset_slow = o.last_compact_offset_slow;
-                last_compact_offset_range_fast =
-                    o.last_compact_offset_range_fast;
-                last_compact_offset_range_slow =
-                    o.last_compact_offset_range_slow;
             }
         } db_offsets;
 
@@ -160,6 +140,8 @@ namespace detail
         // cannot use atomic_uint64_t here because db_metadata has to be
         // trivially copyable for db_copy().
         uint64_t history_length;
+        uint64_t latest_finalized_version;
+        uint64_t latest_verified_version;
 
         // used to know if the metadata was being
         // updated when the process suddenly exited

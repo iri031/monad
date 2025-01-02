@@ -37,7 +37,8 @@ namespace
     {
         constexpr evmc_revision rev = EVMC_SHANGHAI; // TODO
         MonadDevnet chain;
-        MONAD_ASSERT(rev == chain.get_revision(header));
+        MONAD_ASSERT(
+            rev == chain.get_revision(header.number, header.timestamp));
 
         Transaction enriched_txn{txn};
 
@@ -54,7 +55,7 @@ namespace
             mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = dbname_paths}};
         thread_local TrieDb ro{db};
 
-        ro.set_block_number(block_number);
+        ro.set_block_and_round(block_number);
         BlockState block_state{ro};
         // avoid conflict with block reward txn
         Incarnation incarnation{block_number, Incarnation::LAST_TX - 1u};
@@ -261,7 +262,7 @@ monad_evmc_result eth_call(
     MONAD_ASSERT(!sender_result.has_error());
     auto const sender = sender_result.value();
 
-    BlockHashBuffer buffer{};
+    BlockHashBufferFinalized buffer{};
     for (size_t i = block_number < 256 ? 1 : block_number - 255;
          i <= block_number;
          ++i) {

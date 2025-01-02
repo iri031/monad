@@ -100,7 +100,6 @@ Node::UniquePtr upsert(
     UpdateAuxImpl &aux, uint64_t const version, StateMachine &sm,
     Node::UniquePtr old, UpdateList &&updates)
 {
-
     auto impl = [&] {
         if (aux.is_on_disk()) {
             aux.min_version_after_upsert =
@@ -433,16 +432,9 @@ struct read_single_child_receiver
         , child(child)
         , sm(std::move(sm))
     {
-        // prep uring data
-        if (auto const virtual_child_offset =
+        { // some sanity checks
+            auto const virtual_child_offset =
                 aux->physical_to_virtual(child.offset);
-            !virtual_child_offset.in_fast_list()) { // some sanity checks
-            MONAD_DEBUG_ASSERT(
-                virtual_child_offset.count <=
-                aux->num_chunks(
-                    virtual_child_offset.in_fast_list()
-                        ? UpdateAuxImpl::chunk_list::fast
-                        : UpdateAuxImpl::chunk_list::slow));
             // child offset is older than current node writer's start offset
             MONAD_DEBUG_ASSERT(
                 virtual_child_offset <
@@ -895,6 +887,7 @@ void create_new_trie_(
             MONAD_DEBUG_ASSERT(update.value.has_value());
             Requests requests;
             requests.split_into_sublists(std::move(update.next), 0);
+            MONAD_ASSERT(requests.opt_leaf == std::nullopt);
             create_new_trie_from_requests_(
                 aux,
                 sm,
@@ -1889,10 +1882,19 @@ write_new_root_node(UpdateAuxImpl &aux, Node &root, uint64_t const version)
     if (MONAD_UNLIKELY(max_version_in_db == INVALID_BLOCK_ID)) {
         aux.fast_forward_next_version(version);
         aux.append_root_offset(offset_written_to);
+        MONAD_ASSERT(aux.db_history_range_lower_bound() == version);
     }
     else if (version <= max_version_in_db) {
-        MONAD_ASSERT(version >= aux.db_history_range_lower_bound());
+        MONAD_ASSERT(
+            version >=
+            ((max_version_in_db >= aux.version_history_length())
+                 ? max_version_in_db - aux.version_history_length() + 1
+                 : 0));
+        auto const prev_lower_bound = aux.db_history_range_lower_bound();
         aux.update_root_offset(version, offset_written_to);
+        MONAD_ASSERT(
+            aux.db_history_range_lower_bound() ==
+            std::min(version, prev_lower_bound));
     }
     else {
         MONAD_ASSERT(version == max_version_in_db + 1);

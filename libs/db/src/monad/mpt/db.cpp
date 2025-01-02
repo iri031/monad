@@ -74,6 +74,9 @@ struct Db::Impl
     virtual void upsert_fiber_blocking(
         UpdateList &&, uint64_t, bool enable_compaction,
         bool can_write_to_fast) = 0;
+    virtual void copy_trie_fiber_blocking(
+        uint64_t src_version, NibblesView src, uint64_t dest_version,
+        NibblesView dest, bool blocked_by_write = true) = 0;
 
     virtual find_result_type find_fiber_blocking(
         NodeCursor const &root, NibblesView const &key, uint64_t version) = 0;
@@ -85,6 +88,10 @@ struct Db::Impl
         size_t concurrency_limit) = 0;
     virtual void
     move_trie_version_fiber_blocking(uint64_t src, uint64_t dest) = 0;
+    virtual void update_finalized_block(uint64_t) = 0;
+    virtual void update_verified_block(uint64_t) = 0;
+    virtual uint64_t get_latest_finalized_block_id() const = 0;
+    virtual uint64_t get_latest_verified_block_id() const = 0;
 };
 
 struct Db::ROOnDisk final : public Db::Impl
@@ -116,7 +123,8 @@ struct Db::ROOnDisk final : public Db::Impl
               async::AsyncIO::MONAD_IO_BUFFERS_READ_SIZE)}
         , io_{pool_, rwbuf_}
         , aux_{&io_}
-        , last_loaded_root_offset_{aux_.get_latest_root_offset()}
+        , last_loaded_root_offset_{aux_.get_root_offset_at_version(
+              aux_.db_history_max_version())}
         , root_{
               last_loaded_root_offset_ == INVALID_OFFSET
                   ? Node::UniquePtr{}
@@ -185,6 +193,12 @@ struct Db::ROOnDisk final : public Db::Impl
         MONAD_ASSERT(false);
     }
 
+    virtual void copy_trie_fiber_blocking(
+        uint64_t, NibblesView, uint64_t, NibblesView, bool) override
+    {
+        MONAD_ASSERT(false);
+    }
+
     virtual size_t poll(bool const blocking, size_t const count) override
     {
         return blocking ? aux_.io->poll_blocking(count)
@@ -219,6 +233,26 @@ struct Db::ROOnDisk final : public Db::Impl
         }
         return root_ ? NodeCursor{*root_} : NodeCursor{};
     }
+
+    virtual void update_finalized_block(uint64_t) override
+    {
+        MONAD_ASSERT(false);
+    }
+
+    virtual void update_verified_block(uint64_t) override
+    {
+        MONAD_ASSERT(false);
+    }
+
+    virtual uint64_t get_latest_finalized_block_id() const override
+    {
+        return aux_.get_latest_finalized_version();
+    }
+
+    virtual uint64_t get_latest_verified_block_id() const override
+    {
+        return aux_.get_latest_verified_version();
+    }
 };
 
 struct Db::InMemory final : public Db::Impl
@@ -226,7 +260,6 @@ struct Db::InMemory final : public Db::Impl
     UpdateAux<> aux_;
     StateMachine &machine_;
     Node::UniquePtr root_;
-    uint64_t root_version_;
 
     explicit InMemory(StateMachine &machine)
         : aux_{nullptr}
@@ -249,7 +282,16 @@ struct Db::InMemory final : public Db::Impl
     {
         root_ = aux_.do_update(
             std::move(root_), machine_, std::move(list), version, false);
-        root_version_ = version;
+    }
+
+    virtual void copy_trie_fiber_blocking(
+        uint64_t, NibblesView const src, uint64_t const dest_version,
+        NibblesView const dest, bool const) override
+    {
+        // in memory copy_trie only allows moving trie from src to prefix under
+        // the same version
+        root_ =
+            copy_trie_to_dest(aux_, *root_, src, {}, dest, dest_version, false);
     }
 
     virtual find_result_type find_fiber_blocking(
@@ -283,6 +325,20 @@ struct Db::InMemory final : public Db::Impl
     {
         return root() ? NodeCursor{*root()} : NodeCursor{};
     }
+
+    virtual void update_verified_block(uint64_t) override {}
+
+    virtual void update_finalized_block(uint64_t) override {}
+
+    virtual uint64_t get_latest_finalized_block_id() const override
+    {
+        return INVALID_BLOCK_ID;
+    }
+
+    virtual uint64_t get_latest_verified_block_id() const override
+    {
+        return INVALID_BLOCK_ID;
+    }
 };
 
 struct Db::RWOnDisk final : public Db::Impl
@@ -296,6 +352,17 @@ struct Db::RWOnDisk final : public Db::Impl
         uint64_t const version;
         bool const enable_compaction;
         bool const can_write_to_fast;
+    };
+
+    struct FiberCopyTrieRequest
+    {
+        threadsafe_boost_fibers_promise<Node::UniquePtr> *promise;
+        Node &src_root;
+        NibblesView src;
+        Node::UniquePtr dest_root;
+        NibblesView dest;
+        uint64_t dest_version;
+        bool blocked_by_write;
     };
 
     struct FiberLoadAllFromBlockRequest
@@ -330,7 +397,7 @@ struct Db::RWOnDisk final : public Db::Impl
     using Comms = std::variant<
         std::monostate, fiber_find_request_t, FiberUpsertRequest,
         FiberLoadAllFromBlockRequest, FiberTraverseRequest, MoveSubtrieRequest,
-        FiberLoadRootVersionRequest>;
+        FiberLoadRootVersionRequest, FiberCopyTrieRequest>;
 
     ::moodycamel::ConcurrentQueue<Comms> comms_;
 
@@ -500,6 +567,21 @@ struct Db::RWOnDisk final : public Db::Impl
                         MONAD_ASSERT(root_offset != INVALID_OFFSET);
                         req->promise->set_value(
                             read_node_blocking(pool, root_offset));
+                    }
+                    else if (auto *req = std::get_if<7>(&request.front());
+                             req != nullptr) {
+                        // share the same promise type as upsert
+                        upsert_promises.emplace_back(std::move(*req->promise));
+                        req->promise = &upsert_promises.back();
+                        auto root = copy_trie_to_dest(
+                            aux,
+                            req->src_root,
+                            req->src,
+                            std::move(req->dest_root),
+                            req->dest,
+                            req->dest_version,
+                            req->blocked_by_write);
+                        req->promise->set_value(std::move(root));
                     }
                     did_nothing = false;
                 }
@@ -752,6 +834,69 @@ struct Db::RWOnDisk final : public Db::Impl
         }
         return root() ? NodeCursor{*root()} : NodeCursor{};
     }
+
+    virtual void copy_trie_fiber_blocking(
+        uint64_t const src_version, NibblesView const src,
+        uint64_t const dest_version, NibblesView const dest,
+        bool const blocked_by_write = true) override
+    {
+        if (src_version != root_version_) {
+            root_ = read_node_blocking(
+                aux_.io->storage_pool(),
+                aux_.get_root_offset_at_version(src_version));
+            root_version_ = src_version;
+        }
+        Node &src_root = *root_;
+        Node::UniquePtr dest_root{};
+        if (src_version == dest_version) {
+            dest_root = std::move(root_);
+        }
+        else if (auto const root_offset =
+                     aux_.get_root_offset_at_version(dest_version);
+                 root_offset != INVALID_OFFSET) {
+            dest_root =
+                read_node_blocking(aux_.io->storage_pool(), root_offset);
+        }
+
+        threadsafe_boost_fibers_promise<Node::UniquePtr> promise;
+        auto fut = promise.get_future();
+        comms_.enqueue(FiberCopyTrieRequest{
+            .promise = &promise,
+            .src_root = src_root,
+            .src = src,
+            .dest_root = std::move(dest_root),
+            .dest = dest,
+            .dest_version = dest_version,
+            .blocked_by_write = blocked_by_write});
+        // promise is racily emptied after this point
+        if (worker_->sleeping.load(std::memory_order_acquire)) {
+            std::unique_lock const g(lock_);
+            cond_.notify_one();
+        }
+        root_ = fut.get();
+        root_version_ = dest_version;
+    }
+
+    virtual void update_finalized_block(uint64_t const block_id) override
+    {
+        aux_.set_latest_finalized_version(block_id);
+    }
+
+    virtual void update_verified_block(uint64_t const block_id) override
+    {
+        MONAD_ASSERT(block_id <= aux_.db_history_max_version());
+        aux_.set_latest_verified_version(block_id);
+    }
+
+    virtual uint64_t get_latest_finalized_block_id() const override
+    {
+        return aux_.get_latest_finalized_version();
+    }
+
+    virtual uint64_t get_latest_verified_block_id() const override
+    {
+        return aux_.get_latest_verified_version();
+    }
 };
 
 Db::Db(StateMachine &machine)
@@ -840,6 +985,16 @@ void Db::upsert(
         std::move(list), block_id, enable_compaction, can_write_to_fast);
 }
 
+void Db::copy_trie(
+    uint64_t const src_version, NibblesView const src,
+    uint64_t const dest_version, NibblesView const dest,
+    bool const blocked_by_write)
+{
+    MONAD_ASSERT(impl_);
+    impl_->copy_trie_fiber_blocking(
+        src_version, src, dest_version, dest, blocked_by_write);
+}
+
 void Db::move_trie_version_forward(uint64_t const src, uint64_t const dest)
 {
     MONAD_ASSERT(impl_);
@@ -874,6 +1029,30 @@ NodeCursor Db::root() const noexcept
 {
     MONAD_ASSERT(impl_);
     return impl_->root() ? NodeCursor{*impl_->root()} : NodeCursor{};
+}
+
+void Db::update_finalized_block(uint64_t const block_id)
+{
+    MONAD_ASSERT(impl_);
+    impl_->update_finalized_block(block_id);
+}
+
+void Db::update_verified_block(uint64_t const block_id)
+{
+    MONAD_ASSERT(impl_);
+    impl_->update_verified_block(block_id);
+}
+
+uint64_t Db::get_latest_finalized_block_id() const
+{
+    MONAD_ASSERT(impl_);
+    return impl_->get_latest_finalized_block_id();
+}
+
+uint64_t Db::get_latest_verified_block_id() const
+{
+    MONAD_ASSERT(impl_);
+    return impl_->get_latest_verified_block_id();
 }
 
 uint64_t Db::get_latest_block_id() const
@@ -932,7 +1111,7 @@ uint64_t Db::get_history_length() const
 
 AsyncContext::AsyncContext(Db &db, size_t lru_size)
     : aux(db.impl_->aux())
-    , root_cache(lru_size)
+    , root_cache(lru_size, chunk_offset_t::invalid_value())
 {
 }
 
@@ -951,6 +1130,7 @@ namespace detail
     {
         static constexpr bool lifetime_managed_internally = true;
 
+        chunk_offset_t offset;
         DbGetSender<T> *sender;
         async::erased_connected_operation *const io_state;
         chunk_offset_t rd_offset{0, 0};
@@ -960,7 +1140,8 @@ namespace detail
         constexpr load_root_receiver_t(
             chunk_offset_t offset_, DbGetSender<T> *sender_,
             async::erased_connected_operation *io_state_)
-            : sender(sender_)
+            : offset(offset_)
+            , sender(sender_)
             , io_state(io_state_)
         {
             auto const num_pages_to_load_node =
@@ -1000,11 +1181,10 @@ namespace detail
                     {
                         AsyncContext::TrieRootCache::ConstAccessor acc;
                         MONAD_ASSERT(
-                            sender->context.root_cache.find(
-                                acc, sender->block_id) == false);
+                            sender->context.root_cache.find(acc, offset) ==
+                            false);
                     }
-                    sender->context.root_cache.insert(
-                        sender->block_id, sender->root);
+                    sender->context.root_cache.insert(offset, sender->root);
                 }
                 catch (std::exception const &) {
                     sender->res_root = {
@@ -1071,17 +1251,16 @@ namespace detail
         switch (op_type) {
         case op_t::op_get1:
         case op_t::op_get_data1: {
+            chunk_offset_t const offset =
+                context.aux.get_root_offset_at_version(block_id);
             AsyncContext::TrieRootCache::ConstAccessor acc;
-            if (context.root_cache.find(acc, block_id)) {
+            if (context.root_cache.find(acc, offset)) {
                 // found in LRU - no IO necessary
                 root = acc->second->val;
                 res_root = {NodeCursor{*root.get()}, find_result::success};
                 io_state->completed(async::success());
                 return async::success();
             }
-
-            chunk_offset_t const offset =
-                context.aux.get_root_offset_at_version(block_id);
             if (offset == INVALID_OFFSET) {
                 // root is no longer valid
                 res_root = {NodeCursor{}, find_result::version_no_longer_exist};

@@ -20,11 +20,11 @@ using namespace monad::mpt;
 MONAD_ANONYMOUS_NAMESPACE_BEGIN
 
 void on_commit(
-    monad_statesync_server_context &ctx, StateDeltas const &state_deltas)
+    monad_statesync_server_context &ctx, StateDeltas const &state_deltas,
+    uint64_t const n)
 {
     constexpr auto HISTORY_LENGTH = 1200; // 20 minutes with 1s block times
 
-    auto const n = ctx.rw.get_block_number();
     Deleted::accessor it;
     MONAD_ASSERT(ctx.deleted.emplace(it, n, Deleted::mapped_type{}));
     for (auto const &[addr, delta] : state_deltas) {
@@ -108,9 +108,22 @@ std::optional<bytes32_t> monad_statesync_server_context::withdrawals_root()
     return rw.withdrawals_root();
 }
 
-void monad_statesync_server_context::increment_block_number()
+void monad_statesync_server_context::set_block_and_round(
+    uint64_t const block_number, std::optional<uint64_t> const round_number)
 {
-    rw.increment_block_number();
+    rw.set_block_and_round(block_number, round_number);
+}
+
+void monad_statesync_server_context::finalize(
+    uint64_t const block_number, uint64_t const round_number)
+{
+    rw.finalize(block_number, round_number);
+}
+
+void monad_statesync_server_context::update_verified_block(
+    uint64_t const block_number)
+{
+    rw.update_verified_block(block_number);
 }
 
 void monad_statesync_server_context::commit(
@@ -119,9 +132,10 @@ void monad_statesync_server_context::commit(
     std::vector<std::vector<CallFrame>> const &call_frames,
     std::vector<Transaction> const &transactions,
     std::vector<BlockHeader> const &ommers,
-    std::optional<std::vector<Withdrawal>> const &withdrawals)
+    std::optional<std::vector<Withdrawal>> const &withdrawals,
+    std::optional<uint64_t> const round_number)
 {
-    on_commit(*this, state_deltas);
+    on_commit(*this, state_deltas, header.number);
     rw.commit(
         state_deltas,
         code,
@@ -130,5 +144,6 @@ void monad_statesync_server_context::commit(
         call_frames,
         transactions,
         ommers,
-        withdrawals);
+        withdrawals,
+        round_number);
 }

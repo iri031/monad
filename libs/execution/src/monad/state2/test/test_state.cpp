@@ -1104,6 +1104,7 @@ TYPED_TEST(StateTest, set_and_then_clear_storage_in_same_commit)
 
 TYPED_TEST(StateTest, commit_twice)
 {
+    // commit to Block 9 Finalized
     this->tdb.commit(
         StateDeltas{
             {a,
@@ -1121,10 +1122,10 @@ TYPED_TEST(StateTest, commit_twice)
                      {{key1, {bytes32_t{}, value1}},
                       {key2, {bytes32_t{}, value2}}}}}},
         Code{},
-        BlockHeader{});
+        BlockHeader{.number = 9});
 
-    {
-        // Block 0, Txn 0
+    { // Commit to Block 10 Round 5, on top of block 9 finalized
+        this->tdb.set_block_and_round(9);
         BlockState bs{this->tdb};
         State as{bs, Incarnation{1, 1}};
         EXPECT_TRUE(as.account_exists(b));
@@ -1136,13 +1137,14 @@ TYPED_TEST(StateTest, commit_twice)
             as.set_storage(b, key2, value2), EVMC_STORAGE_DELETED_RESTORED);
         EXPECT_TRUE(bs.can_merge(as));
         bs.merge(as);
-        bs.commit({}, {}, {}, {}, {}, std::nullopt);
+        bs.commit({.number = 10}, {}, {}, {}, {}, std::nullopt, 5);
+        this->tdb.finalize(10, 5);
 
         EXPECT_EQ(this->tdb.read_storage(b, Incarnation{1, 1}, key1), value2);
         EXPECT_EQ(this->tdb.read_storage(b, Incarnation{1, 1}, key2), value2);
     }
-    {
-        // Block 1, Txn 0
+    { // Commit to Block 11 Round 6, on top of block 10 round 5
+        this->tdb.set_block_and_round(10, 5);
         BlockState bs{this->tdb};
         State cs{bs, Incarnation{2, 1}};
         EXPECT_TRUE(cs.account_exists(a));
@@ -1153,13 +1155,126 @@ TYPED_TEST(StateTest, commit_twice)
         cs.destruct_suicides<EVMC_SHANGHAI>();
         EXPECT_TRUE(bs.can_merge(cs));
         bs.merge(cs);
-        bs.commit({}, {}, {}, {}, {}, std::nullopt);
-
-        EXPECT_EQ(
-            this->tdb.read_storage(c, Incarnation{2, 1}, key1),
-            monad::bytes32_t{});
-        EXPECT_EQ(
-            this->tdb.read_storage(c, Incarnation{2, 1}, key2),
-            monad::bytes32_t{});
+        bs.commit({.number = 11}, {}, {}, {}, {}, std::nullopt, 6);
     }
+    EXPECT_EQ(
+        this->tdb.read_storage(c, Incarnation{2, 1}, key1), monad::bytes32_t{});
+    EXPECT_EQ(
+        this->tdb.read_storage(c, Incarnation{2, 1}, key2), monad::bytes32_t{});
+
+    // verify finalized state is the same as round 6
+    this->tdb.finalize(11, 6);
+    this->tdb.set_block_and_round(11);
+    EXPECT_EQ(
+        this->tdb.read_storage(c, Incarnation{2, 1}, key1), monad::bytes32_t{});
+    EXPECT_EQ(
+        this->tdb.read_storage(c, Incarnation{2, 1}, key2), monad::bytes32_t{});
+}
+
+TEST_F(OnDiskTrieDbFixture, commit_multiple_proposals)
+{
+    // This test would fail with DbCache
+    // commit to block 10, round 5
+    this->tdb.commit(
+        StateDeltas{
+            {a,
+             StateDelta{.account = {std::nullopt, Account{.balance = 30'000}}}},
+            {b,
+             StateDelta{
+                 .account = {std::nullopt, Account{.balance = 40'000}},
+                 .storage =
+                     {{key1, {bytes32_t{}, value1}},
+                      {key2, {bytes32_t{}, value2}}}}},
+            {c,
+             StateDelta{
+                 .account = {std::nullopt, Account{.balance = 50'000}},
+                 .storage =
+                     {{key1, {bytes32_t{}, value1}},
+                      {key2, {bytes32_t{}, value2}}}}}},
+        Code{},
+        BlockHeader{.number = 10},
+        {},
+        {},
+        {},
+        {},
+        std::nullopt,
+        5);
+    {
+        // set to block 10 round 5
+        this->tdb.set_block_and_round(10, 5);
+        BlockState bs{this->tdb};
+        State as{bs, Incarnation{1, 1}};
+        EXPECT_TRUE(as.account_exists(b));
+        as.add_to_balance(b, 42'000);
+        as.set_nonce(b, 3);
+        EXPECT_EQ(as.set_storage(b, key1, value2), EVMC_STORAGE_MODIFIED);
+        EXPECT_EQ(as.set_storage(b, key2, null), EVMC_STORAGE_DELETED);
+
+        EXPECT_TRUE(bs.can_merge(as));
+        bs.merge(as);
+        // Commit block 11 round 8 on top of block 10 round 5
+        bs.commit({.number = 11}, {}, {}, {}, {}, std::nullopt, 8);
+
+        EXPECT_EQ(this->tdb.read_account(b).value().balance, 82'000);
+        EXPECT_EQ(this->tdb.read_storage(b, Incarnation{1, 1}, key1), value2);
+        EXPECT_EQ(
+            this->tdb.read_storage(b, Incarnation{1, 1}, key2), bytes32_t{});
+    }
+    auto const state_root_round8 = this->tdb.state_root();
+
+    {
+        // set to block 10 round 5
+        this->tdb.set_block_and_round(10, 5);
+        BlockState bs{this->tdb};
+        State as{bs, Incarnation{1, 1}};
+        EXPECT_TRUE(as.account_exists(b));
+        as.add_to_balance(b, 44'000);
+        as.set_nonce(b, 3);
+        EXPECT_EQ(as.set_storage(b, key1, null), EVMC_STORAGE_DELETED);
+        EXPECT_EQ(as.set_storage(b, key2, null), EVMC_STORAGE_DELETED);
+        EXPECT_TRUE(bs.can_merge(as));
+        bs.merge(as);
+        // Commit block 11 round 6 on top of block 10 round 5
+        bs.commit({.number = 11}, {}, {}, {}, {}, std::nullopt, 6);
+
+        EXPECT_EQ(this->tdb.read_account(b).value().balance, 84'000);
+        EXPECT_EQ(
+            this->tdb.read_storage(b, Incarnation{1, 1}, key1), bytes32_t{});
+        EXPECT_EQ(
+            this->tdb.read_storage(b, Incarnation{1, 1}, key2), bytes32_t{});
+    }
+
+    auto const state_root_round6 = this->tdb.state_root();
+
+    {
+        // set to block 10 round 5
+        this->tdb.set_block_and_round(10, 5);
+        BlockState bs{this->tdb};
+        State as{bs, Incarnation{1, 1}};
+        EXPECT_TRUE(as.account_exists(b));
+        as.add_to_balance(b, 32'000);
+        as.set_nonce(b, 3);
+        EXPECT_EQ(as.set_storage(b, key1, null), EVMC_STORAGE_DELETED);
+        EXPECT_EQ(as.set_storage(b, key2, value3), EVMC_STORAGE_MODIFIED);
+        EXPECT_EQ(as.set_storage(b, key1, value2), EVMC_STORAGE_DELETED_ADDED);
+        EXPECT_TRUE(bs.can_merge(as));
+        bs.merge(as);
+        // Commit block 11 round 7 on top of block 10 round 5
+        bs.commit({.number = 11}, {}, {}, {}, {}, std::nullopt, 7);
+
+        EXPECT_EQ(this->tdb.read_account(b).value().balance, 72'000);
+        EXPECT_EQ(this->tdb.read_storage(b, Incarnation{1, 1}, key1), value2);
+        EXPECT_EQ(this->tdb.read_storage(b, Incarnation{1, 1}, key2), value3);
+    }
+    auto const state_root_round7 = this->tdb.state_root();
+    this->tdb.finalize(11, 7);
+    this->tdb.set_block_and_round(11); // set to block 11 finalized
+    EXPECT_EQ(state_root_round7, this->tdb.state_root());
+
+    // check state root of previous rounds
+    this->tdb.set_block_and_round(11, 6);
+    EXPECT_EQ(state_root_round6, this->tdb.state_root());
+
+    this->tdb.set_block_and_round(11, 8);
+    EXPECT_EQ(state_root_round8, this->tdb.state_root());
 }

@@ -33,6 +33,9 @@ class TrieDb final : public ::monad::Db
     std::deque<byte_string> bytes_alloc_;
     std::deque<hash256> hash_alloc_;
     uint64_t block_number_;
+    // read from finalized if it is nullopt
+    std::optional<uint64_t> round_number_;
+    ::monad::mpt::Nibbles prefix_;
 
 public:
     TrieDb(mpt::Db &);
@@ -42,15 +45,23 @@ public:
     virtual bytes32_t
     read_storage(Address const &, Incarnation, bytes32_t const &key) override;
     virtual std::shared_ptr<CodeAnalysis> read_code(bytes32_t const &) override;
-    virtual void increment_block_number() override;
+    virtual void set_block_and_round(
+        uint64_t block_number,
+        std::optional<uint64_t> round_number = std::nullopt) override;
+    // TODO: remove round_number parameter, retrieve it from header instead once
+    // we add the monad fields in BlockHeader
     virtual void commit(
         StateDeltas const &, Code const &, BlockHeader const &,
         std::vector<Receipt> const & = {},
         std::vector<std::vector<CallFrame>> const & = {},
         std::vector<Transaction> const & = {},
         std::vector<BlockHeader> const &ommers = {},
-        std::optional<std::vector<Withdrawal>> const & = {
-            std::nullopt}) override;
+        std::optional<std::vector<Withdrawal>> const & = std::nullopt,
+        std::optional<uint64_t> round_number = std::nullopt) override;
+    virtual void
+    finalize(uint64_t block_number, uint64_t round_number) override;
+    virtual void update_verified_block(uint64_t) override;
+
     virtual bytes32_t state_root() override;
     virtual bytes32_t receipts_root() override;
     virtual bytes32_t transactions_root() override;
@@ -61,8 +72,6 @@ public:
     size_t prefetch_current_root();
     uint64_t get_block_number() const;
     uint64_t get_history_length() const;
-
-    void set_block_number(uint64_t);
 
 private:
     /// STATS

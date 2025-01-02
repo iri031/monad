@@ -9,6 +9,7 @@
 #include <monad/core/hex_literal.hpp>
 #include <monad/core/result.hpp>
 #include <monad/core/small_prng.hpp>
+#include <monad/core/unaligned.hpp>
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/db_error.hpp>
 #include <monad/mpt/nibbles_view.hpp>
@@ -31,6 +32,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <deque>
 #include <filesystem>
 #include <initializer_list>
 #include <iostream>
@@ -84,14 +86,14 @@ namespace
             OnDiskDbConfig{.fixed_history_length = DBTEST_HISTORY_LENGTH}};
     };
 
-    std::filesystem::path create_temp_file()
+    std::filesystem::path create_temp_file(long size_gb)
     {
         std::filesystem::path const filename{
             MONAD_ASYNC_NAMESPACE::working_temporary_directory() /
             "monad_db_test_XXXXXX"};
         int const fd = ::mkstemp((char *)filename.native().data());
         MONAD_ASSERT(fd != -1);
-        MONAD_ASSERT(-1 != ::ftruncate(fd, 8ULL * 1024 * 1024 * 1024));
+        MONAD_ASSERT(-1 != ::ftruncate(fd, size_gb * 1024 * 1024 * 1024));
         ::close(fd);
         return filename;
     }
@@ -99,15 +101,13 @@ namespace
     struct OnDiskDbWithFileFixture : public ::testing::Test
     {
         std::filesystem::path const dbname;
-        using StateMachineMerkleWithCompact = StateMachineAlways<
-            MerkleCompute, StateMachineConfig{.compaction = true}>;
-        StateMachineMerkleWithCompact machine;
+        StateMachineAlwaysMerkle machine;
         OnDiskDbConfig config;
         Db db;
 
         OnDiskDbWithFileFixture()
-            : dbname{create_temp_file()}
-            , machine{StateMachineMerkleWithCompact{}}
+            : dbname{create_temp_file(8)}
+            , machine{StateMachineAlwaysMerkle{}}
             , config{OnDiskDbConfig{
                   .compaction = true,
                   .sq_thread_cpu = std::nullopt,
@@ -264,19 +264,23 @@ namespace
         }
     };
 
+    monad::byte_string keccak_int_to_string(size_t const n)
+    {
+        monad::byte_string ret(KECCAK256_SIZE, 0);
+        keccak256((unsigned char const *)&n, 8, ret.data());
+        return ret;
+    }
+
     std::pair<std::vector<monad::byte_string>, std::vector<Update>>
     prepare_random_updates(unsigned size)
     {
         std::vector<monad::byte_string> bytes_alloc;
         std::vector<Update> updates_alloc;
         for (size_t i = 0; i < size; ++i) {
-            monad::byte_string kv(KECCAK256_SIZE, 0);
-            MONAD_ASSERT(kv.size() == KECCAK256_SIZE);
-            keccak256((unsigned char const *)&i, 8, kv.data());
-            bytes_alloc.emplace_back(kv);
+            auto &kv = bytes_alloc.emplace_back(keccak_int_to_string(i));
             updates_alloc.push_back(Update{
-                .key = bytes_alloc.back(),
-                .value = bytes_alloc.back(),
+                .key = kv,
+                .value = kv,
                 .incarnation = false,
                 .next = UpdateList{}});
         }
@@ -541,10 +545,51 @@ TEST_F(OnDiskDbWithFileAsyncFixture, async_rodb_level_based_cache_works)
     };
 
     InMemoryTraverseMachine traverse_machine{test_cached_level};
+    ASSERT_EQ(ctx->root_cache.size(), 1);
+    auto const offset = ctx->aux.get_root_offset_at_version(version);
+    ASSERT_NE(offset, INVALID_OFFSET);
+
     AsyncContext::TrieRootCache::ConstAccessor acc;
-    ASSERT_TRUE(ctx->root_cache.find(acc, version));
+    ASSERT_TRUE(ctx->root_cache.find(acc, offset));
     auto root = acc->second->val;
     ro_db.traverse(NodeCursor{*root}, traverse_machine, version);
+}
+
+TEST_F(OnDiskDbWithFileAsyncFixture, root_cache_invalidation)
+{
+    auto const &kv = fixed_updates::kv;
+
+    auto const prefix0 = 0x001234_hex;
+    auto const final_prefix = 0x10_hex;
+    uint64_t const block_id = 0;
+    upsert_updates_flat_list(
+        db, prefix0, block_id, make_update(kv[0].first, kv[0].second));
+
+    async_get(
+        make_get_sender(ctx.get(), prefix0 + kv[0].first, block_id),
+        [&](result_t res) {
+            ASSERT_TRUE(res.has_value());
+            EXPECT_EQ(res.value(), kv[0].second);
+        });
+    poll_until(1);
+
+    ASSERT_EQ(ctx.get()->root_cache.size(), 1);
+
+    // Copy trie to new prefix. This rewrites the root offset in memory
+    db.copy_trie(block_id, prefix0, block_id, final_prefix, true);
+
+    // Do another async read on the same version
+    async_get(
+        make_get_sender(ctx.get(), final_prefix + kv[0].first, block_id),
+        [&](result_t res) {
+            ASSERT_TRUE(res.has_value());
+            EXPECT_EQ(res.value(), kv[0].second);
+        });
+    poll_until(2);
+
+    // There should be 2 elements in the root cache because the offset in memory
+    // has changed.
+    EXPECT_EQ(ctx.get()->root_cache.size(), 2);
 }
 
 TEST_F(OnDiskDbWithFileFixture, open_emtpy_rodb)
@@ -776,6 +821,156 @@ TEST_F(OnDiskDbWithFileFixture, load_correct_root_upon_reopen_nonempty_db)
     }
 }
 
+TEST(DbTest, out_of_order_upserts_to_nonexist_earlier_version)
+{
+    auto const dbname = create_temp_file(2); // 2Gb db
+    auto undb = monad::make_scope_exit(
+        [&]() noexcept { std::filesystem::remove(dbname); });
+    StateMachineAlwaysEmpty machine{};
+    OnDiskDbConfig config{
+        .compaction = true,
+        .sq_thread_cpu{std::nullopt},
+        .dbname_paths = {dbname},
+        .fixed_history_length = DBTEST_HISTORY_LENGTH};
+    Db db{machine, config};
+
+    ReadOnlyOnDiskDbConfig const ro_config{.dbname_paths = {dbname}};
+    Db rodb{ro_config};
+
+    constexpr size_t total_keys = 10000;
+    auto [bytes_alloc, updates_alloc] = prepare_random_updates(total_keys);
+
+    UpdateList ls;
+    for (unsigned i = 0; i < total_keys; ++i) {
+        ls.push_front(updates_alloc[i]);
+    }
+    db.upsert(std::move(ls), 0);
+    constexpr uint64_t start_version = 1000;
+
+    db.move_trie_version_forward(0, start_version);
+    EXPECT_EQ(rodb.get_earliest_block_id(), start_version);
+    EXPECT_EQ(rodb.get_latest_block_id(), start_version);
+    EXPECT_EQ(rodb.get_history_length(), DBTEST_HISTORY_LENGTH);
+
+    constexpr uint64_t min_version = 900;
+    for (uint64_t v = start_version - 1; v >= min_version; --v) {
+        UpdateList ls;
+        ls.push_front(updates_alloc.front());
+        db.upsert(std::move(ls), v);
+        EXPECT_EQ(rodb.get_earliest_block_id(), v);
+        EXPECT_EQ(rodb.get_latest_block_id(), start_version);
+    }
+
+    db.load_root_for_version(start_version);
+    uint64_t const max_version = 2000;
+    for (uint64_t v = start_version + 1; v <= max_version; ++v) {
+        // upsert existing
+        UpdateList ls;
+        ls.push_front(updates_alloc.front());
+        db.upsert(std::move(ls), v);
+        EXPECT_EQ(
+            rodb.get_earliest_block_id(),
+            std::max(v - DBTEST_HISTORY_LENGTH + 1, min_version));
+        EXPECT_EQ(rodb.get_latest_block_id(), v);
+    }
+
+    // lookup
+    for (auto const &k : bytes_alloc) {
+        auto res = rodb.get(k, max_version);
+        ASSERT_TRUE(res.has_value());
+        EXPECT_EQ(res.value(), k);
+    }
+}
+
+TEST(DbTest, out_of_order_upserts_with_compaction)
+{
+    auto const dbname = create_temp_file(3); // 3Gb db
+    auto undb = monad::make_scope_exit(
+        [&]() noexcept { std::filesystem::remove(dbname); });
+    StateMachineAlwaysMerkle machine{};
+    OnDiskDbConfig config{
+        .compaction = true,
+        .sq_thread_cpu{std::nullopt},
+        .dbname_paths = {dbname},
+        .fixed_history_length = DBTEST_HISTORY_LENGTH};
+    Db db{machine, config};
+    ReadOnlyOnDiskDbConfig const ro_config{.dbname_paths = {dbname}};
+    Db rodb{ro_config};
+
+    auto get_release_offsets = [](monad::byte_string_view const bytes)
+        -> std::pair<uint32_t, uint32_t> {
+        MONAD_ASSERT(bytes.size() == 8);
+        return {
+            monad::unaligned_load<uint32_t>(bytes.data()),
+            monad::unaligned_load<uint32_t>(bytes.data() + sizeof(uint32_t))};
+    };
+
+    auto const prefix = 0x00_hex;
+    constexpr unsigned keys_per_version = 5;
+    uint64_t block_id = 0;
+    uint64_t n = 0;
+
+    for (block_id = 0; block_id < 1000; ++block_id) {
+        std::deque<monad::byte_string> kv_alloc;
+        for (unsigned i = 0; i < keys_per_version; ++i) {
+            kv_alloc.emplace_back(keccak_int_to_string(n++));
+        }
+        // upsert N
+        upsert_updates_flat_list(
+            db,
+            prefix,
+            block_id,
+            make_update(kv_alloc[0], kv_alloc[0]),
+            make_update(kv_alloc[1], kv_alloc[1]),
+            make_update(kv_alloc[2], kv_alloc[2]),
+            make_update(kv_alloc[3], kv_alloc[3]),
+            make_update(kv_alloc[4], kv_alloc[4]));
+        if (block_id == 0) {
+            continue;
+        }
+        auto const result_n = rodb.get({}, block_id);
+        EXPECT_TRUE(result_n.has_value());
+        auto const [fast_n, slow_n] = get_release_offsets(result_n.value());
+        auto const result_before = rodb.get({}, block_id - 1);
+        EXPECT_TRUE(result_before.has_value());
+        auto const [fast_n_1, slow_n_1] =
+            get_release_offsets(result_before.value());
+        EXPECT_GE(fast_n, fast_n_1);
+        EXPECT_GE(slow_n, slow_n_1);
+        // upsert on top of N-1
+        upsert_updates_flat_list(
+            db,
+            prefix,
+            block_id - 1,
+            make_update(kv_alloc[0], kv_alloc[0]),
+            make_update(kv_alloc[1], kv_alloc[1]),
+            make_update(kv_alloc[2], kv_alloc[2]),
+            make_update(kv_alloc[3], kv_alloc[3]),
+            make_update(kv_alloc[4], kv_alloc[4]));
+        auto const result_after = rodb.get({}, block_id - 1);
+        EXPECT_TRUE(result_after.has_value());
+        // offsets remain the same after the second upsert
+        EXPECT_EQ(result_before.value(), result_after.value());
+        // convert to byte_string so that both data are in scope
+        monad::byte_string const data_n_1{
+            rodb.get_data({prefix}, block_id - 1).value()};
+        monad::byte_string const data_n{
+            rodb.get_data({prefix}, block_id).value()};
+        EXPECT_EQ(data_n_1, data_n) << block_id;
+        // prepare for upserting N+1 on top of N
+        db.load_root_for_version(block_id);
+    }
+
+    ASSERT_EQ(n, block_id * keys_per_version);
+    auto const result_n = rodb.get({}, block_id - 1);
+    EXPECT_TRUE(result_n.has_value());
+    auto const [fast_n, slow_n] = get_release_offsets(result_n.value());
+    EXPECT_EQ(
+        rodb.get_data({prefix}, block_id - 1).value(),
+        0x03786bcd10037502a4e08158de71f8078a40ce46c93ba13db90cb11841679f5e_hex);
+    EXPECT_GT(fast_n, 0);
+}
+
 TYPED_TEST(DbTest, simple_with_same_prefix)
 {
     auto const &kv = fixed_updates::kv;
@@ -945,16 +1140,21 @@ TYPED_TEST(DbTraverseTest, traverse)
 
         virtual bool down(unsigned char const branch, Node const &node) override
         {
-            if (node.has_value()) {
+            if (node.has_value() && branch != INVALID_BRANCH) {
                 ++num_leaves;
             }
             if (branch == INVALID_BRANCH) {
-                EXPECT_EQ(node.number_of_children(), 1);
+                // root is always a leaf
+                EXPECT_TRUE(node.has_value());
+                EXPECT_EQ(node.path_nibbles_len(), 0);
+                EXPECT_GT(node.mask, 0);
+            }
+            else if (branch == 0) { // immediate node under root
                 EXPECT_EQ(node.mask, 0b10);
                 EXPECT_TRUE(node.has_value());
                 EXPECT_EQ(node.value(), monad::byte_string_view{});
                 EXPECT_TRUE(node.has_path());
-                EXPECT_EQ(node.path_nibble_view(), make_nibbles({0x0, 0x0}));
+                EXPECT_EQ(node.path_nibble_view(), make_nibbles({0x0}));
             }
             else if (branch == 1) {
                 EXPECT_EQ(node.number_of_children(), 2);
@@ -1041,7 +1241,7 @@ TYPED_TEST(DbTraverseTest, traverse)
         SimpleTraverse traverse{num_leaves};
         ASSERT_TRUE(this->db.traverse_blocking(
             this->db.root(), traverse, this->block_id));
-        EXPECT_EQ(traverse.num_up, 6);
+        EXPECT_EQ(traverse.num_up, 7);
         EXPECT_EQ(num_leaves, 4);
     }
 }
@@ -1156,20 +1356,18 @@ TEST_F(OnDiskDbFixture, rw_query_old_version)
 
 TEST(DbTest, auto_expire_large_set)
 {
-    auto const dbname = create_temp_file();
+    auto const dbname = create_temp_file(8);
     auto undb = monad::make_scope_exit(
         [&]() noexcept { std::filesystem::remove(dbname); });
     StateMachineAlways<
         EmptyCompute,
-        StateMachineConfig{
-            .compaction = true, .expire = true, .cache_depth = 3}>
+        StateMachineConfig{.expire = true, .cache_depth = 3}>
         machine{};
     constexpr auto history_len = 20;
     OnDiskDbConfig config{
         .compaction = true,
         .sq_thread_cpu{std::nullopt},
         .dbname_paths = {dbname},
-        .file_size_db = 8,
         .fixed_history_length = history_len};
     Db db{machine, config};
 
@@ -1222,19 +1420,17 @@ TEST(DbTest, auto_expire_large_set)
 
 TEST(DbTest, auto_expire)
 {
-    auto const dbname = create_temp_file();
+    auto const dbname = create_temp_file(8);
     auto undb = monad::make_scope_exit(
         [&]() noexcept { std::filesystem::remove(dbname); });
     StateMachineAlways<
         EmptyCompute,
-        StateMachineConfig{
-            .compaction = true, .expire = true, .cache_depth = 3}>
+        StateMachineConfig{.expire = true, .cache_depth = 3}>
         machine{};
     OnDiskDbConfig config{
         .compaction = true,
         .sq_thread_cpu{std::nullopt},
         .dbname_paths = {dbname},
-        .file_size_db = 8,
         .fixed_history_length = 5};
     Db db{machine, config};
     auto const prefix = 0x00_hex;
@@ -1297,6 +1493,162 @@ TEST(DbTest, auto_expire)
             EXPECT_TRUE(res.has_value()) << i;
             EXPECT_EQ(res.value(), keys[i]);
         }
+    }
+}
+
+TYPED_TEST(DbTest, copy_trie_from_to_same_version)
+{
+    // insert random updates under a src prefix
+    constexpr unsigned nkeys = 20;
+    auto [kv_alloc, updates_alloc] = prepare_random_updates(nkeys);
+    auto const src_prefix = 0x00_hex;
+    auto const dest_prefix = 0x01_hex;
+    auto const dest_prefix2 = 0x02_hex;
+    auto const long_dest_prefix = 0x1010_hex;
+    uint64_t const version = 0;
+    UpdateList ls;
+    for (auto &u : updates_alloc) {
+        ls.push_front(u);
+    }
+    UpdateList updates;
+    Update top_update{
+        .key = src_prefix,
+        .value = monad::byte_string_view{},
+        .incarnation = true,
+        .next = std::move(ls),
+        .version = version};
+    updates.push_front(top_update);
+    this->db.upsert(std::move(updates), version);
+    auto const src_prefix_data =
+        monad::byte_string{this->db.get_data(src_prefix, version).value()};
+
+    auto verify_dest_state = [&](Db &db, monad::byte_string const prefix) {
+        EXPECT_EQ(db.get_latest_block_id(), version);
+        auto const data_res = db.get_data(prefix, version);
+        EXPECT_TRUE(data_res.has_value()) << NibblesView{prefix};
+        EXPECT_EQ(src_prefix_data, data_res.value()) << NibblesView{prefix};
+        // look up from prefix, assert same data as src trie
+        for (unsigned i = 0; i < nkeys; ++i) {
+            auto const res = db.get(prefix + kv_alloc[i], version);
+            EXPECT_TRUE(res.has_value()) << NibblesView{prefix};
+            EXPECT_EQ(res.value(), kv_alloc[i]) << NibblesView{prefix};
+        }
+    };
+    // copy to dest prefix, switch to dest_version
+    this->db.copy_trie(version, src_prefix, version, dest_prefix);
+    if (this->db.is_on_disk()) {
+        verify_dest_state(this->db, src_prefix);
+    }
+    verify_dest_state(this->db, dest_prefix);
+
+    this->db.copy_trie(version, dest_prefix, version, dest_prefix2);
+    if (this->db.is_on_disk()) {
+        verify_dest_state(this->db, src_prefix);
+        verify_dest_state(this->db, dest_prefix);
+    }
+    verify_dest_state(this->db, dest_prefix2);
+
+    // copy from src to an existing prefix
+    if (this->db.is_on_disk()) {
+        this->db.copy_trie(version, src_prefix, version, dest_prefix);
+        verify_dest_state(this->db, src_prefix);
+        verify_dest_state(this->db, dest_prefix);
+    }
+
+    // copy from dest2 to longer prefix
+    this->db.copy_trie(version, dest_prefix2, version, long_dest_prefix);
+    if (this->db.is_on_disk()) {
+        verify_dest_state(this->db, src_prefix);
+        verify_dest_state(this->db, dest_prefix2);
+    }
+    verify_dest_state(this->db, long_dest_prefix);
+}
+
+TEST_F(OnDiskDbWithFileFixture, copy_trie_to_different_version_modify_state)
+{
+    std::deque<monad::byte_string> kv_alloc;
+    for (size_t i = 0; i < 10; ++i) {
+        kv_alloc.emplace_back(keccak_int_to_string(i));
+    }
+    auto const prefix = 0x0012_hex;
+    auto const prefix0 = 0x001233_hex;
+    auto const prefix1 = 0x001235_hex;
+    auto const prefix2 = 0x001239_hex;
+    auto const last_prefix = 0x10_hex;
+    uint64_t const block_id = 0;
+    upsert_updates_flat_list(
+        db, prefix, block_id, make_update(kv_alloc[0], kv_alloc[0]));
+
+    ReadOnlyOnDiskDbConfig const ro_config{.dbname_paths = {dbname}};
+    Db rodb{ro_config};
+
+    // copy trie to a new version
+    // read: can't read new dest version until upserting
+    db.copy_trie(block_id, prefix, block_id + 1, prefix0);
+    EXPECT_FALSE(rodb.get({}, block_id + 1).has_value());
+    db.upsert({}, block_id + 1);
+
+    db.copy_trie(block_id, prefix, block_id + 1, prefix1);
+    upsert_updates_flat_list(
+        db, prefix1, block_id + 1, make_update(kv_alloc[1], kv_alloc[1]));
+
+    auto verify_before1 = [&](int const invoke_count) {
+        auto res = rodb.get(prefix1 + kv_alloc[0], block_id + 1);
+        ASSERT_TRUE(res.has_value()) << invoke_count;
+        EXPECT_EQ(res.value(), kv_alloc[0]);
+        res = rodb.get(prefix1 + kv_alloc[1], block_id + 1);
+        ASSERT_TRUE(res.has_value()) << invoke_count;
+        EXPECT_EQ(res.value(), kv_alloc[1]);
+        ASSERT_FALSE(rodb.get(prefix1 + kv_alloc[2], block_id + 1))
+            << invoke_count;
+
+        res = rodb.get(prefix0 + kv_alloc[0], block_id + 1);
+        ASSERT_TRUE(res.has_value()) << invoke_count;
+        EXPECT_EQ(res.value(), kv_alloc[0]);
+        ASSERT_FALSE(rodb.get(prefix0 + kv_alloc[1], block_id + 1))
+            << invoke_count;
+        ASSERT_FALSE(rodb.get(prefix0 + kv_alloc[2], block_id + 1))
+            << invoke_count;
+    };
+    int invoke_idx = 0;
+    verify_before1(invoke_idx++);
+
+    db.copy_trie(block_id, prefix, block_id + 1, prefix2);
+    upsert_updates_flat_list(
+        db, prefix2, block_id + 1, make_update(kv_alloc[2], kv_alloc[2]));
+
+    auto verify_before2 = [&](int const invoke_count) {
+        auto res = rodb.get(prefix2 + kv_alloc[0], block_id + 1);
+        ASSERT_TRUE(res.has_value()) << invoke_count;
+        EXPECT_EQ(res.value(), kv_alloc[0]);
+        res = rodb.get(prefix2 + kv_alloc[2], block_id + 1);
+        ASSERT_TRUE(res.has_value()) << invoke_count;
+        EXPECT_EQ(res.value(), kv_alloc[2]);
+        ASSERT_FALSE(rodb.get(prefix2 + kv_alloc[1], block_id + 1))
+            << invoke_count;
+
+        verify_before1(invoke_count);
+    };
+    verify_before2(invoke_idx++);
+
+    // copy trie to a different prefix within the same version
+    db.copy_trie(block_id + 1, prefix1, block_id + 1, last_prefix, false);
+    EXPECT_FALSE(rodb.get(last_prefix, block_id + 1).has_value());
+    upsert_updates_flat_list(
+        db, last_prefix, block_id + 1, make_update(kv_alloc[3], kv_alloc[3]));
+    {
+        auto res = rodb.get(last_prefix + kv_alloc[0], block_id + 1);
+        ASSERT_TRUE(res.has_value());
+        EXPECT_EQ(res.value(), kv_alloc[0]);
+        res = rodb.get(last_prefix + kv_alloc[1], block_id + 1);
+        ASSERT_TRUE(res.has_value());
+        EXPECT_EQ(res.value(), kv_alloc[1]);
+        res = rodb.get(last_prefix + kv_alloc[3], block_id + 1);
+        ASSERT_TRUE(res.has_value());
+        EXPECT_EQ(res.value(), kv_alloc[3]);
+        ASSERT_FALSE(rodb.get(last_prefix + kv_alloc[2], block_id + 1));
+
+        verify_before2(invoke_idx++);
     }
 }
 
@@ -1415,17 +1767,20 @@ TEST_F(OnDiskDbWithFileFixture, reset_history_length_concurrent)
 {
     std::atomic<bool> done{false};
     Db ro_db{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    auto const prefix = 0x00_hex;
 
     // fille rwdb with some blocks
     auto const &kv = fixed_updates::kv;
     for (uint64_t block_id = 0; block_id < DBTEST_HISTORY_LENGTH; ++block_id) {
         upsert_updates_flat_list(
-            db, {}, block_id, make_update(kv[0].first, kv[0].second));
+            db, prefix, block_id, make_update(kv[0].first, kv[0].second));
     }
 
     EXPECT_EQ(ro_db.get_history_length(), DBTEST_HISTORY_LENGTH);
     EXPECT_EQ(ro_db.get_latest_block_id(), DBTEST_HISTORY_LENGTH - 1);
-    EXPECT_EQ(ro_db.get(kv[0].first, 0).value(), kv[0].second);
+    auto const res = ro_db.get(prefix + kv[0].first, 0);
+    EXPECT_TRUE(res.has_value());
+    EXPECT_EQ(res.value(), kv[0].second);
 
     uint64_t const end_history_length =
         DBTEST_HISTORY_LENGTH - DBTEST_HISTORY_LENGTH / 2;
@@ -1437,7 +1792,7 @@ TEST_F(OnDiskDbWithFileFixture, reset_history_length_concurrent)
     auto ro_query = [&] {
         uint64_t read_block_id = 0;
         while (!done.load(std::memory_order_acquire)) {
-            auto const get_res = ro_db.get(kv[0].first, read_block_id);
+            auto const get_res = ro_db.get(prefix + kv[0].first, read_block_id);
             if (get_res.has_error()) {
                 ++read_block_id;
             }
@@ -1451,7 +1806,7 @@ TEST_F(OnDiskDbWithFileFixture, reset_history_length_concurrent)
                   << ro_db.get_earliest_block_id() << std::endl;
         EXPECT_LE(read_block_id, ro_db.get_earliest_block_id());
 
-        while (ro_db.get(kv[0].first, read_block_id).has_error()) {
+        while (ro_db.get(prefix + kv[0].first, read_block_id).has_error()) {
             ++read_block_id;
         }
         EXPECT_EQ(read_block_id, expected_earliest_block);

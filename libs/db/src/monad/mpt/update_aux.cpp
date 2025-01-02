@@ -5,6 +5,7 @@
 #include <monad/core/assert.h>
 #include <monad/core/byte_string.hpp>
 #include <monad/core/small_prng.hpp>
+#include <monad/core/unaligned.hpp>
 #include <monad/core/unordered_map.hpp>
 #include <monad/mpt/config.hpp>
 #include <monad/mpt/detail/unsigned_20.hpp>
@@ -35,6 +36,33 @@
 MONAD_MPT_NAMESPACE_BEGIN
 
 using namespace MONAD_ASYNC_NAMESPACE;
+
+namespace
+{
+    uint32_t divide_and_round(uint32_t const dividend, uint64_t const divisor)
+    {
+        double const result = dividend / static_cast<double>(divisor);
+        auto const result_floor = static_cast<uint32_t>(std::floor(result));
+        double const fractional = result - result_floor;
+        auto const r = static_cast<double>(rand()) / RAND_MAX;
+        return result_floor + static_cast<uint32_t>(r <= fractional);
+    }
+
+    std::pair<compact_virtual_chunk_offset_t, compact_virtual_chunk_offset_t>
+    deserialize_compaction_offsets(byte_string_view const bytes)
+    {
+        MONAD_ASSERT(bytes.size() == 2 * sizeof(uint32_t));
+        compact_virtual_chunk_offset_t fast_offset{
+            INVALID_COMPACT_VIRTUAL_OFFSET};
+        compact_virtual_chunk_offset_t slow_offset{
+            INVALID_COMPACT_VIRTUAL_OFFSET};
+        fast_offset.set_value(unaligned_load<uint32_t>(bytes.data()));
+        slow_offset.set_value(
+            unaligned_load<uint32_t>(bytes.data() + sizeof(uint32_t)));
+        return {fast_offset, slow_offset};
+    }
+
+}
 
 // Define to avoid randomisation of free list chunks on pool creation
 // This can be useful to discover bugs in code which assume chunks are
@@ -130,13 +158,8 @@ void UpdateAuxImpl::advance_db_offsets_to(
     MONAD_ASSERT(db_metadata()->at(fast_offset.id)->in_fast_list);
     MONAD_ASSERT(db_metadata()->at(slow_offset.id)->in_slow_list);
     auto do_ = [&](detail::db_metadata *m) {
-        m->advance_db_offsets_to_(detail::db_metadata::db_offsets_info_t{
-            fast_offset,
-            slow_offset,
-            this->compact_offset_fast,
-            this->compact_offset_slow,
-            this->compact_offset_range_fast_,
-            this->compact_offset_range_slow_});
+        m->advance_db_offsets_to_(
+            detail::db_metadata::db_offsets_info_t{fast_offset, slow_offset});
     };
     do_(db_metadata_[0].main);
     do_(db_metadata_[1].main);
@@ -193,7 +216,6 @@ void UpdateAuxImpl::fast_forward_next_version(
 void UpdateAuxImpl::update_history_length_metadata(
     uint64_t const history_len) noexcept
 {
-    std::cout << "Update db history length to " << history_len << std::endl;
     MONAD_ASSERT(is_on_disk());
     auto do_ = [&](detail::db_metadata *m) {
         auto g = m->hold_dirty();
@@ -201,6 +223,47 @@ void UpdateAuxImpl::update_history_length_metadata(
         MONAD_ASSERT(history_len > 0 && history_len <= ro.capacity());
         reinterpret_cast<std::atomic_uint64_t *>(&m->history_length)
             ->store(history_len, std::memory_order_relaxed);
+    };
+    do_(db_metadata_[0].main);
+    do_(db_metadata_[1].main);
+}
+
+uint64_t UpdateAuxImpl::get_latest_finalized_version() const noexcept
+{
+    MONAD_ASSERT(is_on_disk());
+    return start_lifetime_as<std::atomic_uint64_t const>(
+               &db_metadata()->latest_finalized_version)
+        ->load(std::memory_order_acquire);
+}
+
+uint64_t UpdateAuxImpl::get_latest_verified_version() const noexcept
+{
+    MONAD_ASSERT(is_on_disk());
+    return start_lifetime_as<std::atomic_uint64_t const>(
+               &db_metadata()->latest_verified_version)
+        ->load(std::memory_order_acquire);
+}
+
+void UpdateAuxImpl::set_latest_finalized_version(
+    uint64_t const version) noexcept
+{
+    MONAD_ASSERT(is_on_disk());
+    auto do_ = [&](detail::db_metadata *m) {
+        auto g = m->hold_dirty();
+        reinterpret_cast<std::atomic_uint64_t *>(&m->latest_finalized_version)
+            ->store(version, std::memory_order_release);
+    };
+    do_(db_metadata_[0].main);
+    do_(db_metadata_[1].main);
+}
+
+void UpdateAuxImpl::set_latest_verified_version(uint64_t const version) noexcept
+{
+    MONAD_ASSERT(is_on_disk());
+    auto do_ = [&](detail::db_metadata *m) {
+        auto g = m->hold_dirty();
+        reinterpret_cast<std::atomic_uint64_t *>(&m->latest_verified_version)
+            ->store(version, std::memory_order_release);
     };
     do_(db_metadata_[0].main);
     do_(db_metadata_[1].main);
@@ -273,6 +336,15 @@ void UpdateAuxImpl::rewind_to_version(uint64_t const version)
     auto do_ = [&](detail::db_metadata *m) {
         auto g = m->hold_dirty();
         root_offsets(m == db_metadata_[1].main).rewind_to_version(version);
+        if (auto const latest_finalized = get_latest_finalized_version();
+            latest_finalized != INVALID_BLOCK_ID &&
+            latest_finalized > version) {
+            set_latest_finalized_version(version);
+        }
+        if (auto const latest_verified = get_latest_verified_version();
+            latest_verified != INVALID_BLOCK_ID && latest_verified > version) {
+            set_latest_verified_version(version);
+        }
     };
     do_(db_metadata_[0].main);
     do_(db_metadata_[1].main);
@@ -663,6 +735,8 @@ void UpdateAuxImpl::set_io(
             root_offsets(0).reset_all(0);
             root_offsets(1).reset_all(0);
         }
+        set_latest_finalized_version(INVALID_BLOCK_ID);
+        set_latest_verified_version(INVALID_BLOCK_ID);
 
         // Set history length
         if (history_len.has_value()) {
@@ -709,6 +783,7 @@ void UpdateAuxImpl::set_io(
                     }
                 }
                 update_history_length_metadata(*history_len);
+                enable_dynamic_history_length_ = false;
             }
         }
     }
@@ -796,20 +871,29 @@ Node::UniquePtr UpdateAuxImpl::do_update(
     auto g2(set_current_upsert_tid());
 
     if (is_in_memory()) {
+        UpdateList root_updates;
+        auto root_update =
+            make_update({}, {}, false, std::move(updates), version);
+        root_updates.push_front(root_update);
         return upsert(
-            *this, version, sm, std::move(prev_root), std::move(updates));
+            *this, version, sm, std::move(prev_root), std::move(root_updates));
     }
     MONAD_ASSERT(is_on_disk());
     set_can_write_to_fast(can_write_to_fast);
 
     if (compaction) {
         if (enable_dynamic_history_length_) {
-            // WARNING: this step may remove historical blocks and free disk
+            // WARNING: this step may remove historical versions and free disk
             // chunks
             adjust_history_length_based_on_disk_usage();
         }
-        // kick off compaction before we reach history length limit
-        advance_compact_offsets();
+        if (prev_root) {
+            advance_compact_offsets(*prev_root, version);
+        }
+        else { // no compaction if trie upsert on an empty trie
+            compact_offset_fast = MIN_COMPACT_VIRTUAL_OFFSET;
+            compact_offset_slow = MIN_COMPACT_VIRTUAL_OFFSET;
+        }
     }
     // Erase the earliest valid version if it is going to be outdated after
     // upserting new version
@@ -817,48 +901,77 @@ Node::UniquePtr UpdateAuxImpl::do_update(
         version > min_valid_version &&
         min_valid_version != INVALID_BLOCK_ID /* at least one valid version */
         && version - min_valid_version >= version_history_length()) {
-        std::tie(
-            chunks_to_remove_before_count_fast_,
-            chunks_to_remove_before_count_slow_) =
-            min_offsets_of_version(min_valid_version);
         // erase min_valid_version, must happen before upsert() because that
         // offset slot in ring buffer may be overwritten thus invalidated in
         // `upsert()`.
-        update_root_offset(min_valid_version, INVALID_OFFSET);
-        free_compacted_chunks();
+        erase_version(min_valid_version);
     }
-    return upsert(*this, version, sm, std::move(prev_root), std::move(updates));
+    UpdateList root_updates;
+    byte_string const compact_offsets_bytes =
+        version_is_valid_ondisk(version)
+            ? byte_string{prev_root->value()}
+            : serialize((uint32_t)compact_offset_fast) +
+                  serialize((uint32_t)compact_offset_slow);
+    auto root_update = make_update(
+        {}, compact_offsets_bytes, false, std::move(updates), version);
+    root_updates.push_front(root_update);
+    return upsert(
+        *this, version, sm, std::move(prev_root), std::move(root_updates));
+}
+
+void UpdateAuxImpl::erase_version(uint64_t const version)
+{
+    auto root_to_erase = read_node_blocking(
+        io->storage_pool(), get_root_offset_at_version(version));
+    auto const [min_offset_fast, min_offset_slow] =
+        deserialize_compaction_offsets(root_to_erase->value());
+    MONAD_ASSERT(
+        min_offset_fast != INVALID_COMPACT_VIRTUAL_OFFSET &&
+        min_offset_slow != INVALID_COMPACT_VIRTUAL_OFFSET);
+    chunks_to_remove_before_count_fast_ = min_offset_fast.get_count();
+    chunks_to_remove_before_count_slow_ = min_offset_slow.get_count();
+    // MUST NOT CHANGE ORDER
+    // Remove the root from the ring buffer before recycling disk chunks
+    // ensures crash recovery integrity
+    update_root_offset(version, INVALID_OFFSET);
+    free_compacted_chunks();
 }
 
 void UpdateAuxImpl::adjust_history_length_based_on_disk_usage()
 {
-    // Shorten thie history length when disk usage is high
     constexpr double upper_bound = 0.8;
     constexpr double lower_bound = 0.6;
     constexpr uint64_t min_history_length = 256;
 
+    // Shorten history length when disk usage is high
     auto const current_disk_usage = disk_usage();
-    auto const max_version = db_history_max_version();
-    while (disk_usage() > upper_bound &&
-           version_history_length() > min_history_length) {
-        auto const version_to_erase = db_history_min_valid_version();
-        MONAD_ASSERT(version_to_erase != INVALID_BLOCK_ID);
-        std::tie(
-            chunks_to_remove_before_count_fast_,
-            chunks_to_remove_before_count_slow_) =
-            min_offsets_of_version(version_to_erase);
-        update_root_offset(version_to_erase, INVALID_OFFSET);
-        free_compacted_chunks();
-        update_history_length_metadata(
-            std::max(max_version - version_to_erase, min_history_length));
-        return;
+    if (current_disk_usage > upper_bound &&
+        version_history_length() > min_history_length) {
+        std::cout << "Adjust db history length down from "
+                  << version_history_length();
+        auto const max_version = db_history_max_version();
+        while (disk_usage() > upper_bound &&
+               version_history_length() > min_history_length) {
+            auto const version_to_erase = db_history_min_valid_version();
+            MONAD_ASSERT(
+                version_to_erase != INVALID_BLOCK_ID &&
+                version_to_erase < max_version);
+            erase_version(version_to_erase);
+            update_history_length_metadata(
+                std::max(max_version - version_to_erase, min_history_length));
+        }
+        MONAD_ASSERT(
+            disk_usage() <= upper_bound ||
+            version_history_length() == min_history_length);
+        std::cout << " to " << version_history_length() << std::endl;
     }
-
     // Raise history length limit when disk usage falls low
-    auto const offsets = root_offsets();
-    if (current_disk_usage < lower_bound &&
-        version_history_length() < offsets.capacity()) {
+    else if (auto const offsets = root_offsets();
+             current_disk_usage < lower_bound &&
+             version_history_length() < offsets.capacity()) {
         update_history_length_metadata(offsets.capacity());
+        std::cout << "Adjust db history length up to " << offsets.capacity()
+                  << std::endl;
     }
 }
 
@@ -878,33 +991,8 @@ void UpdateAuxImpl::move_trie_version_forward(
     append_root_offset(offset);
 }
 
-std::pair<uint32_t, uint32_t>
-UpdateAuxImpl::min_offsets_of_version(uint64_t const version) const
-{
-    // TODO: can save a blocking read if we store the min_offset_fast/slow to
-    // the version ring buffer in metadata
-    auto root_to_erase = read_node_blocking(
-        io->storage_pool(), get_root_offset_at_version(version));
-    auto [min_offset_fast, min_offset_slow] = calc_min_offsets(*root_to_erase);
-    if (min_offset_fast == INVALID_COMPACT_VIRTUAL_OFFSET) {
-        min_offset_fast = MIN_COMPACT_VIRTUAL_OFFSET;
-    }
-    if (min_offset_slow == INVALID_COMPACT_VIRTUAL_OFFSET) {
-        min_offset_slow = MIN_COMPACT_VIRTUAL_OFFSET;
-    }
-    return {min_offset_fast.get_count(), min_offset_slow.get_count()};
-}
-
-uint32_t divide_and_round(uint32_t const dividend, uint64_t const divisor)
-{
-    double const result = dividend / static_cast<double>(divisor);
-    auto const result_floor = static_cast<uint32_t>(std::floor(result));
-    double const fractional = result - result_floor;
-    auto const r = static_cast<double>(rand()) / RAND_MAX;
-    return result_floor + static_cast<uint32_t>(r <= fractional);
-}
-
-void UpdateAuxImpl::advance_compact_offsets()
+void UpdateAuxImpl::advance_compact_offsets(
+    Node &prev_root, uint64_t const version)
 {
     /* Note on ring based compaction:
     Fast list compaction is steady pace based on disk growth over recent blocks,
@@ -939,47 +1027,30 @@ void UpdateAuxImpl::advance_compact_offsets()
     last_block_end_offset_fast_ = curr_fast_writer_offset;
     last_block_end_offset_slow_ = curr_slow_writer_offset;
 
-    constexpr auto fast_usage_limit_start_compaction = 0.1;
-    constexpr uint64_t history_length_to_start_compaction = 65536;
-    auto const fast_disk_usage =
-        num_chunks(chunk_list::fast) / (double)io->chunk_count();
-    auto const max_version = db_history_max_version();
-    uint64_t const min_valid_version = db_history_min_valid_version();
-    if (fast_disk_usage < fast_usage_limit_start_compaction &&
-        max_version - min_valid_version + 1 <
-            history_length_to_start_compaction) {
+    std::tie(compact_offset_fast, compact_offset_slow) =
+        deserialize_compaction_offsets(prev_root.value());
+    if (version_is_valid_ondisk(version)) {
         return;
     }
-    compact_offset_fast = db_metadata()->db_offsets.last_compact_offset_fast;
-    compact_offset_slow = db_metadata()->db_offsets.last_compact_offset_slow;
+    constexpr auto fast_usage_limit_start_compaction = 0.1;
+    auto const fast_disk_usage =
+        num_chunks(chunk_list::fast) / (double)io->chunk_count();
+    if (fast_disk_usage < fast_usage_limit_start_compaction) {
+        return;
+    }
+
+    MONAD_ASSERT(
+        compact_offset_fast != INVALID_COMPACT_VIRTUAL_OFFSET &&
+        compact_offset_slow != INVALID_COMPACT_VIRTUAL_OFFSET);
     compact_offset_range_fast_ = MIN_COMPACT_VIRTUAL_OFFSET;
 
-    MONAD_ASSERT(version_history_length() > 1);
     /* Compact the fast ring based on average disk growth over recent blocks. */
-    // get the earliest version whose root is written to fast list
-    uint64_t min_version_on_fast = min_valid_version;
-    auto virtual_root_offset =
-        physical_to_virtual(get_root_offset_at_version(min_version_on_fast));
-    if (!virtual_root_offset.in_fast_list()) {
-        while (true) {
-            auto const root_offset =
-                get_root_offset_at_version(++min_version_on_fast);
-            if (root_offset != INVALID_OFFSET) {
-                virtual_root_offset = physical_to_virtual(root_offset);
-                if (virtual_root_offset.in_fast_list()) {
-                    break;
-                }
-            }
-        }
-    }
-    MONAD_ASSERT(virtual_root_offset.in_fast_list());
-
-    auto const compacted_erased_root_offset =
-        compact_virtual_chunk_offset_t{virtual_root_offset};
     if (compact_offset_fast < curr_fast_writer_offset) {
+        auto const valid_history_length =
+            db_history_max_version() - db_history_min_valid_version() + 1;
         compact_offset_range_fast_.set_value(divide_and_round(
-            curr_fast_writer_offset - compacted_erased_root_offset,
-            max_version - min_version_on_fast));
+            curr_fast_writer_offset - compact_offset_fast,
+            valid_history_length));
         compact_offset_fast += compact_offset_range_fast_;
     }
     constexpr double usage_limit_start_compact_slow = 0.6;
@@ -1002,6 +1073,9 @@ void UpdateAuxImpl::advance_compact_offsets()
                           stats.compacted_bytes_in_slow))
                 : 1);
         compact_offset_slow += compact_offset_range_slow_;
+    }
+    else {
+        compact_offset_range_slow_ = MIN_COMPACT_VIRTUAL_OFFSET;
     }
 }
 
