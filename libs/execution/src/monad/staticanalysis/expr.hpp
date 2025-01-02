@@ -1193,9 +1193,9 @@ inline intx::uint256 ofBoost(const Word256& word) {
     intx::uint256 result{words[0], words[1], words[2], words[3]};
 
     // For debugging: log the Word256 and the intx::uint256 values
-    //LOG_INFO("Converting Word256 to intx::uint256");
-    // LOG_INFO("Word256:       0x{}", word.str(0, std::ios_base::hex));
-    //LOG_INFO("intx::uint256: 0x{}", intx::to_string(result, 16));
+    ////LOG_INFO("Converting Word256 to intx::uint256");
+    // //LOG_INFO("Word256:       0x{}", word.str(0, std::ios_base::hex));
+    ////LOG_INFO("intx::uint256: 0x{}", intx::to_string(result, 16));
 
     return result;
 }

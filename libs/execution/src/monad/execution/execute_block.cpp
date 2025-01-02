@@ -150,19 +150,19 @@ bool insert_callees(BlockState &block_state, std::set<evmc::address> *footprint,
 
 // sender address is later added to the footprint by the caller, because sender.nonce is updated by the transaction
 // for now, we assume that no transaction calls a contract created by a previous transaction in this very block. need to extend static analysis to look at predicted stacks at CREATE/CREATE2
- std::set<evmc::address> * compute_footprint(BlockState &block_state, Transaction const &transaction, CalleePredInfo &callee_pred_info, uint64_t tx_index=0) {
+ std::set<evmc::address> * compute_footprint(BlockState &block_state, Transaction const &transaction, CalleePredInfo &callee_pred_info, uint64_t /*tx_index*/=0) {
     if(!transaction.to.has_value()) {
-        LOG_INFO("compute_footprint: tx_index: {} has no empty to value", tx_index);
+        //LOG_INFO("compute_footprint: tx_index: {} has no empty to value", tx_index);
         return nullptr;//this is sound but not optimal for performance. add a way for the ParallelCommitSystem to  know that this is creating a NEW contract, so that we know that there is no conflict with block-pre-existing contracts
     }
     evmc::address runningAddress = transaction.to.value();
     std::set<evmc::address> *footprint=new std::set<evmc::address>();
     footprint->insert(runningAddress);
     if(address_known_to_be_non_contract(block_state, transaction.to.value())) {
-        LOG_INFO("compute_footprint: tx_index: {} address_known_to_be_non_contract: {}", tx_index, runningAddress);
+        //LOG_INFO("compute_footprint: tx_index: {} address_known_to_be_non_contract: {}", tx_index, runningAddress);
         return footprint;
     }
-    LOG_INFO("compute_footprint: tx_index: {} address NOT known_to_be_non_contract: {}", tx_index, runningAddress);
+    //LOG_INFO("compute_footprint: tx_index: {} address NOT known_to_be_non_contract: {}", tx_index, runningAddress);
 
     std::vector<evmc::address> to_be_explored;
     std::set<evmc::address> seen_delegate_callees;// a delegate/callcode-only callee is not itself a part of footprint but we look for its CALLees
@@ -239,11 +239,11 @@ Result<std::vector<ExecutionResult>> execute_block(
             });
     }
 
-    LOG_INFO("block number: {}, block beneficiary: {}", block.header.number, block.header.beneficiary);
+    //LOG_INFO("block number: {}, block beneficiary: {}", block.header.number, block.header.beneficiary);
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         promises[i].get_future().wait();
-        LOG_INFO("sender[{}]: {}", i, fmt::format("{}", senders[i].value()));
+        //LOG_INFO("sender[{}]: {}", i, fmt::format("{}", senders[i].value()));
     }
 
     std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
@@ -268,7 +268,7 @@ Result<std::vector<ExecutionResult>> execute_block(
                 std::set<evmc::address> *footprint=compute_footprint(block_state, transaction, callee_pred_info, i);
                 insert_to_footprint(footprint, sender.value());
                 parallel_commit_system.declareFootprint(i, footprint);
-                print_footprint(footprint, i);
+                //print_footprint(footprint, i);
                 #endif
                 results[i] = execute<rev>(
                     chain,

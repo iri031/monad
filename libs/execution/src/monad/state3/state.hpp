@@ -107,7 +107,7 @@ public:
         for (auto const &[address, stack] : current_) {
             assert(stack.size() >= 1);
             if (footprint && footprint->find(address) == footprint->end()) {
-                LOG_INFO("address not in footprint: {}", address);
+                //LOG_INFO("address not in footprint: {}", address);
                 return false;
             }
         }
@@ -316,12 +316,12 @@ public:
     inline void finalize_block_beneficiary_balance(uint256_t miner_reward){
         uint256_t balance=block_state_.beneficiary_balance_just_after_last_tx();
         set_balance(block_state_.get_block_beneficiary(), balance+miner_reward);
-        if (txindex_.has_value()){
-            LOG_INFO("finalize_block_beneficiary_balance: tx {} set beneficiary's balance to {}, incl miner reward {}", txindex_.value(), balance+miner_reward, miner_reward);
-        }
-        else{
-            LOG_INFO("finalize_block_beneficiary_balance: set beneficiary's balance to {}, incl miner reward {}", balance+miner_reward, miner_reward);
-        }
+        // if (txindex_.has_value()){
+        //     //LOG_INFO("finalize_block_beneficiary_balance: tx {} set beneficiary's balance to {}, incl miner reward {}", txindex_.value(), balance+miner_reward, miner_reward);
+        // }
+        // else{
+        //     //LOG_INFO("finalize_block_beneficiary_balance: set beneficiary's balance to {}, incl miner reward {}", balance+miner_reward, miner_reward);
+        // }
     }
 
     void subtract_from_balance(Address const &address, uint256_t const &delta)

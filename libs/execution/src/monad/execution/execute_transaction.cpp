@@ -187,33 +187,33 @@ Result<evmc::Result> execute_impl2(
     BlockHashBuffer const &block_hash_buffer, State &state)
 {
     auto const sender_account = state.recent_account(sender);
-    auto const result = validate_transaction(tx, sender_account);
-    if (result.has_error()) {
-        LOG_INFO("transaction validation failed with error: {}", result.error().message().c_str());
-        LOG_INFO("sender: {}", fmt::format("{}", sender));
-        //assert(false);
-        if (MONAD_UNLIKELY(!sender_account.has_value())) {
-            LOG_INFO("sender_account is null");
-        }
+    BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
+    // auto const result = validate_transaction(tx, sender_account);
+    // if (result.has_error()) {
+    //     //LOG_INFO("transaction validation failed with error: {}", result.error().message().c_str());
+    //     //LOG_INFO("sender: {}", fmt::format("{}", sender));
+    //     //assert(false);
+    //     if (MONAD_UNLIKELY(!sender_account.has_value())) {
+    //         //LOG_INFO("sender_account is null");
+    //     }
 
-        // YP (71)
-        if (MONAD_UNLIKELY(sender_account->code_hash != NULL_HASH)) {
-            LOG_INFO("sender_account->code_hash is not null");
-        }
+    //     // YP (71)
+    //     if (MONAD_UNLIKELY(sender_account->code_hash != NULL_HASH)) {
+    //         //LOG_INFO("sender_account->code_hash is not null");
+    //     }
 
-        // YP (71)
-        if (MONAD_UNLIKELY(sender_account->nonce != tx.nonce)) {
-            LOG_INFO("sender_account->nonce {} is not equal to tx.nonce {}", sender_account->nonce, tx.nonce);
-        }
+    //     // YP (71)
+    //     if (MONAD_UNLIKELY(sender_account->nonce != tx.nonce)) {
+    //         //LOG_INFO("sender_account->nonce {} is not equal to tx.nonce {}", sender_account->nonce, tx.nonce);
+    //     }
 
-        // YP (71)
-        if (MONAD_UNLIKELY(sender_account->balance < tx.value)) {
-            LOG_INFO("sender_account->balance {} is less than tx.value {}", sender_account->balance, tx.value);
-        }
+    //     // YP (71)
+    //     if (MONAD_UNLIKELY(sender_account->balance < tx.value)) {
+    //         //LOG_INFO("sender_account->balance {} is less than tx.value {}", sender_account->balance, tx.value);
+    //     }
 
-        BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
-    }
-    //BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));// is this the only way this functon returns a failing result? can we move it out to the caller to log it only in cases when the failure is fatal?
+    //     BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
+    // }
 
     auto const tx_context =
         get_tx_context<rev>(tx, sender, hdr, chain.get_chain_id());

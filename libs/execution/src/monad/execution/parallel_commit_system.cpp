@@ -81,11 +81,7 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
     }
     if(footprint && footprint->find(beneficiary)!=footprint->end()){
         nontriv_footprint_contains_beneficiary[myindex]=true;
-        LOG_INFO("footprint[{}] contains beneficiary", myindex);
-    }
-    else {
-        nontriv_footprint_contains_beneficiary[myindex]=false;// not needed as it is default initialized
-        LOG_INFO("footprint[{}] does not contain beneficiary", myindex);
+        //LOG_INFO("footprint[{}] contains beneficiary", myindex);
     }
 
 
@@ -104,14 +100,14 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
     if (!status_[myindex].compare_exchange_strong(current_status, new_status)) {
         assert(current_status == TransactionStatus::STARTED_UNBLOCKED);
         status_[myindex].store(TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED);
-        LOG_INFO("declareFootprint: status[{}] changed from STARTED_UNBLOCKED to FOOTPRINT_COMPUTED_UNBLOCKED", myindex);
+        //LOG_INFO("declareFootprint: status[{}] changed from STARTED_UNBLOCKED to FOOTPRINT_COMPUTED_UNBLOCKED", myindex);
     }
-    else {
-        LOG_INFO("declareFootprint: status[{}] changed from {} to {}", 
-            myindex, 
-            status_to_string(current_status), 
-            status_to_string(new_status));
-    }
+    // else {
+    //     //LOG_INFO("declareFootprint: status[{}] changed from {} to {}", 
+    //     //    myindex, 
+    //     //    status_to_string(current_status), 
+    //     //    status_to_string(new_status));
+    // }
 
     if (!existsBlockerBefore(myindex)) {
         tryUnblockTransactionsStartingFrom(myindex);
@@ -170,10 +166,10 @@ void ParallelCommitSystem::unblockTransaction(TransactionStatus status, txindex_
         }
 
         if (status_[index].compare_exchange_strong(status, new_status)) {
-            LOG_INFO("unblockTransaction: status[{}] changed from {} to {}", 
-                index, 
-                status_to_string(status), 
-                status_to_string(new_status));
+            //LOG_INFO("unblockTransaction: status[{}] changed from {} to {}", 
+            //    index, 
+            //    status_to_string(status), 
+            //    status_to_string(new_status));
             if (new_status == TransactionStatus::COMMITTING) {
                 promises[index].set_value();
             }
@@ -334,7 +330,7 @@ void ParallelCommitSystem::notifyDone(txindex_t myindex) {
     //std::cout << "notifyDone: status of " << myindex << " is " << status_to_string(status) << std::endl;
     // assert(status == TransactionStatus::COMMITTING);
     status_[myindex].store(TransactionStatus::COMMITTED);
-    LOG_INFO("notifyDone: status[{}] changed from {} to {}", myindex, status_to_string(TransactionStatus::COMMITTING), status_to_string(TransactionStatus::COMMITTED));
+    //LOG_INFO("notifyDone: status[{}] changed from {} to {}", myindex, status_to_string(TransactionStatus::COMMITTING), status_to_string(TransactionStatus::COMMITTED));
     updateLastCommittedUb();
     if(all_done.load()) {// there is currently a rare bug here. this object may have been deallocated by now. using shared_ptr can fix. static allocation of this object may be better if we can compute a not-too-loose bound on #transactions.
         return;
@@ -395,16 +391,16 @@ MONAD_NAMESPACE_END
  * 5) if 3.1 is not confirmed, investigate 3.2 (memory corruption in ParallelCommitSystem). else tweak BlockState so that merge and car_merge can be run more concurrently
  * 
  * 
- * 2024-12-24 23:22:06.177577979 [1085296] execute_block.cpp:208 LOG_INFO	block number: 47219
-2024-12-24 23:22:06.177685659 [1085296] execute_block.cpp:212 LOG_INFO	sender[0]: 0xe6a7a1d47ff21b6321162aea7c6cb457d5476bca
-2024-12-24 23:22:06.177688239 [1085296] execute_block.cpp:212 LOG_INFO	sender[1]: 0xf9a19aea1193d9b9e4ef2f5b8c9ec8df93a22356
-2024-12-24 23:22:06.177908411 [1085306] parallel_commit_system.cpp:99 LOG_INFO	declareFootprint: status[1] changed from STARTED to FOOTPRINT_COMPUTED
-2024-12-24 23:22:06.177915781 [1085306] execute_block.cpp:168 LOG_INFO	footprint[1]: 0x32be343b94f860124dc4fee278fdcbd38c102d88, 0xf9a19aea1193d9b9e4ef2f5b8c9ec8df93a22356,
-2024-12-24 23:22:06.177939611 [1085306] parallel_commit_system.cpp:99 LOG_INFO	declareFootprint: status[0] changed from STARTED_UNBLOCKED to FOOTPRINT_COMPUTED_UNBLOCKED
-2024-12-24 23:22:06.177943681 [1085306] parallel_commit_system.cpp:182 LOG_INFO	indicesAccessingAddress[0x32be343b94f860124dc4fee278fdcbd38c102d88]: 1,
-2024-12-24 23:22:06.177946581 [1085306] parallel_commit_system.cpp:182 LOG_INFO	indicesAccessingAddress[0xf9a19aea1193d9b9e4ef2f5b8c9ec8df93a22356]: 1,
-2024-12-24 23:22:06.177947161 [1085306] parallel_commit_system.cpp:162 LOG_INFO	unblockTransaction: status[1] changed from FOOTPRINT_COMPUTED to FOOTPRINT_COMPUTED_UNBLOCKED
-2024-12-24 23:22:06.177951761 [1085306] execute_block.cpp:168 LOG_INFO	footprint[0]: 0xe25e3a1947405a1f82dd8e3048a9ca471dc782e1, 0xe6a7a1d47ff21b6321162aea7c6cb457d5476bca,
+ * 2024-12-24 23:22:06.177577979 [1085296] execute_block.cpp:208 //LOG_INFO	block number: 47219
+2024-12-24 23:22:06.177685659 [1085296] execute_block.cpp:212 //LOG_INFO	sender[0]: 0xe6a7a1d47ff21b6321162aea7c6cb457d5476bca
+2024-12-24 23:22:06.177688239 [1085296] execute_block.cpp:212 //LOG_INFO	sender[1]: 0xf9a19aea1193d9b9e4ef2f5b8c9ec8df93a22356
+2024-12-24 23:22:06.177908411 [1085306] parallel_commit_system.cpp:99 //LOG_INFO	declareFootprint: status[1] changed from STARTED to FOOTPRINT_COMPUTED
+2024-12-24 23:22:06.177915781 [1085306] execute_block.cpp:168 //LOG_INFO	footprint[1]: 0x32be343b94f860124dc4fee278fdcbd38c102d88, 0xf9a19aea1193d9b9e4ef2f5b8c9ec8df93a22356,
+2024-12-24 23:22:06.177939611 [1085306] parallel_commit_system.cpp:99 //LOG_INFO	declareFootprint: status[0] changed from STARTED_UNBLOCKED to FOOTPRINT_COMPUTED_UNBLOCKED
+2024-12-24 23:22:06.177943681 [1085306] parallel_commit_system.cpp:182 //LOG_INFO	indicesAccessingAddress[0x32be343b94f860124dc4fee278fdcbd38c102d88]: 1,
+2024-12-24 23:22:06.177946581 [1085306] parallel_commit_system.cpp:182 //LOG_INFO	indicesAccessingAddress[0xf9a19aea1193d9b9e4ef2f5b8c9ec8df93a22356]: 1,
+2024-12-24 23:22:06.177947161 [1085306] parallel_commit_system.cpp:162 //LOG_INFO	unblockTransaction: status[1] changed from FOOTPRINT_COMPUTED to FOOTPRINT_COMPUTED_UNBLOCKED
+2024-12-24 23:22:06.177951761 [1085306] execute_block.cpp:168 //LOG_INFO	footprint[0]: 0xe25e3a1947405a1f82dd8e3048a9ca471dc782e1, 0xe6a7a1d47ff21b6321162aea7c6cb457d5476bca,
 2024-12-24 23:22:06.179921012 [1085296] ethereum_mainnet.cpp:104 LOG_ERROR	Block: 47219, Computed State Root: 0x80b2ce33f14791b03d34ea19000059aa7a6215d2757ddca392273cf26bf9196f, Expected State Root: 0x05a16e52dbacec805dc881439ef54338e8324ee133a4dbbb8ab17f8c73290054
 2024-12-24 23:22:06.182764379 [1085296] monad.cpp:685 LOG_ERROR	block 47219 failed with: wrong merkle root
 [Thread 0x7fffed6006c0 (LWP 1085308) exited]
