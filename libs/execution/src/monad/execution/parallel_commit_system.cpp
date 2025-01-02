@@ -32,6 +32,7 @@ std::set<evmc::address> *ParallelCommitSystem::getFootprint(txindex_t myindex) {
 #else
 
 void ParallelCommitSystem::reset(txindex_t num_transactions_, monad::Address const &beneficiary) {
+    assert(num_transactions_<=MAX_TRANSACTIONS);
     this->num_transactions=num_transactions_;
     this->beneficiary=beneficiary;
     all_committed_below_index.store(0);
