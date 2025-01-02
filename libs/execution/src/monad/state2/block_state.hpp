@@ -85,7 +85,7 @@ public:
         uint256_t beneficiary_balance =
             beneficiary_balance_just_before_tx_index(tx_index);
         if (beneficiary_balance != other.balance) {
-            LOG_INFO("eq_beneficiary_ac_before_txindex: beneficiary_balance {} != other.balance {}, preblock_beneficiary_balance {}", beneficiary_balance, other.balance, preblock_beneficiary_balance);
+            LOG_INFO("eq_beneficiary_ac_before_txindex {}: beneficiary_balance {} != other.balance {}, preblock_beneficiary_balance {}", tx_index, beneficiary_balance, other.balance, preblock_beneficiary_balance);
             return false;
         }
         return beneficiary_account.equal_except_balance(other);
@@ -106,7 +106,7 @@ public:
 
     //must be called before any transaction calls can_merge
     inline void load_preblock_beneficiary_balance(){
-        auto const beneficiary_account = read_account(block_beneficiary);
+        auto const beneficiary_account = read_account(block_beneficiary, std::nullopt);
         //assert(beneficiary_account.has_value());
         if(beneficiary_account.has_value()){
             preblock_beneficiary_balance=beneficiary_account.value().balance;
