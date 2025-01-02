@@ -94,7 +94,17 @@ namespace
                         .version = static_cast<int64_t>(block_id_)};
                     updates.push_front(state_update);
 
-                    db_.upsert(std::move(updates), block_id_, false, false);
+                    UpdateList finalized_updates;
+                    Update finalized{
+                        .key = finalized_nibbles,
+                        .value = byte_string_view{},
+                        .incarnation = false,
+                        .next = std::move(updates),
+                        .version = static_cast<int64_t>(block_id_),
+                    };
+                    finalized_updates.push_front(finalized);
+                    db_.upsert(
+                        std::move(finalized_updates), block_id_, false, false);
 
                     update_alloc_.clear();
                     bytes_alloc_.clear();
@@ -114,7 +124,17 @@ namespace
                         .version = static_cast<int64_t>(block_id_)};
                     updates.push_front(code_update);
 
-                    db_.upsert(std::move(updates), block_id_, false, false);
+                    UpdateList finalized_updates;
+                    Update finalized{
+                        .key = finalized_nibbles,
+                        .value = byte_string_view{},
+                        .incarnation = false,
+                        .next = std::move(updates),
+                        .version = static_cast<int64_t>(block_id_),
+                    };
+                    finalized_updates.push_front(finalized);
+                    db_.upsert(
+                        std::move(finalized_updates), block_id_, false, false);
 
                     update_alloc_.clear();
                     bytes_alloc_.clear();
@@ -372,6 +392,12 @@ namespace
     }
 }
 
+constexpr uint8_t MachineBase::prefix_len() const
+{
+    return trie_section == TrieType::Proposal ? PROPOSAL_PREFIX_LEN
+                                              : FINALIZED_PREFIX_LEN;
+}
+
 mpt::Compute &MachineBase::get_compute() const
 {
     static EmptyCompute empty_compute;
@@ -384,15 +410,16 @@ mpt::Compute &MachineBase::get_compute() const
     static VarLenMerkleCompute generic_merkle_compute;
     static RootVarLenMerkleCompute generic_root_merkle_compute;
 
-    if (MONAD_LIKELY(trie_section == TrieType::State)) {
-        MONAD_ASSERT(depth >= PREFIX_LEN);
-        if (MONAD_UNLIKELY(depth == PREFIX_LEN)) {
+    auto const prefix_length = prefix_len();
+    if (MONAD_LIKELY(table == TableType::State)) {
+        MONAD_ASSERT(depth >= prefix_length);
+        if (MONAD_UNLIKELY(depth == prefix_length)) {
             return account_root_compute;
         }
-        else if (depth < PREFIX_LEN + 2 * sizeof(bytes32_t)) {
+        else if (depth < prefix_length + 2 * sizeof(bytes32_t)) {
             return account_compute;
         }
-        else if (depth == PREFIX_LEN + 2 * sizeof(bytes32_t)) {
+        else if (depth == prefix_length + 2 * sizeof(bytes32_t)) {
             return storage_root_compute;
         }
         else {
@@ -400,10 +427,10 @@ mpt::Compute &MachineBase::get_compute() const
         }
     }
     else if (
-        trie_section == TrieType::Receipt ||
-        trie_section == TrieType::Transaction) {
-        return depth == PREFIX_LEN ? generic_root_merkle_compute
-                                   : generic_merkle_compute;
+        table == TableType::Receipt || table == TableType::Transaction ||
+        table == TableType::Withdrawal) {
+        return depth == prefix_length ? generic_root_merkle_compute
+                                      : generic_merkle_compute;
     }
     else {
         return empty_compute;
@@ -413,24 +440,57 @@ mpt::Compute &MachineBase::get_compute() const
 void MachineBase::down(unsigned char const nibble)
 {
     ++depth;
-    MONAD_ASSERT(depth <= MAX_DEPTH);
-    MONAD_ASSERT(
-        (nibble == STATE_NIBBLE || nibble == CODE_NIBBLE ||
-         nibble == RECEIPT_NIBBLE || nibble == TRANSACTION_NIBBLE) ||
-        depth != PREFIX_LEN);
-    if (MONAD_UNLIKELY(depth == PREFIX_LEN)) {
-        MONAD_ASSERT(trie_section == TrieType::Prefix);
-        if (nibble == STATE_NIBBLE) {
-            trie_section = TrieType::State;
-        }
-        else if (nibble == RECEIPT_NIBBLE) {
-            trie_section = TrieType::Receipt;
-        }
-        else if (nibble == TRANSACTION_NIBBLE) {
-            trie_section = TrieType::Transaction;
+    if (depth == TOP_NIBBLE_PREFIX_LEN) {
+        MONAD_ASSERT(trie_section == TrieType::Undefined);
+        MONAD_ASSERT(table == TableType::Prefix);
+        if (nibble == PROPOSAL_NIBBLE) {
+            trie_section = TrieType::Proposal;
         }
         else {
-            trie_section = TrieType::Code;
+            MONAD_ASSERT(nibble == FINALIZED_NIBBLE);
+            trie_section = TrieType::Finalized;
+        }
+        return;
+    }
+    MONAD_ASSERT(trie_section != TrieType::Undefined);
+    auto const prefix_length = prefix_len();
+    MONAD_ASSERT(depth <= max_depth(prefix_length));
+    MONAD_ASSERT(
+        (nibble == STATE_NIBBLE || nibble == CODE_NIBBLE ||
+         nibble == RECEIPT_NIBBLE || nibble == CALL_FRAME_NIBBLE ||
+         nibble == TRANSACTION_NIBBLE || nibble == BLOCKHEADER_NIBBLE ||
+         nibble == WITHDRAWAL_NIBBLE || nibble == OMMER_NIBBLE ||
+         nibble == TX_HASH_NIBBLE || nibble == BLOCK_HASH_NIBBLE) ||
+        depth != prefix_length);
+    if (MONAD_UNLIKELY(depth == prefix_length)) {
+        MONAD_ASSERT(table == TableType::Prefix);
+        if (nibble == STATE_NIBBLE) {
+            table = TableType::State;
+        }
+        else if (nibble == RECEIPT_NIBBLE) {
+            table = TableType::Receipt;
+        }
+        else if (nibble == TRANSACTION_NIBBLE) {
+            table = TableType::Transaction;
+        }
+        else if (nibble == CODE_NIBBLE) {
+            table = TableType::Code;
+        }
+        else if (nibble == WITHDRAWAL_NIBBLE) {
+            table = TableType::Withdrawal;
+        }
+        else if (nibble == TX_HASH_NIBBLE) {
+            table = TableType::TxHash;
+        }
+        else if (nibble == BLOCK_HASH_NIBBLE) {
+            table = TableType::BlockHash;
+        }
+        else {
+            // No subtrie in the rest tables, thus treated the same as
+            // Table::Prefix
+            MONAD_ASSERT(
+                nibble == BLOCKHEADER_NIBBLE || nibble == OMMER_NIBBLE ||
+                nibble == CALL_FRAME_NIBBLE);
         }
     }
 }
@@ -439,8 +499,11 @@ void MachineBase::up(size_t const n)
 {
     MONAD_ASSERT(n <= depth);
     depth -= static_cast<uint8_t>(n);
-    if (MONAD_UNLIKELY(depth < PREFIX_LEN)) {
-        trie_section = TrieType::Prefix;
+    if (MONAD_UNLIKELY(depth < prefix_len())) {
+        table = TableType::Prefix;
+    }
+    if (MONAD_UNLIKELY(depth < TOP_NIBBLE_PREFIX_LEN)) {
+        trie_section = TrieType::Undefined;
     }
 }
 
@@ -461,14 +524,20 @@ std::unique_ptr<StateMachine> InMemoryMachine::clone() const
 
 bool OnDiskMachine::cache() const
 {
-    constexpr uint64_t CACHE_DEPTH = PREFIX_LEN + 5;
-    return depth <= CACHE_DEPTH &&
-           (trie_section == TrieType::State || trie_section == TrieType::Code);
+    constexpr uint64_t CACHE_DEPTH_IN_TABLE = 5;
+    return (depth <= prefix_len() + CACHE_DEPTH_IN_TABLE) &&
+           (table == TableType::State || table == TableType::Code ||
+            table == TableType::TxHash || table == TableType::BlockHash);
 }
 
 bool OnDiskMachine::compact() const
 {
-    return true;
+    return depth >= prefix_len();
+}
+
+bool OnDiskMachine::auto_expire() const
+{
+    return table == TableType::TxHash || table == TableType::BlockHash;
 }
 
 std::unique_ptr<StateMachine> OnDiskMachine::clone() const

@@ -79,7 +79,7 @@ bool send_deletion(
             if (storage.empty()) {
                 sync->statesync_server_send_upsert(
                     sync->net,
-                    SyncTypeUpsertAccountDelete,
+                    SYNC_TYPE_UPSERT_ACCOUNT_DELETE,
                     reinterpret_cast<unsigned char const *>(&addr),
                     sizeof(addr),
                     nullptr,
@@ -90,7 +90,7 @@ bool send_deletion(
                     auto const key = rlp::encode_bytes32_compact(skey);
                     sync->statesync_server_send_upsert(
                         sync->net,
-                        SyncTypeUpsertStorageDelete,
+                        SYNC_TYPE_UPSERT_STORAGE_DELETE,
                         reinterpret_cast<unsigned char const *>(&addr),
                         sizeof(addr),
                         key.data(),
@@ -186,17 +186,17 @@ bool statesync_server_handle_request(
 
                 if (nibble == CODE_NIBBLE) {
                     MONAD_ASSERT(depth == HASH_SIZE);
-                    send_upsert(SyncTypeUpsertCode);
+                    send_upsert(SYNC_TYPE_UPSERT_CODE);
                 }
                 else {
                     MONAD_ASSERT(nibble == STATE_NIBBLE);
                     if (depth == HASH_SIZE) {
-                        send_upsert(SyncTypeUpsertAccount);
+                        send_upsert(SYNC_TYPE_UPSERT_ACCOUNT);
                     }
                     else {
                         MONAD_ASSERT(depth == (HASH_SIZE * 2));
                         send_upsert(
-                            SyncTypeUpsertStorage,
+                            SYNC_TYPE_UPSERT_STORAGE,
                             reinterpret_cast<unsigned char *>(&addr),
                             sizeof(addr));
                     }
@@ -251,9 +251,13 @@ bool statesync_server_handle_request(
     if (!root.is_valid()) {
         return false;
     }
+    auto const finalized_root = db.find(root, finalized_nibbles, rq.target);
+    if (!finalized_root.has_value()) {
+        return false;
+    }
     auto const begin = std::chrono::steady_clock::now();
     Traverse traverse(sync, NibblesView{bytes}, rq.from, rq.until);
-    if (!db.traverse(root, traverse, rq.target)) {
+    if (!db.traverse(finalized_root.value(), traverse, rq.target)) {
         return false;
     }
     auto const end = std::chrono::steady_clock::now();
@@ -281,10 +285,11 @@ void monad_statesync_server_handle_request(
     if (!success) {
         LOG_INFO(
             "could not handle request prefix={} from={} until={} "
-            "target={}",
+            "old_target={} target={}",
             rq.prefix,
             rq.from,
             rq.until,
+            rq.old_target,
             rq.target);
     }
     sync->statesync_server_send_done(
@@ -321,7 +326,7 @@ void monad_statesync_server_run_once(struct monad_statesync_server *const sync)
     if (sync->statesync_server_recv(sync->net, buf, 1) != 1) {
         return;
     }
-    MONAD_ASSERT(buf[0] == SyncTypeRequest);
+    MONAD_ASSERT(buf[0] == SYNC_TYPE_REQUEST);
     unsigned char *ptr = buf;
     uint64_t n = sizeof(monad_sync_request);
     while (n != 0) {

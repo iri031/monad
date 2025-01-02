@@ -13,11 +13,17 @@
 #include <monad/core/receipt.hpp>
 #include <monad/core/result.hpp>
 #include <monad/core/rlp/block_rlp.hpp>
+#include <monad/core/rlp/int_rlp.hpp>
+#include <monad/core/rlp/transaction_rlp.hpp>
+#include <monad/db/util.hpp>
 #include <monad/execution/block_hash_buffer.hpp>
 #include <monad/execution/execute_block.hpp>
+#include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/switch_evmc_revision.hpp>
 #include <monad/execution/validate_block.hpp>
 #include <monad/fiber/priority_pool.hpp>
+#include <monad/mpt/nibbles_view.hpp>
+#include <monad/rlp/encode2.hpp>
 #include <monad/state2/block_state.hpp>
 #include <monad/state3/state.hpp>
 #include <monad/test/config.hpp>
@@ -61,12 +67,24 @@ Result<std::vector<Receipt>> BlockchainTest::execute(
     BlockState block_state(db);
     EthereumMainnet const chain;
     BOOST_OUTCOME_TRY(
-        auto const receipts,
+        auto const results,
         execute_block<rev>(
             chain, block, block_state, block_hash_buffer, *pool_));
+    std::vector<Receipt> receipts(results.size());
+    std::vector<std::vector<CallFrame>> call_frames(results.size());
+    for (unsigned i = 0; i < results.size(); ++i) {
+        receipts[i] = std::move(results[i].receipt);
+        call_frames[i] = std::move(results[i].call_frames);
+    }
     BOOST_OUTCOME_TRY(chain.validate_header(receipts, block.header));
     block_state.log_debug();
-    block_state.commit(receipts, block.transactions);
+    block_state.commit(
+        block.header,
+        receipts,
+        call_frames,
+        block.transactions,
+        block.ommers,
+        block.withdrawals);
     return receipts;
 }
 
@@ -171,7 +189,7 @@ void BlockchainTest::TestBody()
             State state{bs, Incarnation{0, 0}};
             load_state_from_json(j_contents.at("pre"), state);
             bs.merge(state);
-            bs.commit({}, {});
+            bs.commit({}, {}, {}, {}, {}, std::nullopt);
         }
 
         BlockHashBuffer block_hash_buffer;
@@ -200,6 +218,7 @@ void BlockchainTest::TestBody()
                 block.value().header.number - 1,
                 block.value().header.parent_hash);
 
+            uint64_t const curr_block_number = block.value().header.number;
             auto const result =
                 execute_dispatch(rev, block.value(), tdb, block_hash_buffer);
             if (!result.has_error()) {
@@ -210,6 +229,17 @@ void BlockchainTest::TestBody()
                     tdb.transactions_root(),
                     block.value().header.transactions_root)
                     << name;
+                EXPECT_EQ(
+                    tdb.withdrawals_root(),
+                    block.value().header.withdrawals_root)
+                    << name;
+                auto const encoded_ommers_res = db.get(
+                    mpt::concat(FINALIZED_NIBBLE, OMMER_NIBBLE),
+                    curr_block_number);
+                EXPECT_TRUE(encoded_ommers_res.has_value());
+                EXPECT_EQ(
+                    to_bytes(keccak256(encoded_ommers_res.value())),
+                    block.value().header.ommers_hash);
                 if (rev >= EVMC_BYZANTIUM) {
                     EXPECT_EQ(
                         tdb.receipts_root(), block.value().header.receipts_root)
@@ -218,6 +248,50 @@ void BlockchainTest::TestBody()
                 EXPECT_EQ(
                     result.value().size(), block.value().transactions.size())
                     << name;
+                { // verify block header is stored correctly
+                    auto res = db.get(
+                        mpt::concat(FINALIZED_NIBBLE, BLOCKHEADER_NIBBLE),
+                        curr_block_number);
+                    EXPECT_TRUE(res.has_value());
+                    auto const decode_res =
+                        rlp::decode_block_header(res.value());
+                    EXPECT_TRUE(decode_res.has_value());
+                    auto const decoded_block_header = decode_res.value();
+                    EXPECT_EQ(decode_res.value(), block.value().header);
+                }
+                { // look up block hash
+                    auto const block_hash = keccak256(
+                        rlp::encode_block_header(block.value().header));
+                    auto res = db.get(
+                        mpt::concat(
+                            FINALIZED_NIBBLE,
+                            BLOCK_HASH_NIBBLE,
+                            mpt::NibblesView{block_hash}),
+                        curr_block_number);
+                    EXPECT_TRUE(res.has_value());
+                    auto const decoded_number =
+                        rlp::decode_unsigned<uint64_t>(res.value());
+                    EXPECT_TRUE(decoded_number.has_value());
+                    EXPECT_EQ(decoded_number.value(), curr_block_number);
+                }
+                // verify tx hash
+                for (unsigned i = 0; i < block.value().transactions.size();
+                     ++i) {
+                    auto const &tx = block.value().transactions[i];
+                    auto const hash = keccak256(rlp::encode_transaction(tx));
+                    auto tx_hash_res = db.get(
+                        mpt::concat(
+                            FINALIZED_NIBBLE,
+                            TX_HASH_NIBBLE,
+                            mpt::NibblesView{hash}),
+                        curr_block_number);
+                    EXPECT_TRUE(tx_hash_res.has_value());
+                    EXPECT_EQ(
+                        tx_hash_res.value(),
+                        rlp::encode_list2(
+                            rlp::encode_unsigned(curr_block_number),
+                            rlp::encode_unsigned(i)));
+                }
             }
             else {
                 EXPECT_TRUE(j_block.contains("expectException"))

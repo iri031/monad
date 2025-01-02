@@ -33,6 +33,7 @@ add_trie_test(TARGET node_test SOURCES "node_test.cpp")
 add_trie_test(TARGET node_writer_test SOURCES "node_writer_test.cpp")
 add_trie_test(TARGET plain_trie_test SOURCES "plain_trie_test.cpp")
 add_trie_test(TARGET read_only_db_test SOURCES "read_only_db_test.cpp")
+add_trie_test(TARGET rewind_test SOURCES "rewind_test.cpp")
 add_trie_test(TARGET state_machine_test SOURCES "state_machine_test.cpp")
 add_trie_test(TARGET subtrie_version_test SOURCES "subtrie_version_test.cpp")
 add_trie_test(TARGET unsigned_20_test SOURCES "unsigned_20_test.cpp")
@@ -49,5 +50,12 @@ add_executable(monad_trie_test_statistical_generation_test
 monad_compile_options(monad_trie_test_statistical_generation_test)
 target_link_libraries(monad_trie_test_statistical_generation_test
                       PUBLIC monad_core)
+
+# stress test
+add_executable(read_only_db_stress_test
+               "read_only_db_stress_test.cpp")
+monad_compile_options(read_only_db_stress_test)
+target_link_libraries(read_only_db_stress_test
+                      PUBLIC monad_trie monad_async monad_core CLI11::CLI11)
 
 add_subdirectory("geth_freezer_db_analyzer")

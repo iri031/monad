@@ -80,8 +80,9 @@ struct Db::Impl
     virtual size_t prefetch_fiber_blocking() = 0;
     virtual NodeCursor load_root_for_version(uint64_t version) = 0;
     virtual size_t poll(bool blocking, size_t count) = 0;
-    virtual bool
-    traverse_fiber_blocking(Node &, TraverseMachine &, uint64_t version) = 0;
+    virtual bool traverse_fiber_blocking(
+        Node &, TraverseMachine &, uint64_t version,
+        size_t concurrency_limit) = 0;
     virtual void
     move_trie_version_fiber_blocking(uint64_t src, uint64_t dest) = 0;
 };
@@ -116,10 +117,10 @@ struct Db::ROOnDisk final : public Db::Impl
         , io_{pool_, rwbuf_}
         , aux_{&io_}
         , last_loaded_root_offset_{aux_.get_latest_root_offset()}
-        , root_{Node::UniquePtr{
+        , root_{
               last_loaded_root_offset_ == INVALID_OFFSET
-                  ? nullptr
-                  : read_node_blocking(pool_, last_loaded_root_offset_)}}
+                  ? Node::UniquePtr{}
+                  : read_node_blocking(pool_, last_loaded_root_offset_)}
     {
         io_.set_capture_io_latencies(options.capture_io_latencies);
         io_.set_concurrent_read_io_limit(options.concurrent_read_io_limit);
@@ -191,23 +192,30 @@ struct Db::ROOnDisk final : public Db::Impl
     }
 
     virtual bool traverse_fiber_blocking(
-        Node &node, TraverseMachine &machine, uint64_t const version) override
+        Node &node, TraverseMachine &machine, uint64_t const version,
+        size_t const concurrency_limit) override
     {
         return preorder_traverse(
-            aux(), node, machine, [this, version]() -> bool {
+            aux(),
+            node,
+            machine,
+            [this, version]() -> bool {
                 return aux().version_is_valid_ondisk(version);
-            });
+            },
+            concurrency_limit);
     }
 
     virtual NodeCursor load_root_for_version(uint64_t const version) override
     {
         auto const root_offset = aux().get_root_offset_at_version(version);
         if (root_offset == INVALID_OFFSET) {
+            root_ = nullptr;
+            last_loaded_root_offset_ = root_offset;
             return NodeCursor{};
         }
         if (last_loaded_root_offset_ != root_offset) {
             last_loaded_root_offset_ = root_offset;
-            root_.reset(read_node_blocking(pool_, root_offset));
+            root_ = read_node_blocking(pool_, root_offset);
         }
         return root_ ? NodeCursor{*root_} : NodeCursor{};
     }
@@ -218,6 +226,7 @@ struct Db::InMemory final : public Db::Impl
     UpdateAux<> aux_;
     StateMachine &machine_;
     Node::UniquePtr root_;
+    uint64_t root_version_;
 
     explicit InMemory(StateMachine &machine)
         : aux_{nullptr}
@@ -236,10 +245,11 @@ struct Db::InMemory final : public Db::Impl
     }
 
     virtual void upsert_fiber_blocking(
-        UpdateList &&list, uint64_t block_id, bool, bool) override
+        UpdateList &&list, uint64_t const version, bool, bool) override
     {
         root_ = aux_.do_update(
-            std::move(root_), machine_, std::move(list), block_id, false);
+            std::move(root_), machine_, std::move(list), version, false);
+        root_version_ = version;
     }
 
     virtual find_result_type find_fiber_blocking(
@@ -259,7 +269,7 @@ struct Db::InMemory final : public Db::Impl
     }
 
     virtual bool traverse_fiber_blocking(
-        Node &node, TraverseMachine &machine, uint64_t) override
+        Node &node, TraverseMachine &machine, uint64_t, size_t) override
     {
         return preorder_traverse(aux(), node, machine, [] { return true; });
     }
@@ -301,6 +311,7 @@ struct Db::RWOnDisk final : public Db::Impl
         Node &root;
         TraverseMachine &machine;
         uint64_t version;
+        size_t concurrency_limit;
     };
 
     struct MoveSubtrieRequest
@@ -460,9 +471,11 @@ struct Db::RWOnDisk final : public Db::Impl
                         // verify version is valid
                         if (aux.version_is_valid_ondisk(req->version)) {
                             req->promise->set_value(preorder_traverse(
-                                aux, req->root, req->machine, [&] {
-                                    return true;
-                                }));
+                                aux,
+                                req->root,
+                                req->machine,
+                                [&] { return true; },
+                                req->concurrency_limit));
                         }
                         else {
                             req->promise->set_value(false);
@@ -484,11 +497,9 @@ struct Db::RWOnDisk final : public Db::Impl
                         req->promise = &upsert_promises.back();
                         auto const root_offset =
                             aux.get_root_offset_at_version(req->version);
-                        auto root = (root_offset != INVALID_OFFSET)
-                                        ? Node::UniquePtr{read_node_blocking(
-                                              pool, root_offset)}
-                                        : Node::UniquePtr{};
-                        req->promise->set_value(std::move(root));
+                        MONAD_ASSERT(root_offset != INVALID_OFFSET);
+                        req->promise->set_value(
+                            read_node_blocking(pool, root_offset));
                     }
                     did_nothing = false;
                 }
@@ -556,7 +567,7 @@ struct Db::RWOnDisk final : public Db::Impl
     std::thread worker_thread_;
     StateMachine &machine_;
     Node::UniquePtr root_; // owned by worker thread
-    Node::UniquePtr reader_root_; // lifetime for reads on a different block
+    uint64_t root_version_{INVALID_BLOCK_ID};
 
     RWOnDisk(OnDiskDbConfig const &options, StateMachine &machine)
         : worker_thread_([&] {
@@ -566,7 +577,8 @@ struct Db::RWOnDisk final : public Db::Impl
                 // This bit is unfortunately nasty, but we have to initialise
                 // aux_ from this thread
                 aux_.~UpdateAux<>();
-                new (&aux_) UpdateAux<>{&worker_->io, options.history_length};
+                new (&aux_)
+                    UpdateAux<>{&worker_->io, options.fixed_history_length};
             }
             worker_->run();
             std::unique_lock const g(lock_);
@@ -581,10 +593,11 @@ struct Db::RWOnDisk final : public Db::Impl
             std::unique_lock const g(lock_);
             MONAD_ASSERT(worker_);
             return aux_.get_latest_root_offset() != INVALID_OFFSET
-                       ? Node::UniquePtr{read_node_blocking(
-                             worker_->pool, aux_.get_latest_root_offset())}
+                       ? read_node_blocking(
+                             worker_->pool, aux_.get_latest_root_offset())
                        : Node::UniquePtr{};
         }())
+        , root_version_(aux_.db_history_max_version())
     {
     }
 
@@ -633,6 +646,12 @@ struct Db::RWOnDisk final : public Db::Impl
         UpdateList &&updates, uint64_t const version,
         bool const enable_compaction, bool const can_write_to_fast) override
     {
+        // reload root to handle out-of-order upserts
+        if (version != root_version_ &&
+            (version != root_version_ + 1 ||
+             aux().version_is_valid_ondisk(version))) {
+            load_root_for_version(version);
+        }
         threadsafe_boost_fibers_promise<Node::UniquePtr> promise;
         auto fut = promise.get_future();
         comms_.enqueue(FiberUpsertRequest{
@@ -649,6 +668,7 @@ struct Db::RWOnDisk final : public Db::Impl
             cond_.notify_one();
         }
         root_ = fut.get();
+        root_version_ = version;
     }
 
     virtual void move_trie_version_fiber_blocking(
@@ -664,6 +684,7 @@ struct Db::RWOnDisk final : public Db::Impl
             cond_.notify_one();
         }
         fut.get();
+        root_version_ = dest;
     }
 
     // threadsafe
@@ -690,7 +711,8 @@ struct Db::RWOnDisk final : public Db::Impl
 
     // threadsafe
     virtual bool traverse_fiber_blocking(
-        Node &node, TraverseMachine &machine, uint64_t const version) override
+        Node &node, TraverseMachine &machine, uint64_t const version,
+        size_t const concurrency_limit) override
     {
         threadsafe_boost_fibers_promise<bool> promise;
         auto fut = promise.get_future();
@@ -698,7 +720,8 @@ struct Db::RWOnDisk final : public Db::Impl
             .promise = &promise,
             .root = node,
             .machine = machine,
-            .version = version});
+            .version = version,
+            .concurrency_limit = concurrency_limit});
         // promise is racily emptied after this point
         if (worker_->sleeping.load(std::memory_order_acquire)) {
             std::unique_lock const g(lock_);
@@ -709,20 +732,25 @@ struct Db::RWOnDisk final : public Db::Impl
 
     virtual NodeCursor load_root_for_version(uint64_t const version) override
     {
-        if (MONAD_LIKELY(version == aux().db_history_max_version())) {
-            return root() ? NodeCursor{*root()} : NodeCursor{};
+        if (version != root_version_) {
+            if (!aux().version_is_valid_ondisk(version)) {
+                root_ = nullptr;
+                root_version_ = version;
+                return NodeCursor{};
+            }
+            threadsafe_boost_fibers_promise<Node::UniquePtr> promise;
+            auto fut = promise.get_future();
+            comms_.enqueue(FiberLoadRootVersionRequest{
+                .promise = &promise, .version = version});
+            // promise is racily emptied after this point
+            if (worker_->sleeping.load(std::memory_order_acquire)) {
+                std::unique_lock const g(lock_);
+                cond_.notify_one();
+            }
+            root_ = fut.get();
+            root_version_ = version;
         }
-        threadsafe_boost_fibers_promise<Node::UniquePtr> promise;
-        auto fut = promise.get_future();
-        comms_.enqueue(FiberLoadRootVersionRequest{
-            .promise = &promise, .version = version});
-        // promise is racily emptied after this point
-        if (worker_->sleeping.load(std::memory_order_acquire)) {
-            std::unique_lock const g(lock_);
-            cond_.notify_one();
-        }
-        reader_root_ = fut.get();
-        return reader_root_ ? NodeCursor{*reader_root_} : NodeCursor{};
+        return root() ? NodeCursor{*root()} : NodeCursor{};
     }
 };
 
@@ -820,11 +848,13 @@ void Db::move_trie_version_forward(uint64_t const src, uint64_t const dest)
 }
 
 bool Db::traverse(
-    NodeCursor const cursor, TraverseMachine &machine, uint64_t const block_id)
+    NodeCursor const cursor, TraverseMachine &machine, uint64_t const block_id,
+    size_t const concurrency_limit)
 {
     MONAD_ASSERT(impl_);
     MONAD_ASSERT(cursor.is_valid());
-    return impl_->traverse_fiber_blocking(*cursor.node, machine, block_id);
+    return impl_->traverse_fiber_blocking(
+        *cursor.node, machine, block_id, concurrency_limit);
 }
 
 bool Db::traverse_blocking(
@@ -955,6 +985,7 @@ namespace detail
             auto it = inflights.find(sender->block_id);
             auto pendings = std::move(it->second);
             inflights.erase(it);
+            std::shared_ptr<Node> root{};
 
             bool const block_alive_after_read =
                 sender->context.aux.version_is_valid_ondisk(sender->block_id);
@@ -963,8 +994,15 @@ namespace detail
                     sender->root =
                         detail::deserialize_node_from_receiver_result(
                             std::move(buffer_), buffer_off, io_state);
+                    root = sender->root;
                     sender->res_root = {
                         NodeCursor{*sender->root.get()}, find_result::success};
+                    {
+                        AsyncContext::TrieRootCache::ConstAccessor acc;
+                        MONAD_ASSERT(
+                            sender->context.root_cache.find(
+                                acc, sender->block_id) == false);
+                    }
                     sender->context.root_cache.insert(
                         sender->block_id, sender->root);
                 }
@@ -979,7 +1017,9 @@ namespace detail
             }
 
             for (auto &invoc : pendings) {
-                invoc(sender->root);
+                // Calling invoc() may invoke user code which deletes `sender`.
+                // It is no longer safe to rely on the `sender` lifetime
+                invoc(root);
             }
         }
     };

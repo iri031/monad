@@ -47,7 +47,8 @@ TEST(Evm, create_with_insufficient)
              StateDelta{
                  .account =
                      {std::nullopt, Account{.balance = 10'000'000'000}}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
 
     evmc_message m{
         .kind = EVMC_CREATE,
@@ -58,7 +59,8 @@ TEST(Evm, create_with_insufficient)
     intx::be::store(m.value.bytes, v);
 
     BlockHashBuffer const block_hash_buffer;
-    evm_host_t h{EMPTY_TX_CONTEXT, block_hash_buffer, s};
+    NoopCallTracer call_tracer;
+    evm_host_t h{call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, s};
     auto const result = create_contract_account<EVMC_SHANGHAI>(&h, s, m);
 
     EXPECT_EQ(result.status_code, EVMC_INSUFFICIENT_BALANCE);
@@ -89,7 +91,8 @@ TEST(Evm, eip684_existing_code)
             {to,
              StateDelta{
                  .account = {std::nullopt, Account{.code_hash = code_hash}}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
 
     evmc_message m{
         .kind = EVMC_CREATE,
@@ -100,7 +103,8 @@ TEST(Evm, eip684_existing_code)
     intx::be::store(m.value.bytes, v);
 
     BlockHashBuffer const block_hash_buffer;
-    evm_host_t h{EMPTY_TX_CONTEXT, block_hash_buffer, s};
+    NoopCallTracer call_tracer;
+    evm_host_t h{call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, s};
     auto const result = create_contract_account<EVMC_SHANGHAI>(&h, s, m);
     EXPECT_EQ(result.status_code, EVMC_INVALID_INSTRUCTION);
 }
@@ -125,7 +129,8 @@ TEST(Evm, transfer_call_balances)
                  .account =
                      {std::nullopt,
                       Account{.balance = 10'000'000'000, .nonce = 7}}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
 
     evmc_message m{
         .kind = EVMC_CALL,
@@ -161,7 +166,8 @@ TEST(Evm, transfer_call_balances_to_self)
                  .account =
                      {std::nullopt,
                       Account{.balance = 10'000'000'000, .nonce = 7}}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
 
     evmc_message m{
         .kind = EVMC_CALL,
@@ -199,7 +205,8 @@ TEST(Evm, dont_transfer_on_delegatecall)
                  .account =
                      {std::nullopt,
                       Account{.balance = 10'000'000'000, .nonce = 6}}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
 
     evmc_message m{
         .kind = EVMC_DELEGATECALL,
@@ -238,7 +245,8 @@ TEST(Evm, dont_transfer_on_staticcall)
                  .account =
                      {std::nullopt,
                       Account{.balance = 10'000'000'000, .nonce = 6}}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
 
     evmc_message m{
         .kind = EVMC_CALL,
@@ -271,7 +279,8 @@ TEST(Evm, create_nonce_out_of_range)
         0x58f3f9ebd5dbdf751f12d747b02d00324837077d_address};
 
     BlockHashBuffer const block_hash_buffer;
-    evm_host_t h{EMPTY_TX_CONTEXT, block_hash_buffer, s};
+    NoopCallTracer call_tracer;
+    evm_host_t h{call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, s};
 
     tdb.commit(
         StateDeltas{
@@ -282,7 +291,8 @@ TEST(Evm, create_nonce_out_of_range)
                       Account{
                           .balance = 10'000'000'000,
                           .nonce = std::numeric_limits<uint64_t>::max()}}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
 
     evmc_message m{
         .kind = EVMC_CREATE,
@@ -312,7 +322,8 @@ TEST(Evm, static_precompile_execution)
         0x0000000000000000000000000000000000000004_address};
 
     BlockHashBuffer const block_hash_buffer;
-    evm_host_t h{EMPTY_TX_CONTEXT, block_hash_buffer, s};
+    NoopCallTracer call_tracer;
+    evm_host_t h{call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, s};
 
     tdb.commit(
         StateDeltas{
@@ -321,7 +332,8 @@ TEST(Evm, static_precompile_execution)
             {from,
              StateDelta{
                  .account = {std::nullopt, Account{.balance = 15'000}}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
 
     static constexpr char data[] = "hello world";
     static constexpr auto data_size = sizeof(data);
@@ -359,7 +371,8 @@ TEST(Evm, out_of_gas_static_precompile_execution)
         0x0000000000000000000000000000000000000001_address};
 
     BlockHashBuffer const block_hash_buffer;
-    evm_host_t h{EMPTY_TX_CONTEXT, block_hash_buffer, s};
+    NoopCallTracer call_tracer;
+    evm_host_t h{call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, s};
 
     tdb.commit(
         StateDeltas{
@@ -368,7 +381,8 @@ TEST(Evm, out_of_gas_static_precompile_execution)
             {from,
              StateDelta{
                  .account = {std::nullopt, Account{.balance = 15'000}}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
 
     static constexpr char data[] = "hello world";
     static constexpr auto data_size = sizeof(data);
@@ -397,7 +411,8 @@ TEST(Evm, deploy_contract_code)
     db_t tdb{db};
     tdb.commit(
         StateDeltas{{a, StateDelta{.account = {std::nullopt, Account{}}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
     BlockState bs{tdb};
 
     // Frontier

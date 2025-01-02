@@ -6,10 +6,12 @@
 #include <monad/db/trie_db.hpp>
 #include <monad/db/util.hpp>
 #include <monad/mpt/db.hpp>
+#include <monad/statesync/statesync_protocol.hpp>
 
 #include <ankerl/unordered_dense.h>
 
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -30,14 +32,15 @@ struct monad_statesync_client_context
     monad::mpt::Db db;
     monad::TrieDb tdb;
     std::vector<std::pair<uint64_t, uint64_t>> progress;
-    uint8_t prefix_bytes;
+    std::vector<std::unique_ptr<monad::StatesyncProtocol>> protocol;
     uint64_t target;
     uint64_t current;
     monad::bytes32_t expected_root;
     Map<monad::Address, StorageDeltas> buffered;
+    ankerl::unordered_dense::segmented_set<monad::bytes32_t> upserted;
+    ankerl::unordered_dense::segmented_set<monad::bytes32_t> pending;
     Map<monad::bytes32_t, monad::byte_string> code;
     Map<monad::Address, std::optional<StateDelta>> deltas;
-    ankerl::unordered_dense::segmented_set<monad::bytes32_t> hash;
     uint64_t n_upserts;
     std::filesystem::path genesis;
     monad_statesync_client *sync;
@@ -46,8 +49,9 @@ struct monad_statesync_client_context
 
     monad_statesync_client_context(
         std::vector<std::filesystem::path> dbname_paths,
-        std::filesystem::path genesis, uint8_t prefix_bytes,
-        monad_statesync_client *,
+        std::filesystem::path genesis, monad_statesync_client *,
         void (*statesync_send_request)(
             struct monad_statesync_client *, struct monad_sync_request));
+
+    void commit();
 };

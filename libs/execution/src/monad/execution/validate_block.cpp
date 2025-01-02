@@ -10,6 +10,7 @@
 #include <monad/core/likely.h>
 #include <monad/core/receipt.hpp>
 #include <monad/core/result.hpp>
+#include <monad/core/rlp/block_rlp.hpp>
 
 #include <evmc/evmc.h>
 
@@ -126,14 +127,19 @@ Result<void> static_validate_header(BlockHeader const &header)
 
 EXPLICIT_EVMC_REVISION(static_validate_header);
 
+bytes32_t compute_ommers_hash(std::vector<BlockHeader> const &ommers)
+{
+    if (ommers.empty()) {
+        return NULL_LIST_HASH;
+    }
+    return to_bytes(keccak256(rlp::encode_ommers(ommers)));
+}
+
 template <evmc_revision rev>
 constexpr Result<void> static_validate_ommers(Block const &block)
 {
-    // TODO: What we really need is probably a generic ommer hash computation
-    // function Instead of just checking this special case
-    if (MONAD_UNLIKELY(
-            block.ommers.empty() &&
-            block.header.ommers_hash != NULL_LIST_HASH)) {
+    // YP eq. 33
+    if (compute_ommers_hash(block.ommers) != block.header.ommers_hash) {
         return BlockError::WrongOmmersHash;
     }
 
@@ -168,9 +174,7 @@ constexpr Result<void> static_validate_body(Block const &block)
 {
     // EIP-4895
     if constexpr (rev < EVMC_SHANGHAI) {
-        if (MONAD_UNLIKELY(
-                block.withdrawals.has_value() &&
-                !block.withdrawals.value().empty())) {
+        if (MONAD_UNLIKELY(block.withdrawals.has_value())) {
             return BlockError::FieldBeforeFork;
         }
     }

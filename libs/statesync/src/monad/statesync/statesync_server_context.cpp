@@ -22,9 +22,9 @@ MONAD_ANONYMOUS_NAMESPACE_BEGIN
 void on_commit(
     monad_statesync_server_context &ctx, StateDeltas const &state_deltas)
 {
-    auto const history_length = ctx.rw.get_history_length();
-    auto const n = ctx.rw.get_block_number();
+    constexpr auto HISTORY_LENGTH = 1200; // 20 minutes with 1s block times
 
+    auto const n = ctx.rw.get_block_number();
     Deleted::accessor it;
     MONAD_ASSERT(ctx.deleted.emplace(it, n, Deleted::mapped_type{}));
     for (auto const &[addr, delta] : state_deltas) {
@@ -57,10 +57,8 @@ void on_commit(
         }
     }
 
-    uint64_t d = n;
-    while (ctx.deleted.size() > history_length) {
-        ctx.deleted.erase(d - history_length);
-        d--;
+    if (ctx.deleted.size() > HISTORY_LENGTH) {
+        MONAD_ASSERT(ctx.deleted.erase(n - HISTORY_LENGTH));
     }
 }
 
@@ -105,6 +103,11 @@ bytes32_t monad_statesync_server_context::transactions_root()
     return rw.transactions_root();
 }
 
+std::optional<bytes32_t> monad_statesync_server_context::withdrawals_root()
+{
+    return rw.withdrawals_root();
+}
+
 void monad_statesync_server_context::increment_block_number()
 {
     rw.increment_block_number();
@@ -112,9 +115,20 @@ void monad_statesync_server_context::increment_block_number()
 
 void monad_statesync_server_context::commit(
     StateDeltas const &state_deltas, Code const &code,
-    std::vector<Receipt> const &receipts,
-    std::vector<Transaction> const &transactions)
+    BlockHeader const &header, std::vector<Receipt> const &receipts,
+    std::vector<std::vector<CallFrame>> const &call_frames,
+    std::vector<Transaction> const &transactions,
+    std::vector<BlockHeader> const &ommers,
+    std::optional<std::vector<Withdrawal>> const &withdrawals)
 {
     on_commit(*this, state_deltas);
-    rw.commit(state_deltas, code, receipts, transactions);
+    rw.commit(
+        state_deltas,
+        code,
+        header,
+        receipts,
+        call_frames,
+        transactions,
+        ommers,
+        withdrawals);
 }

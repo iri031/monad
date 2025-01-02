@@ -10,13 +10,17 @@
 #include <monad/core/keccak.h>
 #include <monad/core/keccak.hpp>
 #include <monad/core/receipt.hpp>
+#include <monad/core/rlp/block_rlp.hpp>
 #include <monad/core/rlp/bytes_rlp.hpp>
 #include <monad/core/rlp/int_rlp.hpp>
 #include <monad/core/rlp/receipt_rlp.hpp>
 #include <monad/core/rlp/transaction_rlp.hpp>
+#include <monad/core/rlp/withdrawal_rlp.hpp>
 #include <monad/db/trie_db.hpp>
 #include <monad/db/util.hpp>
 #include <monad/execution/code_analysis.hpp>
+#include <monad/execution/trace/call_tracer.hpp>
+#include <monad/execution/trace/rlp/call_frame_rlp.hpp>
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/nibbles_view.hpp>
 #include <monad/mpt/nibbles_view_fmt.hpp> // NOLINT
@@ -70,6 +74,7 @@ std::optional<Account> TrieDb::read_account(Address const &addr)
 {
     auto const value = db_.get(
         concat(
+            FINALIZED_NIBBLE,
             STATE_NIBBLE,
             NibblesView{keccak256({addr.bytes, sizeof(addr.bytes)})}),
         block_number_);
@@ -97,6 +102,7 @@ TrieDb::read_storage(Address const &addr, Incarnation, bytes32_t const &key)
 {
     auto const value = db_.get(
         concat(
+            FINALIZED_NIBBLE,
             STATE_NIBBLE,
             NibblesView{keccak256({addr.bytes, sizeof(addr.bytes)})},
             NibblesView{keccak256({key.bytes, sizeof(key.bytes)})}),
@@ -112,26 +118,6 @@ TrieDb::read_storage(Address const &addr, Incarnation, bytes32_t const &key)
     return to_bytes(storage.value());
 };
 
-std::pair<bytes32_t, bytes32_t>
-TrieDb::read_storage_and_slot(Address const &addr, bytes32_t const &key)
-{
-    auto const value = db_.get(
-        concat(
-            STATE_NIBBLE,
-            NibblesView{keccak256({addr.bytes, sizeof(addr.bytes)})},
-            NibblesView{keccak256({key.bytes, sizeof(key.bytes)})}),
-        block_number_);
-    if (!value.has_value()) {
-        STATS_STORAGE_NO_VALUE();
-        return {};
-    }
-    STATS_STORAGE_VALUE();
-    auto encoded_storage = value.value();
-    auto const storage = decode_storage_db(encoded_storage);
-    MONAD_ASSERT(!storage.has_error());
-    return storage.value();
-};
-
 #ifdef MONAD_TRIEDB_STATS
     #undef STATS_STORAGE_NO_VALUE
     #undef STATS_STORAGE_VALUE
@@ -141,7 +127,10 @@ std::shared_ptr<CodeAnalysis> TrieDb::read_code(bytes32_t const &code_hash)
 {
     // TODO read code analysis object
     auto const value = db_.get(
-        concat(CODE_NIBBLE, NibblesView{to_byte_string_view(code_hash.bytes)}),
+        concat(
+            FINALIZED_NIBBLE,
+            CODE_NIBBLE,
+            NibblesView{to_byte_string_view(code_hash.bytes)}),
         block_number_);
     if (!value.has_value()) {
         return std::make_shared<CodeAnalysis>(analyze({}));
@@ -151,8 +140,11 @@ std::shared_ptr<CodeAnalysis> TrieDb::read_code(bytes32_t const &code_hash)
 
 void TrieDb::commit(
     StateDeltas const &state_deltas, Code const &code,
-    std::vector<Receipt> const &receipts,
-    std::vector<Transaction> const &transactions)
+    BlockHeader const &header, std::vector<Receipt> const &receipts,
+    std::vector<std::vector<CallFrame>> const &call_frames,
+    std::vector<Transaction> const &transactions,
+    std::vector<BlockHeader> const &ommers,
+    std::optional<std::vector<Withdrawal>> const &withdrawals)
 {
     MONAD_ASSERT(block_number_ <= std::numeric_limits<int64_t>::max());
 
@@ -211,10 +203,19 @@ void TrieDb::commit(
 
     UpdateList receipt_updates;
     UpdateList transaction_updates;
+    UpdateList tx_hash_updates;
+    UpdateList call_frame_updates;
     MONAD_ASSERT(receipts.size() == transactions.size());
+    MONAD_ASSERT(receipts.size() == call_frames.size());
+    auto const &encoded_block_number =
+        bytes_alloc_.emplace_back(rlp::encode_unsigned(header.number));
+    std::vector<byte_string> index_alloc;
+    index_alloc.reserve(std::max(
+        receipts.size(),
+        withdrawals.transform(&std::vector<Withdrawal>::size).value_or(0)));
     for (size_t i = 0; i < receipts.size(); ++i) {
         auto const &rlp_index =
-            bytes_alloc_.emplace_back(rlp::encode_unsigned(i));
+            index_alloc.emplace_back(rlp::encode_unsigned(i));
         receipt_updates.push_front(update_alloc_.emplace_back(Update{
             .key = NibblesView{rlp_index},
             .value =
@@ -222,14 +223,49 @@ void TrieDb::commit(
             .incarnation = false,
             .next = UpdateList{},
             .version = static_cast<int64_t>(block_number_)}));
+
+        auto const &encoded_tx =
+            bytes_alloc_.emplace_back(rlp::encode_transaction(transactions[i]));
         transaction_updates.push_front(update_alloc_.emplace_back(Update{
             .key = NibblesView{rlp_index},
+            .value = encoded_tx,
+            .incarnation = false,
+            .next = UpdateList{},
+            .version = static_cast<int64_t>(block_number_)}));
+
+        tx_hash_updates.push_front(update_alloc_.emplace_back(Update{
+            .key = NibblesView{hash_alloc_.emplace_back(keccak256(encoded_tx))},
             .value = bytes_alloc_.emplace_back(
-                rlp::encode_transaction(transactions[i])),
+                rlp::encode_list2(encoded_block_number, rlp_index)),
+            .incarnation = false,
+            .next = UpdateList{},
+            .version = static_cast<int64_t>(block_number_)}));
+
+        std::span<CallFrame const> frames{call_frames[i]};
+        // TODO: a better way to ensure node size is <= 256 MB
+        if (frames.size() > 100) {
+            frames = frames.first(100);
+        }
+        call_frame_updates.push_front(update_alloc_.emplace_back(Update{
+            .key = NibblesView{rlp_index},
+            .value = bytes_alloc_.emplace_back(rlp::encode_call_frames(frames)),
             .incarnation = false,
             .next = UpdateList{},
             .version = static_cast<int64_t>(block_number_)}));
     }
+
+    auto const &rlp_block_header =
+        bytes_alloc_.emplace_back(rlp::encode_block_header(header));
+    UpdateList block_hash_nested_updates;
+    block_hash_nested_updates.push_front(update_alloc_.emplace_back(Update{
+        .key =
+            NibblesView{hash_alloc_.emplace_back(keccak256(rlp_block_header))},
+        .value = encoded_block_number,
+        .incarnation = false,
+        .next = UpdateList{},
+        .version = static_cast<int64_t>(block_number_)}));
+
+    UpdateList updates;
 
     auto state_update = Update{
         .key = state_nibbles,
@@ -249,18 +285,84 @@ void TrieDb::commit(
         .incarnation = true,
         .next = std::move(receipt_updates),
         .version = static_cast<int64_t>(block_number_)};
+    auto call_frame_update = Update{
+        .key = call_frame_nibbles,
+        .value = byte_string_view{},
+        .incarnation = true,
+        .next = std::move(call_frame_updates),
+        .version = static_cast<int64_t>(block_number_)};
     auto transaction_update = Update{
         .key = transaction_nibbles,
         .value = byte_string_view{},
         .incarnation = true,
         .next = std::move(transaction_updates),
         .version = static_cast<int64_t>(block_number_)};
-    UpdateList updates;
+    auto block_header_update = Update{
+        .key = block_header_nibbles,
+        .value = rlp_block_header,
+        .incarnation = true,
+        .next = UpdateList{},
+        .version = static_cast<int64_t>(block_number_)};
+    auto ommer_update = Update{
+        .key = ommer_nibbles,
+        .value = bytes_alloc_.emplace_back(rlp::encode_ommers(ommers)),
+        .incarnation = true,
+        .next = UpdateList{},
+        .version = static_cast<int64_t>(block_number_)};
+    auto tx_hash_update = Update{
+        .key = tx_hash_nibbles,
+        .value = byte_string_view{},
+        .incarnation = false,
+        .next = std::move(tx_hash_updates),
+        .version = static_cast<int64_t>(block_number_)};
+    auto block_hash_update = Update{
+        .key = block_hash_nibbles,
+        .value = byte_string_view{},
+        .incarnation = false,
+        .next = std::move(block_hash_nested_updates),
+        .version = static_cast<int64_t>(block_number_)};
     updates.push_front(state_update);
     updates.push_front(code_update);
     updates.push_front(receipt_update);
+    updates.push_front(call_frame_update);
     updates.push_front(transaction_update);
-    db_.upsert(std::move(updates), block_number_);
+    updates.push_front(block_header_update);
+    updates.push_front(ommer_update);
+    updates.push_front(tx_hash_update);
+    updates.push_front(block_hash_update);
+    UpdateList withdrawal_updates;
+    if (withdrawals.has_value()) {
+        // only commit withdrawals when the optional has value
+        for (size_t i = 0; i < withdrawals.value().size(); ++i) {
+            if (i >= index_alloc.size()) {
+                index_alloc.emplace_back(rlp::encode_unsigned(i));
+            }
+            withdrawal_updates.push_front(update_alloc_.emplace_back(Update{
+                .key = NibblesView{index_alloc[i]},
+                .value = bytes_alloc_.emplace_back(
+                    rlp::encode_withdrawal(withdrawals.value()[i])),
+                .incarnation = false,
+                .next = UpdateList{},
+                .version = static_cast<int64_t>(block_number_)}));
+        }
+        updates.push_front(update_alloc_.emplace_back(Update{
+            .key = withdrawal_nibbles,
+            .value = byte_string_view{},
+            .incarnation = true,
+            .next = std::move(withdrawal_updates),
+            .version = static_cast<int64_t>(block_number_)}));
+    }
+
+    Update finalized{
+        .key = finalized_nibbles,
+        .value = byte_string_view{},
+        .incarnation = false,
+        .next = std::move(updates),
+        .version = static_cast<int64_t>(block_number_),
+    };
+    UpdateList finalized_updates;
+    finalized_updates.push_front(finalized);
+    db_.upsert(std::move(finalized_updates), block_number_);
 
     update_alloc_.clear();
     bytes_alloc_.clear();
@@ -289,9 +391,24 @@ bytes32_t TrieDb::transactions_root()
     return merkle_root(transaction_nibbles);
 }
 
+std::optional<bytes32_t> TrieDb::withdrawals_root()
+{
+    auto const value = db_.get_data(
+        concat(FINALIZED_NIBBLE, WITHDRAWAL_NIBBLE), block_number_);
+    if (value.has_error()) {
+        return std::nullopt;
+    }
+    if (value.value().empty()) {
+        return NULL_ROOT;
+    }
+    MONAD_ASSERT(value.value().size() == sizeof(bytes32_t));
+    return to_bytes(value.value());
+}
+
 bytes32_t TrieDb::merkle_root(mpt::Nibbles const &nibbles)
 {
-    auto const value = db_.get_data(nibbles, block_number_);
+    auto const value = db_.get_data(
+        concat(FINALIZED_NIBBLE, NibblesView{nibbles}), block_number_);
     if (!value.has_value() || value.value().empty()) {
         return NULL_ROOT;
     }
@@ -311,7 +428,7 @@ std::string TrieDb::print_stats()
     return ret;
 }
 
-nlohmann::json TrieDb::to_json()
+nlohmann::json TrieDb::to_json(size_t const concurrency_limit)
 {
     struct Traverse : public TraverseMachine
     {
@@ -429,7 +546,8 @@ nlohmann::json TrieDb::to_json()
     auto json = nlohmann::json::object();
     Traverse traverse(*this, json);
 
-    auto res_cursor = db_.find(state_nibbles, block_number_);
+    auto res_cursor =
+        db_.find(concat(FINALIZED_NIBBLE, STATE_NIBBLE), block_number_);
     MONAD_ASSERT(res_cursor.has_value());
     MONAD_ASSERT(res_cursor.value().is_valid());
     // RWOndisk Db prevents any parallel traversal that does blocking i/o
@@ -441,8 +559,8 @@ nlohmann::json TrieDb::to_json()
             db_.traverse_blocking(res_cursor.value(), traverse, block_number_));
     }
     else {
-        // WARNING: excessive memory usage in parallel traverse
-        MONAD_ASSERT(db_.traverse(res_cursor.value(), traverse, block_number_));
+        MONAD_ASSERT(db_.traverse(
+            res_cursor.value(), traverse, block_number_, concurrency_limit));
     }
 
     return json;

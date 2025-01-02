@@ -8,6 +8,7 @@ option(HUNTER_ENABLED OFF)
 
 option(EVMONE_TRACING
        "Enable instruction-level tracing for the evmone interpreter" OFF)
+option(ENABLE_CALL_TRACING "Enable call tracer" ON)
 option(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(BUILD_SHARED_LIBS OFF)
 
@@ -48,6 +49,10 @@ function(monad_compile_options target)
 
   if(EVMONE_TRACING)
     target_compile_definitions(${target} PUBLIC EVMONE_TRACING=1)
+  endif()
+
+  if(ENABLE_CALL_TRACING)
+    target_compile_definitions(${target} PUBLIC "ENABLE_CALL_TRACING=1")
   endif()
 endfunction()
 
@@ -120,11 +125,24 @@ function(monad_add_test2 target)
   target_include_directories(${target} PRIVATE "${TOP_CURRENT_BINARY_DIR}/test")
   target_link_libraries(${target} monad_execution monad_statesync GTest::GTest
                         GTest::Main)
-  gtest_discover_tests(
-    ${target} DISCOVERY_MODE PRE_TEST
-    PROPERTIES ENVIRONMENT ASAN_OPTIONS=abort_on_error=1 ENVIRONMENT
-               UBSAN_OPTIONS=halt_on_error=1,print_stacktrace=1 ENVIRONMENT
-               TSAN_OPTIONS=external_symbolizer_path=/usr/bin/llvm-symbolizer)
+  if("${target}" MATCHES "test_statesync")
+    gtest_discover_tests(
+      ${target} DISCOVERY_MODE PRE_TEST
+      PROPERTIES RUN_SERIAL
+                 TRUE
+                 ENVIRONMENT
+                 ASAN_OPTIONS=abort_on_error=1
+                 ENVIRONMENT
+                 UBSAN_OPTIONS=halt_on_error=1,print_stacktrace=1
+                 ENVIRONMENT
+                 TSAN_OPTIONS=external_symbolizer_path=/usr/bin/llvm-symbolizer)
+  else()
+    gtest_discover_tests(
+      ${target} DISCOVERY_MODE PRE_TEST
+      PROPERTIES ENVIRONMENT ASAN_OPTIONS=abort_on_error=1 ENVIRONMENT
+                 UBSAN_OPTIONS=halt_on_error=1,print_stacktrace=1 ENVIRONMENT
+                 TSAN_OPTIONS=external_symbolizer_path=/usr/bin/llvm-symbolizer)
+  endif()
 endfunction()
 
 function(monad_add_test_folder target)

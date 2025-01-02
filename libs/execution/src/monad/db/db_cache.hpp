@@ -7,6 +7,7 @@
 #include <monad/core/bytes_hash_compare.hpp>
 #include <monad/db/db.hpp>
 #include <monad/execution/code_analysis.hpp>
+#include <monad/execution/trace/call_tracer.hpp>
 #include <monad/lru/lru_cache.hpp>
 #include <monad/state2/state_deltas.hpp>
 
@@ -114,10 +115,21 @@ public:
 
     virtual void commit(
         StateDeltas const &state_deltas, Code const &code,
-        std::vector<Receipt> const &receipts,
-        std::vector<Transaction> const &transactions) override
+        BlockHeader const &header, std::vector<Receipt> const &receipts,
+        std::vector<std::vector<CallFrame>> const &call_frames,
+        std::vector<Transaction> const &transactions,
+        std::vector<BlockHeader> const &ommers,
+        std::optional<std::vector<Withdrawal>> const &withdrawals) override
     {
-        db_.commit(state_deltas, code, receipts, transactions);
+        db_.commit(
+            state_deltas,
+            code,
+            header,
+            receipts,
+            call_frames,
+            transactions,
+            ommers,
+            withdrawals);
 
         for (auto it = state_deltas.cbegin(); it != state_deltas.cend(); ++it) {
             auto const &address = it->first;
@@ -162,6 +174,11 @@ public:
     virtual bytes32_t transactions_root() override
     {
         return db_.transactions_root();
+    }
+
+    virtual std::optional<bytes32_t> withdrawals_root() override
+    {
+        return db_.withdrawals_root();
     }
 
     virtual std::string print_stats() override

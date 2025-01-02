@@ -1,21 +1,33 @@
+#include <monad/chain/ethereum_mainnet.hpp>
 #include <monad/core/account.hpp>
 #include <monad/core/byte_string.hpp>
 #include <monad/core/bytes.hpp>
 #include <monad/core/hex_literal.hpp>
+#include <monad/core/keccak.hpp>
 #include <monad/core/receipt.hpp>
+#include <monad/core/rlp/block_rlp.hpp>
+#include <monad/core/rlp/int_rlp.hpp>
+#include <monad/core/rlp/transaction_rlp.hpp>
 #include <monad/core/transaction.hpp>
 #include <monad/db/trie_db.hpp>
 #include <monad/db/util.hpp>
+#include <monad/execution/block_hash_buffer.hpp>
 #include <monad/execution/code_analysis.hpp>
+#include <monad/execution/execute_block.hpp>
+#include <monad/execution/execute_transaction.hpp>
+#include <monad/execution/trace/call_tracer.hpp>
+#include <monad/execution/trace/rlp/call_frame_rlp.hpp>
+#include <monad/fiber/priority_pool.hpp>
+#include <monad/mpt/nibbles_view.hpp>
 #include <monad/mpt/ondisk_db_config.hpp>
+#include <monad/rlp/encode2.hpp>
+#include <monad/state2/block_state.hpp>
 #include <monad/state2/state_deltas.hpp>
 
+#include <ethash/keccak.hpp>
 #include <evmc/evmc.hpp>
 #include <evmc/hex.hpp>
 #include <intx/intx.hpp>
-
-#include <ethash/keccak.hpp>
-
 #include <nlohmann/json_fwd.hpp>
 
 #include <gmock/gmock.h>
@@ -24,6 +36,7 @@
 #include <test_resource_data.h>
 
 #include <bit>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -37,6 +50,22 @@ using namespace monad::test;
 
 namespace
 {
+    // clang-format off
+    auto const STRESS_TEST_CODE =
+        evmc::from_hex("0x5b61c3506080511015603f576000600061c3506000600173aaaf5374fce5edbc8e2a8697c15331677e6ebf0b610640f16000556001608051016080526000565b60805160015500")
+            .value();
+    // clang-format on
+    auto const STRESS_TEST_CODE_HASH = to_bytes(keccak256(STRESS_TEST_CODE));
+    auto const STRESS_TEST_CODE_ANALYSIS =
+        std::make_shared<CodeAnalysis>(analyze(STRESS_TEST_CODE));
+
+    auto const REFUND_TEST_CODE =
+        evmc::from_hex("0x6000600155600060025560006003556000600455600060055500")
+            .value();
+    auto const REFUND_TEST_CODE_HASH = to_bytes(keccak256(REFUND_TEST_CODE));
+    auto const REFUND_TEST_CODE_ANALYSIS =
+        std::make_shared<CodeAnalysis>(analyze(REFUND_TEST_CODE));
+
     constexpr auto key1 =
         0x00000000000000000000000000000000000000000000000000000000cafebabe_bytes32;
     constexpr auto key2 =
@@ -61,6 +90,49 @@ namespace
         OnDiskMachine machine;
         mpt::Db db{machine, mpt::OnDiskDbConfig{}};
     };
+
+    ///////////////////////////////////////////
+    // DB Getters
+    ///////////////////////////////////////////
+    std::vector<CallFrame> read_call_frame(
+        mpt::Db const &db, uint64_t const block_number, uint64_t const idx)
+    {
+        auto const value = db.get(
+            mpt::concat(
+                FINALIZED_NIBBLE,
+                CALL_FRAME_NIBBLE,
+                mpt::NibblesView{rlp::encode_unsigned(idx)}),
+            block_number);
+        if (!value.has_value()) {
+            return {};
+        }
+
+        auto encoded_call_frame = value.value();
+        auto const call_frame = rlp::decode_call_frames(encoded_call_frame);
+        MONAD_ASSERT(!call_frame.has_error());
+        MONAD_ASSERT(encoded_call_frame.empty());
+        return call_frame.value();
+    }
+
+    std::pair<bytes32_t, bytes32_t> read_storage_and_slot(
+        mpt::Db const &db, uint64_t const block_number, Address const &addr,
+        bytes32_t const &key)
+    {
+        auto const value = db.get(
+            mpt::concat(
+                FINALIZED_NIBBLE,
+                STATE_NIBBLE,
+                mpt::NibblesView{keccak256({addr.bytes, sizeof(addr.bytes)})},
+                mpt::NibblesView{keccak256({key.bytes, sizeof(key.bytes)})}),
+            block_number);
+        if (!value.has_value()) {
+            return {};
+        }
+        auto encoded_storage = value.value();
+        auto const storage = decode_storage_db(encoded_storage);
+        MONAD_ASSERT(!storage.has_error());
+        return storage.value();
+    }
 }
 
 template <typename TDB>
@@ -87,13 +159,15 @@ TEST(DBTest, read_only)
             StateDeltas{
                 {ADDR_A,
                  StateDelta{.account = {std::nullopt, acct1}, .storage = {}}}},
-            Code{});
+            Code{},
+            BlockHeader{});
         Account const acct2{.nonce = 2};
         rw.increment_block_number();
         rw.commit(
             StateDeltas{
                 {ADDR_A, StateDelta{.account = {acct1, acct2}, .storage = {}}}},
-            Code{});
+            Code{},
+            BlockHeader{});
 
         mpt::Db db2(mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = {name}});
         TrieDb ro{db2};
@@ -106,7 +180,8 @@ TEST(DBTest, read_only)
         rw.commit(
             StateDeltas{
                 {ADDR_A, StateDelta{.account = {acct2, acct3}, .storage = {}}}},
-            Code{});
+            Code{},
+            BlockHeader{});
 
         // Read block 0
         EXPECT_EQ(ro.read_account(ADDR_A), Account{.nonce = 1});
@@ -136,20 +211,30 @@ TYPED_TEST(DBTest, read_storage)
              StateDelta{
                  .account = {std::nullopt, acct},
                  .storage = {{key1, {bytes32_t{}, value1}}}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
 
     // Existing storage
     EXPECT_EQ(tdb.read_storage(ADDR_A, Incarnation{0, 0}, key1), value1);
-    EXPECT_EQ(tdb.read_storage_and_slot(ADDR_A, key1).first, key1);
+    EXPECT_EQ(
+        read_storage_and_slot(this->db, tdb.get_block_number(), ADDR_A, key1)
+            .first,
+        key1);
 
     // Non-existing key
     EXPECT_EQ(tdb.read_storage(ADDR_A, Incarnation{0, 0}, key2), bytes32_t{});
-    EXPECT_EQ(tdb.read_storage_and_slot(ADDR_A, key2).first, bytes32_t{});
+    EXPECT_EQ(
+        read_storage_and_slot(this->db, tdb.get_block_number(), ADDR_A, key2)
+            .first,
+        bytes32_t{});
 
     // Non-existing account
     EXPECT_FALSE(tdb.read_account(ADDR_B).has_value());
     EXPECT_EQ(tdb.read_storage(ADDR_B, Incarnation{0, 0}, key1), bytes32_t{});
-    EXPECT_EQ(tdb.read_storage_and_slot(ADDR_B, key1).first, bytes32_t{});
+    EXPECT_EQ(
+        read_storage_and_slot(this->db, tdb.get_block_number(), ADDR_B, key1)
+            .first,
+        bytes32_t{});
 }
 
 TYPED_TEST(DBTest, read_code)
@@ -158,14 +243,16 @@ TYPED_TEST(DBTest, read_code)
     TrieDb tdb{this->db};
     tdb.commit(
         StateDeltas{{ADDR_A, StateDelta{.account = {std::nullopt, acct_a}}}},
-        Code{{A_CODE_HASH, A_CODE_ANALYSIS}});
+        Code{{A_CODE_HASH, A_CODE_ANALYSIS}},
+        BlockHeader{});
 
     EXPECT_EQ(tdb.read_code(A_CODE_HASH)->executable_code, A_CODE);
 
     Account acct_b{.balance = 0, .code_hash = B_CODE_HASH, .nonce = 1};
     tdb.commit(
         StateDeltas{{ADDR_B, StateDelta{.account = {std::nullopt, acct_b}}}},
-        Code{{B_CODE_HASH, B_CODE_ANALYSIS}});
+        Code{{B_CODE_HASH, B_CODE_ANALYSIS}},
+        BlockHeader{});
 
     EXPECT_EQ(tdb.read_code(B_CODE_HASH)->executable_code, B_CODE);
 }
@@ -182,7 +269,8 @@ TYPED_TEST(DBTest, ModifyStorageOfAccount)
                  .storage =
                      {{key1, {bytes32_t{}, value1}},
                       {key2, {bytes32_t{}, value2}}}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
 
     acct = tdb.read_account(ADDR_A).value();
     tdb.commit(
@@ -191,7 +279,8 @@ TYPED_TEST(DBTest, ModifyStorageOfAccount)
              StateDelta{
                  .account = {acct, acct},
                  .storage = {{key2, {value2, value1}}}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
 
     EXPECT_EQ(
         tdb.state_root(),
@@ -204,7 +293,8 @@ TYPED_TEST(DBTest, touch_without_modify_regression)
     tdb.commit(
         StateDeltas{
             {ADDR_A, StateDelta{.account = {std::nullopt, std::nullopt}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
 
     EXPECT_EQ(tdb.read_account(ADDR_A), std::nullopt);
     EXPECT_EQ(tdb.state_root(), NULL_ROOT);
@@ -222,7 +312,8 @@ TYPED_TEST(DBTest, delete_account_modify_storage_regression)
                  .storage =
                      {{key1, {bytes32_t{}, value1}},
                       {key2, {bytes32_t{}, value2}}}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
 
     tdb.commit(
         StateDeltas{
@@ -231,7 +322,8 @@ TYPED_TEST(DBTest, delete_account_modify_storage_regression)
                  .account = {acct, std::nullopt},
                  .storage =
                      {{key1, {value1, value2}}, {key2, {value2, value1}}}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
 
     EXPECT_EQ(tdb.read_account(ADDR_A), std::nullopt);
     EXPECT_EQ(tdb.read_storage(ADDR_A, Incarnation{0, 0}, key1), bytes32_t{});
@@ -251,7 +343,8 @@ TYPED_TEST(DBTest, storage_deletion)
                  .storage =
                      {{key1, {bytes32_t{}, value1}},
                       {key2, {bytes32_t{}, value2}}}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
 
     acct = tdb.read_account(ADDR_A).value();
     tdb.commit(
@@ -260,7 +353,8 @@ TYPED_TEST(DBTest, storage_deletion)
              StateDelta{
                  .account = {acct, acct},
                  .storage = {{key1, {value1, bytes32_t{}}}}}}},
-        Code{});
+        Code{},
+        BlockHeader{});
 
     EXPECT_EQ(
         tdb.state_root(),
@@ -274,7 +368,7 @@ TYPED_TEST(DBTest, commit_receipts_transactions)
 
     TrieDb tdb{this->db};
     // empty receipts
-    tdb.commit(StateDeltas{}, Code{}, {});
+    tdb.commit(StateDeltas{}, Code{}, BlockHeader{});
     EXPECT_EQ(tdb.receipts_root(), NULL_ROOT);
 
     std::vector<Receipt> receipts;
@@ -298,6 +392,7 @@ TYPED_TEST(DBTest, commit_receipts_transactions)
     receipts.push_back(std::move(rct));
 
     std::vector<Transaction> transactions;
+    std::vector<hash256> tx_hash;
     static constexpr auto price{20'000'000'000};
     static constexpr auto value{0xde0b6b3a7640000_u256};
     static constexpr auto r{
@@ -307,7 +402,7 @@ TYPED_TEST(DBTest, commit_receipts_transactions)
     static constexpr auto to_addr{
         0x3535353535353535353535353535353535353535_address};
 
-    Transaction const t1{
+    Transaction t1{
         .sc = {.r = r, .s = s}, // no chain_id in legacy transactions
         .nonce = 9,
         .max_fee_per_gas = price,
@@ -315,40 +410,90 @@ TYPED_TEST(DBTest, commit_receipts_transactions)
         .value = value};
     Transaction t2{
         .sc = {.r = r, .s = s, .chain_id = 5}, // Goerli
-        .nonce = 9,
+        .nonce = 10,
         .max_fee_per_gas = price,
         .gas_limit = 21'000,
         .value = value,
         .to = to_addr};
-    transactions.emplace_back(t1);
-    transactions.emplace_back(t2);
-    t2.nonce = 10;
-    transactions.emplace_back(t2);
+    Transaction t3 = t2;
+    t3.nonce = 11;
+    tx_hash.emplace_back(
+        keccak256(rlp::encode_transaction(transactions.emplace_back(t1))));
+    tx_hash.emplace_back(
+        keccak256(rlp::encode_transaction(transactions.emplace_back(t2))));
+    tx_hash.emplace_back(
+        keccak256(rlp::encode_transaction(transactions.emplace_back(t3))));
     ASSERT_EQ(receipts.size(), transactions.size());
 
-    tdb.commit(StateDeltas{}, Code{}, receipts, transactions);
+    std::vector<std::vector<CallFrame>> call_frames;
+    call_frames.resize(receipts.size());
+    constexpr uint64_t first_block = 0;
+    tdb.commit(
+        StateDeltas{},
+        Code{},
+        BlockHeader{.number = first_block},
+        receipts,
+        call_frames,
+        transactions);
     EXPECT_EQ(
         tdb.receipts_root(),
         0x7ea023138ee7d80db04eeec9cf436dc35806b00cc5fe8e5f611fb7cf1b35b177_bytes32);
     EXPECT_EQ(
         tdb.transactions_root(),
-        0x559ef9bb302ecd424fb70fde5bf5a27fe59cf8873090dc7aceea13e680dcc229_bytes32);
+        0xfb4fce4331706502d2893deafe470d4cc97b4895294f725ccb768615a5510801_bytes32);
+
+    auto verify_tx_hash = [&](hash256 const &tx_hash,
+                              uint64_t const block_id,
+                              unsigned const tx_idx) {
+        auto const res = this->db.get(
+            concat(
+                finalized_nibbles, tx_hash_nibbles, mpt::NibblesView{tx_hash}),
+            this->db.get_latest_block_id());
+        EXPECT_TRUE(res.has_value());
+        EXPECT_EQ(
+            res.value(),
+            rlp::encode_list2(
+                rlp::encode_unsigned(block_id), rlp::encode_unsigned(tx_idx)));
+    };
+    verify_tx_hash(tx_hash[0], first_block, 0);
+    verify_tx_hash(tx_hash[1], first_block, 1);
+    verify_tx_hash(tx_hash[2], first_block, 2);
 
     // A new receipt trie with eip1559 transaction type
+    constexpr uint64_t second_block = 1;
     receipts.clear();
     receipts.emplace_back(Receipt{
         .status = 1, .gas_used = 34865, .type = TransactionType::eip1559});
     receipts.emplace_back(Receipt{
         .status = 1, .gas_used = 77969, .type = TransactionType::eip1559});
-    transactions.pop_back();
+    transactions.clear();
+    t1.nonce = 12;
+    t2.nonce = 13;
+    tx_hash.emplace_back(
+        keccak256(rlp::encode_transaction(transactions.emplace_back(t1))));
+    tx_hash.emplace_back(
+        keccak256(rlp::encode_transaction(transactions.emplace_back(t2))));
     ASSERT_EQ(receipts.size(), transactions.size());
-    tdb.commit(StateDeltas{}, Code{}, receipts, transactions);
+    tdb.increment_block_number();
+    call_frames.resize(receipts.size());
+    tdb.commit(
+        StateDeltas{},
+        Code{},
+        BlockHeader{.number = second_block},
+        receipts,
+        call_frames,
+        transactions);
     EXPECT_EQ(
         tdb.receipts_root(),
         0x61f9b4707b28771a63c1ac6e220b2aa4e441dd74985be385eaf3cd7021c551e9_bytes32);
     EXPECT_EQ(
         tdb.transactions_root(),
-        0x07b32e2d270714504e825d31486ecbb01c84b4844acf3b9961da2435ca2e2a26_bytes32);
+        0x0800aa3014aaa87b4439510e1206a7ef2568337477f0ef0c444cbc2f691e52cf_bytes32);
+    verify_tx_hash(tx_hash[0], first_block, 0);
+    verify_tx_hash(tx_hash[1], first_block, 1);
+    verify_tx_hash(tx_hash[2], first_block, 2);
+    verify_tx_hash(tx_hash[3], second_block, 0);
+    verify_tx_hash(tx_hash[4], second_block, 1);
 }
 
 TYPED_TEST(DBTest, to_json)
@@ -475,4 +620,248 @@ TYPED_TEST(DBTest, load_from_binary)
     EXPECT_EQ(
         tdb.read_code(H_CODE_HASH)->executable_code,
         H_CODE_ANALYSIS->executable_code);
+}
+
+TYPED_TEST(DBTest, commit_call_frames)
+{
+    TrieDb tdb{this->db};
+
+    CallFrame const call_frame1{
+        .type = CallType::CALL,
+        .flags = 1, // static call
+        .from = ADDR_A,
+        .to = ADDR_B,
+        .value = 11'111u,
+        .gas = 100'000u,
+        .gas_used = 21'000u,
+        .input = byte_string{0xaa, 0xbb, 0xcc},
+        .output = byte_string{},
+        .status = EVMC_SUCCESS,
+        .depth = 0,
+    };
+
+    CallFrame const call_frame2{
+        .type = CallType::DELEGATECALL,
+        .flags = 0,
+        .from = ADDR_B,
+        .to = ADDR_A,
+        .value = 0,
+        .gas = 10'000u,
+        .gas_used = 10'000u,
+        .input = byte_string{0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01},
+        .output = byte_string{0x01, 0x02},
+        .status = EVMC_REVERT,
+        .depth = 1,
+    };
+
+    static byte_string const encoded_txn = byte_string{0x1a, 0x1b, 0x1c};
+    std::vector<CallFrame> const call_frame{call_frame1, call_frame2};
+    std::vector<std::vector<CallFrame>> call_frames;
+    call_frames.emplace_back(call_frame);
+    std::vector<Receipt> receipts(call_frames.size());
+    std::vector<Transaction> transactions(call_frames.size());
+
+    tdb.commit(
+        StateDeltas{},
+        Code{},
+        BlockHeader{},
+        receipts,
+        call_frames,
+        transactions);
+
+    auto const &res = read_call_frame(this->db, tdb.get_block_number(), 0);
+    ASSERT_TRUE(!res.empty());
+    ASSERT_TRUE(res.size() == 2);
+    EXPECT_EQ(res[0], call_frame1);
+    EXPECT_EQ(res[1], call_frame2);
+}
+
+// test referenced from :
+// https://github.com/ethereum/tests/blob/develop/BlockchainTests/GeneralStateTests/stQuadraticComplexityTest/Call50000.json
+TYPED_TEST(DBTest, call_frames_stress_test)
+{
+    using namespace intx;
+
+    TrieDb tdb{this->db};
+
+    auto const from = 0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b_address;
+    auto const to = 0xbbbf5374fce5edbc8e2a8697c15331677e6ebf0b_address;
+    auto const ca = 0xaaaf5374fce5edbc8e2a8697c15331677e6ebf0b_address;
+
+    tdb.commit(
+        StateDeltas{
+            {from,
+             StateDelta{
+                 .account =
+                     {std::nullopt,
+                      Account{
+                          .balance = 0xffffffffffffffffffffffffffffffff_u128,
+                          .code_hash = NULL_HASH,
+                          .nonce = 0x0}}}},
+            {to,
+             StateDelta{
+                 .account =
+                     {std::nullopt,
+                      Account{
+                          .balance = 0x0fffffffffffff,
+                          .code_hash = STRESS_TEST_CODE_HASH}}}},
+            {ca,
+             StateDelta{
+                 .account =
+                     {std::nullopt,
+                      Account{.balance = 0x1b58, .code_hash = NULL_HASH}}}}},
+        Code{{STRESS_TEST_CODE_HASH, STRESS_TEST_CODE_ANALYSIS}},
+        BlockHeader{});
+
+    // clang-format off
+    byte_string const block_rlp = evmc::from_hex("0xf90283f90219a0d2472bbb9c83b0e7615b791409c2efaccd5cb7d923741bbc44783bf0d063f5b6a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d4934794b94f5374fce5edbc8e2a8697c15331677e6ebf0ba0644bb1009c2332d1532062fe9c28cae87169ccaab2624aa0cfb4f0a0e59ac3aaa0cc2a2a77bb0d7a07b12d7e1d13b9f5dfff4f4bc53052b126e318f8b27b7ab8f9a027408083641cf20cfde86cd87cd57bf10c741d7553352ca96118e31ab8ceb9ceb901000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080018433428f00840ee6b2808203e800a000000000000000000000000000000000000000000000000000000000000200008800000000000000000aa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421f863f861800a840ee6b28094bbbf5374fce5edbc8e2a8697c15331677e6ebf0b0a801ba0462186579a4be0ad8a63224059a11693b4c0684b9939f6c2394d1fbe045275f2a059d73f99e037295a5f8c0e656acdb5c8b9acd28ec73c320c277df61f2e2d54f9c0c0")
+            .value();
+    // clang-format on
+    byte_string_view block_rlp_view{block_rlp};
+    auto block = rlp::decode_block(block_rlp_view);
+    ASSERT_TRUE(!block.has_error());
+
+    BlockHashBuffer block_hash_buffer;
+    block_hash_buffer.set(
+        block.value().header.number - 1, block.value().header.parent_hash);
+
+    BlockState bs(tdb);
+
+    fiber::PriorityPool pool{1, 1};
+
+    auto const results = execute_block<EVMC_SHANGHAI>(
+        EthereumMainnet{}, block.value(), bs, block_hash_buffer, pool);
+
+    ASSERT_TRUE(!results.has_error());
+
+    bs.log_debug();
+
+    std::vector<Receipt> receipts;
+    std::vector<std::vector<CallFrame>> call_frames;
+    for (auto &result : results.value()) {
+        receipts.emplace_back(std::move(result.receipt));
+        call_frames.emplace_back(std::move(result.call_frames));
+    }
+
+    bs.commit(
+        BlockHeader{},
+        receipts,
+        call_frames,
+        block.value().transactions,
+        {},
+        {});
+
+    auto const actual_call_frames =
+        read_call_frame(this->db, tdb.get_block_number(), 0);
+
+#ifdef ENABLE_CALL_TRACING
+    // original size: 35799, after truncate, size is 100
+    EXPECT_EQ(actual_call_frames.size(), 100);
+#else
+    EXPECT_EQ(actual_call_frames.size(), 0);
+#endif
+}
+
+// test referenced from :
+// https://github.com/ethereum/tests/blob/v10.0/BlockchainTests/GeneralStateTests/stRefundTest/refund50_1.json
+TYPED_TEST(DBTest, call_frames_refund)
+{
+    TrieDb tdb{this->db};
+
+    auto const from = 0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b_address;
+    auto const to = 0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba_address;
+    auto const ca = 0x095e7baea6a6c7c4c2dfeb977efac326af552d87_address;
+
+    tdb.commit(
+        StateDeltas{
+            {from,
+             StateDelta{
+                 .account =
+                     {std::nullopt,
+                      Account{
+                          .balance = 0x989680,
+                          .code_hash = NULL_HASH,
+                          .nonce = 0x0}}}},
+            {to,
+             StateDelta{
+                 .account =
+                     {std::nullopt,
+                      Account{
+                          .balance = 0x0,
+                          .code_hash = NULL_HASH,
+                          .nonce = 0x01}}}},
+            {ca,
+             StateDelta{
+                 .account =
+                     {std::nullopt,
+                      Account{
+                          .balance = 0x1b58,
+                          .code_hash = REFUND_TEST_CODE_HASH}},
+                 .storage =
+                     {{bytes32_t{0x01}, {bytes32_t{}, bytes32_t{0x01}}},
+                      {bytes32_t{0x02}, {bytes32_t{}, bytes32_t{0x01}}},
+                      {bytes32_t{0x03}, {bytes32_t{}, bytes32_t{0x01}}},
+                      {bytes32_t{0x04}, {bytes32_t{}, bytes32_t{0x01}}},
+                      {bytes32_t{0x05}, {bytes32_t{}, bytes32_t{0x01}}}}}}},
+        Code{{REFUND_TEST_CODE_HASH, REFUND_TEST_CODE_ANALYSIS}},
+        BlockHeader{});
+
+    // clang-format off
+    byte_string const block_rlp = evmc::from_hex("0xf9025ff901f7a01e736f5755fc7023588f262b496b6cbc18aa9062d9c7a21b1c709f55ad66aad3a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347942adc25665018aa1fe0e6bc666dac8fc2697ff9baa096841c0823ec823fdb0b0b8ea019c8dd6691b9f335e0433d8cfe59146e8b884ca0f0f9b1e10ec75d9799e3a49da5baeeab089b431b0073fb05fa90035e830728b8a06c8ab36ec0629c97734e8ac823cdd8397de67efb76c7beb983be73dcd3c78141b90100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008302000001830f42408259e78203e800a00000000000000000000000000000000000000000000000000000000000000000880000000000000000f862f860800a830186a094095e7baea6a6c7c4c2dfeb977efac326af552d8780801ba0eac92a424c1599d71b1c116ad53800caa599233ea91907e639b7cb98fa0da3bba06be40f001771af85bfba5e6c4d579e038e6465af3f55e71b9490ab48fcfa5b1ec0")
+            .value();
+    // clang-format on
+    byte_string_view block_rlp_view{block_rlp};
+    auto block = rlp::decode_block(block_rlp_view);
+    ASSERT_TRUE(!block.has_error());
+
+    BlockHashBuffer block_hash_buffer;
+    block_hash_buffer.set(
+        block.value().header.number - 1, block.value().header.parent_hash);
+
+    BlockState bs(tdb);
+
+    fiber::PriorityPool pool{1, 1};
+
+    auto const results = execute_block<EVMC_SHANGHAI>(
+        EthereumMainnet{}, block.value(), bs, block_hash_buffer, pool);
+
+    ASSERT_TRUE(!results.has_error());
+
+    bs.log_debug();
+
+    std::vector<Receipt> receipts;
+    std::vector<std::vector<CallFrame>> call_frames;
+    for (auto &result : results.value()) {
+        receipts.emplace_back(std::move(result.receipt));
+        call_frames.emplace_back(std::move(result.call_frames));
+    }
+
+    bs.commit(
+        block.value().header,
+        receipts,
+        call_frames,
+        block.value().transactions,
+        {},
+        std::nullopt);
+
+    auto const actual_call_frames =
+        read_call_frame(this->db, tdb.get_block_number(), 0);
+
+#ifdef ENABLE_CALL_TRACING
+    ASSERT_EQ(actual_call_frames.size(), 1);
+    CallFrame expected{
+        .type = CallType::CALL,
+        .flags = 0,
+        .from = from,
+        .to = ca,
+        .value = 0,
+        .gas = 0x186a0,
+        .gas_used = 0x8fd8,
+        .status = EVMC_SUCCESS,
+        .depth = 0};
+
+    EXPECT_EQ(actual_call_frames[0], expected);
+#else
+    EXPECT_EQ(actual_call_frames.size(), 0);
+#endif
 }

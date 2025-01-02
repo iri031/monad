@@ -1,5 +1,6 @@
 #pragma once
 
+#include <monad/async/config.hpp>
 #include <monad/mpt/compute.hpp>
 #include <monad/mpt/config.hpp>
 #include <monad/mpt/detail/collected_stats.hpp>
@@ -14,6 +15,7 @@
 #include <monad/async/io.hpp>
 #include <monad/async/io_senders.hpp>
 
+#include <monad/core/tl_tid.h>
 #include <monad/core/unordered_map.hpp>
 
 #ifdef __clang__
@@ -25,6 +27,8 @@
     #pragma clang diagnostic pop
 #endif
 
+#include <atomic>
+#include <bit>
 #include <cstdint>
 #include <functional>
 #include <vector>
@@ -44,12 +48,22 @@ class Node;
 
 struct write_operation_io_receiver
 {
+    size_t should_be_written;
+
     // Node *parent{nullptr};
+
+    explicit constexpr write_operation_io_receiver(
+        size_t const should_be_written_)
+        : should_be_written(should_be_written_)
+    {
+    }
+
     void set_value(
         MONAD_ASYNC_NAMESPACE::erased_connected_operation *,
         MONAD_ASYNC_NAMESPACE::write_single_buffer_sender::result_type res)
     {
         MONAD_ASSERT(res);
+        MONAD_ASSERT(res.assume_value().get().size() == should_be_written);
         res.assume_value()
             .get()
             .reset(); // release i/o buffer before initiating other work
@@ -60,7 +74,10 @@ struct write_operation_io_receiver
         // }
     }
 
-    void reset() {}
+    void reset(size_t const should_be_written_)
+    {
+        should_be_written = should_be_written_;
+    }
 };
 
 using node_writer_unique_ptr_type =
@@ -141,14 +158,19 @@ replace_node_writer(UpdateAuxImpl &, node_writer_unique_ptr_type const &);
 class UpdateAuxImpl
 {
     uint32_t initial_insertion_count_on_pool_creation_{0};
+    bool enable_dynamic_history_length_{true};
 
-    detail::db_metadata *db_metadata_[2]{
-        nullptr, nullptr}; // two copies, to prevent sudden process
-                           // exits making the DB irretrievable
+    struct db_metadata_
+    {
+        detail::db_metadata *main{nullptr};
+        std::span<chunk_offset_t>
+            root_offsets; // if not-null, mmap of DB version ring buffer storage
+    } db_metadata_[2]; // two copies, to prevent sudden process
+                       // exits making the DB irretrievable
 
     void reset_node_writers();
 
-    void advance_compact_offsets(uint64_t version_to_erase);
+    void advance_compact_offsets();
 
     std::pair<uint32_t, uint32_t>
     min_offsets_of_version(uint64_t version) const;
@@ -326,6 +348,8 @@ protected:
     };
 
 public:
+    int64_t min_version_after_upsert{0};
+
     compact_virtual_chunk_offset_t compact_offset_fast{
         MIN_COMPACT_VIRTUAL_OFFSET};
     compact_virtual_chunk_offset_t compact_offset_slow{
@@ -338,12 +362,9 @@ public:
 
     detail::TrieUpdateCollectedStats stats;
 
-    static constexpr uint64_t MAX_HISTORY_LEN =
-        detail::db_metadata::root_offsets_ring_t::capacity();
-
     UpdateAuxImpl(
         MONAD_ASYNC_NAMESPACE::AsyncIO *io_ = nullptr,
-        uint64_t const history_len = MAX_HISTORY_LEN)
+        std::optional<uint64_t> const history_len = {})
     {
         if (io_) {
             set_io(io_, history_len);
@@ -438,7 +459,7 @@ public:
             explicit constexpr holder(UpdateAuxImpl *parent)
                 : parent_(parent)
             {
-                parent_->current_upsert_tid_ = gettid();
+                parent_->current_upsert_tid_ = get_tl_tid();
             }
 
         public:
@@ -476,22 +497,24 @@ public:
     bool is_current_thread_concurrent_to_upsert() const noexcept
     {
         return current_upsert_tid_.has_value() &&
-               *current_upsert_tid_ != gettid();
+               *current_upsert_tid_ != get_tl_tid();
     }
 
     bool is_current_thread_upserting() const noexcept
     {
         return current_upsert_tid_.has_value() &&
-               *current_upsert_tid_ == gettid();
+               *current_upsert_tid_ == get_tl_tid();
     }
 
     bool has_upsert_run_since() const noexcept
     {
         return current_upsert_tid_.has_value() &&
-               *current_upsert_tid_ != gettid();
+               *current_upsert_tid_ != get_tl_tid();
     }
 
-    void set_io(MONAD_ASYNC_NAMESPACE::AsyncIO *, uint64_t history_length);
+    void set_io(
+        MONAD_ASYNC_NAMESPACE::AsyncIO *,
+        std::optional<uint64_t> history_length = {});
 
     void unset_io();
 
@@ -500,6 +523,7 @@ public:
         uint64_t version, bool compaction = false,
         bool can_write_to_fast = true);
 
+    void adjust_history_length_based_on_disk_usage();
     void move_trie_version_forward(uint64_t src, uint64_t dest);
 
     // collect and print trie update stats
@@ -522,7 +546,127 @@ public:
 
     detail::db_metadata const *db_metadata() const noexcept
     {
-        return db_metadata_[0];
+        return db_metadata_[0].main;
+    }
+
+    auto root_offsets(unsigned which = 0) const
+    {
+        class root_offsets_delegator
+        {
+            std::atomic_ref<uint64_t> version_lower_bound_;
+            std::atomic_ref<uint64_t> next_version_;
+            std::span<chunk_offset_t> root_offsets_chunks_;
+
+            void
+            update_version_lower_bound_(uint64_t lower_bound = uint64_t(-1))
+            {
+                auto const version_lower_bound =
+                    version_lower_bound_.load(std::memory_order_acquire);
+                auto idx = (lower_bound < version_lower_bound)
+                               ? lower_bound
+                               : version_lower_bound;
+                auto const max_version =
+                    next_version_.load(std::memory_order_acquire) - 1;
+                while (idx < max_version && (*this)[idx] == INVALID_OFFSET) {
+                    idx++;
+                }
+                if (idx != version_lower_bound) {
+                    version_lower_bound_.store(idx, std::memory_order_release);
+                }
+            }
+
+        public:
+            explicit root_offsets_delegator(const struct db_metadata_ *m)
+                : version_lower_bound_(
+                      m->main->root_offsets.version_lower_bound_)
+                , next_version_(m->main->root_offsets.next_version_)
+                , root_offsets_chunks_(
+                      m->root_offsets.empty()
+                          ? std::span<chunk_offset_t>(
+                                m->main->root_offsets.storage_.arr)
+                          : std::span<chunk_offset_t>(m->root_offsets))
+            {
+                MONAD_DEBUG_ASSERT(
+                    root_offsets_chunks_.size() ==
+                    1ULL
+                        << (63 -
+                            std::countl_zero(root_offsets_chunks_.size())));
+            }
+
+            size_t capacity() const noexcept
+            {
+                return root_offsets_chunks_.size();
+            }
+
+            void push(chunk_offset_t const o) noexcept
+            {
+                auto const wp = next_version_.load(std::memory_order_relaxed);
+                auto const next_wp = wp + 1;
+                MONAD_ASSERT(next_wp != 0);
+                auto *p = start_lifetime_as<std::atomic<chunk_offset_t>>(
+                    &root_offsets_chunks_
+                        [wp & (root_offsets_chunks_.size() - 1)]);
+                p->store(o, std::memory_order_release);
+                next_version_.store(next_wp, std::memory_order_release);
+                if (o != INVALID_OFFSET) {
+                    update_version_lower_bound_();
+                }
+            }
+
+            void assign(size_t const i, chunk_offset_t const o) noexcept
+            {
+                auto *p = start_lifetime_as<std::atomic<chunk_offset_t>>(
+                    &root_offsets_chunks_
+                        [i & (root_offsets_chunks_.size() - 1)]);
+                p->store(o, std::memory_order_release);
+                update_version_lower_bound_(
+                    (o != INVALID_OFFSET) ? i : uint64_t(-1));
+            }
+
+            chunk_offset_t operator[](size_t const i) const noexcept
+            {
+                return start_lifetime_as<std::atomic<chunk_offset_t> const>(
+                           &root_offsets_chunks_
+                               [i & (root_offsets_chunks_.size() - 1)])
+                    ->load(std::memory_order_acquire);
+            }
+
+            // return INVALID_BLOCK_ID indicates that db is empty
+            uint64_t max_version() const noexcept
+            {
+                auto const wp = next_version_.load(std::memory_order_acquire);
+                return wp - 1;
+            }
+
+            void reset_all(uint64_t const version)
+            {
+                version_lower_bound_.store(0, std::memory_order_release);
+                next_version_.store(0, std::memory_order_release);
+                for (size_t i = 0; i < capacity(); ++i) {
+                    push(INVALID_OFFSET);
+                }
+                version_lower_bound_.store(version, std::memory_order_release);
+                next_version_.store(version, std::memory_order_release);
+            }
+
+            void rewind_to_version(uint64_t const version)
+            {
+                MONAD_ASSERT(version < max_version());
+                MONAD_ASSERT(max_version() - version <= capacity());
+                for (uint64_t i = version + 1; i <= max_version(); i++) {
+                    assign(i, async::INVALID_OFFSET);
+                }
+                if (version <
+                    version_lower_bound_.load(std::memory_order_acquire)) {
+                    version_lower_bound_.store(
+                        version, std::memory_order_release);
+                }
+                next_version_.store(version + 1, std::memory_order_release);
+                update_version_lower_bound_();
+            }
+        };
+
+        return root_offsets_delegator{&db_metadata_[which]};
     }
 
     // translate between virtual and physical addresses chunk_offset_t
@@ -541,8 +685,8 @@ public:
             detail::db_metadata *, Args...>
     void modify_metadata(Func func, Args &&...args) noexcept
     {
-        func(db_metadata_[0], std::forward<Args>(args)...);
-        func(db_metadata_[1], std::forward<Args>(args)...);
+        func(db_metadata_[0].main, std::forward<Args>(args)...);
+        func(db_metadata_[1].main, std::forward<Args>(args)...);
     }
 
     // This function should only be invoked after completing a upsert
@@ -553,11 +697,12 @@ public:
     void update_root_offset(size_t i, chunk_offset_t root_offset) noexcept;
     void fast_forward_next_version(uint64_t version) noexcept;
 
-    void update_slow_fast_ratio_metadata() noexcept;
     void update_history_length_metadata(uint64_t history_len) noexcept;
 
-    // WARNING: This is destructive
+    // WARNING: These are destructive, they discard immediately any extraneous
+    // data.
     void rewind_to_match_offsets();
+    void rewind_to_version(uint64_t version);
 
     void set_initial_insertion_count_unit_testing_only(uint32_t count)
     {
@@ -596,11 +741,17 @@ public:
         return io != nullptr;
     }
 
+    double disk_usage() const
+    {
+        return 1.0 -
+               (double)num_chunks(chunk_list::free) / (double)io->chunk_count();
+    }
+
     chunk_offset_t get_latest_root_offset() const noexcept
     {
         MONAD_ASSERT(this->is_on_disk());
-        return db_metadata()
-            ->root_offsets[db_metadata()->root_offsets.max_version()];
+        auto const ro = root_offsets();
+        return ro[ro.max_version()];
     }
 
     chunk_offset_t
@@ -608,7 +759,7 @@ public:
     {
         MONAD_ASSERT(this->is_on_disk());
         if (version <= db_history_max_version()) {
-            auto const offset = db_metadata()->root_offsets[version];
+            auto const offset = root_offsets()[version];
             if (version >= db_history_range_lower_bound()) {
                 return offset;
             }
@@ -642,6 +793,7 @@ public:
 
     uint32_t num_chunks(chunk_list const list) const noexcept;
 
+    uint64_t version_history_max_possible() const noexcept;
     uint64_t version_history_length() const noexcept;
 
     // Following funcs on db history are for on disk db only. In
@@ -655,7 +807,7 @@ public:
 };
 
 static_assert(
-    sizeof(UpdateAuxImpl) == 120 + sizeof(detail::TrieUpdateCollectedStats));
+    sizeof(UpdateAuxImpl) == 160 + sizeof(detail::TrieUpdateCollectedStats));
 static_assert(alignof(UpdateAuxImpl) == 8);
 
 template <lockable_or_void LockType = void>
@@ -731,14 +883,14 @@ class UpdateAux final : public UpdateAuxImpl
 public:
     UpdateAux(
         MONAD_ASYNC_NAMESPACE::AsyncIO *io_ = nullptr,
-        uint64_t const history_len = MAX_HISTORY_LEN)
+        std::optional<uint64_t> const history_len = {})
         : UpdateAuxImpl(io_, history_len)
     {
     }
 
     UpdateAux(
         LockType &&lock, MONAD_ASYNC_NAMESPACE::AsyncIO *io_ = nullptr,
-        uint64_t const history_len = MAX_HISTORY_LEN)
+        std::optional<uint64_t> const history_len = {})
         : UpdateAuxImpl(io_, history_len)
         , lock_(std::move(lock))
     {
@@ -781,7 +933,7 @@ class UpdateAux<void> final : public UpdateAuxImpl
 public:
     UpdateAux(
         MONAD_ASYNC_NAMESPACE::AsyncIO *io_ = nullptr,
-        uint64_t const history_len = MAX_HISTORY_LEN)
+        std::optional<uint64_t> const history_len = {})
         : UpdateAuxImpl(io_, history_len)
     {
     }
