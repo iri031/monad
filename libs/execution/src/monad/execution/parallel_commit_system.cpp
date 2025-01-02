@@ -31,15 +31,10 @@ void ParallelCommitSystem::waitForAllTransactionsToCommit() {
 std::set<evmc::address> *ParallelCommitSystem::getFootprint(txindex_t myindex) { return nullptr; }
 #else
 
-ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions, monad::Address const &beneficiary) 
-    : beneficiary(beneficiary),
-        promises(num_transactions+1),
-        status_(num_transactions),// TODO(aa): allocate these to a static array. template arg will be max number of transactions.
-        all_committed_below_index(0),
-        footprints_(num_transactions, nullptr),
-        nontriv_footprint_contains_beneficiary(num_transactions, false)
+void ParallelCommitSystem::reset(txindex_t num_transactions, monad::Address const &beneficiary) {
+    this->beneficiary=beneficiary;
+    all_committed_below_index.store(0);
       //,pending_footprints_(num_transactions)// not used currently
-{
 
     // Initialize first transaction as STARTED_UNBLOCKED, rest as STARTED
     if (num_transactions > 0) {
@@ -48,8 +43,10 @@ ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions, monad::Ad
     else {
         promises[0].set_value();
     }
-    for (size_t i = 1; i < status_.size(); i++) {
+    for (size_t i = 1; i < num_transactions; i++) {// TODO(aa): delete this loop. do not initialize here. ensure declareFootprint initializes all these, in parallel.
         status_[i].store(TransactionStatus::STARTED);
+        footprints_[i]=nullptr;
+        nontriv_footprint_contains_beneficiary[i]=false;
     }
     
 }
@@ -275,20 +272,19 @@ bool ParallelCommitSystem::existsBlockerBefore(txindex_t index) {
 }
 
 bool ParallelCommitSystem::blocksAllLaterTransactions(txindex_t index) {
-    assert(index<status_.size());
-    assert(footprints_.size()==status_.size());
+    assert(index<num_transactions);
     auto status = status_[index].load();
     if (status == TransactionStatus::STARTED || status == TransactionStatus::STARTED_UNBLOCKED) {
         return true;
     }
-    if (footprints_.at(index) == nullptr /* INF footprint */ && status != TransactionStatus::COMMITTED) {
+    if (footprints_[index] == nullptr /* INF footprint */ && status != TransactionStatus::COMMITTED) {
         return true;
     }
     return false;
 }
 
 void ParallelCommitSystem::waitForAllTransactionsToCommit() {
-    promises[status_.size()].get_future().wait();
+    promises[num_transactions].get_future().wait();
 }
 
 //pre: blocksAllLaterTransactions(i) is false for all i<start
@@ -298,7 +294,6 @@ void ParallelCommitSystem::tryUnblockTransactionsStartingFrom(txindex_t start) {
     // once we hit a transaction whose footprint is not yet computed,
     // we cannot wake up or unblock transactions after that transaction
     // every transaction accesses at least 1 account and the uncomputed footprint may include that account.
-    auto num_transactions = status_.size();
     txindex_t index=start;
     index=std::max(index, all_committed_below_index.load());
     while(index < num_transactions) {
@@ -344,20 +339,20 @@ void ParallelCommitSystem::notifyDone(txindex_t myindex) {
 void ParallelCommitSystem::notifyAllDone() {
     bool old_value = false;
     if (all_done.compare_exchange_strong(old_value, true)) {
-        promises[status_.size()].set_value();
+        promises[num_transactions].set_value();
     }
 }
 
 void ParallelCommitSystem::updateLastCommittedUb() {
     auto newUb = all_committed_below_index.load();
-    while (newUb< status_.size()) {
+    while (newUb< num_transactions) {
         if (status_[newUb].load() != TransactionStatus::COMMITTED) {
             break;
         }
         newUb++;
     }
     advanceLastCommittedUb(newUb); // there is no use of doing it in the then case, but it is safe+clean to do it there as well
-    if(newUb == status_.size()) {
+    if(newUb == num_transactions) {
         notifyAllDone(); // one problem is that this unblocks execute_block, which can destruct the this object, even though more calls are done on it, e.g. in notifyDone
     }
 }

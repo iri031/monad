@@ -19,6 +19,7 @@
 
 #include <cstdint>
 
+#define MAX_TRANSACTIONS 800
 MONAD_NAMESPACE_BEGIN
 #define SEQUENTIAL 0
 class ParallelCommitSystem
@@ -45,10 +46,10 @@ class ParallelCommitSystem
     void declareFootprint(txindex_t myindex, const std::set<evmc::address> *footprint);
     const std::set<evmc::address> *getFootprint(txindex_t myindex);
 
-    ParallelCommitSystem(txindex_t num_transactions, monad::Address const &beneficiary);
-
+    
     ~ParallelCommitSystem();
     void waitForAllTransactionsToCommit();
+    void reset(txindex_t num_transactions, monad::Address const &beneficiary);
 
     private:
     monad::Address beneficiary;
@@ -56,10 +57,10 @@ class ParallelCommitSystem
     * promises[i].set_value() is only called by the transaction (in call to notifyDone) that CASes status[i] 
     * from foo to foo_unblocked or WAITING_FOR_PREV_TRANSACTIONS to COMMITTING
     */
-    std::vector<boost::fibers::promise<void>> promises;
+    boost::fibers::promise<void> promises[MAX_TRANSACTIONS+1];
+    txindex_t num_transactions;
 #if SEQUENTIAL//ideally, we should use PIMPL and move the private state to the cpp files, 
 //one for the sequential impl and one for the parallel impl. that may be a tiny bit slower due to the overhead of the indirection via the pointer.
-    txindex_t num_transactions;
 #else
     enum class TransactionStatus : uint8_t
     {
@@ -96,7 +97,7 @@ class ParallelCommitSystem
     */
     void unblockTransaction(TransactionStatus status, txindex_t index);
 
-    std::vector<std::atomic<TransactionStatus>> status_;
+    std::atomic<TransactionStatus> status_[MAX_TRANSACTIONS];
     /**
     * all_committed_below_index is the upper bound of the index of transactions that have committed their changes to block_state.
     * this ub will not be tight as we cannot update it atomically with other fields. this field is used to optimize
@@ -113,10 +114,8 @@ class ParallelCommitSystem
     * other transactions will not read this until status_[i] is updated to FOOTPRINT_COMPUTED or greater.
     * therefore we do not need atomics.
     */
-    std::vector<const std::set<evmc::address> *>
-        footprints_; 
-    std::vector<bool>
-        nontriv_footprint_contains_beneficiary; // just a cache, can be computed from footprints_
+    const std::set<evmc::address> * footprints_[MAX_TRANSACTIONS];
+    bool nontriv_footprint_contains_beneficiary[MAX_TRANSACTIONS]; // just a cache, can be computed from footprints_
 
     std::atomic<bool> all_done=false;
 
