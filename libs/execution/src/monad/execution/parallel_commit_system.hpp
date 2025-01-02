@@ -119,6 +119,12 @@ class ParallelCommitSystem
 
     std::atomic<bool> all_done=false;
 
+    // notifyDone(i) should up fully_done[i] at the end. the guarantee is that it would not modify any field after that. 
+    // currently, even after waitForAllTransactionsToCommit returns, notifyDone(i) of some transactions (especially the last ones) may be running. 
+    // they incorrectly unblock a transaction of the next block if the scheduler blocks them for too long.
+    // execute_block should wait for all these promises in a fiber that is parallel to the final cleanup process after waitForAllTransactionsToCommit returns.
+    // that filber will up fully_done[num_transactions] at the end, which execute_block will wait for at the very end.
+     //boost::fibers::promise<void> fully_done[MAX_TRANSACTIONS+1];
 
     /**
     * pending_footprints_[i] is a set of addresses that some uncommitted transaction may still be accessing. 
