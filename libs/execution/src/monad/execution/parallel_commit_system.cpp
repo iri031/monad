@@ -80,7 +80,11 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
     }
     if(footprint && footprint->find(beneficiary)!=footprint->end()){
         nontriv_footprint_contains_beneficiary[myindex]=true;
-        //LOG_INFO("declareFootprint: nontriv_footprint_contains_beneficiary[{}] set to true", myindex);
+        LOG_INFO("footprint[{}] contains beneficiary", myindex);
+    }
+    else {
+        nontriv_footprint_contains_beneficiary[myindex]=false;// not needed as it is default initialized
+        LOG_INFO("footprint[{}] does not contain beneficiary", myindex);
     }
 
 

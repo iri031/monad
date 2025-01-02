@@ -158,6 +158,7 @@ Receipt execute_final(
         calculate_txn_award<rev>(tx, base_fee_per_gas, gas_used);
     if (beneficiary_touched || sender == beneficiary) {
         state.add_to_balance(beneficiary, reward);
+        block_beneficiary_reward = std::nullopt;// TODO(aa): not necessary as the client does this
     } else {
         block_beneficiary_reward = reward;
     }

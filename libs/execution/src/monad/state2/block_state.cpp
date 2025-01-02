@@ -216,6 +216,7 @@ void BlockState::merge_par(State const &state, uint64_t tx_index, std::optional<
     if (block_beneficiary_reward.has_value()){
         beneficiary_balance_updates[tx_index].first=block_beneficiary_reward.value();
         beneficiary_balance_updates[tx_index].second=BENEFICIARY_BALANCE_INCREMENT;
+        LOG_INFO("merge_par: tx {} added {} to beneficiary's balance", tx_index, beneficiary_balance_updates[tx_index].first);
     }
     else if (parallel_beneficiary){
         beneficiary_balance_updates[tx_index].second=BENEFICIARY_BALANCE_ABSOLUTE;
@@ -224,6 +225,7 @@ void BlockState::merge_par(State const &state, uint64_t tx_index, std::optional<
         auto const &beneficiary_account_new = beneficiary_it->second.recent().account_;
         assert(beneficiary_account_new.has_value());
         beneficiary_balance_updates[tx_index].first=beneficiary_account_new.value().balance;
+        LOG_INFO("merge_par: tx {} set beneficiary's balance to {}", tx_index, beneficiary_balance_updates[tx_index].first);
     }
 }
 
