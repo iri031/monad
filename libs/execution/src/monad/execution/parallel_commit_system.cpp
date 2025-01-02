@@ -34,6 +34,9 @@ std::set<evmc::address> *ParallelCommitSystem::getFootprint(txindex_t myindex) {
 void ParallelCommitSystem::reset(txindex_t num_transactions, monad::Address const &beneficiary) {
     this->beneficiary=beneficiary;
     all_committed_below_index.store(0);
+    for (txindex_t i = 0; i <= num_transactions; i++) {
+        promises[i] = boost::fibers::promise<void>();
+    }
       //,pending_footprints_(num_transactions)// not used currently
 
     // Initialize first transaction as STARTED_UNBLOCKED, rest as STARTED
