@@ -31,25 +31,23 @@ void ParallelCommitSystem::waitForAllTransactionsToCommit() {
 std::set<evmc::address> *ParallelCommitSystem::getFootprint(txindex_t myindex) { return nullptr; }
 #else
 
-void ParallelCommitSystem::reset(txindex_t num_transactions, monad::Address const &beneficiary) {
+void ParallelCommitSystem::reset(txindex_t num_transactions_, monad::Address const &beneficiary) {
+    this->num_transactions=num_transactions_;
     this->beneficiary=beneficiary;
     all_committed_below_index.store(0);
-    for (txindex_t i = 0; i <= num_transactions; i++) {
+    for (size_t i = 0; i < num_transactions; i++) {// TODO(aa): do not initialize here, except promises. ensure declareFootprint initializes all these, in parallel.
+        status_[i].store(TransactionStatus::STARTED);
+        footprints_[i]=nullptr;
+        nontriv_footprint_contains_beneficiary[i]=false;
         promises[i] = boost::fibers::promise<void>();
     }
-      //,pending_footprints_(num_transactions)// not used currently
+    promises[num_transactions]=boost::fibers::promise<void>();
 
-    // Initialize first transaction as STARTED_UNBLOCKED, rest as STARTED
     if (num_transactions > 0) {
         status_[0].store(TransactionStatus::STARTED_UNBLOCKED);
     }
     else {
         promises[0].set_value();
-    }
-    for (size_t i = 1; i < num_transactions; i++) {// TODO(aa): delete this loop. do not initialize here. ensure declareFootprint initializes all these, in parallel.
-        status_[i].store(TransactionStatus::STARTED);
-        footprints_[i]=nullptr;
-        nontriv_footprint_contains_beneficiary[i]=false;
     }
     all_done.store(false);
     
@@ -348,20 +346,20 @@ void ParallelCommitSystem::notifyAllDone() {
 }
 
 void ParallelCommitSystem::updateLastCommittedUb() {
-    bool changed=false;
+//    bool changed=false;
     auto newUb = all_committed_below_index.load();
     while (newUb< num_transactions) {
         if (status_[newUb].load() != TransactionStatus::COMMITTED) {
             break;
         }
         newUb++;
-        changed=true;
+        //changed=true;
     }
-    if(!changed) {
-        return;
-    }
-    bool ichanged=advanceLastCommittedUb(newUb);
-    if(ichanged && newUb == num_transactions) {
+    // if(!changed) {
+    //     return;
+    // }
+    advanceLastCommittedUb(newUb);
+    if(newUb == num_transactions) {
         notifyAllDone(); // one problem is that this unblocks execute_block, which can destruct the this object, even though more calls are done on it, e.g. in notifyDone
     }
 }
