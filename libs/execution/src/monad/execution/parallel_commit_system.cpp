@@ -357,8 +357,8 @@ void ParallelCommitSystem::updateLastCommittedUb() {
     if(!changed) {
         return;
     }
-    changed=advanceLastCommittedUb(newUb); // there is no use of doing it in the then case, but it is safe+clean to do it there as well
-    if(changed && newUb == num_transactions) {
+    bool ichanged=advanceLastCommittedUb(newUb);
+    if(ichanged && newUb == num_transactions) {
         notifyAllDone(); // one problem is that this unblocks execute_block, which can destruct the this object, even though more calls are done on it, e.g. in notifyDone
     }
 }
