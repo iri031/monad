@@ -92,40 +92,10 @@ inline void set_beacon_root(BlockState &block_state, Block &block)
 }
 
 #define MAX_FOOTPRINT_SIZE 10
-/** returns true iff the footprint has been overapproximated to INF. in that case, footprint is deleted */
-bool insert_callees(std::set<evmc::address> *footprint, std::vector<evmc::address> & to_be_explored, std::set<evmc::address> & seen_delegate_callees, evmc::address runningAddress, CalleePredInfo &callee_pred_info) {
-    if(footprint->size()>MAX_FOOTPRINT_SIZE) {
-        delete footprint;
-        return true;
-    }
-
-    auto calles=callee_pred_info.lookup_callee(runningAddress);
-    if(!calles.has_value()) {
-        return true;// absense in map means callee prediction failed. the empty callee set is denoted by an empty vector
-    }
-    for (uint32_t index : calles.value()->callees) {
-        evmc::address callee_addr=get_address(index, callee_pred_info.epool);
-        auto res=footprint->insert(callee_addr);
-        if(res.second) {
-            to_be_explored.push_back(callee_addr);
-        }
-    }
-    for (uint32_t index : calles.value()->delegateCallees) {
-        evmc::address callee_addr=get_address(index, callee_pred_info.epool);
-        if (footprint->find(callee_addr)!=footprint->end()) {
-            continue;
-        }
-        auto res=seen_delegate_callees.insert(callee_addr);// we do not insert into footprint, because DELEGATECALL/CALLCODE does not directly change callee's account. we insert it here to avoid infinite loops
-        if(res.second) {
-            to_be_explored.push_back(callee_addr);// the called code, even though it runs in the context of the caller, can do CALL(foo) and then change the account of foo. so we need to recursively analyze callee_addr for CALL
-        }
-    }
-    return false;
-}
 
 // if this returns true, then the address MUST be a non-contract account. for correctness, it can always return false, but for performance, it should do that only for addresses created in this block.
-bool to_address_known_to_be_non_contract(BlockState &block_state, Transaction const &transaction) {
-    auto const to_account = block_state.read_account(transaction.to.value());
+bool address_known_to_be_non_contract(BlockState &block_state, evmc::address address) {
+    auto const to_account = block_state.read_account(address);
     if(!to_account.has_value()) {// an account that is first seen in this block.
 
         /* there is no reliable way to determine if this is account is a contract account or not. a previous contract transaction in this block may create a contract at this address. we cannot wait to run to find out. if a static analysis finds that all prev transactions in this block has no CREATE2 opcode THEN we can return true
@@ -138,6 +108,46 @@ bool to_address_known_to_be_non_contract(BlockState &block_state, Transaction co
     return to_account.value().code_hash==NULL_HASH;
 }
 
+/** returns true iff the footprint has been overapproximated to INF. in that case, footprint is deleted 
+ * \pre address_known_to_be_non_contract(runningAddress)=false, which means runningAddress has a non-empty code hash or hasnt been seen until this block
+*/
+bool insert_callees(BlockState &block_state, std::set<evmc::address> *footprint, std::vector<evmc::address> & to_be_explored, std::set<evmc::address> & seen_delegate_callees, evmc::address runningAddress, CalleePredInfo &callee_pred_info) {
+    if(footprint->size()>MAX_FOOTPRINT_SIZE) {
+        delete footprint;
+        return true;
+    }
+
+    auto calles=callee_pred_info.lookup_callee(runningAddress);
+    if(!calles.has_value()) {
+        return true;// absense in map means callee prediction failed. the empty callee set is denoted by an empty vector.
+    }
+    for (uint32_t index : calles.value()->callees) {
+        evmc::address callee_addr=get_address(index, callee_pred_info.epool);
+        if(address_known_to_be_non_contract(block_state, callee_addr)) {
+            continue;
+        }
+        auto res=footprint->insert(callee_addr);
+        if(res.second) {
+            to_be_explored.push_back(callee_addr);
+        }
+    }
+    for (uint32_t index : calles.value()->delegateCallees) {
+        evmc::address callee_addr=get_address(index, callee_pred_info.epool);
+        if(address_known_to_be_non_contract(block_state, callee_addr)) {
+            continue;
+        }
+        if (footprint->find(callee_addr)!=footprint->end()) {// this was already insested to to_be_explored
+            continue;
+        }
+        auto res=seen_delegate_callees.insert(callee_addr);// we do not insert into footprint, because DELEGATECALL/CALLCODE does not directly change callee's account. we insert it here to avoid infinite loops
+        if(res.second) {
+            to_be_explored.push_back(callee_addr);// the called code, even though it runs in the context of the caller, can do CALL(foo) and then change the account of foo. so we need to recursively analyze callee_addr for CALL
+        }
+    }
+    return false;
+}
+
+
 // sender address is later added to the footprint by the caller, because sender.nonce is updated by the transaction
 // for now, we assume that no transaction calls a contract created by a previous transaction in this very block. need to extend static analysis to look at predicted stacks at CREATE/CREATE2
  std::set<evmc::address> * compute_footprint(BlockState &block_state, Transaction const &transaction, CalleePredInfo &callee_pred_info, uint64_t tx_index=0) {
@@ -148,7 +158,7 @@ bool to_address_known_to_be_non_contract(BlockState &block_state, Transaction co
     evmc::address runningAddress = transaction.to.value();
     std::set<evmc::address> *footprint=new std::set<evmc::address>();
     footprint->insert(runningAddress);
-    if(to_address_known_to_be_non_contract(block_state, transaction)) {
+    if(address_known_to_be_non_contract(block_state, transaction.to.value())) {
         LOG_INFO("compute_footprint: tx_index: {} address_known_to_be_non_contract: {}", tx_index, runningAddress);
         return footprint;
     }
@@ -161,7 +171,7 @@ bool to_address_known_to_be_non_contract(BlockState &block_state, Transaction co
     while((!overapproximated)&&(to_be_explored.size()>0)) {
         evmc::address runningAddress=to_be_explored.back();
         to_be_explored.pop_back();
-        overapproximated=insert_callees(footprint, to_be_explored, seen_delegate_callees, runningAddress, callee_pred_info);
+        overapproximated=insert_callees(block_state, footprint, to_be_explored, seen_delegate_callees, runningAddress, callee_pred_info);
     }
     if(overapproximated) {
         delete footprint;
