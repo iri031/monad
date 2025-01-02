@@ -283,6 +283,7 @@ Result<std::vector<ExecutionResult>> execute_block(
     }
 
     parallel_commit_system.waitForAllTransactionsToCommit();
+    // there a way here to kill all fibers?
 
     std::vector<ExecutionResult> retvals;
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
