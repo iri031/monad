@@ -36,6 +36,9 @@ void ParallelCommitSystem::reset(txindex_t num_transactions_, monad::Address con
     this->num_transactions=num_transactions_;
     this->beneficiary=beneficiary;
     all_committed_below_index.store(0);
+    for (auto& pair : transactions_accessing_address_) {
+          delete pair.second; // matches the "new tbb::concurrent_set<txindex_t>()" in registerAddressAccessedBy
+    }
     transactions_accessing_address_.clear();
     for (size_t i = 0; i < num_transactions; i++) {// TODO(aa): do not initialize here, except promises. ensure declareFootprint initializes all these, in parallel.
         status_[i].store(TransactionStatus::STARTED);
@@ -246,15 +249,15 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
         if (footprint == nullptr) {
             return false;
         }
+        if(nontriv_footprint_contains_beneficiary[index]) {
+            return false;// above, we observed that the previous transacton hasn't committed yet. this transaction may read the exact beneficiary balance, so we need to wait for all previous transactions to commit so that the rewards get finalized.
+        }
         for (const auto& addr : *footprint) {
             auto highest_prev = highestLowerUncommittedIndexAccessingAddress(index, addr);
             assert(highest_prev<index || highest_prev == std::numeric_limits<txindex_t>::max());
             if (highest_prev != std::numeric_limits<txindex_t>::max() && status_[highest_prev].load() != TransactionStatus::COMMITTED)
                 return false;// the access map may not have all entries yet. actually, it will have all relevant entries because of a precondition of this function: see comment
 
-        }
-        if(nontriv_footprint_contains_beneficiary[index]) {
-            return false;// above, we observed that the previous transacton hasn't committed yet. this transaction may read the exact beneficiary balance, so we need to wait for all previous transactions to commit so that the rewards get finalized.
         }
         unblockTransaction(status, index);
         return true;
