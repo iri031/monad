@@ -112,9 +112,9 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
     //     //    status_to_string(new_status));
     // }
 
-    if (!existsBlockerBefore(myindex)) {
-        tryUnblockTransactionsStartingFrom(myindex);
-    }
+    // if (!existsBlockerBefore(myindex)) {
+    //     tryUnblockTransactionsStartingFrom(myindex);
+    // }
 }
 
 ParallelCommitSystem::~ParallelCommitSystem() {

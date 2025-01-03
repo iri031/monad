@@ -227,14 +227,23 @@ Result<std::vector<ExecutionResult>> execute_block(
     std::shared_ptr<boost::fibers::promise<void>[]> promises{
         new boost::fibers::promise<void>[block.transactions.size()]};
 
+    parallel_commit_system.reset(block.transactions.size(), block.header.beneficiary);
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         priority_pool.submit(
             i,
             [i = i,
              senders = senders,
              promises = promises,
+             &block_state = block_state,
+             &callee_pred_info = callee_pred_info,
              &transaction = block.transactions[i]] {
                 senders[i] = recover_sender(transaction);
+                #if !SEQUENTIAL
+                std::set<evmc::address> *footprint=compute_footprint(block_state, transaction, callee_pred_info, i);
+                insert_to_footprint(footprint, senders[i].value());
+                parallel_commit_system.declareFootprint(i, footprint);
+                //print_footprint(footprint, i);
+                #endif
                 promises[i].set_value();
             });
     }
@@ -249,7 +258,6 @@ Result<std::vector<ExecutionResult>> execute_block(
     std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
         new std::optional<Result<ExecutionResult>>[block.transactions.size()]};
 
-    parallel_commit_system.reset(block.transactions.size(), block.header.beneficiary);
 
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
@@ -264,12 +272,6 @@ Result<std::vector<ExecutionResult>> execute_block(
              &header = block.header,
              &block_hash_buffer = block_hash_buffer,
              &block_state, &callee_pred_info] {
-                #if !SEQUENTIAL
-                std::set<evmc::address> *footprint=compute_footprint(block_state, transaction, callee_pred_info, i);
-                insert_to_footprint(footprint, sender.value());
-                parallel_commit_system.declareFootprint(i, footprint);
-                //print_footprint(footprint, i);
-                #endif
                 results[i] = execute<rev>(
                     chain,
                     i,
