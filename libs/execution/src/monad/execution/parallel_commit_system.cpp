@@ -42,6 +42,7 @@ void ParallelCommitSystem::reset(txindex_t num_transactions_, monad::Address con
     transactions_accessing_address_.clear();
     for (size_t i = 0; i < num_transactions; i++) {// TODO(aa): do not initialize here, except promises. ensure declareFootprint initializes all these, in parallel.
         status_[i].store(TransactionStatus::STARTED);
+        delete footprints_[i];
         footprints_[i]=nullptr;
         nontriv_footprint_contains_beneficiary[i]=false;
         promises[i] = boost::fibers::promise<void>();
