@@ -208,7 +208,6 @@ Result<std::vector<ExecutionResult>> execute_block(
 {
     TRACE_BLOCK_EVENT(StartBlock);
     block_state.init(block.header.beneficiary, block.transactions.size());
-    block_state.load_preblock_beneficiary_balance();
 
     if constexpr (rev >= EVMC_CANCUN) {
         set_beacon_root(block_state, block);
@@ -247,6 +246,7 @@ Result<std::vector<ExecutionResult>> execute_block(
                 promises[i].set_value();
             });
     }
+    block_state.load_preblock_beneficiary_balance();
 
     //LOG_INFO("block number: {}, block beneficiary: {}", block.header.number, block.header.beneficiary);
 

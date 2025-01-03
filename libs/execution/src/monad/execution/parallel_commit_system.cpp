@@ -41,20 +41,12 @@ void ParallelCommitSystem::reset(txindex_t num_transactions_, monad::Address con
     }
     transactions_accessing_address_.clear();
     for (size_t i = 0; i < num_transactions; i++) {// TODO(aa): do not initialize here, except promises. ensure declareFootprint initializes all these, in parallel.
-        status_[i].store(TransactionStatus::STARTED);
-        delete footprints_[i];
-        footprints_[i]=nullptr;
-        nontriv_footprint_contains_beneficiary[i]=false;
         promises[i] = boost::fibers::promise<void>();
     }
     promises[num_transactions]=boost::fibers::promise<void>();
 
-    if (num_transactions > 0) {
-        status_[0].store(TransactionStatus::STARTED_UNBLOCKED);
-    }
-    else {
+    if (num_transactions == 0)
         promises[0].set_value();
-    }
     all_done.store(false);
     
 }
@@ -77,6 +69,7 @@ void ParallelCommitSystem::registerAddressAccessedBy(const evmc::address& addr, 
 }
 
 void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<evmc::address> *footprint) {
+    delete footprints_[myindex];
     footprints_[myindex] = footprint;
     if (footprint) {
         for (const auto& addr : *footprint) {
@@ -87,8 +80,18 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
         nontriv_footprint_contains_beneficiary[myindex]=true;
         //LOG_INFO("footprint[{}] contains beneficiary", myindex);
     }
+    else {
+        nontriv_footprint_contains_beneficiary[myindex]=false;
+    }
 
 
+    if (myindex==0) {
+        status_[myindex].store(TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED);
+    }
+    else {
+        status_[myindex].store(TransactionStatus::FOOTPRINT_COMPUTED);
+    }
+    /*
     // update status_[myindex] from STARTED to FOOTPRINT_COMPUTED, while preserving the _UNBLOCKED part which previous transactions may change concurrently when they notifyDone
     auto current_status = status_[myindex].load();
     // on non-first iterations, current_status comes from the CAS at the end of the previous iteration
@@ -105,7 +108,7 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
         assert(current_status == TransactionStatus::STARTED_UNBLOCKED);
         status_[myindex].store(TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED);
         //LOG_INFO("declareFootprint: status[{}] changed from STARTED_UNBLOCKED to FOOTPRINT_COMPUTED_UNBLOCKED", myindex);
-    }
+    } */
     // else {
     //     //LOG_INFO("declareFootprint: status[{}] changed from {} to {}", 
     //     //    myindex, 
@@ -388,6 +391,8 @@ MONAD_NAMESPACE_END
  
 TODO(aa):
 - check how the priority pool works. if transactions 2,4-45 are running and 3 becomes ready, will it run before 46? 3 should run to get full advantage and reduce retries.
+- use a concurrent min heap to implement existsBlockerBefore in O(1), currently it is O(n)
+- delay the transfer transactions based on footprint
 - expand callee prediction to expressions. first add CALLDATA(const)/SENDER/COINBASE. then add binops over them, and maybe CALLDATA(*) 
 
  *  */
