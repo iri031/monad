@@ -262,20 +262,19 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
     return false;
 }
 
-bool ParallelCommitSystem::existsBlockerBefore(txindex_t index) {
-    auto committed_ub = all_committed_below_index.load();// transactiosn before this index cannot be blockers
-    txindex_t i=committed_ub;
-    while(i < index) {
-        if (blocksAllLaterTransactions(i)) {
+bool ParallelCommitSystem::existsBlockerBefore(txindex_t index) const {
+    auto committed_ub = all_committed_below_index.load(); // transactions before this index cannot be blockers
+
+    while (index > committed_ub) {
+        --index; // Decrement index to check the previous transaction
+        if (blocksAllLaterTransactions(index)) {
             return true;
         }
-        ++i;
-        i=std::max(i, all_committed_below_index.load());
     }
     return false;
 }
 
-bool ParallelCommitSystem::blocksAllLaterTransactions(txindex_t index) {
+bool ParallelCommitSystem::blocksAllLaterTransactions(txindex_t index) const {
     assert(index<num_transactions);
     auto status = status_[index].load();
     if (status == TransactionStatus::STARTED || status == TransactionStatus::STARTED_UNBLOCKED) {
@@ -382,59 +381,9 @@ bool ParallelCommitSystem::advanceLastCommittedUb(txindex_t minValue) {
 MONAD_NAMESPACE_END
 
 /**
- *  steps to debug:
- * 0) check the meaning of wrong merkle root error. does it indicate a problem of the execition of the last block or n-2th block? can test it by instrumenting the execution to do something wrong based on block number.
- * 1) run with valgrind
- * 2) implement change_within_footprint
- * 3) if change_within_footpring asserts are not violated, then only 2 possibilities: 1) BlockState::merge cannot be run concurrently even for disjoing footprints, 2) there is some catastrophic memory corruption in ParallelCommitSystem. debug it
- * 4) to confirm 3.1 (blockstate::merge), in the main branch, insert minimal code to drop promises.wait for blocks whose transactions are completely disjoint. run many times until that block. block 47219 is an example (see below)
- * 5) if 3.1 is not confirmed, investigate 3.2 (memory corruption in ParallelCommitSystem). else tweak BlockState so that merge and car_merge can be run more concurrently
- * 
- * 
- * 2024-12-24 23:22:06.177577979 [1085296] execute_block.cpp:208 //LOG_INFO	block number: 47219
-2024-12-24 23:22:06.177685659 [1085296] execute_block.cpp:212 //LOG_INFO	sender[0]: 0xe6a7a1d47ff21b6321162aea7c6cb457d5476bca
-2024-12-24 23:22:06.177688239 [1085296] execute_block.cpp:212 //LOG_INFO	sender[1]: 0xf9a19aea1193d9b9e4ef2f5b8c9ec8df93a22356
-2024-12-24 23:22:06.177908411 [1085306] parallel_commit_system.cpp:99 //LOG_INFO	declareFootprint: status[1] changed from STARTED to FOOTPRINT_COMPUTED
-2024-12-24 23:22:06.177915781 [1085306] execute_block.cpp:168 //LOG_INFO	footprint[1]: 0x32be343b94f860124dc4fee278fdcbd38c102d88, 0xf9a19aea1193d9b9e4ef2f5b8c9ec8df93a22356,
-2024-12-24 23:22:06.177939611 [1085306] parallel_commit_system.cpp:99 //LOG_INFO	declareFootprint: status[0] changed from STARTED_UNBLOCKED to FOOTPRINT_COMPUTED_UNBLOCKED
-2024-12-24 23:22:06.177943681 [1085306] parallel_commit_system.cpp:182 //LOG_INFO	indicesAccessingAddress[0x32be343b94f860124dc4fee278fdcbd38c102d88]: 1,
-2024-12-24 23:22:06.177946581 [1085306] parallel_commit_system.cpp:182 //LOG_INFO	indicesAccessingAddress[0xf9a19aea1193d9b9e4ef2f5b8c9ec8df93a22356]: 1,
-2024-12-24 23:22:06.177947161 [1085306] parallel_commit_system.cpp:162 //LOG_INFO	unblockTransaction: status[1] changed from FOOTPRINT_COMPUTED to FOOTPRINT_COMPUTED_UNBLOCKED
-2024-12-24 23:22:06.177951761 [1085306] execute_block.cpp:168 //LOG_INFO	footprint[0]: 0xe25e3a1947405a1f82dd8e3048a9ca471dc782e1, 0xe6a7a1d47ff21b6321162aea7c6cb457d5476bca,
-2024-12-24 23:22:06.179921012 [1085296] ethereum_mainnet.cpp:104 LOG_ERROR	Block: 47219, Computed State Root: 0x80b2ce33f14791b03d34ea19000059aa7a6215d2757ddca392273cf26bf9196f, Expected State Root: 0x05a16e52dbacec805dc881439ef54338e8324ee133a4dbbb8ab17f8c73290054
-2024-12-24 23:22:06.182764379 [1085296] monad.cpp:685 LOG_ERROR	block 47219 failed with: wrong merkle root
-[Thread 0x7fffed6006c0 (LWP 1085308) exited]
-[Thread 0x7fffee0006c0 (LWP 1085307) exited]
-[Thread 0x7fffeea006c0 (LWP 1085306) exited]
-[Thread 0x7fffef4006c0 (LWP 1085305) exited]
-[Thread 0x7ffff6a006c0 (LWP 1085302) exited]
-[Thread 0x7ffff74006c0 (LWP 1085301) exited]
-[Inferior 1 (process 1085296) exited with code 01]
-
-
-it seems the issue is that I forgot to take into account that ever transacton implicity updates the balance 
-of the block miner's designated beneficiary account by adding a reward to it.
-the current handling of it would require adding beneeficiary to every footprint and thus completely spoil any parallelism.
-So, we need to do a special case handling of it.
-We can add the following array to  BlockState:
-beneficiary_balance_deltas_[transactions.size ()].
-beneficiary_balance_deltas_[i] can only be updated by the transaction i: BlockState:merge will just set this field.
-But it can be read by any transaction. 
-It will only be ready by transactions that explicitly access the beneficiary account, e.g. if the beneficiary
-account is a contract and the code calls SELFBALANCE.
-
-`ParalllelCommitSystem` will work mostly the same. beneficially account will not be added to footprints unless
-they are explicitly accessed by the transaction. waitForPrevTransactions[i] will change as follows in case
-the transactiion i explicitly accesses the beneficiary account:
-wait for all transactions before i to commit.
-
-
-BlockState::can_merge will change to add up the array of deltas until the index in places where it reads the beneficiary account.
-
-
-
+ 
 TODO(aa):
-- handle CREATE2: if a footprint has an account not seen before, set the footprint to INF: the account could be a concract which can call anything.
+- check how the priority pool works. if transactions 2,4-45 are running and 3 becomes ready, will it run before 46? 3 should run to get full advantage and reduce retries.
 - expand callee prediction to expressions. first add CALLDATA(const)/SENDER/COINBASE. then add binops over them, and maybe CALLDATA(*) 
 
  *  */

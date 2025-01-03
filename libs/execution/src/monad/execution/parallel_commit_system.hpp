@@ -86,8 +86,8 @@ class ParallelCommitSystem
     /** update all_committed_below_index so that it is at least minValue */
     bool advanceLastCommittedUb(txindex_t minValue);
     void registerAddressAccessedBy(const evmc::address& addr, txindex_t index);
-    bool existsBlockerBefore(txindex_t index);
-    bool blocksAllLaterTransactions(txindex_t index);
+    bool existsBlockerBefore(txindex_t index) const;
+    bool blocksAllLaterTransactions(txindex_t index) const;
     static std::string status_to_string(TransactionStatus status);
     void notifyAllDone();// add a block index argument
 
