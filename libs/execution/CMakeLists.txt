@@ -191,7 +191,6 @@ target_link_libraries(
   PUBLIC monad_core
   PUBLIC monad_trie
   PRIVATE Boost::fiber
-  PRIVATE Boost::graph
   PRIVATE Boost::json
   PRIVATE PkgConfig::brotli
   PUBLIC ethash::keccak

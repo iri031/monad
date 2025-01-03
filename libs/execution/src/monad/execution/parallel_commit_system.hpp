@@ -19,7 +19,7 @@
 
 #include <cstdint>
 
-#define MAX_TRANSACTIONS 800
+#define MAX_TRANSACTIONS 200
 MONAD_NAMESPACE_BEGIN
 #define SEQUENTIAL 0
 class ParallelCommitSystem

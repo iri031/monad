@@ -11,7 +11,7 @@
                 "CFLAGS": "-march=haswell",
                 "CXXFLAGS": "-march=haswell",
                 "ASMFLAGS": "-march=haswell",
-                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}"
             }
         }
