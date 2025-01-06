@@ -3,5 +3,5 @@
 VERBOSE=1 \
 cmake \
   --build build \
-  --config Debug \
+  --config RelWithDebInfo \
   --target all

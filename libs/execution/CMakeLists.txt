@@ -206,7 +206,7 @@ target_link_libraries(
 
 #monad_compile_options(sanalysis)
 #monad_compile_options(sanalysis)
-target_compile_options(sanalysis PRIVATE -Ofast)
+target_compile_options(sanalysis PRIVATE -g -O0)
 
 
 target_link_options(sanalysis PRIVATE LINKER:-z,defs)

@@ -496,6 +496,7 @@ struct ParsedBytecode {
     void populateJumpDests() {
         jumpDests.reset();
         for (uint16_t i = 0; i < jumpDestOffsets.size; ++i) {
+            assert(jumpDestOffsets[i]<MAX_BYTECODESIZE);
             jumpDests.set(jumpDestOffsets[i]);
         }
     }
