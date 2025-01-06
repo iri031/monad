@@ -45,7 +45,8 @@ TEST(eth_call, simple_success_call)
 
     for (uint64_t i = 0; i < 256; ++i) {
         BlockHeader hdr{.number = i};
-        tdb.commit({}, {}, hdr, {}, {}, {}, {});
+        tdb.set_block_number(i);
+        tdb.commit({}, {}, hdr);
     }
 
     static constexpr auto from{
@@ -57,7 +58,8 @@ TEST(eth_call, simple_success_call)
         .gas_limit = 100000u, .to = to, .type = TransactionType::eip1559};
     BlockHeader header{.number = 256};
 
-    tdb.commit({}, {}, header, {}, {}, {}, {});
+    tdb.set_block_number(256);
+    tdb.commit({}, {}, header);
 
     auto const rlp_tx = to_vec(rlp::encode_transaction(tx));
     auto const rlp_header = to_vec(rlp::encode_block_header(header));
@@ -95,7 +97,8 @@ TEST(eth_call, failed_to_read)
     // one block short
     for (uint64_t i = 1; i < 256; ++i) {
         BlockHeader hdr{.number = i};
-        tdb.commit({}, {}, hdr, {}, {}, {}, {});
+        tdb.set_block_number(i);
+        tdb.commit({}, {}, hdr);
     }
 
     static constexpr auto from{
@@ -107,7 +110,8 @@ TEST(eth_call, failed_to_read)
         .gas_limit = 100000u, .to = to, .type = TransactionType::eip1559};
     BlockHeader header{.number = 256};
 
-    tdb.commit({}, {}, header, {}, {}, {}, {});
+    tdb.set_block_number(256);
+    tdb.commit({}, {}, header);
 
     auto const rlp_tx = to_vec(rlp::encode_transaction(tx));
     auto const rlp_header = to_vec(rlp::encode_block_header(header));
