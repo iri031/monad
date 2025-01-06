@@ -23,14 +23,15 @@
 #include <monad/statesync/statesync_server.h>
 #include <monad/statesync/statesync_server_context.hpp>
 #include <monad/statesync/statesync_server_network.hpp>
-
+#include <boost/algorithm/hex.hpp>
 #include <CLI/CLI.hpp>
 
 #include <quill/LogLevel.h>
 #include <quill/Quill.h>
 #include <quill/detail/LogMacros.h>
 #include <quill/handlers/FileHandler.h>
-
+#include <monad/core/basic_formatter.hpp>
+#include <monad/core/fmt/address_fmt.hpp>
 #include <boost/outcome/try.hpp>
 
 #include <algorithm>
@@ -44,8 +45,14 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <evmc/utils.h>
 
 #include <sys/sysinfo.h>
+
+#include <intx/intx.hpp>
+#include <evmc/bytes.hpp>
+#include <evmc/evmc.h>
+#include <evmc/utils.h>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -89,6 +96,74 @@ void log_tps(
         monad_procfs_self_resident() / (1L << 20));
 };
 
+void parseCodeHashes(std::unordered_map<Address, bytes32_t> &code_hashes) {
+    std::ifstream file("/home/abhishek/contracts0m/hashes.txt");
+    
+    if (!file.is_open()) {
+        LOG_ERROR("Could not open code hashes file");
+        return;
+    }
+
+    std::string line;
+    // Skip header line
+    std::getline(file, line);
+    
+    while (std::getline(file, line)) {
+        if (line.empty()) continue;
+        
+        // Split line into address and hash
+        auto comma_pos = line.find(',');
+        if (comma_pos == std::string::npos) continue;
+        
+        std::string addr_str = line.substr(0, comma_pos);
+        std::string hash_str = line.substr(comma_pos + 1);
+
+        Address addr = hex_to_address(addr_str);
+        bytes32_t hash = hex_to_bytes32(hash_str);
+        //std::cout << "Address: " << fmt::format("{}", addr) << ", Hash: " << fmt::format("{}", intx::hex(intx::be::load<intx::uint256>(hash.bytes))) << std::endl;
+        code_hashes.emplace(addr, hash);
+    }
+}
+
+/** deprecated */
+const std::set<evmc::address> * get_footprint(const std::vector<uint32_t> &indices, ExpressionPool &epool) {
+    std::set<evmc::address> *footprint = new std::set<evmc::address>();
+    if (!epool.allConstants(indices)) {
+        return nullptr;
+    }
+
+    for (auto const &val : indices) {
+        Word256 word = epool.getConst(val);
+        if (word < 10) {//precompiled contract address
+            continue;
+        }
+        footprint->insert(get_address(word));
+    }
+    return footprint;
+}
+
+/**
+ * check if there is any unsupported expression in the footprint
+ * also remove precompiled contract address from the footprint
+ * false means INF footprint as some unsupported expression is found
+ */
+bool filter_footprint(std::vector<uint32_t> &indices, ExpressionPool &epool) {
+    if (!epool.allConstants(indices)) {
+        return false;
+    }
+    std::vector<uint32_t> filtered;
+    for (auto const &val : indices) {
+        Word256 word = epool.getConst(val);
+        if (word < 10) {//precompiled contract address
+            continue;
+        }
+        filtered.push_back(val);
+    }
+    indices=filtered;
+    return true;
+}
+
+
 Result<std::pair<uint64_t, uint64_t>> run_monad(
     Chain const &chain, Db &db, BlockHashBufferFinalized &block_hash_buffer,
     TryGet const &try_get, fiber::PriorityPool &priority_pool,
@@ -107,6 +182,13 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     auto batch_begin = std::chrono::steady_clock::now();
     uint64_t ntxs = 0;
 
+    CalleePredInfo cinfo;
+    parseCodeHashes(cinfo.code_hashes);
+    cinfo.epool.deserialize("/home/abhishek/contracts0m/epool.bin");
+    unserializePredictions(cinfo.predictions, "/home/abhishek/contracts0m/predictions.bin");
+//    printPredictions(cinfo.epool, cinfo.predictions, "predictions.txt");
+//    std::terminate();
+    
     uint64_t const end_block_num =
         (std::numeric_limits<uint64_t>::max() - block_num + 1) <= nblocks
             ? std::numeric_limits<uint64_t>::max()
@@ -144,7 +226,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
                 block,
                 block_state,
                 block_hash_buffer,
-                priority_pool));
+                priority_pool, cinfo));
 
         std::vector<Receipt> receipts(results.size());
         std::vector<std::vector<CallFrame>> call_frames(results.size());

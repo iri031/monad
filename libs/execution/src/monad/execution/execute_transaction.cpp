@@ -10,6 +10,7 @@
 #include <monad/core/transaction.hpp>
 #include <monad/execution/evmc_host.hpp>
 #include <monad/execution/execute_transaction.hpp>
+#include <monad/execution/parallel_commit_system.hpp>
 #include <monad/execution/explicit_evmc_revision.hpp>
 #include <monad/execution/trace/call_frame.hpp>
 #include <monad/execution/trace/call_tracer.hpp>
@@ -140,7 +141,7 @@ template <evmc_revision rev>
 Receipt execute_final(
     State &state, Transaction const &tx, Address const &sender,
     uint256_t const &base_fee_per_gas, evmc::Result const &result,
-    Address const &beneficiary)
+    Address const &beneficiary, bool beneficiary_touched, std::optional<uint256_t> & block_beneficiary_reward)
 {
     MONAD_ASSERT(result.gas_left >= 0);
     MONAD_ASSERT(result.gas_refund >= 0);
@@ -155,7 +156,12 @@ Receipt execute_final(
     auto const gas_used = tx.gas_limit - gas_remaining;
     auto const reward =
         calculate_txn_award<rev>(tx, base_fee_per_gas, gas_used);
-    state.add_to_balance(beneficiary, reward);
+    if (beneficiary_touched || sender == beneficiary) {
+        state.add_to_balance(beneficiary, reward);
+        block_beneficiary_reward = std::nullopt;// TODO(aa): not necessary as the client does this
+    } else {
+        block_beneficiary_reward = reward;
+    }
 
     // finalize state, Eqn. 77-79
     state.destruct_suicides<rev>();
@@ -182,6 +188,32 @@ Result<evmc::Result> execute_impl2(
 {
     auto const sender_account = state.recent_account(sender);
     BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
+    // auto const result = validate_transaction(tx, sender_account);
+    // if (result.has_error()) {
+    //     //LOG_INFO("transaction validation failed with error: {}", result.error().message().c_str());
+    //     //LOG_INFO("sender: {}", fmt::format("{}", sender));
+    //     //assert(false);
+    //     if (MONAD_UNLIKELY(!sender_account.has_value())) {
+    //         //LOG_INFO("sender_account is null");
+    //     }
+
+    //     // YP (71)
+    //     if (MONAD_UNLIKELY(sender_account->code_hash != NULL_HASH)) {
+    //         //LOG_INFO("sender_account->code_hash is not null");
+    //     }
+
+    //     // YP (71)
+    //     if (MONAD_UNLIKELY(sender_account->nonce != tx.nonce)) {
+    //         //LOG_INFO("sender_account->nonce {} is not equal to tx.nonce {}", sender_account->nonce, tx.nonce);
+    //     }
+
+    //     // YP (71)
+    //     if (MONAD_UNLIKELY(sender_account->balance < tx.value)) {
+    //         //LOG_INFO("sender_account->balance {} is less than tx.value {}", sender_account->balance, tx.value);
+    //     }
+
+    //     BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
+    // }
 
     auto const tx_context =
         get_tx_context<rev>(tx, sender, hdr, chain.get_chain_id());
@@ -201,7 +233,7 @@ Result<ExecutionResult> execute_impl(
     Chain const &chain, uint64_t const i, Transaction const &tx,
     Address const &sender, BlockHeader const &hdr,
     BlockHashBuffer const &block_hash_buffer, BlockState &block_state,
-    boost::fibers::promise<void> &prev)
+    ParallelCommitSystem &parallel_commit_system)
 {
     BOOST_OUTCOME_TRY(static_validate_transaction<rev>(
         tx, hdr.base_fee_per_gas, chain.get_chain_id()));
@@ -209,7 +241,7 @@ Result<ExecutionResult> execute_impl(
     {
         TRACE_TXN_EVENT(StartExecution);
 
-        State state{block_state, Incarnation{hdr.number, i + 1}};
+        State state{block_state, Incarnation{hdr.number, i + 1}, i};
         state.set_original_nonce(sender, tx.nonce);
 
 #ifdef ENABLE_CALL_TRACING
@@ -223,22 +255,28 @@ Result<ExecutionResult> execute_impl(
 
         {
             TRACE_TXN_EVENT(StartStall);
-            prev.get_future().wait();
+            //assert(state.change_within_footprint(parallel_commit_system.getFootprint(i)));
+            parallel_commit_system.waitForPrevTransactions(i);
         }
-
-        if (block_state.can_merge(state)) {
+        bool beneficiary_touched = false;
+        if (block_state.can_merge_par(state, i, beneficiary_touched,true)) {
+            assert(result.has_value());
             if (result.has_error()) {
                 return std::move(result.error());
             }
+            std::optional<uint256_t> block_beneficiary_reward = std::nullopt;
             auto const receipt = execute_final<rev>(
                 state,
                 tx,
                 sender,
                 hdr.base_fee_per_gas.value_or(0),
                 result.value(),
-                hdr.beneficiary);
+                hdr.beneficiary,
+                beneficiary_touched,
+                block_beneficiary_reward);
             call_tracer.on_receipt(receipt);
-            block_state.merge(state);
+            //assert(state.change_within_footprint(parallel_commit_system.getFootprint(i)));
+            block_state.merge_par(state, i, block_beneficiary_reward,true);
 
             auto const frames = call_tracer.get_frames();
             return ExecutionResult{
@@ -249,7 +287,7 @@ Result<ExecutionResult> execute_impl(
     {
         TRACE_TXN_EVENT(StartRetry);
 
-        State state{block_state, Incarnation{hdr.number, i + 1}};
+        State state{block_state, Incarnation{hdr.number, i + 1}, i};
 
 #ifdef ENABLE_CALL_TRACING
         CallTracer call_tracer{tx};
@@ -260,19 +298,26 @@ Result<ExecutionResult> execute_impl(
         auto result = execute_impl2<rev>(
             call_tracer, chain, tx, sender, hdr, block_hash_buffer, state);
 
-        MONAD_ASSERT(block_state.can_merge(state));
+        bool beneficiary_touched=false;
+        MONAD_ASSERT(block_state.can_merge_par(state,i,beneficiary_touched,true)); //TODO: remove this assert and compute beneficiary_touched separately
+        assert(result.has_value());
         if (result.has_error()) {
             return std::move(result.error());
         }
+        std::optional<uint256_t> block_beneficiary_reward = std::nullopt;
         auto const receipt = execute_final<rev>(
             state,
             tx,
             sender,
             hdr.base_fee_per_gas.value_or(0),
             result.value(),
-            hdr.beneficiary);
+            hdr.beneficiary,
+            beneficiary_touched,
+            block_beneficiary_reward);
         call_tracer.on_receipt(receipt);
-        block_state.merge(state);
+        //assert(state.change_within_footprint(parallel_commit_system.getFootprint(i)));
+
+        block_state.merge_par(state,i,block_beneficiary_reward,true);
 
         auto const frames = call_tracer.get_frames();
         return ExecutionResult{
@@ -287,10 +332,10 @@ Result<ExecutionResult> execute(
     Chain const &chain, uint64_t const i, Transaction const &tx,
     std::optional<Address> const &sender, BlockHeader const &hdr,
     BlockHashBuffer const &block_hash_buffer, BlockState &block_state,
-    boost::fibers::promise<void> &prev)
+    ParallelCommitSystem &parallel_commit_system)
 {
     TRACE_TXN_EVENT(StartTxn);
-
+    assert(sender.has_value());
     if (MONAD_UNLIKELY(!sender.has_value())) {
         return TransactionError::MissingSender;
     }
@@ -303,7 +348,7 @@ Result<ExecutionResult> execute(
         hdr,
         block_hash_buffer,
         block_state,
-        prev);
+        parallel_commit_system);
 }
 
 EXPLICIT_EVMC_REVISION(execute);

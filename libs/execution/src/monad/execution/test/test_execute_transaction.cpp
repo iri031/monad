@@ -61,11 +61,13 @@ TEST(TransactionProcessor, irrevocable_gas_and_refund_new_contract)
     BlockHeader const header{.beneficiary = bene};
     BlockHashBufferFinalized const block_hash_buffer;
 
-    boost::fibers::promise<void> prev{};
-    prev.set_value();
+    ParallelCommitSystem parallel_commit_system;
+    parallel_commit_system.reset(1,bene);
+
 
     auto const result = execute_impl<EVMC_SHANGHAI>(
-        EthereumMainnet{}, 0, tx, from, header, block_hash_buffer, bs, prev);
+        EthereumMainnet{}, 0, tx, from, header, block_hash_buffer, bs,
+        parallel_commit_system);
 
     ASSERT_TRUE(!result.has_error());
 

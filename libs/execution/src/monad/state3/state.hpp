@@ -30,7 +30,7 @@
 #include <memory>
 #include <optional>
 #include <utility>
-
+#include <set>
 MONAD_NAMESPACE_BEGIN
 
 class State
@@ -48,6 +48,7 @@ class State
 
     VersionStack<std::vector<Receipt::Log>> logs_{{}};
 
+    // cache of the maps from code hash to code analysis
     Map<bytes32_t, std::shared_ptr<CodeAnalysis>> code_{};
 
     unsigned version_{0};
@@ -57,7 +58,7 @@ class State
         auto it = original_.find(address);
         if (it == original_.end()) {
             // block state
-            auto const account = block_state_.read_account(address);
+            auto const account = block_state_.read_account(address, txindex_);
             it = original_.try_emplace(address, account).first;
         }
         return it->second;
@@ -92,13 +93,28 @@ class State
     }
 
     friend class BlockState; // TODO
+    std::optional<uint64_t> txindex_;// not None only when were are running transactions in parallel. this index is necessary to compute the beneficiary balance (need to ignore increments by later transactions even if they have finished)
 
 public:
-    State(BlockState &block_state, Incarnation const incarnation)
+    State(BlockState &block_state, Incarnation const incarnation, std::optional<uint64_t> txindex=std::nullopt)
         : block_state_{block_state}
         , incarnation_{incarnation}
+        , txindex_{txindex}
     {
     }
+
+    // used only for an assert for debugging. not used in release builds
+    inline bool change_within_footprint(const std::set<evmc::address>*footprint) {
+        for (auto const &[address, stack] : current_) {
+            assert(stack.size() >= 1);
+            if (footprint && footprint->find(address) == footprint->end()) {
+                //LOG_INFO("address not in footprint: {}", address);
+                return false;
+            }
+        }
+        return true;
+    }
+    
 
     State(State &&) = delete;
     State(State const &) = delete;
@@ -284,6 +300,29 @@ public:
 
         account.value().balance += delta;
         account_state.touch();
+    }
+
+    inline void set_balance(Address const &address, uint256_t const &balance)
+    {
+        auto &account_state = current_account_state(address);
+        auto &account = account_state.account_;
+        if (MONAD_UNLIKELY(!account.has_value())) {
+            account = Account{.incarnation = incarnation_};// TODO: understand whether this is needed here
+        }
+
+        account.value().balance = balance;
+        account_state.touch();
+    }
+
+    inline void finalize_block_beneficiary_balance(uint256_t miner_reward){
+        uint256_t balance=block_state_.beneficiary_balance_just_after_last_tx();
+        set_balance(block_state_.get_block_beneficiary(), balance+miner_reward);
+        // if (txindex_.has_value()){
+        //     //LOG_INFO("finalize_block_beneficiary_balance: tx {} set beneficiary's balance to {}, incl miner reward {}", txindex_.value(), balance+miner_reward, miner_reward);
+        // }
+        // else{
+        //     //LOG_INFO("finalize_block_beneficiary_balance: set beneficiary's balance to {}, incl miner reward {}", balance+miner_reward, miner_reward);
+        // }
     }
 
     void subtract_from_balance(Address const &address, uint256_t const &delta)

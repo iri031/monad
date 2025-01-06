@@ -720,11 +720,12 @@ TYPED_TEST(DBTest, call_frames_stress_test)
         block.value().header.number - 1, block.value().header.parent_hash);
 
     BlockState bs(tdb);
+    CalleePredInfo pred_info;
 
     fiber::PriorityPool pool{1, 1};
 
     auto const results = execute_block<EVMC_SHANGHAI>(
-        EthereumMainnet{}, block.value(), bs, block_hash_buffer, pool);
+        EthereumMainnet{}, block.value(), bs, block_hash_buffer, pool, pred_info);
 
     ASSERT_TRUE(!results.has_error());
 
@@ -816,9 +817,9 @@ TYPED_TEST(DBTest, call_frames_refund)
     BlockState bs(tdb);
 
     fiber::PriorityPool pool{1, 1};
-
+    CalleePredInfo pred_info;
     auto const results = execute_block<EVMC_SHANGHAI>(
-        EthereumMainnet{}, block.value(), bs, block_hash_buffer, pool);
+        EthereumMainnet{}, block.value(), bs, block_hash_buffer, pool, pred_info);
 
     ASSERT_TRUE(!results.has_error());
 

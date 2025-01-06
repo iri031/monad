@@ -30,13 +30,20 @@ BlockState::BlockState(Db &db)
 {
 }
 
-std::optional<Account> BlockState::read_account(Address const &address)
+std::optional<Account> BlockState::read_account(Address const &address, const std::optional<uint64_t> & txindex)
 {
     // block state
     {
         StateDeltas::const_accessor it{};
         if (MONAD_LIKELY(state_.find(it, address))) {
-            return it->second.account.second;
+            auto account = it->second.account.second;
+            if ((!txindex.has_value()) || address!=block_beneficiary){
+                return account;// reduce copying?
+            }
+            else{
+                account.value().balance=beneficiary_balance_just_before_tx_index(txindex.value());
+                return account;
+            }
         }
     }
     // database
@@ -116,15 +123,32 @@ std::shared_ptr<CodeAnalysis> BlockState::read_code(bytes32_t const &code_hash)
     }
 }
 
-bool BlockState::can_merge(State const &state)
+/**
+ * \pre the transactin's gas reward has not been added to the block_beneficiary's account yet 
+ *   (thus if beneficiary is in state.original_, the transaction must have explicitly accessed the beneficiary's account, e.g. an explicit transfer transaction to the beneficiary)
+ * \pre in case block_beneficiary is in state.original_, all the transactions before this one must have committed already. ParallelCommitSystem must ensure this.
+ *  (thus the array members until this index are correct)
+ */
+bool BlockState::can_merge_par(
+    State const &state, uint64_t tx_index, bool & beneficiary_touched, bool parallel_beneficiary)
 {
+    beneficiary_touched = false;
     for (auto const &[address, account_state] : state.original_) {
         auto const &account = account_state.account_;
         auto const &storage = account_state.storage_;
         StateDeltas::const_accessor it{};
-        MONAD_ASSERT(state_.find(it, address));
-        if (account != it->second.account.second) {
-            return false;
+        if (parallel_beneficiary && address==block_beneficiary){
+            assert(account.has_value());
+            if (!eq_beneficiary_ac_before_txindex(account.value(), tx_index)){
+                return false;
+            }
+            beneficiary_touched = true;
+        }
+        else{
+            MONAD_ASSERT(state_.find(it, address));
+            if (account != it->second.account.second) {
+                return false;
+            }
         }
         // TODO account.has_value()???
         for (auto const &[key, value] : storage) {
@@ -144,7 +168,7 @@ bool BlockState::can_merge(State const &state)
     return true;
 }
 
-void BlockState::merge(State const &state)
+void BlockState::merge_par(State const &state, uint64_t tx_index, std::optional<uint256_t> block_beneficiary_reward, bool parallel_beneficiary)
 {
     ankerl::unordered_dense::segmented_set<bytes32_t> code_hashes;
 
@@ -188,6 +212,20 @@ void BlockState::merge(State const &state)
         else {
             it->second.storage.clear();
         }
+    }
+    if (block_beneficiary_reward.has_value()){
+        beneficiary_balance_updates[tx_index].first=block_beneficiary_reward.value();
+        beneficiary_balance_updates[tx_index].second=BENEFICIARY_BALANCE_INCREMENT;
+        //LOG_INFO("merge_par: tx {} added {} to beneficiary's balance", tx_index, beneficiary_balance_updates[tx_index].first);
+    }
+    else if (parallel_beneficiary){
+        beneficiary_balance_updates[tx_index].second=BENEFICIARY_BALANCE_ABSOLUTE;
+        auto const beneficiary_it = state.current_.find(block_beneficiary);
+        assert (beneficiary_it != state.current_.end());
+        auto const &beneficiary_account_new = beneficiary_it->second.recent().account_;
+        assert(beneficiary_account_new.has_value());
+        beneficiary_balance_updates[tx_index].first=beneficiary_account_new.value().balance;
+        //LOG_INFO("merge_par: tx {} set beneficiary's balance to {}", tx_index, beneficiary_balance_updates[tx_index].first);
     }
 }
 

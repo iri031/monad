@@ -11,7 +11,7 @@ project(monad_execution)
 # ##############################################################################
 # libs
 # ##############################################################################
-
+add_executable(sanalysis src/monad/staticanalysis/inst_kildall.cpp)
 add_library(
   monad_execution STATIC
   "src/monad/config.hpp"
@@ -98,6 +98,8 @@ add_library(
   "src/monad/execution/explicit_evmc_revision.hpp"
   "src/monad/execution/fmt/event_trace_fmt.hpp"
   "src/monad/execution/genesis.hpp"
+  "src/monad/execution/parallel_commit_system.cpp"
+  "src/monad/execution/parallel_commit_system.hpp"
   "src/monad/execution/precompiles.cpp"
   "src/monad/execution/precompiles.hpp"
   "src/monad/execution/switch_evmc_revision.hpp"
@@ -178,3 +180,31 @@ monad_add_test_folder("src/monad/execution")
 monad_add_test_folder("src/monad/rlp")
 monad_add_test_folder("src/monad/state2")
 monad_add_test_folder("src/monad/trie")
+
+target_include_directories(
+  sanalysis
+  PUBLIC ${PROJECT_SOURCE_DIR}/src
+  PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/test
+  PRIVATE ${Boost_INCLUDE_DIRS}
+  PUBLIC ${silkpre_SOURCE_DIR}/lib)
+
+target_link_libraries(
+  sanalysis
+  PUBLIC monad_core
+  PUBLIC monad_trie
+  PRIVATE Boost::fiber
+  PRIVATE Boost::json
+  PRIVATE PkgConfig::brotli
+  PUBLIC ethash::keccak
+  PUBLIC evmc
+  PUBLIC evmone
+  PUBLIC intx::intx
+  PUBLIC nlohmann_json::nlohmann_json
+  PUBLIC quill::quill
+  PUBLIC silkpre
+  PUBLIC thread_safe_lru
+  PUBLIC unordered_dense
+  PUBLIC TBB::tbb)
+
+target_compile_options(sanalysis PRIVATE -Ofast)
+target_link_options(sanalysis PRIVATE LINKER:-z,defs)

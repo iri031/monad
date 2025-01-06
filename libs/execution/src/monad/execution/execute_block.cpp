@@ -13,6 +13,7 @@
 #include <monad/execution/ethereum/dao.hpp>
 #include <monad/execution/execute_block.hpp>
 #include <monad/execution/execute_transaction.hpp>
+#include <monad/execution/parallel_commit_system.hpp>
 #include <monad/execution/explicit_evmc_revision.hpp>
 #include <monad/execution/switch_evmc_revision.hpp>
 #include <monad/execution/trace/event_trace.hpp>
@@ -90,13 +91,123 @@ inline void set_beacon_root(BlockState &block_state, Block &block)
     }
 }
 
+#define MAX_FOOTPRINT_SIZE 10
+
+// if this returns true, then the address MUST be a non-contract account. for correctness, it can always return false, but for performance, it should do that only for addresses created in this block.
+bool address_known_to_be_non_contract(BlockState &block_state, evmc::address address) {
+    auto const to_account = block_state.read_account(address);
+    if(!to_account.has_value()) {// an account that is first seen in this block.
+
+        /* there is no reliable way to determine if this is account is a contract account or not. a previous contract transaction in this block may create a contract at this address. we cannot wait to run to find out. if a static analysis finds that all prev transactions in this block has no CREATE2 opcode THEN we can return true
+        if(transaction.data.empty()) {
+            return true;// new EOA account creation
+        }
+        */
+        return false;
+    }
+    return to_account.value().code_hash==NULL_HASH;
+}
+
+/** returns true iff the footprint has been overapproximated to INF. in that case, footprint is deleted 
+ * \pre address_known_to_be_non_contract(runningAddress)=false, which means runningAddress has a non-empty code hash or hasnt been seen until this block
+*/
+bool insert_callees(BlockState &block_state, std::set<evmc::address> *footprint, std::vector<evmc::address> & to_be_explored, std::set<evmc::address> & seen_delegate_callees, evmc::address runningAddress, CalleePredInfo &callee_pred_info) {
+    if(footprint->size()>MAX_FOOTPRINT_SIZE) {
+        delete footprint;
+        return true;
+    }
+
+    auto calles=callee_pred_info.lookup_callee(runningAddress);
+    if(!calles.has_value()) {
+        return true;// absense in map means callee prediction failed. the empty callee set is denoted by an empty vector.
+    }
+    for (uint32_t index : calles.value()->callees) {
+        evmc::address callee_addr=get_address(index, callee_pred_info.epool);
+        if(address_known_to_be_non_contract(block_state, callee_addr)) {
+            continue;
+        }
+        auto res=footprint->insert(callee_addr);
+        if(res.second) {
+            to_be_explored.push_back(callee_addr);
+        }
+    }
+    for (uint32_t index : calles.value()->delegateCallees) {
+        evmc::address callee_addr=get_address(index, callee_pred_info.epool);
+        if(address_known_to_be_non_contract(block_state, callee_addr)) {
+            continue;
+        }
+        if (footprint->find(callee_addr)!=footprint->end()) {// this was already insested to to_be_explored
+            continue;
+        }
+        auto res=seen_delegate_callees.insert(callee_addr);// we do not insert into footprint, because DELEGATECALL/CALLCODE does not directly change callee's account. we insert it here to avoid infinite loops
+        if(res.second) {
+            to_be_explored.push_back(callee_addr);// the called code, even though it runs in the context of the caller, can do CALL(foo) and then change the account of foo. so we need to recursively analyze callee_addr for CALL
+        }
+    }
+    return false;
+}
+
+
+// sender address is later added to the footprint by the caller, because sender.nonce is updated by the transaction
+// for now, we assume that no transaction calls a contract created by a previous transaction in this very block. need to extend static analysis to look at predicted stacks at CREATE/CREATE2
+ std::set<evmc::address> * compute_footprint(BlockState &block_state, Transaction const &transaction, CalleePredInfo &callee_pred_info, uint64_t /*tx_index*/=0) {
+    if(!transaction.to.has_value()) {
+        //LOG_INFO("compute_footprint: tx_index: {} has no empty to value", tx_index);
+        return nullptr;//this is sound but not optimal for performance. add a way for the ParallelCommitSystem to  know that this is creating a NEW contract, so that we know that there is no conflict with block-pre-existing contracts
+    }
+    evmc::address runningAddress = transaction.to.value();
+    std::set<evmc::address> *footprint=new std::set<evmc::address>();
+    footprint->insert(runningAddress);
+    if(address_known_to_be_non_contract(block_state, transaction.to.value())) {
+        //LOG_INFO("compute_footprint: tx_index: {} address_known_to_be_non_contract: {}", tx_index, runningAddress);
+        return footprint;
+    }
+    //LOG_INFO("compute_footprint: tx_index: {} address NOT known_to_be_non_contract: {}", tx_index, runningAddress);
+
+    std::vector<evmc::address> to_be_explored;
+    std::set<evmc::address> seen_delegate_callees;// a delegate/callcode-only callee is not itself a part of footprint but we look for its CALLees
+    to_be_explored.push_back(runningAddress);
+    bool overapproximated=false;
+    while((!overapproximated)&&(to_be_explored.size()>0)) {
+        evmc::address runningAddress=to_be_explored.back();
+        to_be_explored.pop_back();
+        overapproximated=insert_callees(block_state, footprint, to_be_explored, seen_delegate_callees, runningAddress, callee_pred_info);
+    }
+    if(overapproximated) {
+        delete footprint;
+        return nullptr;
+    }
+    return footprint;
+}
+
+void insert_to_footprint(std::set<evmc::address> *footprint, evmc::address address) {
+    if(footprint==nullptr) {
+        return; // footprint is INF, so the address is already a part of it
+    }
+    footprint->insert(address);
+}
+
+void print_footprint(std::set<evmc::address> *footprint, uint64_t index) {
+    if(footprint==nullptr) {
+        LOG_INFO("footprint[{}]: INF", index);
+        return;
+    }
+    std::string footprint_str = "";
+    for(auto const &addr: *footprint) {
+        footprint_str += fmt::format("{}, ", addr);
+    }
+    LOG_INFO("footprint[{}]: {}", index, footprint_str);
+}
+
+ParallelCommitSystem parallel_commit_system;
 template <evmc_revision rev>
 Result<std::vector<ExecutionResult>> execute_block(
     Chain const &chain, Block &block, BlockState &block_state,
     BlockHashBuffer const &block_hash_buffer,
-    fiber::PriorityPool &priority_pool)
+    fiber::PriorityPool &priority_pool, CalleePredInfo &callee_pred_info)
 {
     TRACE_BLOCK_EVENT(StartBlock);
+    block_state.init(block.header.beneficiary, block.transactions.size());
 
     if constexpr (rev >= EVMC_CANCUN) {
         set_beacon_root(block_state, block);
@@ -115,28 +226,39 @@ Result<std::vector<ExecutionResult>> execute_block(
     std::shared_ptr<boost::fibers::promise<void>[]> promises{
         new boost::fibers::promise<void>[block.transactions.size()]};
 
+    parallel_commit_system.reset(block.transactions.size(), block.header.beneficiary);
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         priority_pool.submit(
             i,
             [i = i,
              senders = senders,
              promises = promises,
+             &block_state = block_state,
+             &callee_pred_info = callee_pred_info,
              &transaction = block.transactions[i]] {
                 senders[i] = recover_sender(transaction);
+                #if !SEQUENTIAL
+                std::set<evmc::address> *footprint=compute_footprint(block_state, transaction, callee_pred_info, i);
+                insert_to_footprint(footprint, senders[i].value());
+                parallel_commit_system.declareFootprint(i, footprint);
+                //print_footprint(footprint, i);
+                #endif
                 promises[i].set_value();
             });
     }
+    block_state.load_preblock_beneficiary_balance();
+
+    //LOG_INFO("block number: {}, block beneficiary: {}", block.header.number, block.header.beneficiary);
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         promises[i].get_future().wait();
+        //LOG_INFO("sender[{}]: {}", i, fmt::format("{}", senders[i].value()));
     }
 
     std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
         new std::optional<Result<ExecutionResult>>[block.transactions.size()]};
 
-    promises.reset(
-        new boost::fibers::promise<void>[block.transactions.size() + 1]);
-    promises[0].set_value();
+
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         priority_pool.submit(
@@ -144,12 +266,12 @@ Result<std::vector<ExecutionResult>> execute_block(
             [&chain = chain,
              i = i,
              results = results,
-             promises = promises,
              &transaction = block.transactions[i],
+             &parallel_commit_system = parallel_commit_system,
              &sender = senders[i],
              &header = block.header,
              &block_hash_buffer = block_hash_buffer,
-             &block_state] {
+             &block_state, &callee_pred_info] {
                 results[i] = execute<rev>(
                     chain,
                     i,
@@ -158,13 +280,12 @@ Result<std::vector<ExecutionResult>> execute_block(
                     header,
                     block_hash_buffer,
                     block_state,
-                    promises[i]);
-                promises[i + 1].set_value();
+                    parallel_commit_system);
+                parallel_commit_system.notifyDone(i);
             });
     }
 
-    auto const last = static_cast<std::ptrdiff_t>(block.transactions.size());
-    promises[last].get_future().wait();
+    parallel_commit_system.waitForAllTransactionsToCommit();
 
     std::vector<ExecutionResult> retvals;
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
@@ -211,7 +332,7 @@ EXPLICIT_EVMC_REVISION(execute_block);
 Result<std::vector<ExecutionResult>> execute_block(
     Chain const &chain, evmc_revision const rev, Block &block,
     BlockState &block_state, BlockHashBuffer const &block_hash_buffer,
-    fiber::PriorityPool &priority_pool)
+    fiber::PriorityPool &priority_pool, CalleePredInfo &callee_pred_info)
 {
     SWITCH_EVMC_REVISION(
         execute_block,
@@ -219,7 +340,7 @@ Result<std::vector<ExecutionResult>> execute_block(
         block,
         block_state,
         block_hash_buffer,
-        priority_pool);
+        priority_pool, callee_pred_info);
     MONAD_ASSERT(false);
 }
 
