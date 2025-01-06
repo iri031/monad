@@ -9,6 +9,11 @@
 
 MONAD_NAMESPACE_BEGIN
 
+namespace mpt
+{
+    class Db;
+};
+
 class BlockHashBuffer
 {
 public:
@@ -76,5 +81,8 @@ public:
     BlockHashBuffer const &finalize(uint64_t const round);
     BlockHashBuffer const &find_chain(uint64_t parent_round) const;
 };
+
+bool init_block_hash_buffer(
+    mpt::Db &, uint64_t const block_number, BlockHashBufferFinalized &);
 
 MONAD_NAMESPACE_END

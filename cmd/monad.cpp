@@ -609,7 +609,8 @@ int main(int const argc, char const *argv[])
     else {
         mpt::Db rodb{mpt::ReadOnlyOnDiskDbConfig{
             .sq_thread_cpu = ro_sq_thread_cpu, .dbname_paths = dbname_paths}};
-        init_block_hash_buffer(rodb, start_block_num, block_hash_buffer);
+        MONAD_ASSERT(::monad::init_block_hash_buffer(
+            rodb, start_block_num, block_hash_buffer));
     }
 
     BlockHashChain block_hash_chain(block_hash_buffer);
