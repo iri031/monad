@@ -391,8 +391,10 @@ MONAD_NAMESPACE_END
  
 TODO(aa):
 - check how the priority pool works. if transactions 2,4-45 are running and 3 becomes ready, will it run before 46? 3 should run to get full advantage and reduce retries.
-- use a concurrent min heap to implement existsBlockerBefore in O(1), currently it is O(n)
+- use a concurrent min heap to implement existsBlockerBefore in O(1), currently it is O(n). a new field, uncommited_transactions_with_INF_footprint will be added. also use it in transactions_accessing_address_ and highestLowerUncommittedIndexAccessingAddress. 
+    notifyDone will then need to delete itself from the heap for all addresses in its footprint. also, if the footprint is null, also delete itself from uncommited_transactions_with_INF_footprint.
 - delay the transfer transactions based on footprint
-- expand callee prediction to expressions. first add CALLDATA(const)/SENDER/COINBASE. then add binops over them, and maybe CALLDATA(*) 
+- expand compute_footprint in execute_block to support the cases where the preductions were expressions, not just constants. first add support CALLDATA(const)/SENDER/COINBASE. then add binops over them, and maybe CALLDATA(*). 
+   need to write a function to interpret callee expressions based on the state accessible in execute_block.
 
  *  */
