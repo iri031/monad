@@ -33,6 +33,7 @@ add_library(
   "src/monad/mpt/config.hpp"
   "src/monad/mpt/copy_trie.cpp"
   "src/monad/mpt/db.cpp"
+  "src/monad/mpt/db.h"
   "src/monad/mpt/db.hpp"
   "src/monad/mpt/db_error.hpp"
   "src/monad/mpt/find.cpp"

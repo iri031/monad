@@ -213,3 +213,8 @@ inline detail::DbGetSender<byte_string> make_get_data_sender(
 }
 
 MONAD_MPT_NAMESPACE_END
+
+struct monad_mpt_db
+{
+    ::monad::mpt::Db db;
+};

@@ -90,6 +90,8 @@ add_library(
   "src/monad/core/endian.hpp"
   "src/monad/core/hash.hpp"
   "src/monad/core/hex_literal.hpp"
+  "src/monad/core/intx.h"
+  "src/monad/core/intx.cpp"
   "src/monad/core/keccak.c"
   "src/monad/core/keccak.h"
   "src/monad/core/keccak.hpp"

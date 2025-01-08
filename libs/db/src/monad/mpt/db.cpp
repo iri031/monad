@@ -1349,3 +1349,18 @@ namespace detail
 }
 
 MONAD_MPT_NAMESPACE_END
+
+monad_mpt_db *
+monad_mpt_db_open_read_only(char const *const *const paths, size_t const n)
+{
+    std::vector<std::filesystem::path> const v{paths, paths + n};
+    MONAD_ASSERT(!v.empty());
+    return new monad_mpt_db{
+        .db = ::monad::mpt::Db{
+            monad::mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = v}}};
+}
+
+void monad_mpt_db_destroy(monad_mpt_db *const db)
+{
+    delete db;
+}

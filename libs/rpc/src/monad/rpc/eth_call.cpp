@@ -8,6 +8,7 @@
 #include <monad/core/rlp/block_rlp.hpp>
 #include <monad/core/rlp/transaction_rlp.hpp>
 #include <monad/core/transaction.hpp>
+#include <monad/db/mpt/db.hpp>
 #include <monad/db/trie_db.hpp>
 #include <monad/execution/block_hash_buffer.hpp>
 #include <monad/execution/evmc_host.hpp>
@@ -15,6 +16,7 @@
 #include <monad/execution/switch_evmc_revision.hpp>
 #include <monad/execution/tx_context.hpp>
 #include <monad/execution/validate_transaction.hpp>
+#include <monad/rpc/eth_call.h>
 #include <monad/rpc/eth_call.hpp>
 #include <monad/state2/block_state.hpp>
 #include <monad/state3/state.hpp>
@@ -335,4 +337,113 @@ monad_evmc_result eth_call(
         ret.gas_refund = res.gas_refund;
     }
     return ret;
+}
+
+monad_eth_call_result monad_eth_call(
+    monad_chain_config const cfg, monad_mpt_db *const mpt_db,
+    monad_eth_call_transaction const *const tx, uint64_t block_number,
+    monad_eth_call_state_override const *const overrides,
+    size_t const n_overrides)
+{
+    using namespace monad;
+
+    mpt::Db &db = mpt_db.db;
+    BlockHashBufferFinalized buffer{};
+    if (!init_block_hash_buffer_from_triedb(db, block_number, buffer)) {
+        return {
+            .status = MONAD_ETH_CALL_FAILURE_BLOCK_HASH_BUFFER, .result = {}};
+    }
+
+    auto chain = [chain_config] -> std::unique_ptr<Chain> {
+        switch (chain_config) {
+        case CHAIN_CONFIG_ETHEREUM_MAINNET:
+            return std::make_unique<EthereumMainnet>();
+        case CHAIN_CONFIG_MONAD_DEVNET:
+            return std::make_unique<MonadDevnet>();
+        case CHAIN_CONFIG_MONAD_TESNET:
+            return std::make_unique<MonadTestnet>();
+        }
+        MONAD_ASSERT(false);
+    }();
+
+    // TODO: no block header timestamp in rpc call
+    evmc_revision const rev = chain->get_revision(block_header.number, {});
+
+    TrieDb tdb{db};
+    tdb.set_block_and_round(block_number, std::nullopt);
+    BlockState block_state{tdb};
+    // avoid conflict with block reward txn
+    State state{
+        block_state, Incarnation{block_number, Incarnation::LAST_TX - 1u}};
+
+    for (auto const &[addr, state_delta] : state_overrides.override_sets) {
+        // address
+        Address address{};
+        std::memcpy(address.bytes, addr.data(), sizeof(Address));
+
+        // This would avoid seg-fault on storage override for non-existing
+        // accounts
+        auto const &account = state.recent_account(address);
+        if (MONAD_UNLIKELY(!account.has_value())) {
+            state.create_contract(address);
+        }
+
+        if (state_delta.balance.has_value()) {
+            auto const balance = intx::be::unsafe::load<uint256_t>(
+                state_delta.balance.value().data());
+            if (balance >
+                intx::be::load<uint256_t>(state.get_balance(address))) {
+                state.add_to_balance(
+                    address,
+                    balance -
+                        intx::be::load<uint256_t>(state.get_balance(address)));
+            }
+            else {
+                state.subtract_from_balance(
+                    address,
+                    intx::be::load<uint256_t>(state.get_balance(address)) -
+                        balance);
+            }
+        }
+
+        if (state_delta.nonce.has_value()) {
+            state.set_nonce(address, state_delta.nonce.value());
+        }
+
+        if (state_delta.code.has_value()) {
+            byte_string const code{
+                state_delta.code.value().data(),
+                state_delta.code.value().size()};
+            state.set_code(address, code);
+        }
+
+        auto update_state =
+            [&](std::map<std::vector<uint8_t>, std::vector<uint8_t>> const
+                    &diff) {
+                for (auto const &[key, value] : diff) {
+                    bytes32_t storage_key;
+                    bytes32_t storage_value;
+                    std::memcpy(
+                        storage_key.bytes, key.data(), sizeof(bytes32_t));
+                    std::memcpy(
+                        storage_value.bytes, value.data(), sizeof(bytes32_t));
+
+                    state.set_storage(address, storage_key, storage_value);
+                }
+            };
+
+        // Remove single storage
+        if (!state_delta.state_diff.empty()) {
+            // we need to access the account first before accessing its
+            // storage
+            (void)state.get_nonce(address);
+            update_state(state_delta.state_diff);
+        }
+
+        // Remove all override
+        if (!state_delta.state.empty()) {
+            state.set_to_state_incarnation(address);
+            update_state(state_delta.state);
+        }
+    }
 }
