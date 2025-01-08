@@ -226,6 +226,7 @@ Result<std::vector<ExecutionResult>> execute_block(
     std::shared_ptr<boost::fibers::promise<void>[]> promises{
         new boost::fibers::promise<void>[block.transactions.size()]};
 
+//    LOG_INFO("block number: {}", block.header.number);
     parallel_commit_system.reset(block.transactions.size(), block.header.beneficiary);
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         priority_pool.submit(
@@ -248,7 +249,6 @@ Result<std::vector<ExecutionResult>> execute_block(
     }
     block_state.load_preblock_beneficiary_balance();
 
-    //LOG_INFO("block number: {}, block beneficiary: {}", block.header.number, block.header.beneficiary);
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         promises[i].get_future().wait();

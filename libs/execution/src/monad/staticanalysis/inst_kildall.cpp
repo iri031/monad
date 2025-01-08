@@ -1782,7 +1782,6 @@ int main() {
     //epool.deserialize("epool.bin");
     //epool.printToFile("epoolDeserialized.txt");
     //return 0;
-
     std::ifstream contractList("contracts.txt");
     if (!contractList) {
         std::cerr << "Error: Unable to open contracts.txt" << std::endl;
