@@ -31,12 +31,12 @@ class find_request_sender
     std::shared_ptr<Node> subtrie_with_sender_lifetime_{nullptr};
 
     MONAD_ASYNC_NAMESPACE::result<void> resume_(
-        MONAD_ASYNC_NAMESPACE::erased_connected_operation *io_state,
+        MONAD_ASYNC_NAMESPACE::erased_connected_operation *find_request_state,
         NodeCursor root)
     {
         root_ = root;
         MONAD_ASSERT(root_.is_valid());
-        return (*this)(io_state);
+        return (*this)(find_request_state);
     }
 
 public:

@@ -28,7 +28,7 @@ struct find_request_sender::find_receiver
     static constexpr bool lifetime_managed_internally = true;
 
     find_request_sender *const sender;
-    erased_connected_operation *const io_state;
+    erased_connected_operation *const find_request_state;
 
     chunk_offset_t rd_offset{0, 0}; // required for sender
     unsigned bytes_to_read; // required for sender too
@@ -36,10 +36,11 @@ struct find_request_sender::find_receiver
     unsigned const branch_index;
 
     constexpr find_receiver(
-        find_request_sender *sender_, erased_connected_operation *io_state_,
+        find_request_sender *sender_,
+        erased_connected_operation *find_request_state_,
         unsigned char const branch)
         : sender(sender_)
-        , io_state(io_state_)
+        , find_request_state(find_request_state_)
         , branch_index(sender->root_.node->to_child_index(branch))
     {
         chunk_offset_t const offset = sender->root_.node->fnext(branch_index);
@@ -55,6 +56,7 @@ struct find_request_sender::find_receiver
     }
 
     // notify a list of requests pending on this node
+    // Process read result, proxying the result back to find_request_sender.
     template <class ResultType>
     void set_value(
         MONAD_ASYNC_NAMESPACE::erased_connected_operation *, ResultType buffer_)
@@ -65,7 +67,7 @@ struct find_request_sender::find_receiver
         auto *node = sender->root_.node->next(branch_index);
         if (node == nullptr) {
             auto node_ptr = detail::deserialize_node_from_receiver_result(
-                std::move(buffer_), buffer_off, io_state);
+                std::move(buffer_), buffer_off, find_request_state);
             node = node_ptr.get();
             /* Nodes that are within cached level shares the same lifetime as
              the root node of current version.
@@ -94,8 +96,8 @@ struct find_request_sender::find_receiver
     }
 };
 
-result<void>
-find_request_sender::operator()(erased_connected_operation *io_state) noexcept
+result<void> find_request_sender::operator()(
+    erased_connected_operation *find_request_state) noexcept
 {
     /* This is slightly bold, we basically repeatedly self reenter the Sender's
     initiation function until we complete. It is legal and it is allowed,
@@ -112,13 +114,13 @@ find_request_sender::operator()(erased_connected_operation *io_state) noexcept
                 res_ = {
                     byte_string{},
                     find_result::key_ends_earlier_than_node_failure};
-                io_state->completed(success());
+                find_request_state->completed(success());
                 return success();
             }
             if (key_.get(prefix_index) !=
                 get_nibble(node->path_data(), node_prefix_index)) {
                 res_ = {byte_string{}, find_result::key_mismatch_failure};
-                io_state->completed(success());
+                find_request_state->completed(success());
                 return success();
             }
         }
@@ -126,7 +128,7 @@ find_request_sender::operator()(erased_connected_operation *io_state) noexcept
             res_ = {
                 byte_string{return_value_ ? node->value() : node->data()},
                 find_result::success};
-            io_state->completed(success());
+            find_request_state->completed(success());
             return success();
         }
         MONAD_ASSERT(prefix_index < key_.nibble_size());
@@ -152,27 +154,27 @@ find_request_sender::operator()(erased_connected_operation *io_state) noexcept
                 tid_checked_ = true;
             }
             chunk_offset_t const offset = node->fnext(child_index);
-            auto cont = [this, io_state](
+            auto cont = [this, find_request_state](
                             NodeCursor const root,
                             std::shared_ptr<Node>
                                 subtrie_with_sender_lifetime_) -> result<void> {
                 this->subtrie_with_sender_lifetime_ =
                     subtrie_with_sender_lifetime_;
-                return this->resume_(io_state, root);
+                return this->resume_(find_request_state, root);
             };
             if (auto lt = inflights_.find(offset); lt != inflights_.end()) {
                 lt->second.emplace_back(cont);
                 return success();
             }
             inflights_[offset].emplace_back(cont);
-            find_receiver receiver(this, io_state, branch);
+            find_receiver receiver(this, find_request_state, branch);
             detail::initiate_async_read_update(
                 *aux_.io, std::move(receiver), receiver.bytes_to_read);
             return success();
         }
         else {
             res_ = {byte_string{}, find_result::branch_not_exist_failure};
-            io_state->completed(success());
+            find_request_state->completed(success());
             return success();
         }
     }

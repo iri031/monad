@@ -1122,7 +1122,6 @@ AsyncContextUniquePtr async_context_create(Db &db)
 
 namespace detail
 {
-
     // Reads root nodes from on disk, and supports other inflight async requests
     // from the same sender.
     template <typename T>
@@ -1209,7 +1208,7 @@ namespace detail
     struct find_request_receiver_t
     {
         find_bytes_result_type &res_bytes;
-        async::erased_connected_operation *const io_state;
+        async::erased_connected_operation *const parent_async_state;
         uint64_t const version;
         UpdateAux<> &aux;
 
@@ -1223,7 +1222,7 @@ namespace detail
             find_request_sender::result_type res)
         {
             if (!res) {
-                io_state->completed(
+                parent_async_state->completed(
                     async::result<void>(std::move(res).as_failure()));
                 return;
             }
@@ -1239,14 +1238,14 @@ namespace detail
                 res_bytes = {
                     byte_string{}, find_result::version_no_longer_exist};
             }
-            io_state->completed(async::success());
+            parent_async_state->completed(async::success());
             delete this_io_state;
         }
     };
 
     template <class T>
     async::result<void> DbGetSender<T>::operator()(
-        async::erased_connected_operation *io_state) noexcept
+        async::erased_connected_operation *async_get_state) noexcept
     {
         switch (op_type) {
         case op_t::op_get1:
@@ -1258,17 +1257,17 @@ namespace detail
                 // found in LRU - no IO necessary
                 root = acc->second->val;
                 res_root = {NodeCursor{*root.get()}, find_result::success};
-                io_state->completed(async::success());
+                async_get_state->completed(async::success());
                 return async::success();
             }
             if (offset == INVALID_OFFSET) {
                 // root is no longer valid
                 res_root = {NodeCursor{}, find_result::version_no_longer_exist};
-                io_state->completed(async::success());
+                async_get_state->completed(async::success());
                 return async::success();
             }
 
-            auto cont = [this, io_state](std::shared_ptr<Node> root_) {
+            auto cont = [this, async_get_state](std::shared_ptr<Node> root_) {
                 if (!root_) {
                     res_root = {
                         NodeCursor{}, find_result::version_no_longer_exist};
@@ -1277,7 +1276,7 @@ namespace detail
                     root = root_;
                     res_root = {NodeCursor{*root.get()}, find_result::success};
                 }
-                io_state->completed(async::success());
+                async_get_state->completed(async::success());
             };
             auto &inflights = context.inflight_roots;
             if (auto it = inflights.find(block_id); it != inflights.end()) {
@@ -1286,7 +1285,8 @@ namespace detail
             else {
                 inflights[block_id].emplace_back(cont);
                 async_read(
-                    context.aux, load_root_receiver_t{offset, this, io_state});
+                    context.aux,
+                    load_root_receiver_t{offset, this, async_get_state});
             }
             return async::success();
         }
@@ -1296,7 +1296,7 @@ namespace detail
             if (!context.aux.version_is_valid_ondisk(block_id)) {
                 res_bytes = {
                     byte_string{}, find_result::version_no_longer_exist};
-                io_state->completed(async::success());
+                async_get_state->completed(async::success());
                 return async::success();
             }
 
@@ -1309,7 +1309,7 @@ namespace detail
                     op_type == op_t::op_get2,
                     cached_levels),
                 find_request_receiver_t{
-                    res_bytes, io_state, block_id, context.aux}));
+                    res_bytes, async_get_state, block_id, context.aux}));
             state->initiate();
             return async::success();
         }
