@@ -54,18 +54,25 @@ void ParallelCommitSystem::reset(txindex_t num_transactions_, monad::Address con
 const std::set<evmc::address>* ParallelCommitSystem::getFootprint(txindex_t myindex) { return footprints_[myindex]; }
 
 void ParallelCommitSystem::registerAddressAccessedBy(const evmc::address& addr, txindex_t index) {
-    tbb::concurrent_set<txindex_t> * set;
+    ConcurrentTxSet * set;
     {
         auto it = transactions_accessing_address_.find(addr);
         if (it == transactions_accessing_address_.end()) {
-            it = transactions_accessing_address_.insert({addr, new tbb::concurrent_set<txindex_t>()}).first;
+            it = transactions_accessing_address_.insert({addr, new ConcurrentTxSet()}).first;
         }
         set=it->second;
     }
     // because nobody will ever change the set pointer in the map, we do set->insert after `it` goes out of scope, 
     // thus releasing the lock, and allowing other threads to concurrently insert into the set.
     // if this address was not in the map before, `it` may hold a write lock on the set, thus preventing other threads from accessing the set.
-    set->insert(index);
+    set->set_bit_without_index_upddate(index);
+}
+
+void ParallelCommitSystem::unregisterAddressAccessedBy(const evmc::address& addr, txindex_t index) {
+    auto it = transactions_accessing_address_.find(addr);
+    if (it != transactions_accessing_address_.end()) {
+        it->second->unset_bit_update_index(index);
+    }
 }
 
 void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<evmc::address> *footprint) {
@@ -75,6 +82,9 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
         for (const auto& addr : *footprint) {
             registerAddressAccessedBy(addr, myindex);
         }
+    }
+    else {
+        uncommited_transactions_with_inf_footprint.set_bit_without_index_upddate(myindex);
     }
     if(footprint && footprint->find(beneficiary)!=footprint->end()){
         nontriv_footprint_contains_beneficiary[myindex]=true;
@@ -187,49 +197,13 @@ void ParallelCommitSystem::unblockTransaction(TransactionStatus status, txindex_
     }
 }
 
-ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedIndexAccessingAddress(txindex_t index, const evmc::address& addr) {
+bool ParallelCommitSystem::existsPrevUncommittedNonInfFootprintTxAccessingAddress(txindex_t index, const evmc::address& addr) {
     auto it = transactions_accessing_address_.find(addr);
     if (it == transactions_accessing_address_.end()) {
-        return std::numeric_limits<txindex_t>::max();
+        return false;// no transaction in this block with non-INF footprint accesses this address
     }
     auto set = it->second;
-    /*LOG_INFO("indicesAccessingAddress[{}]: {}", 
-        fmt::format("{}", addr),
-        [&set]() {
-            std::string result;
-            for (auto const &i : *set) {
-                result += std::to_string(i) + ", ";
-            }
-            return result;
-        }()); */
-    
-    // Start from all_committed_below_index instead of set->begin()
-    auto committed_ub = all_committed_below_index.load();
-    // Finds the first element in the container that is >= committed_ub.
-    auto it2 = set->lower_bound(committed_ub);
-    if(it2==set->end()) {
-        return std::numeric_limits<txindex_t>::max();
-    }
-    if(*it2>=index) {
-        return std::numeric_limits<txindex_t>::max();
-    }
-
-    auto prev=*it2;
-    
-    // can do a binary search instead of a linear scan, but that seems tricky to do in a concurrent set
-    while (true) {
-        ++it2;
-        if(it2==set->end()) {
-            return prev;
-        }
-        if(*it2>=index) {
-            return prev;
-        }
-        prev=*it2;
-
-    }
-    assert(false);
-    return *it2;
+    return set->contains_any_element_lessthan(index);
 }
 
 //pre: blocksAllLaterTransactions(i) is false for all i<index
@@ -257,11 +231,9 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
             return false;// above, we observed that the previous transacton hasn't committed yet. this transaction may read the exact beneficiary balance, so we need to wait for all previous transactions to commit so that the rewards get finalized.
         }
         for (const auto& addr : *footprint) {
-            auto highest_prev = highestLowerUncommittedIndexAccessingAddress(index, addr);
-            assert(highest_prev<index || highest_prev == std::numeric_limits<txindex_t>::max());
-            if (highest_prev != std::numeric_limits<txindex_t>::max() && status_[highest_prev].load() != TransactionStatus::COMMITTED)
-                return false;// the access map may not have all entries yet. actually, it will have all relevant entries because of a precondition of this function: see comment
-
+            if (existsPrevUncommittedNonInfFootprintTxAccessingAddress(index, addr)) {
+                return false;// this may be a spurious false positive in case of a race, but we have other mechanisms to ensure every transaction is eventually unblocked.
+            }
         }
         unblockTransaction(status, index);
         return true;
@@ -270,15 +242,10 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
 }
 
 bool ParallelCommitSystem::existsBlockerBefore(txindex_t index) const {
-    auto committed_ub = all_committed_below_index.load(); // transactions before this index cannot be blockers
+    return uncommited_transactions_with_inf_footprint.contains_any_element_lessthan(index);
+    // this assumes that all footprints are declared before starting any transaction.
+    // but if we need to compute footprints lazily, we can fix that by having the ConcurrentTxSet constructor create an all 1 bitset  and then unset bits when a transaction declares a non-INF footprint.
 
-    while (index > committed_ub) {
-        --index; // Decrement index to check the previous transaction
-        if (blocksAllLaterTransactions(index)) {
-            return true;
-        }
-    }
-    return false;
 }
 
 bool ParallelCommitSystem::blocksAllLaterTransactions(txindex_t index) const {
@@ -336,6 +303,10 @@ void ParallelCommitSystem::notifyDone(txindex_t myindex) {
     //std::cout << "notifyDone: status of " << myindex << " is " << status_to_string(status) << std::endl;
     // assert(status == TransactionStatus::COMMITTING);
     status_[myindex].store(TransactionStatus::COMMITTED);
+    uncommited_transactions_with_inf_footprint.unset_bit_update_index(myindex);
+    for(auto addr: *footprints_[myindex]) {
+        unregisterAddressAccessedBy(addr, myindex);
+    }
     //LOG_INFO("notifyDone: status[{}] changed from {} to {}", myindex, status_to_string(TransactionStatus::COMMITTING), status_to_string(TransactionStatus::COMMITTED));
     updateLastCommittedUb();
     if(all_done.load()) {// there is currently a rare bug here. this object may have been deallocated by now. using shared_ptr can fix. static allocation of this object may be better if we can compute a not-too-loose bound on #transactions.

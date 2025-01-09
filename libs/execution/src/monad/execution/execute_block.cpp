@@ -248,6 +248,7 @@ Result<std::vector<ExecutionResult>> execute_block(
             });
     }
     block_state.load_preblock_beneficiary_balance();
+    parallel_commit_system.startTransactionsPrep();// we can do this in parallel with the line above
 
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {

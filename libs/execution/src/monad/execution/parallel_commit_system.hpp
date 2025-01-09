@@ -12,7 +12,7 @@
 #include <tbb/concurrent_set.h>
 #include <tbb/concurrent_unordered_map.h>
 #include <oneapi/tbb/concurrent_unordered_map.h>
-
+#include <monad/execution/txset.hpp>
 #include <evmc/evmc.h>
 
 #include <boost/fiber/future/promise.hpp>
@@ -80,12 +80,20 @@ class ParallelCommitSystem
     */
     bool tryUnblockTransaction(TransactionStatus status, txindex_t index);
     static bool isUnblocked(TransactionStatus status);
-    txindex_t highestLowerUncommittedIndexAccessingAddress(txindex_t index, const evmc::address& addr);
+    bool existsPrevUncommittedNonInfFootprintTxAccessingAddress(txindex_t index, const evmc::address& addr);
+    inline void startTransactionsPrep() {
+        uncommited_transactions_with_inf_footprint.populate_index();
+        for(auto it = transactions_accessing_address_.begin(); it != transactions_accessing_address_.end(); ++it) {
+            it->second->populate_index();
+        }
+    }
+
     void tryUnblockTransactionsStartingFrom(txindex_t start);
     void updateLastCommittedUb();
     /** update all_committed_below_index so that it is at least minValue */
     bool advanceLastCommittedUb(txindex_t minValue);
     void registerAddressAccessedBy(const evmc::address& addr, txindex_t index);
+    void unregisterAddressAccessedBy(const evmc::address& addr, txindex_t index);
     bool existsBlockerBefore(txindex_t index) const;
     bool blocksAllLaterTransactions(txindex_t index) const;
     static std::string status_to_string(TransactionStatus status);
@@ -106,7 +114,7 @@ class ParallelCommitSystem
     std::atomic<txindex_t> all_committed_below_index; 
 
     //now that the footprints are inserted into this map before we start running any transaction, we can make this a minheap. during footprint computation, we need concurrent insertions (but no deletion). After that, we need concurrent deletions (no insertion)
-    tbb::concurrent_unordered_map<evmc::address, tbb::concurrent_set<txindex_t> * const> transactions_accessing_address_;
+    tbb::concurrent_unordered_map<evmc::address, ConcurrentTxSet * const> transactions_accessing_address_;
     /**
     * footprints_[i] is the footprint of transaction i.
     * can use a shared_ptr but that will increase the
@@ -118,6 +126,7 @@ class ParallelCommitSystem
     */
     const std::set<evmc::address> * footprints_[MAX_TRANSACTIONS];
     bool nontriv_footprint_contains_beneficiary[MAX_TRANSACTIONS]; // just a cache, can be computed from footprints_
+    ConcurrentTxSet uncommited_transactions_with_inf_footprint;
 
     std::atomic<bool> all_done=false;
 
