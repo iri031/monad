@@ -3,10 +3,63 @@ name: Docker
 on:
   push:
 
+permissions:
+  contents: read
+  statuses: write
+
 jobs:
+  list-prev-commits:
+    runs-on: ubuntu-24.04-32
+    outputs:
+      commits: ${{ steps.save.outputs.commits }}
+    steps:
+      - name: List commits
+        id: list
+        uses: actions/github-script@v6
+        env:
+          ALL_COMMITS: ${{ toJSON(github.event.commits) }}
+        with:
+          script: |
+            const all_commits = JSON.parse(process.env.ALL_COMMITS);
+            const latest_commit = github.event.workflow_run.head_commit.id;
+            const prev_commits = all_commits.filter(commit => commit !== latest_commit);
+            return JSON.stringify(prev_commits.map(commit => commit.id));
+      - name: Save output
+        id: save
+        run: |
+          echo "commits=${{ steps.list.outputs.result }}" >> $GITHUB_OUTPUT
+
+  publish-status:
+    needs: list-prev-commits
+    runs-on: ubuntu-24.04-32
+    steps:
+      - name: Publish status to all commits
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const commits = JSON.parse('${{ needs.list-prev-commits.outputs.commits }}');
+            const state = 'success';
+            const description = 'CI tests passed';
+
+            for (const sha of commits) {
+              if (sha) {
+                await github.rest.repos.createCommitStatus({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  sha: sha,
+                  state: state,
+                  description: description,
+                  context: 'CI Docker Workflow'
+                });
+              }
+            }
+
   build:
+    needs: list-prev-commits
     strategy:
       matrix:
+        commit: ${{ fromJson(needs.list-prev-commits.outputs.commits) }}
         CMAKE_BUILD_TYPE: [RelWithDebInfo, Debug]
         compiler: [{CXX: g++-13, CC: gcc-13}, {CXX: clang++-18, CC: clang-18}]
 
@@ -26,7 +79,19 @@ jobs:
         run: |
            git config --global submodule.fetchJobs 8
 
-      - name: Checkout repo and submodules
+      - name: Debug - Show Matrix Commit
+        run: |
+          echo "Matrix commit: ${{ matrix.commit }}"
+      
+      - name: Checkout previous commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.commit }}
+          fetch-depth: 1
+          submodules: recursive
+          token: ${{ steps.generate_token.outputs.token }}
+      
+      - name: Checkout current commit
         uses: actions/checkout@v4
         with:
           submodules: recursive

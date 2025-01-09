@@ -71,7 +71,7 @@ class BlockHashChain
 public:
     BlockHashChain(BlockHashBufferFinalized &);
 
-    void propose(bytes32_t const &, uint64_t round, uint64_t parent_round);
+    void propose(bytes32_t const &, uint64_t round, uint64_t parent_round );
     void finalize(uint64_t const round);
     BlockHashBuffer const &find_chain(uint64_t) const;
 };
