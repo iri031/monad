@@ -1720,7 +1720,8 @@ void fineGrainedSolns(const ParsedBytecode<MAX_BYTECODESIZE, MAX_BBLOCKS>& parse
                     callCounts.predictedCount++;
                     for (size_t i=0; i<calleeSoln.size(); i++) {
                         uint32_t nodeIndex=calleeSoln.getFixedValue(i);
-                        calleeExprsIndices.insert(nodeIndex);
+                        if(!epool.isPrecompileAddress(nodeIndex))
+                            calleeExprsIndices.insert(nodeIndex);
                     }
                 }
             }

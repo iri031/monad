@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstdint>
 #include <oneapi/tbb/concurrent_set.h>
+#include <cassert>
 
 
 MONAD_NAMESPACE_BEGIN
@@ -15,6 +16,11 @@ MONAD_NAMESPACE_BEGIN
 class ConcurrentTxSet {
 
 public:
+    ConcurrentTxSet() : index(0) {
+        for (uint64_t i = 0; i < 64; i++) {
+            membership[i].store(0);
+        }
+    }
     //nobody will read the index at this time so we skip the index update to a populate_index call later that happens before the index starts being read.
     // this function will be called concurrently thouth, just after compute_sender.
     void set_bit_without_index_upddate(uint64_t bit_index)
@@ -34,7 +40,7 @@ public:
         uint64_t old_word = word.fetch_and(~mask);
         uint64_t new_word = old_word & ~mask;
         if (new_word == 0) {
-            index.fetch_and(~(1 << word_index);
+            index.fetch_and(~(1 << word_index));
         }
     }
 
@@ -83,9 +89,70 @@ private:
     
     std::atomic<uint64_t> index;// ith bit from LSB/RHS (mask 1<<i) here is set iff membership[i] has any bit set, i.e. is nonzero
 
-    inline uint64_t get_index_bit(uint64_t bit_index) const {
-        return (index.load() & (1 << (bit_index % 64))) != 0;
-    }
 };
+
+void test_txset() {
+    // Create an instance of the class
+    // Assuming the class name is TxSet based on the context
+    ConcurrentTxSet tx;
+
+    // Test pupulate_index method
+    // We cannot directly assert on private fields like index, so we assume
+    // there are public methods to verify the state indirectly.
+
+    // Test get_bit method
+    // Assuming there is a way to set bits through public methods
+    // For example, a method like set_bit(uint64_t bit_index)
+    tx.set_bit_without_index_upddate(3); // Hypothetical method to set bit 3
+    tx.set_bit_without_index_upddate(69); // Hypothetical method to set bit 69
+    tx.pupulate_index();
+
+    assert(tx.get_bit(3) == true); // Bit 3 should be set
+    assert(tx.get_bit(69) == true); // Bit 69 should be set
+    assert(tx.get_bit(2) == false); // Bit 2 should not be set
+
+    // Test contains_any_element_lessthan method
+    assert(tx.contains_any_element_lessthan(70) == true); // There are elements less than 70
+    assert(tx.contains_any_element_lessthan(3) == false); // No elements less than 3
+    assert(tx.contains_any_element_lessthan(4) == true); // There is an element less than 4
+    // Test unset_bit method
+    // Assuming there is a way to unset bits through public methods
+    // For example, a method like unset_bit(uint64_t bit_index)
+    tx.unset_bit_update_index(3); // Hypothetical method to unset bit 69
+
+    assert(tx.get_bit(3) == false); // Bit 3 should be unset
+    assert(tx.get_bit(69) == true); // Bit 69 should be unset
+    assert(tx.get_bit(70) == false);
+    assert(tx.get_bit(150) == false);
+    assert(tx.get_bit(2) == false); // Bit 2 should still not be set
+
+    // Test contains_any_element_lessthan method after unsetting bits
+    for(uint64_t i=70; i<64*64; i++){
+        assert(tx.contains_any_element_lessthan(i) == true); // No elements less than 70
+    }
+    assert(tx.contains_any_element_lessthan(3) == false); // No elements less than 3
+    assert(tx.contains_any_element_lessthan(4) == false); // No elements less than 4
+
+    tx.unset_bit_update_index(69); // Hypothetical method to unset bit 3
+    assert(tx.get_bit(69) == false); // Bit 69 should be unset
+    
+    for(uint64_t i=0; i<64*64; i++){
+        assert(tx.contains_any_element_lessthan(i) == false);
+    }
+
+    tx.set_bit_without_index_upddate(64); // Hypothetical method to set bit 69
+    tx.pupulate_index();
+    // Test contains_any_element_lessthan method after unsetting bits
+    for(uint64_t i=65; i<64*64; i++){
+        assert(tx.contains_any_element_lessthan(i) == true);
+    }
+    for(uint64_t i=0; i<64; i++){
+        assert(tx.contains_any_element_lessthan(i) == false);
+    }
+    
+}
+
+
+
 
 MONAD_NAMESPACE_END

@@ -432,6 +432,13 @@ public:
         return nodes[index].smallConst;
     }
 
+    bool isPrecompileAddress(uint32_t index) const {
+        auto smallConst=getSmallConstMaybe(index);
+        if(smallConst.has_value() && smallConst.value()<10)
+            return true;
+        return false;
+    }
+
     uint64_t getSmallConst(uint32_t index) const {
         assert(nodes[index].type == ExpressionNode::Type::SmallConst);
         return nodes[index].smallConst;
