@@ -125,6 +125,9 @@ Definition valOfRev (r : Revision) : val := Vint 0. (* TODO: fix *)
 
 Require Import bedrock_auto.tests.data_class.exb.
 Require Import bedrock_auto.tests.data_class.exb_names.
+Require Import bedrock_auto.tests.data_class.lam.
+Require Import bedrock_auto.tests.data_class.lam_names.
+
 Open Scope cpp_name.
 Section with_Sigma.
   Context `{Sigma:cpp_logic} {CU: genv} {hh: HasOwn mpredI fracR}. (* some standard assumptions about the c++ logic *)
@@ -216,7 +219,101 @@ Require Import bedrock.auto.cpp.specs.
                             "monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)"
                             [Avalue (Eint 0 "enum evmc_revision")])
 
+ *)
+
+Context  {MOD : lam.module ⊧ CU}.
+
+Require Import bedrock.auto.cpp.tactics4.
+
+Ltac slauto := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go; fail); try (apply False_rect; try contradiction; try congruence; try nia; fail); try autorewrite with syntactic equiv iff slbwd in *; try rewrite left_id)
+  then slauto  else idtac.
+
+(*
+int main() {
+    int x = 42; // Captured variable
+    auto lambda = [x](int y) { return x + y; };
+    return lambda(10);
+}
+ *)
+  cpp.spec "main()::@0::operator()(int) const" as mainlam_spec inline.
+(*   cpp.spec (lam.n5) as destructor_spec2 inline. *)
+  cpp.spec "main()" as main_spec with (\pre emp \post [Vint 52] emp).
+
+  cpp.spec (Nscoped "main()::@0" (Nfunction function_qualifiers.N Ndtor [])) as lam_destructor_spec  with
+      (fun this:ptr => \pre this |-> structR "main()::@0" (cQp.mut 1)
+                       \pre this ,, o_field CU "main()::@0::x" |-> intR (cQp.mut 1) 42
+                         \post emp).
+
+Lemma main_proof: denoteModule module |-- main_spec.
+Proof using.
+  verify_spec'.
+  go.
+  rewrite <- wp_init_lambda.
+  slauto.
+
+  (*
+ ============================
+  _ : denoteModule module
+  _ : type_ptr "int" _addr_
+  _ : type_ptr "main()::@0" addr
+  _ : type_ptr "int" _x_0
+  _ : type_ptr "int" p
+  _ : type_ptr "int" _p_
+  --------------------------------------□
+  _ : HiddenPostCondition
+  _ : _addr_ |-> intR (cQp.mut 1) 42
+
+captures are struct fields.
+there is an operator that takes the lambda formal args. in this case: it is.
+main()::@0::operator()(int) const
+
+  _ : addr ,, o_field CU "main()::@0::x" |-> intR (cQp.mut 1) 42
+  _ : addr |-> structR "main()::@0" (cQp.mut 1)
+  _ : _p_ |-> intR (cQp.mut 1) (42 + 10)
+  --------------------------------------∗
+  wp_destroy_named module "main()::@0" addr
+    (interp module (FreeTemps.delete "i
 *)
+  
+Abort.  
+
+cpp.spec "main()::@0::operator()(int) const" as mainlam2_spec with
+    (fun this:ptr =>
+       \pre{x} this ,, o_field CU "main()::@0::x" |-> intR (cQp.mut 1) x
+       \arg{y} "" (Vint y)
+       \post[Vint (x+y)]  emp
+    ).
+
+Lemma main_proof: denoteModule module |-- main_spec.
+Proof using.
+  verify_spec'.
+  go.
+  rewrite <- wp_init_lambda.
+  slauto.
+  (*
+
+ _ : denoteModule module
+  _ : type_ptr "int" _addr_
+  _ : type_ptr "main()::@0" addr
+  _ : type_ptr "int" _x_0
+  _ : type_ptr "int" p
+  _ : type_ptr "int" _p_
+  --------------------------------------□
+  _ : HiddenPostCondition
+  _ : _addr_ |-> intR (cQp.mut 1) 42
+  _ : addr ,, o_field CU "main()::@0::x" |-> intR (cQp.mut 1) 42
+  _ : addr |-> structR "main()::@0" (cQp.mut 1)
+  _ : _p_ |-> intR (cQp.mut 1) (42 + 10)
+  --------------------------------------∗
+  wp_destroy_named module "main()::@0" addr
+    (interp module (FreeTemps.delete "int"%cpp_type _addr_) (▷ _x_ _p_))
+*)
+Abort.
+
+
+
+  
+
 Context  {MOD : exb.module ⊧ CU}.
 (* Node::Node(Node*,int) *)
 Check exb.module.
@@ -225,10 +322,7 @@ cpp.spec (Ninst
    "monad::execute_block(const monad::Chain&, monad::Block&, monad::BlockState&, const monad::BlockHashBuffer&, monad::fiber::PriorityPool&)"
    [Avalue (Eint 11 "enum evmc_revision")]) as exb_spec with (execute_block_simpler).
 
-Require Import bedrock.auto.cpp.tactics4.
 
-Ltac slauto :=                                                                                                        go; (* TODO: hide evars *)                                                                                        try name_locals;                                                                                                  tryif progress(try (ego; eagerUnifyU; go; fail); try (apply False_rect; try contradiction; try congruence; try nia; fail); try autorewrite with syntactic equiv iff slbwd in *; try rewrite left_id (* in equiv rw db but doesnt work *))                  
-  then slauto  else idtac.
 
 
   cpp.spec
