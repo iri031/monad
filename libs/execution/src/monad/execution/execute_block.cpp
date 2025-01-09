@@ -89,6 +89,17 @@ inline void set_beacon_root(BlockState &block_state, Block &block)
         block_state.merge(state);
     }
 }
+
+void parallel_execute(
+    fiber::PriorityPool &priority_pool, uint64_t numTasks,
+    std::function<void(uint64_t)> task,
+    std::function<uint64_t(uint64_t)> priority_of_task)
+{
+    for (uint64_t i = 0; i < numTasks; ++i) {
+        priority_pool.submit(priority_of_task(i), [task, i]() { task(i); });
+    }
+}
+
 template <typename T>
 using vanilla_ptr = T*;
 void compute_senders(vanilla_ptr<std::optional<Address>> const senders, Block const &block, fiber::PriorityPool &priority_pool){
@@ -96,24 +107,17 @@ void compute_senders(vanilla_ptr<std::optional<Address>> const senders, Block co
         new (std::nothrow) boost::fibers::promise<void>[block.transactions.size()]};
     MONAD_ASSERT(promises != nullptr);
 
-    for (unsigned i = 0; i < block.transactions.size(); ++i) {
-        priority_pool.submit(
-            0,
-            [i = i,
-             senders = senders,
-             promises = promises,
-             &transaction = block.transactions[i]] {
-                senders[i] = recover_sender(transaction);
-                promises[i].set_value();
-            });
-    }
-
+    parallel_execute(priority_pool, block.transactions.size(), [senders, promises, &block](uint64_t i) {
+        senders[i] = recover_sender(block.transactions[i]);
+        promises[i].set_value();
+    }, [](uint64_t) { return 0; });
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         promises[i].get_future().wait();
     }
     delete[] promises;
 }
 
+    
 template <evmc_revision rev>
 void execute_transactions(vanilla_ptr<std::optional<Address>> const senders, Block const &block, vanilla_ptr<std::optional<Result<Receipt>>> const results, 
 fiber::PriorityPool &priority_pool, Chain const &chain, BlockHashBuffer const &block_hash_buffer, BlockState &block_state){
