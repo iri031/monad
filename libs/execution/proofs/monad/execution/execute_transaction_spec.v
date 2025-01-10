@@ -232,21 +232,75 @@ Context  {MOD : lam.module ⊧ CU}.
 
 
 (*
+
+
+#include<functional>
+
+int sum(std::function<int(int)> f)
+{
+  return f(0) + f(1);
+}
+
+int callsum()
+{
+    int x = 42; // Captured variable
+    auto lambda = [x](int y) { return x + y; };
+    return sum(lambda);
+}
+
+
 int main() {
     int x = 42; // Captured variable
     auto lambda = [x](int y) { return x + y; };
+    //return callsum();
     return lambda(10);
 }
  *)
   cpp.spec "main()::@0::operator()(int) const" as mainlam_spec inline.
 (*   cpp.spec (lam.n5) as destructor_spec2 inline. *)
   cpp.spec "main()" as main_spec with (\pre emp \post [Vint 52] emp).
+  cpp.spec "callsum()" as csum_spec with (\pre emp \post [Vint 52] emp).
 
   cpp.spec (Nscoped "main()::@0" (Nfunction function_qualifiers.N Ndtor [])) as lam_destructor_spec  with
       (fun this:ptr => \pre this |-> structR "main()::@0" (cQp.mut 1)
                        \pre this ,, o_field CU "main()::@0::x" |-> intR (cQp.mut 1) 42
                          \post emp).
 
+  Lemma main_proof: denoteModule module |-- csum_spec.
+  Proof using.
+    verify_spec'.
+    go.
+    rewrite <- wp_init_lambda.
+    slauto.
+    (*
+  _ : denoteModule module
+  _ : type_ptr "int" x_addr
+  _ : type_ptr "callsum()::@0" lambda_addr
+  --------------------------------------□
+  _ : HiddenPostCondition
+  _ : x_addr |-> intR (cQp.mut 1) 42
+  _ : lambda_addr ,, o_field CU "callsum()::@0::x" |-> intR (cQp.mut 1) 42
+  _ : lambda_addr |-> structR "callsum()::@0" (cQp.mut 1)
+  --------------------------------------∗
+  ::wpPRᵢ
+    [region: "lambda" @ lambda_addr; "x" @ x_addr; return {?: "int"%cpp_type}]
+    (Pointer ↦ p) 
+    (Econstructor "std::function<int()(int)>::function<callsum()::@0&, void>(callsum()::@0&)"
+       [Evar "lambda" "callsum()::@0"] "std::function<int()(int)>")
+     *)
+  Abort.
+
+
+  Definition pName (n:name): bs :=
+    match n with
+    | Nglobal  (Nfunction _ (Nf i) _) => i
+    | _ => ""
+    end.
+      
+      
+  (* when the name parse issue gets ffixed, prove this to see how a stdd:function arg us used in a call to it *)
+  cpp.spec "sum(std::function<int(int)>)" as csum_spec with (\pre emp \post [Vint 52] emp).
+    
 Lemma main_proof: denoteModule module |-- main_spec.
 Proof using.
   verify_spec'.
