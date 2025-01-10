@@ -20,10 +20,8 @@ jobs:
           ALL_COMMITS: ${{ toJSON(github.event.commits) }}
         with:
           script: |
-            const all_commits = JSON.parse(process.env.ALL_COMMITS);
-            const latest_commit = github.event.workflow_run.head_commit.id;
-            const prev_commits = all_commits.filter(commit => commit !== latest_commit);
-            return JSON.stringify(prev_commits.map(commit => commit.id));
+            const all_commits = JSON.parse(process.env.ALL_COMMITS).slice(0,-1);
+            return JSON.stringify(all_commits.map(commit => commit.id));
       - name: Save output
         id: save
         run: |
