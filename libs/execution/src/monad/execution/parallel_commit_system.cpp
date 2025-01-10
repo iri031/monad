@@ -304,8 +304,10 @@ void ParallelCommitSystem::notifyDone(txindex_t myindex) {
     // assert(status == TransactionStatus::COMMITTING);
     status_[myindex].store(TransactionStatus::COMMITTED);
     uncommited_transactions_with_inf_footprint.unset_bit_update_index(myindex);
-    for(auto addr: *footprints_[myindex]) {
-        unregisterAddressAccessedBy(addr, myindex);
+    if(footprints_[myindex]) {
+        for(auto addr: *footprints_[myindex]) {
+            unregisterAddressAccessedBy(addr, myindex);
+        }
     }
     //LOG_INFO("notifyDone: status[{}] changed from {} to {}", myindex, status_to_string(TransactionStatus::COMMITTING), status_to_string(TransactionStatus::COMMITTED));
     updateLastCommittedUb();
@@ -359,6 +361,22 @@ bool ParallelCommitSystem::advanceLastCommittedUb(txindex_t minValue) {
 MONAD_NAMESPACE_END
 
 /**
+ * 
+The Coq proof will guarantee correctness but will not prove that every transaction is eventually unblocked. 
+Sketch for why every transaction is eventually unblocked (assuming evmone eventually terminates):
+Proof by natural unduction on transaction index..
+- base case: index=0. 0 is unblocked by the reset function called in execute_block.
+- inductive step: assume every transaction with index i or below will eventually be unblocked. need to prove that i+1 will be unblocked eventually.
+   let j <=i be the transaction that last changes its status to COMMITTED in notifyDone. 
+   on x86, we have a total store order, so there is a unique such transaction.
+   after that notifyDone will call updateLastCommittedUb, which must see that all transactions with index i or below are COMMITTED. 
+   so it must set all_committed_below_index to i+1. then, that notifyDone will call
+    tryUnblockTransactionsStartingFrom(i+1) will unblock i+1 when it sees that all_committed_below_index is i+1.
+   this will up the promise and wake up i+1 if it was waiting.
+Qed.
+
+
+
  
 TODO(aa):
 - check how the priority pool works. if transactions 2,4-45 are running and 3 becomes ready, will it run before 46? 3 should run to get full advantage and reduce retries.
