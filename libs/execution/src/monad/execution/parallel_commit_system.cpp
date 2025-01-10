@@ -35,6 +35,7 @@ void ParallelCommitSystem::reset(txindex_t num_transactions_, monad::Address con
     assert(num_transactions_<=MAX_TRANSACTIONS);
     this->num_transactions=num_transactions_;
     this->beneficiary=beneficiary;
+    uncommited_transactions_with_inf_footprint.reset();
     all_committed_below_index.store(0);
     for (auto& pair : transactions_accessing_address_) {
           delete pair.second; // matches the "new tbb::concurrent_set<txindex_t>()" in registerAddressAccessedBy
@@ -183,10 +184,10 @@ void ParallelCommitSystem::unblockTransaction(TransactionStatus status, txindex_
         }
 
         if (status_[index].compare_exchange_strong(status, new_status)) {
-            //LOG_INFO("unblockTransaction: status[{}] changed from {} to {}", 
-            //    index, 
-            //    status_to_string(status), 
-            //    status_to_string(new_status));
+            LOG_INFO("unblockTransaction: status[{}] changed from {} to {}", 
+               index, 
+               status_to_string(status), 
+               status_to_string(new_status));
             if (new_status == TransactionStatus::COMMITTING) {
                 promises[index].set_value();
             }
@@ -299,9 +300,9 @@ std::string ParallelCommitSystem::status_to_string(TransactionStatus status) {
 }
 
 void ParallelCommitSystem::notifyDone(txindex_t myindex) {
-    //auto status = status_[myindex].load();
+    auto status = status_[myindex].load();
     //std::cout << "notifyDone: status of " << myindex << " is " << status_to_string(status) << std::endl;
-    // assert(status == TransactionStatus::COMMITTING);
+    assert(status == TransactionStatus::COMMITTING);
     status_[myindex].store(TransactionStatus::COMMITTED);
     uncommited_transactions_with_inf_footprint.unset_bit_update_index(myindex);
     if(footprints_[myindex]) {
@@ -309,7 +310,7 @@ void ParallelCommitSystem::notifyDone(txindex_t myindex) {
             unregisterAddressAccessedBy(addr, myindex);
         }
     }
-    //LOG_INFO("notifyDone: status[{}] changed from {} to {}", myindex, status_to_string(TransactionStatus::COMMITTING), status_to_string(TransactionStatus::COMMITTED));
+    LOG_INFO("notifyDone: status[{}] changed from {} to {}", myindex, status_to_string(TransactionStatus::COMMITTING), status_to_string(TransactionStatus::COMMITTED));
     updateLastCommittedUb();
     if(all_done.load()) {// there is currently a rare bug here. this object may have been deallocated by now. using shared_ptr can fix. static allocation of this object may be better if we can compute a not-too-loose bound on #transactions.
         return;

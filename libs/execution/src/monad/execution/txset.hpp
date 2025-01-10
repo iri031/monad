@@ -16,10 +16,15 @@ MONAD_NAMESPACE_BEGIN
 class ConcurrentTxSet {
 
 public:
-    ConcurrentTxSet() : index(0) {
+    void reset() {
         for (uint64_t i = 0; i < 64; i++) {
             membership[i].store(0);
         }
+        index.store(0);
+    }
+
+    ConcurrentTxSet() {
+        reset();
     }
     //nobody will read the index at this time so we skip the index update to a populate_index call later that happens before the index starts being read.
     // this function will be called concurrently thouth, just after compute_sender.
@@ -49,7 +54,7 @@ public:
     void populate_index() {
         uint64_t local_index = 0;
         for (uint64_t i = 0; i < 64; i++) {
-            if (membership[i].load(std::memory_order_relaxed) != 0) {
+            if (membership[i].load() != 0) {
                 local_index |= (1ULL << i);
             }
         }
