@@ -19,7 +19,7 @@ namespace
 {
     std::vector<uint8_t> to_vec(byte_string const &bs)
     {
-        std::vector<uint8_t> v{bs.begin(), bs.end()};
+        std::vector<uint8_t> v{ bs.begin(), bs.end() };
         return v;
     }
 
