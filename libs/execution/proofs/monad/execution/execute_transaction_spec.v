@@ -221,12 +221,15 @@ Require Import bedrock.auto.cpp.specs.
 
  *)
 
-Context  {MOD : lam.module ⊧ CU}.
-
 Require Import bedrock.auto.cpp.tactics4.
 
 Ltac slauto := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go; fail); try (apply False_rect; try contradiction; try congruence; try nia; fail); try autorewrite with syntactic equiv iff slbwd in *; try rewrite left_id)
   then slauto  else idtac.
+
+
+Section lam.
+Context  {MOD : lam.module ⊧ CU}.
+
 
 (*
 int main() {
@@ -309,12 +312,15 @@ Proof using.
     (interp module (FreeTemps.delete "int"%cpp_type _addr_) (▷ _x_ _p_))
 *)
 Abort.
-
+End lam.
 
 
   
 
-Context  {MOD : exb.module ⊧ CU}.
+Require Import bedrock_auto.tests.data_class.exb.
+Require Import bedrock_auto.tests.data_class.exb_names.
+
+Context  {MODd : exb.module ⊧ CU}.
 (* Node::Node(Node*,int) *)
 Check exb.module.
 
@@ -392,18 +398,73 @@ cpp.spec
 
 *)  
 
-  Eval vm_compute in (map fst (NM.elements (symbols module))).
-    as lam_spec.
-
+(*  Eval vm_compute in (map fst (NM.elements (symbols module))). *)
+(*
         "std::_Function_handler<void()(), monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0>::_S_nothrow_init<monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0>()"%cpp_name;
 
         "std::function<void()()>::function<monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0, void>(monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0&&)"%cpp_name;
         
-        
-Lemma prf: denoteModule module ** tvector_spec |-- csenders_spec.
+ *)
+
+  
+
+  #[global] Instance learnVUnsafe e t (r:e->Rep): LearnEq2 (VectorR t r).
+  Proof. solve_learnable. Qed.
+
+ (* dummy spec for now *)
+cpp.spec 
+  "monad::reset_promises(unsigned long)" as reset_prom_spec
+      with
+      (\arg{n} "n" (Vint n)
+       (* \with (ResourceToBeTransferred:mpred) *)
+         \post emp).
+
+  Import Verbose.
+Lemma prf: denoteModule module ** tvector_spec ** reset_prom_spec |-- csenders_spec.
 Proof using.
   verify_spec'.
+  name_locals.
+  unfold BlockR.
+  slauto.
+  Locate "::wpPRᵢ".
 
+  (*
+
+  ::wpPRᵢ
+    [region:
+      "priority_pool" @ priority_pool_addr; "block" @ block_addr; 
+      "senders" @ senders_addr; return {?: "void"%cpp_type}]
+    (Pointer ↦ p) 
+    (Econstructor
+       "std::function<void()(unsigned long)>::function<monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0, void>(monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0&&)"
+       [Ematerialize_temp
+          (Elambda
+             "monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0"
+             [Ecast Cl2r (Evar "senders" "std::optional<evmc::address>* const");
+              Evar "block" "const monad::Block&"])
+          Xvalue]
+       "std::function<void()(unsigned long)>")
+    (λ frees : FreeTemps,
+       ∀ p0 : ptr,
+         ::wpPRᵢ
+           [region:
+             "priority_pool" @ priority_pool_addr; "block" @ block_addr;
+             "senders" @ senders_addr; return {?: "void"%cpp_type}]
+           (Pointer ↦ p0) 
+           (Ecast (Cctor "std::function<unsigned long()(unsigned long)>")
+              (Econstructor
+
+*)
+
+  
+  go.
+  go.
+
+@globa  
+  iExists _.
+  iExists _.
+  go.
+  slauto.
   
   Definition lamName :name :=
                                       (Nscoped

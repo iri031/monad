@@ -100,30 +100,39 @@ void parallel_execute(
     }
 }
 
+template <typename TaskFunction>
+void fork(PriorityPool &priority_pool, uint64_t priority, TaskFunction task_function){
+    priority_pool.submit(priority, [task]() { task(); });
+}
+
+#define MAX_TRANSACTIONS 800
+boost::fibers::promise<void> promises[MAX_TRANSACTIONS];
+
+void reset_promises(uint64_t num_transactions){
+    for (uint64_t i = 0; i < num_transactions; ++i) {
+        promises[i]=boost::fibers::promise<void>();
+    }
+}
+
 template <typename T>
 using vanilla_ptr = T*;
 void compute_senders(vanilla_ptr<std::optional<Address>> const senders, Block const &block, fiber::PriorityPool &priority_pool){
-    vanilla_ptr<boost::fibers::promise<void>> promises{
-        new (std::nothrow) boost::fibers::promise<void>[block.transactions.size()]};
-    MONAD_ASSERT(promises != nullptr);
+    reset_promises(block.transactions.size());
 
-    parallel_execute(priority_pool, block.transactions.size(), [senders, promises, &block](uint64_t i) {
+    parallel_execute(priority_pool, block.transactions.size(), [senders, &block](uint64_t i) {
         senders[i] = recover_sender(block.transactions[i]);
         promises[i].set_value();
     }, [](uint64_t) { return 0; });
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         promises[i].get_future().wait();
     }
-    delete[] promises;
 }
 
     
 template <evmc_revision rev>
 void execute_transactions(vanilla_ptr<std::optional<Address>> const senders, Block const &block, vanilla_ptr<std::optional<Result<Receipt>>> const results, 
 fiber::PriorityPool &priority_pool, Chain const &chain, BlockHashBuffer const &block_hash_buffer, BlockState &block_state){
-    vanilla_ptr<boost::fibers::promise<void>> promises{
-        new (std::nothrow) boost::fibers::promise<void>[block.transactions.size() + 1]};
-    MONAD_ASSERT(promises != nullptr);
+    reset_promises(block.transactions.size()+1);
     promises[0].set_value();
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
@@ -132,7 +141,6 @@ fiber::PriorityPool &priority_pool, Chain const &chain, BlockHashBuffer const &b
             [&chain = chain,
              i = i,
              results = results,
-             promises = promises,
              &transaction = block.transactions[i],
              &sender = senders[i],
              &header = block.header,
