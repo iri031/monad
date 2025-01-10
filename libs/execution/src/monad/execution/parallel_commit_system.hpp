@@ -91,7 +91,7 @@ class ParallelCommitSystem
     bool existsBlockerBefore(txindex_t index) const;
     bool blocksAllLaterTransactions(txindex_t index) const;
     static std::string status_to_string(TransactionStatus status);
-    void notifyAllDone();// add a block index argument
+    void notifyAllDone();// TODO(aa): add a block index argument. see comment below
 
     /**
     * status is expected to be a recent load from status_[index]
