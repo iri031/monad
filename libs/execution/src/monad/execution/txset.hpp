@@ -26,19 +26,20 @@ public:
     ConcurrentTxSet() {
         reset();
     }
-    //nobody will read the index at this time so we skip the index update to a populate_index call later that happens before the index starts being read.
-    // this function will be called concurrently thouth, just after compute_sender.
-    void set_bit_without_index_upddate(uint64_t bit_index)
-    {
+    void insert(uint64_t bit_index) {
         uint64_t mask = 1ULL << (bit_index % 64);
-        std::atomic<uint64_t> &word = membership[bit_index / 64];
-        word.fetch_or(mask);
+        uint64_t word_index = bit_index / 64;
+        std::atomic<uint64_t> &word = membership[word_index];
+        uint64_t old_word = word.fetch_or(mask);
+        if (old_word == 0) {
+            index.fetch_or(1 << word_index);
+        }
     }
 
     // post: cannot really guarantee that the index is consistent because some other thread may be in the middle of a call to this function
     // the commit point is when the membership array is updated. 
     // the index is just an optimization (laggy cache) with the guaranttee that if the index bit is 0, means the word is 0, but not the other way around.
-    void unset_bit_update_index(uint64_t bit_index){
+    void remove(uint64_t bit_index){
         uint64_t mask = 1ULL << (bit_index % 64);
         uint64_t word_index = bit_index / 64;
         std::atomic<uint64_t> &word = membership[word_index];
@@ -49,19 +50,8 @@ public:
         }
     }
 
-    // preost: exclusive access to this object
-    //post: the index is consistent with the membership array
-    void populate_index() {
-        uint64_t local_index = 0;
-        for (uint64_t i = 0; i < 64; i++) {
-            if (membership[i].load() != 0) {
-                local_index |= (1ULL << i);
-            }
-        }
-        index.store(local_index);
-    }
 
-    bool get_bit(uint64_t bit_index) const {
+    bool contains(uint64_t bit_index) const {
         return (membership[bit_index / 64].load() & (1 << (bit_index % 64))) != 0;
     }
 

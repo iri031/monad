@@ -46,12 +46,6 @@ class ParallelCommitSystem
     void declareFootprint(txindex_t myindex, const std::set<evmc::address> *footprint);
     const std::set<evmc::address> *getFootprint(txindex_t myindex);
 
-    inline void startTransactionsPrep() {
-        uncommited_transactions_with_inf_footprint.populate_index();
-        for(auto it = transactions_accessing_address_.begin(); it != transactions_accessing_address_.end(); ++it) {
-            it->second->populate_index();
-        }
-    }
     
     ~ParallelCommitSystem();
     void waitForAllTransactionsToCommit();

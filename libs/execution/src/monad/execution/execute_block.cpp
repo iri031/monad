@@ -254,7 +254,6 @@ Result<std::vector<ExecutionResult>> execute_block(
         promises[i].get_future().wait();
         //LOG_INFO("sender[{}]: {}", i, fmt::format("{}", senders[i].value()));
     }
-    parallel_commit_system.startTransactionsPrep();// do this while inserting so that it is parallel. here it is a sequantial blocker
 
     std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
         new std::optional<Result<ExecutionResult>>[block.transactions.size()]};

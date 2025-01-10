@@ -66,13 +66,13 @@ void ParallelCommitSystem::registerAddressAccessedBy(const evmc::address& addr, 
     // because nobody will ever change the set pointer in the map, we do set->insert after `it` goes out of scope, 
     // thus releasing the lock, and allowing other threads to concurrently insert into the set.
     // if this address was not in the map before, `it` may hold a write lock on the set, thus preventing other threads from accessing the set.
-    set->set_bit_without_index_upddate(index);
+    set->insert(index);
 }
 
 void ParallelCommitSystem::unregisterAddressAccessedBy(const evmc::address& addr, txindex_t index) {
     auto it = transactions_accessing_address_.find(addr);
     if (it != transactions_accessing_address_.end()) {
-        it->second->unset_bit_update_index(index);
+        it->second->remove(index);
     }
 }
 
@@ -85,7 +85,7 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
         }
     }
     else {
-        uncommited_transactions_with_inf_footprint.set_bit_without_index_upddate(myindex);
+        uncommited_transactions_with_inf_footprint.insert(myindex);
     }
     if(footprint && footprint->find(beneficiary)!=footprint->end()){
         nontriv_footprint_contains_beneficiary[myindex]=true;
@@ -184,10 +184,10 @@ void ParallelCommitSystem::unblockTransaction(TransactionStatus status, txindex_
         }
 
         if (status_[index].compare_exchange_strong(status, new_status)) {
-            LOG_INFO("unblockTransaction: status[{}] changed from {} to {}", 
-               index, 
-               status_to_string(status), 
-               status_to_string(new_status));
+            // LOG_INFO("unblockTransaction: status[{}] changed from {} to {}", 
+            //    index, 
+            //    status_to_string(status), 
+            //    status_to_string(new_status));
             if (new_status == TransactionStatus::COMMITTING) {
                 promises[index].set_value();
             }
@@ -300,17 +300,17 @@ std::string ParallelCommitSystem::status_to_string(TransactionStatus status) {
 }
 
 void ParallelCommitSystem::notifyDone(txindex_t myindex) {
-    auto status = status_[myindex].load();
+    //auto status = status_[myindex].load();
     //std::cout << "notifyDone: status of " << myindex << " is " << status_to_string(status) << std::endl;
-    assert(status == TransactionStatus::COMMITTING);
+    //assert(status == TransactionStatus::COMMITTING);
     status_[myindex].store(TransactionStatus::COMMITTED);
-    uncommited_transactions_with_inf_footprint.unset_bit_update_index(myindex);
+    uncommited_transactions_with_inf_footprint.remove(myindex);
     if(footprints_[myindex]) {
         for(auto addr: *footprints_[myindex]) {
             unregisterAddressAccessedBy(addr, myindex);
         }
     }
-    LOG_INFO("notifyDone: status[{}] changed from {} to {}", myindex, status_to_string(TransactionStatus::COMMITTING), status_to_string(TransactionStatus::COMMITTED));
+    //LOG_INFO("notifyDone: status[{}] changed from {} to {}", myindex, status_to_string(TransactionStatus::COMMITTING), status_to_string(TransactionStatus::COMMITTED));
     updateLastCommittedUb();
     if(all_done.load()) {// there is currently a rare bug here. this object may have been deallocated by now. using shared_ptr can fix. static allocation of this object may be better if we can compute a not-too-loose bound on #transactions.
         return;
