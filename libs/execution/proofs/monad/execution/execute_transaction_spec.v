@@ -296,10 +296,62 @@ int main() {
     | Nglobal  (Nfunction _ (Nf i) _) => i
     | _ => ""
     end.
-      
-      
+
+  Definition isFunctionNamed (n:name) (fname: ident): bool :=
+    match n with
+    | Nglobal  (Nfunction _ (Nf i) _) => bool_decide (i=fname)
+    | _ => false
+    end.
+
+  Definition fnArgTypes (n:name) : list type :=
+    match n with
+    | Nglobal  (Nfunction _ (Nf i) argTypes) => argTypes
+    | _ => []
+    end.
+
+  Definition findBodyOfFnNamed (fname:ident) :=
+    List.filter (fun p => let '(nm, body):=p in isFunctionNamed nm fname) (NM.elements (symbols module)).
+
+  Definition sumEntry : list (name * ObjValue) := (findBodyOfFnNamed "sum").
+
+
+  Definition sumStructuredName :name := Eval vm_compute in (List.nth 0 (map fst sumEntry) (Nunsupported "impossible")).
+
+  Definition stdFnIntIntType : type :=
+    Eval vm_compute in (List.nth 0 (fnArgTypes sumStructuredName) (Tunsupported "impossible")).
+
+
+  Search reference_to.
   (* when the name parse issue gets ffixed, prove this to see how a stdd:function arg us used in a call to it *)
-  cpp.spec "sum(std::function<int(int)>)" as csum_spec with (\pre emp \post [Vint 52] emp).
+  cpp.spec (sumStructuredName) as sum_spec with
+      (\pre emp
+         \arg{task} "task" (Vref task)
+         \pre reference_to stdFnIntIntType task (* should this be a structR? *)
+        \post [Vint 52] emp).
+  
+  Lemma main_proof: denoteModule module |-- sum_spec.
+  Proof using.
+    verify_spec'.
+    name_locals.
+    slauto.
+    (*
+  _ : denoteModule module
+  _ : reference_to stdFnIntIntType f_addr
+  --------------------------------------□
+  _ : HiddenPostCondition
+  --------------------------------------∗
+  invoke.wp_minvoke_O.body module Direct "const std::function<int()(int)>" "int"%cpp_type "int()(int)"
+    "std::function<int()(int)>::operator()(int) const" f_addr [invoke.Unmaterialized "int" 0%Z] None
+    (λ x : val,
+       ::wpOperand
+         [region: "f" @ f_addr; return {?: "int"%cpp_type}]
+         (Eoperator_call OOCall
+            (operator_impl.MFunc "std::function<int()(int)>::operator()(int) const"%cpp_name Direct
+               "int()(int)"%cpp_type)
+            [Ecast (Cnoop "const std::function<int()(int)>&") (Evar "f" "std::function<int()(int)>"); Eint 1 "int"]))
+
+     *)
+    Abort.
     
 Lemma main_proof: denoteModule module |-- main_spec.
 Proof using.
