@@ -254,6 +254,31 @@ int main() {
     auto lambda = [x](int y) { return x + y; };
     //return callsum();
     return lambda(10);
+
+template version:
+
+
+~/work/coq/monad$cat ../lam.cpp
+template<typename Func>
+int sum(Func f)
+{
+  return f(0) + f(1);
+}
+
+int callsum()
+{
+    int x = 42; // Captured variable
+    auto lambda = [x](int y) { return x + y; };
+    return sum(lambda);
+}
+
+
+int main() {
+    int x = 42; // Captured variable
+    auto lambda = [x](int y) { return x + y; };
+    //return callsum();// returned 85
+    return lambda(10);
+}
 }
  *)
   cpp.spec "main()::@0::operator()(int) const" as mainlam_spec inline.
@@ -300,6 +325,7 @@ int main() {
   Definition isFunctionNamed (n:name) (fname: ident): bool :=
     match n with
     | Nglobal  (Nfunction _ (Nf i) _) => bool_decide (i=fname)
+    | Ninst (Nglobal  (Nfunction _ (Nf i) _)) _ => bool_decide (i=fname)
     | _ => false
     end.
 
@@ -316,10 +342,118 @@ int main() {
 
 
   Definition sumStructuredName :name := Eval vm_compute in (List.nth 0 (map fst sumEntry) (Nunsupported "impossible")).
+  cpp.spec "sum<callsum()::@0>(callsum()::@0)" as sum_spec with
+      (\pre emp
+         \arg{task} "task" (Vref task)
+         \post [Vint 52] emp).
+  Definition sc :name := "sum<callsum()::@0>(callsum()::@0)".
 
+  Definition instee (n:name) : name :=
+    match n with
+    | Ninst base i => base
+    | _ => Nunsupported "not a Ninst"
+    end.
+  Search ident.
+  Print ident.
+
+  Print function_qualifiers.t.
+  Definition basee (n:name) :=
+    match n with
+    | Ninst (Nglobal  (Nfunction q (Nf base) l)) targs => (base,l,q, targs)
+    | _ => (BS.EmptyString,[],function_qualifiers.N, [])
+    end.
+
+  Compute (basee sc).
+
+  Definition sumname (lamTy: core.name) : name :=
+    Ninst (Nglobal  (Nfunction function_qualifiers.N (Nf "sum") [Tnamed lamTy])) [Atype (Tnamed lamTy)].
+    
+  Print lam.module.
+  Definition opName :name :=
+    "callsum()::@0::operator()(int) const".
+  Definition lamOperator (fullopName: name) :=
+    match fullopName with
+    | Nscoped _ op => op
+    | _ => Nunsupported_atomic ""
+    end.
+
+  Definition lamStructName :name :="callsum()::@0".
+  Definition lamOpInt := Eval vm_compute in (lamOperator opName).
+
+  Definition opName2 := Nscoped lamStructName lamOpInt.
+
+  Eval vm_compute in (bool_decide (opName=opName2)).
+
+cpp.spec "main()::@0::operator()(int) const" as mainlam2_spec with
+    (fun this:ptr =>
+       \pre{x} this ,, o_field CU "main()::@0::x" |-> intR (cQp.mut 1) x
+       \arg{y} "" (Vint y)
+       \post[Vint (x+y)]  emp
+    ).
+
+  Definition operatorSpec (lamStructName: core.name):=
+    specify {| info_name :=  (Nscoped lamStructName lamOpInt) ;
+              info_type := tMethod lamStructName QC "int" ["int"%cpp_type] |}
+      (fun (this:ptr) =>
+           \pre emp 
+             \arg{y} "y" (Vint y)
+             \post[Vint y] emp).
+
+  
+  Definition sumSpec (lamStructName: core.name) : WpSpec mpredI val val :=
+    \arg{task:ptr} "task" (Vptr task)
+    \pre task |-> structR lamStructName 1
+    \pre operatorSpec lamStructName
+    \post [Vint 52] (emp:mpred).
+
+  cpp.spec (sumname "callsum()::@0") as sum_spec2 with (sumSpec "callsum()::@0").
+  
+  cpp.spec "callsum()" as csum_spec2 with (\post [Vint 52] emp).
+
+  Lemma main_proof: denoteModule module |-- csum_spec2.
+  Proof using.
+    verify_spec'.
+    name_locals.
+    slauto.
+    rewrite <- wp_init_lambda.
+    slauto.
+    (* copy constructor is called because the lambda is passed by value. change code to pass by reference
+  _ : denoteModule module
+  _ : type_ptr "int" x_addr
+  _ : type_ptr "callsum()::@0" lambda_addr
+  --------------------------------------□
+  _ : HiddenPostCondition
+  _ : x_addr |-> intR (cQp.mut 1) 42
+  _ : lambda_addr ,, o_field CU "callsum()::@0::x" |-> intR (cQp.mut 1) 42
+  _ : lambda_addr |-> structR "callsum()::@0" (cQp.mut 1)
+  --------------------------------------∗
+  ::wpPRᵢ
+    [region: "lambda" @ lambda_addr; "x" @ x_addr; return {?: "int"%cpp_type}]
+    (Pointer ↦ p) 
+    (Econstructor (Nscoped "callsum()::@0" (Nfunction function_qualifiers.N Nctor ["const callsum()::@0&"%cpp_type]))
+       [Ecast (Cnoop "const callsum()::@0&") (Evar "lambda" "callsum()::@0")] "callsum()::@0")
+
+*)    
+    
+Abort.    
+  
+
+  
+      
+  Set Printing All.
+  Print Nscoped.
+  Definition tt : type :=
+    "callsum()::@0".
+cpp.spec (Ninst
+   "monad::execute_block(const monad::Chain&, monad::Block&, monad::BlockState&, const monad::BlockHashBuffer&, monad::fiber::PriorityPool&)"
+   [Avalue (Eint 11 "enum evmc_revision")]) as exb_spec with (execute_block_simpler).
+  
   Definition stdFnIntIntType : type :=
     Eval vm_compute in (List.nth 0 (fnArgTypes sumStructuredName) (Tunsupported "impossible")).
+  Print lam.module.
 
+  cpp.spec 
+  Eval native_compute in (List.map fst (NM.elements (symbols lam.module))).
 
   Search reference_to.
   (* when the name parse issue gets ffixed, prove this to see how a stdd:function arg us used in a call to it *)
