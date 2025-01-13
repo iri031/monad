@@ -614,6 +614,7 @@ int main(int const argc, char const *argv[])
                  std::max(1UL, static_cast<uint64_t>(elapsed.count()))));
     }
 
+    std::terminate();
     if (sync != nullptr) {
         sync_thread.request_stop();
         sync_thread.join();
