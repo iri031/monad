@@ -342,21 +342,17 @@ int main() {
 
 
   Definition sumStructuredName :name := Eval vm_compute in (List.nth 0 (map fst sumEntry) (Nunsupported "impossible")).
-  cpp.spec "sum<callsum()::@0>(callsum()::@0)" as sum_spec with
+  cpp.spec "sum<callsum()::@0>(callsum()::@0&)" as sum_spec with
       (\pre emp
          \arg{task} "task" (Vref task)
          \post [Vint 52] emp).
-  Definition sc :name := "sum<callsum()::@0>(callsum()::@0)".
+  Definition sc :name := "sum<callsum()::@0>(callsum()::@0&)".
 
   Definition instee (n:name) : name :=
     match n with
     | Ninst base i => base
     | _ => Nunsupported "not a Ninst"
     end.
-  Search ident.
-  Print ident.
-
-  Print function_qualifiers.t.
   Definition basee (n:name) :=
     match n with
     | Ninst (Nglobal  (Nfunction q (Nf base) l)) targs => (base,l,q, targs)
@@ -366,9 +362,9 @@ int main() {
   Compute (basee sc).
 
   Definition sumname (lamTy: core.name) : name :=
-    Ninst (Nglobal  (Nfunction function_qualifiers.N (Nf "sum") [Tnamed lamTy])) [Atype (Tnamed lamTy)].
+    Ninst (Nglobal  (Nfunction function_qualifiers.N (Nf "sum") [Tref (Tnamed lamTy)])) [Atype (Tnamed lamTy)].
     
-  Print lam.module.
+  
   Definition opName :name :=
     "callsum()::@0::operator()(int) const".
   Definition lamOperator (fullopName: name) :=
@@ -401,40 +397,41 @@ cpp.spec "main()::@0::operator()(int) const" as mainlam2_spec with
 
   
   Definition sumSpec (lamStructName: core.name) : WpSpec mpredI val val :=
-    \arg{task:ptr} "task" (Vptr task)
+    \arg{task:ptr} "task" (Vref task)
     \pre task |-> structR lamStructName 1
     \pre operatorSpec lamStructName
-    \post [Vint 52] (emp:mpred).
+    \post [Vint 53] (emp:mpred).
 
   cpp.spec (sumname "callsum()::@0") as sum_spec2 with (sumSpec "callsum()::@0").
   
   cpp.spec "callsum()" as csum_spec2 with (\post [Vint 52] emp).
 
-  Lemma main_proof: denoteModule module |-- csum_spec2.
+  Lemma destr a b P : P |--    wp_destroy_named module a b P.
+  Proof. Admitted.
+  
+  
+  Lemma main_proof: denoteModule module ** sum_spec2 |-- csum_spec2.
   Proof using.
     verify_spec'.
     name_locals.
     slauto.
     rewrite <- wp_init_lambda.
     slauto.
-    (* copy constructor is called because the lambda is passed by value. change code to pass by reference
-  _ : denoteModule module
-  _ : type_ptr "int" x_addr
-  _ : type_ptr "callsum()::@0" lambda_addr
+    unfold operatorSpec.
+    iSplitR "".
+    - go.
+      rewrite <- destr.
+      go.
+      (* the lambda was constructed and passed to the callee spec and the call to the operator returned with postcond of lambda
   --------------------------------------□
-  _ : HiddenPostCondition
-  _ : x_addr |-> intR (cQp.mut 1) 42
   _ : lambda_addr ,, o_field CU "callsum()::@0::x" |-> intR (cQp.mut 1) 42
-  _ : lambda_addr |-> structR "callsum()::@0" (cQp.mut 1)
+  _ : p |-> intR (cQp.mut 1) 53
   --------------------------------------∗
-  ::wpPRᵢ
-    [region: "lambda" @ lambda_addr; "x" @ x_addr; return {?: "int"%cpp_type}]
-    (Pointer ↦ p) 
-    (Econstructor (Nscoped "callsum()::@0" (Nfunction function_qualifiers.N Nctor ["const callsum()::@0&"%cpp_type]))
-       [Ecast (Cnoop "const callsum()::@0&") (Evar "lambda" "callsum()::@0")] "callsum()::@0")
+  p |-> intR (cQp.mut 1) 52
+       *)
 
-*)    
-    
+      - need to pove the specify in operatorSpec (\pre of sum_spec2)
+      
 Abort.    
   
 
