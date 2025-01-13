@@ -28,6 +28,8 @@
 #include <boost/container/deque.hpp>
 #include <boost/fiber/operations.hpp>
 
+#include <quill/Quill.h>
+
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -902,17 +904,20 @@ struct Db::RWOnDisk final : public Db::Impl
 Db::Db(StateMachine &machine)
     : impl_{std::make_unique<InMemory>(machine)}
 {
+    LOG_INFO("In memory db");
 }
 
 Db::Db(StateMachine &machine, OnDiskDbConfig const &config)
     : impl_{std::make_unique<RWOnDisk>(config, machine)}
 {
     MONAD_DEBUG_ASSERT(impl_->aux().is_on_disk());
+    LOG_INFO("Read write db");
 }
 
 Db::Db(ReadOnlyOnDiskDbConfig const &config)
     : impl_{std::make_unique<ROOnDisk>(config)}
 {
+    LOG_INFO("Read only db");
 }
 
 Db::~Db() = default;
