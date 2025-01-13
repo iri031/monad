@@ -73,7 +73,7 @@ function(add_trie_test)
 
   add_executable(
     ${ADD_TRIE_TEST_TARGET}
-    "${CMAKE_SOURCE_DIR}/test/unit/common/src/test/main.cpp"
+    "${PROJECT_SOURCE_DIR}/../../test/unit/common/src/test/main.cpp"
     ${ADD_TRIE_TEST_SOURCES})
   monad_compile_options(${ADD_TRIE_TEST_TARGET})
   target_link_libraries(
