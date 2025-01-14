@@ -399,8 +399,8 @@ cpp.spec "main()::@0::operator()(int) const" as mainlam2_spec with
   
   Definition sumSpec (lamStructName: core.name) : WpSpec mpredI val val :=
     \arg{task:ptr} "task" (Vref task)
-    \pre task |-> structR lamStructName 1
     \pre{R f} operatorSpec lamStructName R f
+    \pre task |-> R
     \post [Vint (f 0 + f 1)] (emp:mpred).
 
   cpp.spec (sumname "callsum()::@0") as sum_spec2 with (sumSpec "callsum()::@0").
