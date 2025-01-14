@@ -477,10 +477,12 @@ void TrieDb::finalize(uint64_t const block_number, uint64_t const round_number)
 {
     // no re-finalization
     if (db_.is_on_disk()) {
+#if 0 // TODO: re-enable this when we move off the WAL
         auto const latest_finalized = db_.get_latest_finalized_block_id();
         MONAD_ASSERT(
             latest_finalized == INVALID_BLOCK_ID ||
             block_number == latest_finalized + 1);
+#endif
         auto const src_prefix = proposal_prefix(round_number);
         MONAD_ASSERT(db_.find(src_prefix, block_number).has_value());
         db_.copy_trie(
@@ -493,10 +495,12 @@ void TrieDb::update_verified_block(uint64_t const block_number)
 {
     // no re-verification
     if (db_.is_on_disk()) {
+#if 0 // TODO: re-enable this when we move off the WAL
         auto const latest_verified = db_.get_latest_verified_block_id();
         MONAD_ASSERT(
             latest_verified == INVALID_BLOCK_ID ||
             block_number == latest_verified + 1);
+#endif
         db_.update_verified_block(block_number);
     }
 }
