@@ -391,7 +391,7 @@ cpp.spec "main()::@0::operator()(int) const" as mainlam2_spec with
     specify {| info_name :=  (Nscoped lamStructName lamOpInt) ;
               info_type := tMethod lamStructName QC "int" ["int"%cpp_type] |}
       (fun (this:ptr) =>
-           \pre this |-> R
+           \prepost this |-> R
            \arg{y} "y" (Vint y)
            \require (y<100)%Z (* to avoid overflow *)
            \post[Vint (f y)] emp).
@@ -401,7 +401,7 @@ cpp.spec "main()::@0::operator()(int) const" as mainlam2_spec with
     \arg{task:ptr} "task" (Vref task)
     \pre{R f} operatorSpec lamStructName R f
     \pre task |-> R
-    \post [Vint (f 0 + f 1)] (emp:mpred).
+    \post [Vint (f 0 + f 1)] task |-> R.
 
   cpp.spec (sumname "callsum()::@0") as sum_spec2 with (sumSpec "callsum()::@0").
   
@@ -424,11 +424,13 @@ cpp.spec "main()::@0::operator()(int) const" as mainlam2_spec with
     unfold operatorSpec.
     iSplitR "".
     - go.
-      rewrite <- destr.
-      go.
-    - go.
       verify_spec'.
+      iModIntro.
       slauto.
+    - go.
+      rewrite <- destr.
+      work.
+      go.
    Qed.
   
 
