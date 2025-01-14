@@ -260,7 +260,7 @@ template version:
 
 ~/work/coq/monad$cat ../lam.cpp
 template<typename Func>
-int sum(Func f)
+int sum(Func& f)
 {
   return f(0) + f(1);
 }
@@ -372,8 +372,6 @@ int main() {
     end.
 
   Definition lamStructName :name :="callsum()::@0".
-
-  
   Definition opName :name := "callsum()::@0::operator()(int) const".
   Definition lamOpInt := Eval vm_compute in (lamOperator opName).
   Definition operatorSpec (lamStructName: core.name) (R: Rep) (f: Z->Z):=
@@ -395,7 +393,6 @@ int main() {
   
   cpp.spec "callsum()" as callsum_spec2 with (\post [Vint 85] emp).
 
-  Search wp_destroy_named.
   Lemma destr (lambda_addr:ptr) P :
     (lambda_addr |-> structR "callsum()::@0" (cQp.mut 1))
       **
@@ -404,8 +401,6 @@ int main() {
     P |--    wp_destroy_named module "callsum()::@0" lambda_addr P.
   Proof. go. Admitted.
 
-  Lemma forget (P:mpred):  P |-- emp.
-  Proof using. work. Qed.
   Import linearity.
   Lemma callsum_proof: denoteModule module ** sum_spec2 |-- callsum_spec2.
   Proof using MOD.
