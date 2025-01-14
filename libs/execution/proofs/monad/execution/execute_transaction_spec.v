@@ -400,8 +400,8 @@ cpp.spec "main()::@0::operator()(int) const" as mainlam2_spec with
   Definition sumSpec (lamStructName: core.name) : WpSpec mpredI val val :=
     \arg{task:ptr} "task" (Vref task)
     \pre{R f} operatorSpec lamStructName R f
-    \pre task |-> R
-    \post [Vint (f 0 + f 1)] task |-> R.
+    \pre task |-> R (* not \prepost? I guess the destruction of lambda is done here, not in the caller ?*)
+    \post [Vint (f 0 + f 1)] emp.
 
   cpp.spec (sumname "callsum()::@0") as sum_spec2 with (sumSpec "callsum()::@0").
   
@@ -424,17 +424,12 @@ cpp.spec "main()::@0::operator()(int) const" as mainlam2_spec with
     unfold operatorSpec.
     iSplitR "".
     - go.
-      verify_spec'.
-      iModIntro.
-      slauto.
-    - go.
       rewrite <- destr.
-      work.
       go.
+    - go.
+      verify_spec'.
+      slauto.
    Qed.
-  
-
-  
       
   Set Printing All.
   Print Nscoped.
