@@ -335,13 +335,16 @@ int main() {
     | _ => []
     end.
 
-  Definition findBodyOfFnNamed (fname:ident) :=
+  Definition findBodyOfFnNamed module (fname:ident) :=
     List.filter (fun p => let '(nm, body):=p in isFunctionNamed nm fname) (NM.elements (symbols module)).
 
-  Definition sumEntry : list (name * ObjValue) := (findBodyOfFnNamed "sum").
+  Definition sumEntry : list (name * ObjValue) := (findBodyOfFnNamed module "sum").
 
 
-  Definition sumStructuredName :name := Eval vm_compute in (List.nth 0 (map fst sumEntry) (Nunsupported "impossible")).
+  Definition firstEntryName (l :list (name * ObjValue)) :=
+    (List.nth 0 (map fst l) (Nunsupported "impossible")).
+      
+  Definition sumStructuredName :name := Eval vm_compute in (firstEntryName sumEntry).
   cpp.spec "sum<callsum()::@0>(const callsum()::@0&)" as sum_spec with
       (\pre emp
          \arg{task} "task" (Vref task)
@@ -359,7 +362,6 @@ int main() {
     | _ => (BS.EmptyString,[],function_qualifiers.N, [])
     end.
 
-  Set Printing All.
   Compute (basee sc).
 
   Definition sumname (lamTy: core.name) : name :=
@@ -423,122 +425,7 @@ int main() {
       go.
    Qed.
       
-  Set Printing All.
-  Print Nscoped.
-  Definition tt : type :=
-    "callsum()::@0".
-cpp.spec (Ninst
-   "monad::execute_block(const monad::Chain&, monad::Block&, monad::BlockState&, const monad::BlockHashBuffer&, monad::fiber::PriorityPool&)"
-   [Avalue (Eint 11 "enum evmc_revision")]) as exb_spec with (execute_block_simpler).
-  
-  Definition stdFnIntIntType : type :=
-    Eval vm_compute in (List.nth 0 (fnArgTypes sumStructuredName) (Tunsupported "impossible")).
-  Print lam.module.
-
-  cpp.spec 
-  Eval native_compute in (List.map fst (NM.elements (symbols lam.module))).
-
-  Search reference_to.
-  (* when the name parse issue gets ffixed, prove this to see how a stdd:function arg us used in a call to it *)
-  cpp.spec (sumStructuredName) as sum_spec with
-      (\pre emp
-         \arg{task} "task" (Vref task)
-         \pre reference_to stdFnIntIntType task (* should this be a structR? *)
-        \post [Vint 52] emp).
-  
-  Lemma main_proof: denoteModule module |-- sum_spec.
-  Proof using.
-    verify_spec'.
-    name_locals.
-    slauto.
-    (*
-  _ : denoteModule module
-  _ : reference_to stdFnIntIntType f_addr
-  --------------------------------------□
-  _ : HiddenPostCondition
-  --------------------------------------∗
-  invoke.wp_minvoke_O.body module Direct "const std::function<int()(int)>" "int"%cpp_type "int()(int)"
-    "std::function<int()(int)>::operator()(int) const" f_addr [invoke.Unmaterialized "int" 0%Z] None
-    (λ x : val,
-       ::wpOperand
-         [region: "f" @ f_addr; return {?: "int"%cpp_type}]
-         (Eoperator_call OOCall
-            (operator_impl.MFunc "std::function<int()(int)>::operator()(int) const"%cpp_name Direct
-               "int()(int)"%cpp_type)
-            [Ecast (Cnoop "const std::function<int()(int)>&") (Evar "f" "std::function<int()(int)>"); Eint 1 "int"]))
-
-     *)
-    Abort.
-    
-Lemma main_proof: denoteModule module |-- main_spec.
-Proof using.
-  verify_spec'.
-  go.
-  rewrite <- wp_init_lambda.
-  slauto.
-
-  (*
- ============================
-  _ : denoteModule module
-  _ : type_ptr "int" _addr_
-  _ : type_ptr "main()::@0" addr
-  _ : type_ptr "int" _x_0
-  _ : type_ptr "int" p
-  _ : type_ptr "int" _p_
-  --------------------------------------□
-  _ : HiddenPostCondition
-  _ : _addr_ |-> intR (cQp.mut 1) 42
-
-captures are struct fields.
-there is an operator that takes the lambda formal args. in this case: it is.
-main()::@0::operator()(int) const
-
-  _ : addr ,, o_field CU "main()::@0::x" |-> intR (cQp.mut 1) 42
-  _ : addr |-> structR "main()::@0" (cQp.mut 1)
-  _ : _p_ |-> intR (cQp.mut 1) (42 + 10)
-  --------------------------------------∗
-  wp_destroy_named module "main()::@0" addr
-    (interp module (FreeTemps.delete "i
-*)
-  
-Abort.  
-
-cpp.spec "main()::@0::operator()(int) const" as mainlam2_spec with
-    (fun this:ptr =>
-       \pre{x} this ,, o_field CU "main()::@0::x" |-> intR (cQp.mut 1) x
-       \arg{y} "" (Vint y)
-       \post[Vint (x+y)]  emp
-    ).
-
-Lemma main_proof: denoteModule module |-- main_spec.
-Proof using.
-  verify_spec'.
-  go.
-  rewrite <- wp_init_lambda.
-  slauto.
-  (*
-
- _ : denoteModule module
-  _ : type_ptr "int" _addr_
-  _ : type_ptr "main()::@0" addr
-  _ : type_ptr "int" _x_0
-  _ : type_ptr "int" p
-  _ : type_ptr "int" _p_
-  --------------------------------------□
-  _ : HiddenPostCondition
-  _ : _addr_ |-> intR (cQp.mut 1) 42
-  _ : addr ,, o_field CU "main()::@0::x" |-> intR (cQp.mut 1) 42
-  _ : addr |-> structR "main()::@0" (cQp.mut 1)
-  _ : _p_ |-> intR (cQp.mut 1) (42 + 10)
-  --------------------------------------∗
-  wp_destroy_named module "main()::@0" addr
-    (interp module (FreeTemps.delete "int"%cpp_type _addr_) (▷ _x_ _p_))
-*)
-Abort.
-End lam.
-
-
-  
+End lam.  
 
 Require Import bedrock_auto.tests.data_class.exb.
 Require Import bedrock_auto.tests.data_class.exb_names.
@@ -547,12 +434,9 @@ Context  {MODd : exb.module ⊧ CU}.
 (* Node::Node(Node*,int) *)
 Check exb.module.
 
-cpp.spec (Ninst
+  cpp.spec (Ninst
    "monad::execute_block(const monad::Chain&, monad::Block&, monad::BlockState&, const monad::BlockHashBuffer&, monad::fiber::PriorityPool&)"
-   [Avalue (Eint 11 "enum evmc_revision")]) as exb_spec with (execute_block_simpler).
-
-
-
+   [Avalue (Eint 11 "enum evmc_revision")]) as exbb_spec with (execute_block_simpler).
 
   cpp.spec
     "std::vector<monad::Transaction, std::allocator<monad::Transaction>>::size() const"
@@ -595,7 +479,80 @@ cpp.spec
   Definition lamBody :option GlobDecl :=
     NM.map_lookup lamName (types module).
 
-  Compute lamBody.
+(*  Definition forkEntry : list (name * ObjValue) := *)
+    Eval vm_compute in (findBodyOfFnNamed exb.module "monad::fork_task").
+
+    Print atomic_name_.
+  Fixpoint isFunctionNamed2 (fname: ident) (n:name): bool :=
+    match n with
+    | Nglobal  (Nfunction _ (Nf i) _) => bool_decide (i=fname)
+    | Ninst nm _ => isFunctionNamed2 fname nm
+    | Nscoped _ (Nfunction _ (Nf i) _) => bool_decide (i=fname)
+    | _ => false
+    end.
+
+  Fixpoint containsDep (n:name): bool :=
+    match n with
+    | Ndependent _ => true
+    | Nglobal  (Nfunction _ (Nf i) _) => false
+    | Ninst nm _ => containsDep nm
+    | Nscoped nm (Nfunction _ (Nf i) _) => containsDep nm
+    | _ => false
+    end.
+  
+  Definition findBodyOfFnNamed2 module filter :=
+    List.filter (fun p => let '(nm, body):=p in filter nm) (NM.elements (symbols module)).
+
+  Definition fork_task_namei:= Eval vm_compute in (firstEntryName (findBodyOfFnNamed2 exb.module (isFunctionNamed2 "fork_task"))).
+
+  Definition basee3 (n:name) :=
+    match n with
+    | Ninst (Nscoped (Nglobal (Nid scopename)) _) targs => scopename
+    | _ => BS.EmptyString
+    end.
+
+  Definition all_but_last {T:Type} (l: list T):= take (length l -1)%nat l. 
+  Definition fork_task_nameg (taskLamStructTy: core.name) :=
+    match fork_task_namei with
+    | Ninst (Nscoped (Nglobal (Nid scopename)) (Nfunction q (Nf base) argTypes)) templateArgs =>
+        let argTypes' := all_but_last argTypes ++  [Tref (Tqualified QC (Tnamed taskLamStructTy))] in
+        Ninst (Nscoped (Nglobal (Nid scopename)) (Nfunction q (Nf base) argTypes')) templateArgs
+    | _ => fork_task_namei
+    end.
+
+
+  Lemma fork_task_name_inst: exists ty, fork_task_nameg ty = fork_task_namei.
+  Proof using.
+    unfold fork_task_nameg. unfold fork_task_namei.
+    eexists. reflexivity.
+  Qed.
+
+  Definition taskOpName : atomic_name := Nfunction function_qualifiers.Nc (Nop OOCall) [].
+  
+  Definition taskOpSpec (lamStructName: core.name) (objOwnership: Rep) (taskPre: mpred):=
+    specify {| info_name :=  (Nscoped lamStructName taskOpName) ;
+              info_type := tMethod lamStructName QC "void" [] |}
+      (fun (this:ptr) =>
+         \prepost this |-> objOwnership
+         \pre taskPre
+         \post emp).
+  
+  Definition forkTaskSpec (lamStructName: core.name) : WpSpec mpredI val val :=
+    \arg{task:ptr} "func" (Vref task)
+    \pre{objOwnership taskPre} taskOpSpec lamStructName objOwnership taskPre
+    \prepost task |-> objOwnership
+    \pre taskPre
+    \post emp.
+
+  cpp.spec (sumname "callsum()::@0") as sum_spec2 with (sumSpec "callsum()::@0").
+  
+  
+               
+  Eval vm_compute in (findBodyOfFnNamed2 exb.module containsDep).
+  Definition sumEntry : list (name * ObjValue) := (findBodyOfFnNamed module "sum").
+    
+  Eval vm_compute in (map fst (NM.elements (symbols module))).
+    
 
   (*
      = Some

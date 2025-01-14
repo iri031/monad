@@ -95,6 +95,7 @@ void fork_task(fiber::PriorityPool &priority_pool, uint64_t priority, const Task
     priority_pool.submit(priority, [task_function]() { task_function(); });
 }
 
+// not useful until we do template-generic proofs, not just template-generic specs
 template <typename TaskFunction, typename PriorityFunction>
 void fork_tasks(
     fiber::PriorityPool &priority_pool, uint64_t numTasks,
@@ -108,7 +109,7 @@ void fork_tasks(
 
 #define MAX_TRANSACTIONS 800
 boost::fibers::promise<void> promises[MAX_TRANSACTIONS];
-
+std::optional<Address> senders[MAX_TRANSACTIONS];
 void reset_promises(uint64_t num_transactions){
     for (uint64_t i = 0; i < num_transactions; ++i) {
         promises[i]=boost::fibers::promise<void>();
@@ -117,13 +118,16 @@ void reset_promises(uint64_t num_transactions){
 
 template <typename T>
 using vanilla_ptr = T*;
-void compute_senders(vanilla_ptr<std::optional<Address>> const senders, Block const &block, fiber::PriorityPool &priority_pool){
+void compute_senders(Block const &block, fiber::PriorityPool &priority_pool){
     reset_promises(block.transactions.size());
 
-    fork_tasks(priority_pool, block.transactions.size(), [senders, &block](uint64_t i) {
-        senders[i] = recover_sender(block.transactions[i]);
-        promises[i].set_value();
-    }, [](uint64_t i) { return i; });
+    for (uint64_t i = 0; i < block.transactions.size(); ++i) {
+        fork_task(priority_pool, i, [&block, i]() {
+            senders[i] = recover_sender(block.transactions[i]);
+            promises[i].set_value();
+        });
+    }
+
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         promises[i].get_future().wait();
     }
@@ -226,17 +230,13 @@ Result<std::vector<Receipt>> execute_block(
         }
     }
 
-    vanilla_ptr<std::optional<Address>> const senders{
-        new (std::nothrow) std::optional<Address>[block.transactions.size()]};
-    MONAD_ASSERT(senders != nullptr);
-    compute_senders(senders, block, priority_pool);
+    compute_senders(block, priority_pool);
 
 
     vanilla_ptr<std::optional<Result<Receipt>>> const results{
         new (std::nothrow) std::optional<Result<Receipt>>[block.transactions.size()]};
     MONAD_ASSERT(results != nullptr);
     execute_transactions<rev>(senders, block, results, priority_pool, chain, block_hash_buffer, block_state);
-    delete[] senders;
 
     return finalize_block<rev>(block, results, block_state);
 }
