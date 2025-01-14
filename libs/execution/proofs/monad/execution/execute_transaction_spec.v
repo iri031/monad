@@ -418,7 +418,7 @@ cpp.spec "main()::@0::operator()(int) const" as mainlam2_spec with
     slauto.
     rewrite <- wp_init_lambda.
     slauto.
-    iExists (reference_toR "callsum()::@0" ** o_field CU "callsum()::@0::x" |-> intR (cQp.mut 1) 42).
+    iExists (structR "callsum()::@0" 1 ** o_field CU "callsum()::@0::x" |-> intR (cQp.mut 1) 42).
     iExists (fun x=> x+42)%Z.
     go.
     unfold operatorSpec.
@@ -428,8 +428,6 @@ cpp.spec "main()::@0::operator()(int) const" as mainlam2_spec with
       go.
     - go.
       verify_spec'.
-      slauto.
-      rewrite _at_reference_toR.
       slauto.
    Qed.
   
