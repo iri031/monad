@@ -365,8 +365,6 @@ int main() {
     Ninst (Nglobal  (Nfunction function_qualifiers.N (Nf "sum") [Tref (Tnamed lamTy)])) [Atype (Tnamed lamTy)].
     
   
-  Definition opName :name :=
-    "callsum()::@0::operator()(int) const".
   Definition lamOperator (fullopName: name) :=
     match fullopName with
     | Nscoped _ op => op
@@ -374,19 +372,10 @@ int main() {
     end.
 
   Definition lamStructName :name :="callsum()::@0".
+
+  
+  Definition opName :name := "callsum()::@0::operator()(int) const".
   Definition lamOpInt := Eval vm_compute in (lamOperator opName).
-
-  Definition opName2 := Nscoped lamStructName lamOpInt.
-
-  Eval vm_compute in (bool_decide (opName=opName2)).
-
-cpp.spec "main()::@0::operator()(int) const" as mainlam2_spec with
-    (fun this:ptr =>
-       \pre{x} this ,, o_field CU "main()::@0::x" |-> intR (cQp.mut 1) x
-       \arg{y} "" (Vint y)
-       \post[Vint (x+y)]  emp
-    ).
-
   Definition operatorSpec (lamStructName: core.name) (R: Rep) (f: Z->Z):=
     specify {| info_name :=  (Nscoped lamStructName lamOpInt) ;
               info_type := tMethod lamStructName QC "int" ["int"%cpp_type] |}
@@ -395,23 +384,30 @@ cpp.spec "main()::@0::operator()(int) const" as mainlam2_spec with
            \arg{y} "y" (Vint y)
            \require (y<100)%Z (* to avoid overflow *)
            \post[Vint (f y)] emp).
-
   
   Definition sumSpec (lamStructName: core.name) : WpSpec mpredI val val :=
-    \arg{task:ptr} "task" (Vref task)
+    \arg{func:ptr} "func" (Vref func)
     \pre{R f} operatorSpec lamStructName R f
-    \pre task |-> R (* not \prepost? I guess the destruction of lambda is done here, not in the caller ?*)
+    \prepost func |-> R
     \post [Vint (f 0 + f 1)] emp.
 
   cpp.spec (sumname "callsum()::@0") as sum_spec2 with (sumSpec "callsum()::@0").
   
-  cpp.spec "callsum()" as csum_spec2 with (\post [Vint 85] emp).
+  cpp.spec "callsum()" as callsum_spec2 with (\post [Vint 85] emp).
 
-  Lemma destr a b P : P |--    wp_destroy_named module a b P.
-  Proof. Admitted.
-  
-  
-  Lemma main_proof: denoteModule module ** sum_spec2 |-- csum_spec2.
+  Search wp_destroy_named.
+  Lemma destr (lambda_addr:ptr) P :
+    (lambda_addr |-> structR "callsum()::@0" (cQp.mut 1))
+      **
+  (lambda_addr ,, o_field CU "callsum()::@0::x" |-> intR (cQp.mut 1) 42)
+  **
+    P |--    wp_destroy_named module "callsum()::@0" lambda_addr P.
+  Proof. go. Admitted.
+
+  Lemma forget (P:mpred):  P |-- emp.
+  Proof using. work. Qed.
+  Import linearity.
+  Lemma callsum_proof: denoteModule module ** sum_spec2 |-- callsum_spec2.
   Proof using MOD.
     verify_spec'.
     name_locals.
@@ -422,13 +418,13 @@ cpp.spec "main()::@0::operator()(int) const" as mainlam2_spec with
     iExists (fun x=> x+42)%Z.
     go.
     unfold operatorSpec.
-    iSplitR "".
-    - go.
-      rewrite <- destr.
-      go.
+    iSplitL "".
     - go.
       verify_spec'.
       slauto.
+    - go.
+      rewrite <- destr.
+      go.
    Qed.
       
   Set Printing All.
