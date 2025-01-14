@@ -260,7 +260,7 @@ template version:
 
 ~/work/coq/monad$cat ../lam.cpp
 template<typename Func>
-int sum(Func& f)
+int sum(const Func& f)
 {
   return f(0) + f(1);
 }
@@ -342,11 +342,11 @@ int main() {
 
 
   Definition sumStructuredName :name := Eval vm_compute in (List.nth 0 (map fst sumEntry) (Nunsupported "impossible")).
-  cpp.spec "sum<callsum()::@0>(callsum()::@0&)" as sum_spec with
+  cpp.spec "sum<callsum()::@0>(const callsum()::@0&)" as sum_spec with
       (\pre emp
          \arg{task} "task" (Vref task)
          \post [Vint 52] emp).
-  Definition sc :name := "sum<callsum()::@0>(callsum()::@0&)".
+  Definition sc :name := "sum<callsum()::@0>(const callsum()::@0&)".
 
   Definition instee (n:name) : name :=
     match n with
@@ -359,10 +359,11 @@ int main() {
     | _ => (BS.EmptyString,[],function_qualifiers.N, [])
     end.
 
+  Set Printing All.
   Compute (basee sc).
 
   Definition sumname (lamTy: core.name) : name :=
-    Ninst (Nglobal  (Nfunction function_qualifiers.N (Nf "sum") [Tref (Tnamed lamTy)])) [Atype (Tnamed lamTy)].
+    Ninst (Nglobal  (Nfunction function_qualifiers.N (Nf "sum") [Tref (Tqualified QC (Tnamed lamTy))])) [Atype (Tnamed lamTy)].
     
   
   Definition lamOperator (fullopName: name) :=

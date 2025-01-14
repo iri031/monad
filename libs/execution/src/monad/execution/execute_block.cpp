@@ -90,19 +90,20 @@ inline void set_beacon_root(BlockState &block_state, Block &block)
     }
 }
 
-void parallel_execute(
-    fiber::PriorityPool &priority_pool, uint64_t numTasks,
-    std::function<void(uint64_t)> task,
-    std::function<uint64_t(uint64_t)> priority_of_task)
-{
-    for (uint64_t i = 0; i < numTasks; ++i) {
-        priority_pool.submit(priority_of_task(i), [task, i]() { task(i); });
-    }
+template <typename TaskFunction>
+void fork_task(fiber::PriorityPool &priority_pool, uint64_t priority, const TaskFunction & task_function){
+    priority_pool.submit(priority, [task_function]() { task_function(); });
 }
 
-template <typename TaskFunction>
-void fork(PriorityPool &priority_pool, uint64_t priority, TaskFunction task_function){
-    priority_pool.submit(priority, [task]() { task(); });
+template <typename TaskFunction, typename PriorityFunction>
+void fork_tasks(
+    fiber::PriorityPool &priority_pool, uint64_t numTasks,
+    const TaskFunction & task,
+    const PriorityFunction & priority_of_task)
+{
+    for (uint64_t i = 0; i < numTasks; ++i) {
+        fork_task(priority_pool, priority_of_task(i), [task, i]() { task(i); });
+    }
 }
 
 #define MAX_TRANSACTIONS 800
@@ -119,10 +120,10 @@ using vanilla_ptr = T*;
 void compute_senders(vanilla_ptr<std::optional<Address>> const senders, Block const &block, fiber::PriorityPool &priority_pool){
     reset_promises(block.transactions.size());
 
-    parallel_execute(priority_pool, block.transactions.size(), [senders, &block](uint64_t i) {
+    fork_tasks(priority_pool, block.transactions.size(), [senders, &block](uint64_t i) {
         senders[i] = recover_sender(block.transactions[i]);
         promises[i].set_value();
-    }, [](uint64_t) { return 0; });
+    }, [](uint64_t i) { return i; });
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         promises[i].get_future().wait();
     }
