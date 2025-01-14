@@ -387,52 +387,51 @@ cpp.spec "main()::@0::operator()(int) const" as mainlam2_spec with
        \post[Vint (x+y)]  emp
     ).
 
-  Definition operatorSpec (lamStructName: core.name):=
+  Definition operatorSpec (lamStructName: core.name) (R: Rep) (f: Z->Z):=
     specify {| info_name :=  (Nscoped lamStructName lamOpInt) ;
               info_type := tMethod lamStructName QC "int" ["int"%cpp_type] |}
       (fun (this:ptr) =>
-           \pre emp 
-             \arg{y} "y" (Vint y)
-             \post[Vint y] emp).
+           \pre this |-> R
+           \arg{y} "y" (Vint y)
+           \require (y<100)%Z (* to avoid overflow *)
+           \post[Vint (f y)] emp).
 
   
   Definition sumSpec (lamStructName: core.name) : WpSpec mpredI val val :=
     \arg{task:ptr} "task" (Vref task)
     \pre task |-> structR lamStructName 1
-    \pre operatorSpec lamStructName
-    \post [Vint 53] (emp:mpred).
+    \pre{R f} operatorSpec lamStructName R f
+    \post [Vint (f 0 + f 1)] (emp:mpred).
 
   cpp.spec (sumname "callsum()::@0") as sum_spec2 with (sumSpec "callsum()::@0").
   
-  cpp.spec "callsum()" as csum_spec2 with (\post [Vint 52] emp).
+  cpp.spec "callsum()" as csum_spec2 with (\post [Vint 85] emp).
 
   Lemma destr a b P : P |--    wp_destroy_named module a b P.
   Proof. Admitted.
   
   
   Lemma main_proof: denoteModule module ** sum_spec2 |-- csum_spec2.
-  Proof using.
+  Proof using MOD.
     verify_spec'.
     name_locals.
     slauto.
     rewrite <- wp_init_lambda.
     slauto.
+    iExists (reference_toR "callsum()::@0" ** o_field CU "callsum()::@0::x" |-> intR (cQp.mut 1) 42).
+    iExists (fun x=> x+42)%Z.
+    go.
     unfold operatorSpec.
     iSplitR "".
     - go.
       rewrite <- destr.
       go.
-      (* the lambda was constructed and passed to the callee spec and the call to the operator returned with postcond of lambda
-  --------------------------------------□
-  _ : lambda_addr ,, o_field CU "callsum()::@0::x" |-> intR (cQp.mut 1) 42
-  _ : p |-> intR (cQp.mut 1) 53
-  --------------------------------------∗
-  p |-> intR (cQp.mut 1) 52
-       *)
-
-      - need to pove the specify in operatorSpec (\pre of sum_spec2)
-      
-Abort.    
+    - go.
+      verify_spec'.
+      slauto.
+      rewrite _at_reference_toR.
+      slauto.
+   Qed.
   
 
   
