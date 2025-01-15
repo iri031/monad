@@ -42,6 +42,7 @@ Notation StateOfAccounts := GlobalState.
 Axiom Transaction : Set.
 Module evm.
   Axiom log_entry: Set.
+  Axiom address: Set.
 End evm.
 Definition BlockHeader: Type. Admitted.
 Record TransactionResult :=
@@ -159,9 +160,9 @@ Section with_Sigma.
   Definition PriorityPoolR (q: Qp) (c: PriorityPool): Rep. Proof. Admitted.
 
   Definition VectorR {ElemType} (cppType: type) (elemRep: ElemType -> Rep) (q:Qp) (t:list ElemType): Rep. Proof. Admitted.
-  Definition TransactionR (t: Transaction) : Rep. Proof using. Admitted.
+  Definition TransactionR (q:Qp) (t: Transaction) : Rep. Proof using. Admitted.
   Definition BlockR (q: Qp) (c: Block): Rep :=
-    _field ``::monad::Block::transactions`` |-> VectorR (Tnamed ``::monad::Transaction``) TransactionR q (transactions c)
+    _field ``::monad::Block::transactions`` |-> VectorR (Tnamed ``::monad::Transaction``) (fun t => TransactionR q t) q (transactions c)
     ** structR ``::monad::Block`` q.
   Definition ResultR {T} (trep: T -> Rep) (t:T): Rep. Proof. Admitted.
   Definition ReceiptR (t: TransactionResult): Rep. Admitted.
@@ -442,29 +443,56 @@ Check exb.module.
     "std::vector<monad::Transaction, std::allocator<monad::Transaction>>::size() const"
     as tvector_spec with
       (fun (this:ptr) =>
-         \prepost{q ts} this |-> VectorR (Tnamed ``::monad::Transaction``) TransactionR q (ts)
+         \prepost{q ts} this |-> VectorR (Tnamed ``::monad::Transaction``) (fun t => TransactionR q (* can be a different q *) t)  q (ts)
          \post[Vn (lengthN ts)] (emp:mpred)
       ).
-Print lt.
-    Definition compute_senders_spec : WpSpec mpredI val val :=
-    \arg{chainp :ptr} "chain" (Vref chainp)
-    \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
-(*     \arg "rev" (valOfRev Shanghai) *)
+  Print lt.
+
+
+  Definition optionAddressR (q:Qp) (oaddr: option evm.address): Rep. Proof. Admitted.
+
+  Hypothesis sender: Transaction -> evm.address.
+cpp.spec 
+  "monad::reset_promises(unsigned long)" as reset_promises
+      with
+      (\arg{transactions: list Transaction} "n" (Vn (lengthN transactions))
+       \pre{prIds oldPromisedResource newPromisedResource}
+           _global "promises" |-> arrayR (Tnamed "boost::fiber::promise") (fun i => PromiseR 1 (prIds i) (oldPromisedResource i)) transactions
+       \post _global "promises" |-> arrayR (Tnamed "boost::fiber::promise") (fun i => PromiseR 1 (prIds i) (newPromisedResource i)) transactions).
+  
+cpp.spec
+  "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)"
+  as compute_senders
+  with (
     \arg{blockp: ptr} "block" (Vref blockp)
     \prepost{qb (block: Block)} blockp |-> BlockR qb block
-    \arg{block_statep: ptr} "block_state" (Vref block_statep)
-    \pre{(preBlockState: StateOfAccounts)}
-      block_statep |-> BlockState.R block preBlockState preBlockState
-    \post{retp}[Vptr retp]
-      let (actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (transactions block) in
-      retp |-> VectorR (Tnamed ``::monad::Receipt``) ReceiptR 1 receipts
-      ** block_statep |-> BlockState.R block preBlockState actual_final_state.
+    \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
+    \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool
+    \prepost{prIds} Exists garbage,
+        _global "promises" |->
+          arrayR
+            (Tnamed "boost::fiber::promise")
+            (fun i => PromiseR 1 (prIds i) (garbage i))
+            (transactions block)
+    \pre Exists garbage,
+        _global "senders" |->
+          arrayR
+            (Tnamed "std::optional<evmc::address>")
+            (fun t=> optionAddressR 1 garbage)
+            (transactions block)
+    \post _global "senders" |->
+          arrayR
+            (Tnamed "std::optional<evmc::address>")
+            (fun t=> optionAddressR 1 (Some (sender t)))
+            (transactions block)).
 
-
-cpp.spec
-  "monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)"
- as csenders_spec with (compute_senders_spec).
-    
+    (* \pre assumes that the input is a valid transaction encoding (sender computation will not fail) *)
+    cpp.spec "monad::recover_sender(const monad::Transaction&)"  as recover_sender with
+        (
+    \arg{trp: ptr} "tr" (Vref trp)
+    \prepost{qt (tr: Transaction)} trp |-> TransactionR qt tr
+    \post{retp} [Vptr retp] retp |-> optionAddressR 1 (Some (sender tr))).
+    (*
   cpp.spec
     "std::vector<monad::Transaction, std::allocator<monad::Transaction>>::size() const"
     as csector_spec with
@@ -472,11 +500,11 @@ cpp.spec
          \prepost{q ts} this |-> VectorR (Tnamed ``::monad::Transaction``) TransactionR q (ts)
          \post[Vn (lengthN ts)] (emp:mpred)
       ).
-
+*)
   Definition lamName :name :=
     "monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0".
 
-  Definition lamBody :option GlobDecl :=
+  Definition lamBody :option GlobDecl := Eval vm_compute in
     NM.map_lookup lamName (types module).
 
 (*  Definition forkEntry : list (name * ObjValue) := *)
@@ -543,102 +571,38 @@ cpp.spec
     \prepost task |-> objOwnership
     \pre taskPre
     \post emp.
-
-  cpp.spec (sumname "callsum()::@0") as sum_spec2 with (sumSpec "callsum()::@0").
   
-  
-               
-  Eval vm_compute in (findBodyOfFnNamed2 exb.module containsDep).
-  Definition sumEntry : list (name * ObjValue) := (findBodyOfFnNamed module "sum").
-    
-  Eval vm_compute in (map fst (NM.elements (symbols module))).
-    
-
-  (*
-     = Some
-         (Gstruct
-            {|
-              s_bases := [];
-              s_fields :=
-                [{| mem_name := Nid "i"; mem_type := "unsigned int"; mem_mutable := false; mem_init := None; mem_layout := {| li_offset := 0 |} |};
-                 {| mem_name := Nid "senders"; mem_type := "std::optional<evmc::address>*"; mem_mutable := false; mem_init := None; mem_layout := {| li_offset := 64 |} |};
-                 {| mem_name := Nid "promises"; mem_type := "boost::fibers::promise<void>*"; mem_mutable := false; mem_init := None; mem_layout := {| li_offset := 128 |} |};
-                 {| mem_name := Nid "transaction"; mem_type := "const monad::Transaction&"; mem_mutable := false; mem_init := None; mem_layout := {| li_offset := 192 |} |}];
-              s_virtuals := [];
-              s_overrides := [];
-              s_dtor :=
-                Nscoped "monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0" (Nfunction function_qualifiers.N Ndtor []);
-              s_trivially_destructible := true;
-              s_delete := None;
-              s_layout := Unspecified;
-              s_size := 32;
-              s_alignment := 8
-            |})
-     : option GlobDecl
-
-*)  
-
-(*  Eval vm_compute in (map fst (NM.elements (symbols module))). *)
-(*
-        "std::_Function_handler<void()(), monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0>::_S_nothrow_init<monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0>()"%cpp_name;
-
-        "std::function<void()()>::function<monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0, void>(monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0&&)"%cpp_name;
-        
- *)
-
-  
-
-  #[global] Instance learnVUnsafe e t (r:e->Rep): LearnEq2 (VectorR t r).
+  Lemma learnVUnsafe e t (r:e->Rep): LearnEq2 (VectorR t r).
+  Proof. solve_learnable. Qed.
+  Lemma learnVUnsafe2 e t: LearnEq3 (@VectorR e t).
   Proof. solve_learnable. Qed.
 
- (* dummy spec for now *)
-cpp.spec 
-  "monad::reset_promises(unsigned long)" as reset_prom_spec
-      with
-      (\arg{n} "n" (Vint n)
-       (* \with (ResourceToBeTransferred:mpred) *)
-         \post emp).
+  Existing Instance learnVUnsafe2.
+  Lemma learnArrUnsafe e t: LearnEq2 (@arrayR _ _ _ e _ t).
+  Proof. solve_learnable. Qed.
 
-  Import Verbose.
-Lemma prf: denoteModule module ** tvector_spec ** reset_prom_spec |-- csenders_spec.
+Lemma prf: denoteModule module ** tvector_spec ** reset_promises |-- compute_senders.
 Proof using.
   verify_spec'.
   name_locals.
   unfold BlockR.
   slauto.
-  Locate "::wpPRᵢ".
-
-  (*
-
-  ::wpPRᵢ
-    [region:
-      "priority_pool" @ priority_pool_addr; "block" @ block_addr; 
-      "senders" @ senders_addr; return {?: "void"%cpp_type}]
-    (Pointer ↦ p) 
-    (Econstructor
-       "std::function<void()(unsigned long)>::function<monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0, void>(monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0&&)"
-       [Ematerialize_temp
-          (Elambda
-             "monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)::@0"
-             [Ecast Cl2r (Evar "senders" "std::optional<evmc::address>* const");
-              Evar "block" "const monad::Block&"])
-          Xvalue]
-       "std::function<void()(unsigned long)>")
-    (λ frees : FreeTemps,
-       ∀ p0 : ptr,
-         ::wpPRᵢ
-           [region:
-             "priority_pool" @ priority_pool_addr; "block" @ block_addr;
-             "senders" @ senders_addr; return {?: "void"%cpp_type}]
-           (Pointer ↦ p0) 
-           (Ecast (Cctor "std::function<unsigned long()(unsigned long)>")
-              (Econstructor
-
-*)
-
-  
+  Existing Instance learnArrUnsafe.
   go.
+  iExists prIds. (* why does the array learning hint not work? *)
   go.
+  iExists _.
+  iExists (fun t => )
+  iExists (transactions block).
+  go.
+  go using learnArrUnsafe.
+  iExists _.
+  iExists _.
+  iExists _.
+  eagerUnifyU.
+  go.
+  slauto.
+  Search Learnable arrayR.
 
 @globa  
   iExists _.
@@ -748,10 +712,6 @@ Print defns.
   
 
   
-  Definition TransactionR (q: Qp) (t: Transaction): Rep. Proof. Admitted.
-
-  Definition optionAddressR (q:Qp) (oaddr: option evm.address): Rep. Proof. Admitted.
-
 
 
   Definition execute_spec : WpSpec mpredI val val :=
