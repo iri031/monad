@@ -708,7 +708,18 @@ cpp.spec (fork_task_nameg "monad::compute_senders(const monad::Block&, monad::fi
           iIntrosDestructs;
           iExists R
       end.
+    Definition VectorElemLocR (cppType: type) (q:Qp) (index:N) (loc: ptr): Rep. Proof. Admitted.
+    
 
+    (* todo: generalize over the template arg *)
+cpp.spec 
+  "std::vector<monad::Transaction, std::allocator<monad::Transaction>>::operator[](unsigned long) const" as vector_at_op with
+        (fun (this:ptr) =>
+           \arg{index} "index" (Vn index)
+           \prepost{qb loc}
+             this |-> VectorElemLocR "monad::Transaction" qb index loc
+           \post [Vref loc] emp).
+    
 Lemma prf: denoteModule module ** tvector_spec ** reset_promises ** fork_task |-- compute_senders.
 Proof using.
   verify_spec'.
@@ -725,7 +736,9 @@ Proof using.
   go.
   repeat rewrite _at_big_sepL.
   repeat rewrite big_opL_map.
-  wp_for (fun _ => emp).
+  wp_for (fun _ =>  blockp ,, o_field CU "monad::Block::transactions"
+      |-> VectorR "monad::Transaction" (TransactionR qb) qb
+            (transactions block)).
   slauto.
   wp_if.
   { (* loop condition is true and thus the body runs. so we need to reistablish the loopinv *)
@@ -733,8 +746,12 @@ Proof using.
     rewrite <- wp_init_lambda.
     slauto.
     aggregateRepPieces a.
-    iExists ()
-                   
+    iExists emp.
+    go.
+    iSplitL "".
+    -  unfold taskOpSpec.
+       verify_spec'.
+       slauto.
       
 
    Search (?A-* ?B -* _).
