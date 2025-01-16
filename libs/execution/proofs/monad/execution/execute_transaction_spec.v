@@ -134,24 +134,26 @@ Section with_Sigma.
   Context `{Sigma:cpp_logic} {CU: genv} {hh: HasOwn mpredI fracR}. (* some standard assumptions about the c++ logic *)
 
     (* set_value() passes the resource/assertion P to the one calling get_future->wait()*)
-  Definition PromiseR (q:Qp) (g: gname) (P: mpred) : Rep. Proof. Admitted.
+  Definition PromiseR (g: gname) (P: mpred) : Rep. Proof. Admitted.
+  Definition PromiseProducerR (g: gname) (P: mpred) : Rep. Proof. Admitted.
+  Definition PromiseConsumerR (g: gname) (P: mpred) : Rep. Proof. Admitted.
 
-  Lemma sharePromise q1 q2 g P:  PromiseR (q1+q2) g P |-- PromiseR q1 g P **  PromiseR q2 g P.
+  Lemma sharePromise g P:  PromiseR g P -|- PromiseProducerR g P **  PromiseConsumerR g P.
   Proof. Admitted.
     
   
   Definition promise_constructor_spec (this:ptr) :WpSpec mpredI val val :=
     \pre{P:mpred} emp
-    \post Exists g:gname, this |->  PromiseR 1 g P.
+    \post Exists g:gname, this |->  PromiseR g P.
   
   Definition promise_setvalue_spec (this:ptr) :WpSpec mpredI val val :=
-    \prepost{(P:mpred) (q:Qp) (g:gname)} this |-> PromiseR q g P
+    \pre{(P:mpred) (q:Qp) (g:gname)} this |-> PromiseProducerR g P
     \pre P
     \post emp.
 
   Definition promise_getfuture_wait_spec (this:ptr) :WpSpec mpredI val val :=
-    \prepost{(P:mpred) (q:Qp) (g:gname)} this |-> PromiseR q g P
-    \post P.
+    \prepost{(P:mpred) (q:Qp) (g:gname)} this |-> PromiseConsumerR g P
+    \post P ** this |-> PromiseProducerR g P.
   
   (* defines how [c] is represented in memory as an object of class Chain. this predicate asserts [q] ownership of the object, assuming it can be shared across multiple threads  *)
   Definition ChainR (q: Qp) (c: Chain): Rep. Proof. Admitted.
@@ -464,8 +466,8 @@ cpp.spec
       with
       (\arg{transactions: list Transaction} "n" (Vn (lengthN transactions))
        \pre{prIds oldPromisedResource newPromisedResource}
-           _global "promises" |-> parrayR (Tnamed "boost::fiber::promise") (fun i t => PromiseR 1 (prIds i) (oldPromisedResource i t)) transactions
-       \post _global "promises" |-> parrayR (Tnamed "boost::fiber::promise") (fun i t => PromiseR 1 (prIds i) (newPromisedResource i t)) transactions).
+           _global "promises" |-> parrayR (Tnamed "boost::fiber::promise") (fun i t => PromiseR (prIds i) (oldPromisedResource i t)) transactions
+       \post _global "promises" |-> parrayR (Tnamed "boost::fiber::promise") (fun i t => PromiseR (prIds i) (newPromisedResource i t)) transactions).
   
 cpp.spec
   "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)"
@@ -479,13 +481,13 @@ cpp.spec
         _global "promises" |->
           parrayR
             (Tnamed "boost::fiber::promise")
-            (fun i t => PromiseR 1 (prIds i) (garbage i t))
+            (fun i t => PromiseR (prIds i) (garbage i t))
             (transactions block)
     \pre Exists garbage,
         _global "senders" |->
           arrayR
             (Tnamed "std::optional<evmc::address>")
-            (fun t=> optionAddressR 1 garbage)
+            (fun t=> optionAddressR 1 (garbage t))
             (transactions block)
     \post _global "senders" |->
           arrayR
@@ -573,6 +575,9 @@ cpp.spec
          \post emp).
   
   Definition forkTaskSpec (lamStructName: core.name) : WpSpec mpredI val val :=
+    \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
+    \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool
+    \arg{priority} "i" (Vint priority)  
     \arg{task:ptr} "func" (Vref task)
     \pre{objOwnership taskPre} taskOpSpec lamStructName objOwnership taskPre
     \prepost task |-> objOwnership
@@ -593,7 +598,98 @@ cpp.spec
   Existing Instance learnArrUnsafe.
   Existing Instance learnpArrUnsafe.
   Hint Opaque parrayR: br_opacity.
-Lemma prf: denoteModule module ** tvector_spec ** reset_promises |-- compute_senders.
+  Lemma promiseArrDecompose (p:ptr) prIds ltr promiseRes:
+    p |-> parrayR "boost::fiber::promise"
+            (λ (i : nat) (t : Transaction),
+               PromiseR (prIds i) (promiseRes i t))
+            ltr
+   -|- (valid_ptr (p .[ "boost::fiber::promise" ! length ltr ])) **
+      [| is_Some (glob_def CU "boost::fiber::promise" ≫= GlobDecl_size_of) |]         **
+      ([∗ list] k↦_ ∈ ltr, □ (type_ptr "boost::fiber::promise" (p .[ "boost::fiber::promise" ! k ]))) ∗
+      ([∗ list] k↦t ∈ ltr, p .[ "boost::fiber::promise" ! k ] |-> PromiseProducerR (prIds k) (promiseRes k t)) ∗
+      ([∗ list] k↦t ∈ ltr, p .[ "boost::fiber::promise" ! k ] |-> PromiseConsumerR (prIds k) (promiseRes k t)).
+  Proof using.
+    Transparent parrayR. unfold parrayR.
+    iSplit.
+    - 
+      go.
+       setoid_rewrite sharePromise.
+       go.
+       repeat rewrite _at_big_sepL.
+       erewrite big_sepL_mono.
+       2:{
+         intros.
+         go.
+       }
+       simpl. 
+       repeat setoid_rewrite big_sepL_sep.
+       go.
+       setoid_rewrite right_id.
+       go.
+       go.
+       go.
+       iFrame.
+       rewrite bi.and_elim_l.
+       go.
+    - go.
+       setoid_rewrite sharePromise.
+       go.
+       repeat rewrite _at_big_sepL.
+       hideLhs.
+       erewrite big_sepL_proper .
+       2:{
+         intros.
+         iSplitL.
+         go.
+         simpl.
+         go.
+       }
+       simpl.
+       unhideAllFromWork.
+       repeat setoid_rewrite big_sepL_sep.
+       go.
+       rewrite big_sepL_emp. go.
+       setoid_rewrite right_id. go. go.
+  Qed.
+Lemma cancelLstar {PROP:bi} {T} l (va vb : T -> PROP):
+  (forall id, id ∈ l -> va id |-- vb id) ->
+  ([∗ list] id ∈ l, va id) |-- ([∗ list] id ∈ l,vb id).
+Proof using.
+  intros He.
+  apply big_sepL_mono.
+  intros.
+  apply He.
+  eapply elem_of_list_lookup_2; eauto.
+Qed.
+
+  Lemma promiseArrDecompose2 (p:ptr) prIds ltr promiseRes:
+    p |-> parrayR "boost::fiber::promise"
+            (λ (i : nat) (t : Transaction),
+               PromiseR (prIds i) (promiseRes i t))
+            ltr
+   -|- (valid_ptr (p .[ "boost::fiber::promise" ! length ltr ])) **
+      [| is_Some (glob_def CU "boost::fiber::promise" ≫= GlobDecl_size_of) |]         **
+      (□ ([∗ list] k↦_ ∈ ltr,  (type_ptr "boost::fiber::promise" (p .[ "boost::fiber::promise" ! k ])))) ∗
+      ([∗ list] k↦t ∈ ltr, p .[ "boost::fiber::promise" ! k ] |-> PromiseProducerR (prIds k) (promiseRes k t)) ∗
+      ([∗ list] k↦t ∈ ltr, p .[ "boost::fiber::promise" ! k ] |-> PromiseConsumerR (prIds k) (promiseRes k t)).
+  Proof using.
+    rewrite promiseArrDecompose.
+    iSplit.
+    - go.
+      icancel @big_sepL_mono; go.
+    -  go.
+       hideLhs.
+       rewrite big_sepL_proper; try go.
+       2:{ intros. iSplit. 2:{go.  evartacs.maximallyInstantiateLhsEvar.}  go. }
+       simpl.
+       unhideAllFromWork.
+       go.
+     Qed.
+  Opaque parrayR.
+
+cpp.spec (fork_task_nameg "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0") as fork_task with (forkTaskSpec "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0").
+      
+Lemma prf: denoteModule module ** tvector_spec ** reset_promises ** fork_task |-- compute_senders.
 Proof using.
   verify_spec'.
   name_locals.
@@ -605,14 +701,20 @@ Proof using.
   iExists  (fun i t => _global "senders"  |-> .[ "std::optional<evmc::address>" ! i ] |-> optionAddressR 1 (Some (sender t)) ).
   eagerUnifyU. go.
   rewrite arrayR_eq. unfold arrayR_def. rewrite arrR_eq. unfold arrR_def. go.
-  Transparent parrayR.
-  unfold parrayR. go.
-  Search big_opL _at.
+  rewrite (promiseArrDecompose2 (_global "promises") prIds (transactions block)).
+  go.
   repeat rewrite _at_big_sepL.
+  repeat rewrite big_opL_map.
+  wp_for (fun _ => emp).
   slauto.
-  rewrite
-  Search arrayR.
-  wp_for (fun _ => ).
+  wp_if.
+  { (* loop condition is true and thus the body runs. so we need to reistablish the loopinv *)
+    slauto.
+    rewrite <- wp_init_lambda.
+    slauto.
+
+    cpp.spec (fork_task_nameg "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0") as sum_spec2 with (forkTaskSpec "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0").
+    
   iExists (transactions block).
   go.
   go using learnArrUnsafe.
