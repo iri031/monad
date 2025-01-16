@@ -451,14 +451,21 @@ Check exb.module.
 
   Definition optionAddressR (q:Qp) (oaddr: option evm.address): Rep. Proof. Admitted.
 
+Definition parrayR  {T:Type} ty (Rs : nat -> T -> Rep) (l: list T) : Rep :=
+  .[ ty ! length l ] |-> validR ** [| is_Some (size_of _ ty) |] **
+  (* ^ both of these are only relevant for empty arrays, otherwise, they are implied by the
+     following conjunct *)
+  [∗ list] i ↦ li ∈ l, .[ ty ! Z.of_nat i ] |-> (type_ptrR ty ** Rs i li).
+
+  Opaque parrayR.
   Hypothesis sender: Transaction -> evm.address.
 cpp.spec 
   "monad::reset_promises(unsigned long)" as reset_promises
       with
       (\arg{transactions: list Transaction} "n" (Vn (lengthN transactions))
        \pre{prIds oldPromisedResource newPromisedResource}
-           _global "promises" |-> arrayR (Tnamed "boost::fiber::promise") (fun i => PromiseR 1 (prIds i) (oldPromisedResource i)) transactions
-       \post _global "promises" |-> arrayR (Tnamed "boost::fiber::promise") (fun i => PromiseR 1 (prIds i) (newPromisedResource i)) transactions).
+           _global "promises" |-> parrayR (Tnamed "boost::fiber::promise") (fun i t => PromiseR 1 (prIds i) (oldPromisedResource i t)) transactions
+       \post _global "promises" |-> parrayR (Tnamed "boost::fiber::promise") (fun i t => PromiseR 1 (prIds i) (newPromisedResource i t)) transactions).
   
 cpp.spec
   "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)"
@@ -470,9 +477,9 @@ cpp.spec
     \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool
     \prepost{prIds} Exists garbage,
         _global "promises" |->
-          arrayR
+          parrayR
             (Tnamed "boost::fiber::promise")
-            (fun i => PromiseR 1 (prIds i) (garbage i))
+            (fun i t => PromiseR 1 (prIds i) (garbage i t))
             (transactions block)
     \pre Exists garbage,
         _global "senders" |->
@@ -580,19 +587,32 @@ cpp.spec
   Existing Instance learnVUnsafe2.
   Lemma learnArrUnsafe e t: LearnEq2 (@arrayR _ _ _ e _ t).
   Proof. solve_learnable. Qed.
+  Lemma learnpArrUnsafe e t: LearnEq2 (@parrayR e t).
+  Proof. solve_learnable. Qed.
 
+  Existing Instance learnArrUnsafe.
+  Existing Instance learnpArrUnsafe.
+  Hint Opaque parrayR: br_opacity.
 Lemma prf: denoteModule module ** tvector_spec ** reset_promises |-- compute_senders.
 Proof using.
   verify_spec'.
   name_locals.
   unfold BlockR.
   slauto.
-  Existing Instance learnArrUnsafe.
-  go.
   iExists prIds. (* why does the array learning hint not work? *)
   go.
   iExists _.
-  iExists (fun t => )
+  iExists  (fun i t => _global "senders"  |-> .[ "std::optional<evmc::address>" ! i ] |-> optionAddressR 1 (Some (sender t)) ).
+  eagerUnifyU. go.
+  rewrite arrayR_eq. unfold arrayR_def. rewrite arrR_eq. unfold arrR_def. go.
+  Transparent parrayR.
+  unfold parrayR. go.
+  Search big_opL _at.
+  repeat rewrite _at_big_sepL.
+  slauto.
+  rewrite
+  Search arrayR.
+  wp_for (fun _ => ).
   iExists (transactions block).
   go.
   go using learnArrUnsafe.
