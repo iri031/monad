@@ -688,7 +688,27 @@ Qed.
   Opaque parrayR.
 
 cpp.spec (fork_task_nameg "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0") as fork_task with (forkTaskSpec "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0").
-      
+
+#[global] Instance learnPpool : LearnEq2 PriorityPoolR := ltac:(solve_learnable).
+    Require Import bedrock.auto.invariants.
+
+    (* TODO: move out of section *)
+    Ltac aggregateRepPieces base :=
+      repeat rewrite <- _at_offsetR;
+      repeat (IPM.perm_left ltac:(fun L n =>
+                            lazymatch L with
+                            | base |-> _ => iRevert n
+                            end
+        ));
+      repeat rewrite bi.wand_curry;
+      repeat rewrite <- _at_offsetR;
+      repeat rewrite <- _at_sep;
+      match goal with
+        [ |-environments.envs_entails _ (base |-> ?R -* _)] =>
+          iIntrosDestructs;
+          iExists R
+      end.
+
 Lemma prf: denoteModule module ** tvector_spec ** reset_promises ** fork_task |-- compute_senders.
 Proof using.
   verify_spec'.
@@ -712,9 +732,29 @@ Proof using.
     slauto.
     rewrite <- wp_init_lambda.
     slauto.
+    aggregateRepPieces a.
+    iExists ()
+                   
+      
 
-    cpp.spec (fork_task_nameg "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0") as sum_spec2 with (forkTaskSpec "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0").
-    
+   Search (?A-* ?B -* _).
+    invariants.closeCinvqs.
+    AUACTactics.
+     callAtomicCommit.
+    Definition combine_reps_fwd := [FWD<-] _at_sep.
+    work using combine_reps_fwd.
+    Check _at_sep.
+    Locate _at_sep.
+    Ltac aggregateRepPieces base :=
+      tryif (IPM.perm_left ltac:(fun n L =>
+                            lazymatch L with
+                            | base |-> ?R =>
+                                iRevert n;
+                                let rec := aggregateRepPieces base in
+                                constr:(R**rec)
+                         )) then 
+    Search (_ ,,_) (_ |-> _) ptr.
+                   
   iExists (transactions block).
   go.
   go using learnArrUnsafe.
