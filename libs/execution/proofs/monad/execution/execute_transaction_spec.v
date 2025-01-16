@@ -161,11 +161,24 @@ Section with_Sigma.
   (* defines how [c] is represented in memory as an object of class Chain *)
   Definition PriorityPoolR (q: Qp) (c: PriorityPool): Rep. Proof. Admitted.
 
-  Definition VectorR {ElemType} (cppType: type) (elemRep: ElemType -> Rep) (q:Qp) (t:list ElemType): Rep. Proof. Admitted.
+  Definition VectorRbase (cppType: type) (q:Qp) (base: ptr) (size: N): Rep.
+  Proof using.
+    (*Exists cap, 
+       _field "base" |-> ptrR q base
+       ** _field "size" |-> intR q size
+       ** _field "capacity" |-> intR q cap *)
+  Admitted.
+  
+ Definition VectorR {ElemType} (cppType: type) (elemRep: ElemType -> Rep) (q:Qp) (lt:list ElemType): Rep :=
+   Exists (base: ptr), VectorRbase cppType q base (lengthN lt)
+       ** pureR (base |-> arrayR cppType elemRep lt).
+ 
   Definition TransactionR (q:Qp) (t: Transaction) : Rep. Proof using. Admitted.
+ 
   Definition BlockR (q: Qp) (c: Block): Rep :=
     _field ``::monad::Block::transactions`` |-> VectorR (Tnamed ``::monad::Transaction``) (fun t => TransactionR q t) q (transactions c)
-    ** structR ``::monad::Block`` q.
+      ** structR ``::monad::Block`` q.
+  
   Definition ResultR {T} (trep: T -> Rep) (t:T): Rep. Proof. Admitted.
   Definition ReceiptR (t: TransactionResult): Rep. Admitted.
   
@@ -594,7 +607,7 @@ cpp.spec
   Proof. solve_learnable. Qed.
   Lemma learnpArrUnsafe e t: LearnEq2 (@parrayR e t).
   Proof. solve_learnable. Qed.
-
+  
   Existing Instance learnArrUnsafe.
   Existing Instance learnpArrUnsafe.
   Hint Opaque parrayR: br_opacity.
@@ -708,19 +721,29 @@ cpp.spec (fork_task_nameg "monad::compute_senders(const monad::Block&, monad::fi
           iIntrosDestructs;
           iExists R
       end.
-    Definition VectorElemLocR (cppType: type) (q:Qp) (index:N) (loc: ptr): Rep. Proof. Admitted.
-    
+
+
+  Definition vector_opg (cppType: type) (this:ptr): WpSpec mpredI val val :=
+    \arg{index} "index" (Vn index)
+    \prepost{qb base size} this |-> VectorRbase cppType qb base size
+    \require (index<size)%Z
+    \post [Vref (base ,, .[cppType!index])] emp.
+
 
     (* todo: generalize over the template arg *)
 cpp.spec 
-  "std::vector<monad::Transaction, std::allocator<monad::Transaction>>::operator[](unsigned long) const" as vector_at_op with
-        (fun (this:ptr) =>
-           \arg{index} "index" (Vn index)
-           \prepost{qb loc}
-             this |-> VectorElemLocR "monad::Transaction" qb index loc
-           \post [Vref loc] emp).
-    
-Lemma prf: denoteModule module ** tvector_spec ** reset_promises ** fork_task |-- compute_senders.
+  "std::vector<monad::Transaction, std::allocator<monad::Transaction>>::operator[](unsigned long) const" as vector_op_monad with (vector_opg "monad::Transaction").
+
+Opaque VectorR.
+       #[global] Instance learnVectorRbase: LearnEq4 VectorRbase:= ltac:(solve_learnable).
+
+Lemma prf: denoteModule module
+             ** tvector_spec
+             ** reset_promises
+             ** fork_task
+             ** vector_op_monad
+             ** recover_sender
+             |-- compute_senders.
 Proof using.
   verify_spec'.
   name_locals.
@@ -736,9 +759,7 @@ Proof using.
   go.
   repeat rewrite _at_big_sepL.
   repeat rewrite big_opL_map.
-  wp_for (fun _ =>  blockp ,, o_field CU "monad::Block::transactions"
-      |-> VectorR "monad::Transaction" (TransactionR qb) qb
-            (transactions block)).
+  wp_for (fun _ => emp).
   slauto.
   wp_if.
   { (* loop condition is true and thus the body runs. so we need to reistablish the loopinv *)
@@ -746,12 +767,37 @@ Proof using.
     rewrite <- wp_init_lambda.
     slauto.
     aggregateRepPieces a.
-    iExists emp.
+    iExists (blockp ,, o_field CU "monad::Block::transactions"
+      |-> VectorR "monad::Transaction" (TransactionR qb) qb
+            (transactions block)).
     go.
     iSplitL "".
     -  unfold taskOpSpec.
        verify_spec'.
        slauto.
+       Transparent VectorR.
+       unfold VectorR.
+       go.
+       Search arrayR cons.
+       assert (exists ht tl, transactions block = ht::tl) as Hx by admit.
+       destruct Hx as [ht Heq].
+       destruct Heq as [tl Heq].
+       rewrite Heq.
+       autorewrite with syntactic.
+       rewrite arrayR_cons. go.
+       repeat rewrite offset_ptr_sub_0.
+       go.
+       #[global] Instance learnTrRbase: LearnEq2 TransactionR:= ltac:(solve_learnable).
+       slauto.
+       repeat rewrite offset_ptr_sub_0.
+       go.
+       
+       2:{ hnf. eexists. vm_compute.
+       
+       Search (_ .[_ ! 0]).
+       
+       Set Nested Proofs Allowed.
+       go.
       
 
    Search (?A-* ?B -* _).
