@@ -12,6 +12,7 @@
 #include <boost/algorithm/hex.hpp>
 #include <set>
 #include <intx/intx.hpp>
+#include <monad/core/block.hpp>
 namespace mp = boost::multiprecision;
 using Word256 = mp::uint256_t;
 
@@ -389,6 +390,45 @@ inline void deserializeConstant(std::ifstream &file, Word256 &constant)
     std::array<uint64_t, 4> bits;
     file.read(reinterpret_cast<char *>(bits.data()), sizeof(bits));
     from_uint64_array(constant, bits.data());
+}
+
+inline intx::uint256 ofBoost(const Word256& word) {
+    uint64_t words[4];
+    to_uint64_array(word, words);
+
+    // Construct intx::uint256 from the uint64_t array
+    intx::uint256 result{words[0], words[1], words[2], words[3]};
+
+    // For debugging: log the Word256 and the intx::uint256 values
+    ////LOG_INFO("Converting Word256 to intx::uint256");
+    // //LOG_INFO("Word256:       0x{}", word.str(0, std::ios_base::hex));
+    ////LOG_INFO("intx::uint256: 0x{}", intx::to_string(result, 16));
+
+    return result;
+}
+
+inline Word256 ofIntx(const intx::uint256& word) {
+    // Extract 64-bit words from intx::uint256
+    uint64_t words[4];
+    words[0] = word[0];  // Least significant word
+    words[1] = word[1];
+    words[2] = word[2];
+    words[3] = word[3];  // Most significant word
+
+    // Construct Word256 (boost::multiprecision::uint256_t) from the uint64_t array
+    Word256 result;
+    from_uint64_array(result, words);
+
+    return result;
+}
+
+// Helper to convert an evmc::address into a Word256:
+inline Word256 ofAddress(const evmc::address& addr)
+{
+    // Load the 160-bit addr bytes into a full 256-bit intx::uint256
+    intx::uint256 val = intx::be::load<intx::uint256>(addr.bytes);
+    // Convert intx::uint256 back to Word256
+    return ofIntx(val);
 }
 
 // ExpressionPool class definition
@@ -893,6 +933,229 @@ public:
         }
         file.close();
     }
+
+    std::optional<Word256> interpretExpression(
+        uint32_t index, monad::BlockHeader const &block_header,
+        monad::Transaction const &transaction,
+        evmc::address const &sender, // not accurate for non-root calls
+        bool root_call // true iff this contract was directly called by the
+                       // transaction. false for the callees of the root call
+                       // and so on. for non-root calls, we do NOT have CALLDATA
+                       // or CALLVALUE or .. as that would need a more complex
+                       // static analysis
+    ) const
+    {
+        ExpressionNode const &node = getNode(index);
+
+        switch (node.type) {
+        case ExpressionNode::Type::Const: {
+            // Example: interpret the stored Word256 as an address
+            // and return it as a 256-bit.
+            return getConst(index);
+        }
+        case ExpressionNode::Type::CallData: {
+            // return the size of the call data
+            if (!root_call) {
+                // For non-root calls, we do not have direct access to
+                // transaction input
+                return std::nullopt;
+            }
+
+            // Interpret the node's exprIndex as the offset within transaction
+            // input
+            auto offsetOpt = interpretExpression(
+                node.exprIndex, block_header, transaction, sender, root_call);
+            if (!offsetOpt.has_value()) {
+                return std::nullopt;
+            }
+
+            // Convert offset to a standard 64-bit size
+            // If it's larger than we can handle, treat it as out-of-bounds =>
+            // zero result
+            Word256 offsetVal = offsetOpt.value();
+            Word256 const max64{
+                std::numeric_limits<uint64_t>::max()};
+            if (offsetVal > max64) {
+                // Entirely out of range, so we return zero
+                return std::nullopt;
+            }
+
+            uint64_t offset64 = static_cast<uint64_t>(offsetVal);
+
+            // Prepare a 32-byte buffer to hold the data slice
+            uint8_t buffer[32];
+            std::memset(buffer, 0, 32);
+
+            // Copy what we can from transaction.input, zero-pad the rest
+            if (offset64 < transaction.data.size()) {
+                size_t bytesToCopy =
+                    std::min<size_t>(32, transaction.data.size() - offset64);
+                std::memcpy(buffer, &transaction.data[offset64], bytesToCopy);
+            }
+
+            // Convert the 32-byte buffer to intx::uint256
+            intx::uint256 dataVal = intx::be::load<intx::uint256>(buffer);
+
+            // Convert intx::uint256 back to Word256
+            return ofIntx(dataVal);
+        }
+        case ExpressionNode::Type::SmallConst: {
+            // Interpret small constants as an address, then to Word256.
+            return getConst(index);
+        }
+        case ExpressionNode::Type::Coinbase: {
+            // block_header.beneficiary is an Address (20 bytes).
+            // Convert it to Word256.
+            return ofAddress(block_header.beneficiary);
+        }
+        case ExpressionNode::Type::Callvalue: {
+            // transaction.value is an intx::uint256.
+            // Convert it to Word256.
+            return ofIntx(transaction.value);
+        }
+        case ExpressionNode::Type::Caller: {
+            // If you can recover caller address, convert to Word256. If not,
+            // return zero.
+            if (root_call) {
+                return ofAddress(sender);
+            }
+            return std::nullopt; // fallback
+        }
+        case ExpressionNode::Type::Origin: {
+            // Often same as "from" in a single-transaction scenario.
+            if (root_call) {
+                return ofAddress(sender);
+            }
+            return std::nullopt; // fallback
+        }
+        case ExpressionNode::Type::Create: {
+            // Incomplete placeholder. Return zero or some specialized logic.
+            return std::nullopt;
+        }
+        case ExpressionNode::Type::Sload: {
+            // Placeholder for reading from storage. Return 0.
+            return std::nullopt;
+        }
+        case ExpressionNode::Type::Mload: {
+            // Placeholder for reading from memory. Return 0.
+            return std::nullopt;
+        }
+        case ExpressionNode::Type::Any: {
+            // A wildcard or unknown expression. Return 0 or handle specially.
+            return std::nullopt;
+        }
+
+        // ----------------
+        // Binary operations:
+        // ----------------
+        case ExpressionNode::Type::Add:
+        case ExpressionNode::Type::Sub:
+        case ExpressionNode::Type::Mul:
+        case ExpressionNode::Type::Div:
+        case ExpressionNode::Type::Mod:
+        case ExpressionNode::Type::And:
+        case ExpressionNode::Type::Or:
+        case ExpressionNode::Type::Xor:
+        case ExpressionNode::Type::Exp:
+        case ExpressionNode::Type::Shl:
+        case ExpressionNode::Type::Shr: {
+            // Recursively evaluate children as intx::uint256,
+            // then combine and convert the result to Word256 at the end.
+            auto lhsOpt = interpretExpression(
+                node.binaryOp.leftIndex, block_header, transaction, sender, root_call);
+            if (!lhsOpt.has_value()) {
+                return std::nullopt;
+            }
+            auto lhs = lhsOpt.value();
+            auto rhsOpt = interpretExpression(
+                node.binaryOp.rightIndex, block_header, transaction, sender, root_call);
+            if (!rhsOpt.has_value()) {
+                return std::nullopt;
+            }
+            auto rhs = rhsOpt.value();
+
+            Word256 result = 0;
+            switch (node.type) {
+            case ExpressionNode::Type::Add:
+                result = lhs + rhs;
+                break;
+            case ExpressionNode::Type::Sub:
+                result = lhs - rhs;
+                break;
+            case ExpressionNode::Type::Mul:
+                result = lhs * rhs;
+                break;
+            case ExpressionNode::Type::Div:
+                result = (rhs == 0) ? 0 : lhs / rhs;
+                break;
+            case ExpressionNode::Type::Mod:
+                result = (rhs == 0) ? 0 : lhs % rhs;
+                break;
+            case ExpressionNode::Type::And:
+                result = lhs & rhs;
+                break;
+            case ExpressionNode::Type::Or:
+                result = lhs | rhs;
+                break;
+            case ExpressionNode::Type::Xor:
+                result = lhs ^ rhs;
+                break;
+            case ExpressionNode::Type::Exp:
+                result = boost::multiprecision::pow(lhs, rhs.convert_to<unsigned>());
+                break;
+            case ExpressionNode::Type::Shl:
+                result = lhs << rhs.convert_to<unsigned>();
+                break;
+            case ExpressionNode::Type::Shr:
+                result = lhs >> rhs.convert_to<unsigned>();
+                break;
+            default:
+                result = 0;
+                break;
+            }
+            return result;
+        }
+
+        // ----------------
+        // Unary operations:
+        // ----------------
+        case ExpressionNode::Type::Not: {
+            // Evaluate child as intx::uint256, then invert bits.
+            auto valOpt = interpretExpression(node.exprIndex, block_header, transaction, sender, root_call);
+            if (!valOpt.has_value()) {
+                return std::nullopt;
+            }
+            auto val = valOpt.value();
+            return ~val;
+        }
+
+        // ----------------
+        // Other zero-data ops:
+        // ----------------
+        case ExpressionNode::Type::CallDataSize: {
+            // Return transaction.data.size() as Word256.
+            return Word256(transaction.data.size());
+        }
+        case ExpressionNode::Type::ReturndataSize: {
+            // Placeholder: return 0
+            return std::nullopt;
+        }
+        case ExpressionNode::Type::Address: {
+            if (transaction.to.has_value()) {
+                return ofAddress(transaction.to.value());
+            }
+            return std::nullopt;
+        }
+        case ExpressionNode::Type::Selfbalance: {
+            // Placeholder for self-balance retrieval. Return 0.
+            return std::nullopt;
+        }
+        default:
+            // If we missed something, handle error or return 0
+            assert(false);
+            return std::nullopt;
+        }
+    }
 };
 
 // Implement expressionCompare
@@ -1197,20 +1460,7 @@ inline void unserializePredictions(Predictions &predictions, const std::string &
     }
 }
 
-inline intx::uint256 ofBoost(const Word256& word) {
-    uint64_t words[4];
-    to_uint64_array(word, words);
 
-    // Construct intx::uint256 from the uint64_t array
-    intx::uint256 result{words[0], words[1], words[2], words[3]};
-
-    // For debugging: log the Word256 and the intx::uint256 values
-    ////LOG_INFO("Converting Word256 to intx::uint256");
-    // //LOG_INFO("Word256:       0x{}", word.str(0, std::ios_base::hex));
-    ////LOG_INFO("intx::uint256: 0x{}", intx::to_string(result, 16));
-
-    return result;
-}
 
 inline evmc::address get_address(const Word256& word) {
     auto truncated = intx::be::trunc<evmc::address>(ofBoost(word));
