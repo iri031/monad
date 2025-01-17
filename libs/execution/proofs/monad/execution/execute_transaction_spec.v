@@ -141,20 +141,7 @@ Section with_Sigma.
   Lemma sharePromise g P:  PromiseR g P -|- PromiseProducerR g P **  PromiseConsumerR g P.
   Proof. Admitted.
     
-  
-  Definition promise_constructor_spec (this:ptr) :WpSpec mpredI val val :=
-    \pre{P:mpred} emp
-    \post Exists g:gname, this |->  PromiseR g P.
-  
-  Definition promise_setvalue_spec (this:ptr) :WpSpec mpredI val val :=
-    \pre{(P:mpred) (q:Qp) (g:gname)} this |-> PromiseProducerR g P
-    \pre P
-    \post emp.
-
-  Definition promise_getfuture_wait_spec (this:ptr) :WpSpec mpredI val val :=
-    \prepost{(P:mpred) (q:Qp) (g:gname)} this |-> PromiseConsumerR g P
-    \post P ** this |-> PromiseProducerR g P.
-  
+   
   (* defines how [c] is represented in memory as an object of class Chain. this predicate asserts [q] ownership of the object, assuming it can be shared across multiple threads  *)
   Definition ChainR (q: Qp) (c: Chain): Rep. Proof. Admitted.
 
@@ -448,7 +435,19 @@ Require Import bedrock_auto.tests.data_class.exb_names.
 
 Context  {MODd : exb.module ⊧ CU}.
 (* Node::Node(Node*,int) *)
-Check exb.module.
+  Definition promise_constructor_spec (this:ptr) :WpSpec mpredI val val :=
+    \pre{P:mpred} emp
+    \post Exists g:gname, this |->  PromiseR g P.
+  
+  cpp.spec "boost::fibers::promise<void>::set_value()"  as set_value with
+     (fun (this:ptr) =>
+    \pre{(P:mpred) (q:Qp) (g:gname)} this |-> PromiseProducerR g P
+    \pre P
+    \post emp).
+
+  Definition promise_getfuture_wait_spec (this:ptr) :WpSpec mpredI val val :=
+    \prepost{(P:mpred) (q:Qp) (g:gname)} this |-> PromiseConsumerR g P
+    \post P ** this |-> PromiseProducerR g P.
 
   cpp.spec (Ninst
    "monad::execute_block(const monad::Chain&, monad::Block&, monad::BlockState&, const monad::BlockHashBuffer&, monad::fiber::PriorityPool&)"
@@ -470,11 +469,48 @@ Definition parrayR  {T:Type} ty (Rs : nat -> T -> Rep) (l: list T) : Rep :=
   .[ ty ! length l ] |-> validR ** [| is_Some (size_of _ ty) |] **
   (* ^ both of these are only relevant for empty arrays, otherwise, they are implied by the
      following conjunct *)
-  [∗ list] i ↦ li ∈ l, .[ ty ! Z.of_nat i ] |-> (type_ptrR ty ** Rs i li).
+     [∗ list] i ↦ li ∈ l, .[ ty ! Z.of_nat i ] |-> (type_ptrR ty ** Rs i li).
 
+
+  Lemma arrR_cons0 ty R Rs :
+    arrR ty (R :: Rs) -|- type_ptrR ty ** (.[ ty ! 0 ] |-> R) ** .[ ty ! 1 ] |-> arrR ty Rs.
+  Proof.
+    rewrite arrR_eq/arrR_def /= !_offsetR_sep !_offsetR_only_provable.
+    apply: (observe_both (is_Some (size_of _ ty))) => Hsz.
+    rewrite !_offsetR_sub_0; auto.
+    rewrite _offsetR_big_sepL -assoc.
+    rewrite _offsetR_succ_sub Nat2Z.inj_succ;
+      setoid_rewrite _offsetR_succ_sub; setoid_rewrite Nat2Z.inj_succ.
+    iSplit; [ iIntros "(? & ? & ? & ? & ?)" | iIntros "(? & ? & ? & _ & ?)"];
+      by iFrame.
+  Qed.
+
+  Lemma arrayR_cons0 {T} ty (R:T->Rep) x xs :
+    arrayR ty R (x :: xs) -|- type_ptrR ty ** (.[ ty ! 0 ] |-> R x) ** .[ ty ! 1 ] |-> arrayR ty R xs.
+  Proof. rewrite arrayR_eq. unfold arrayR_def. exact: arrR_cons0. Qed.
+
+  Definition offsetR_only_fwd := ([BWD->] _offsetR_only_provable).
+  Hint Resolve offsetR_only_fwd: br_opacity.
+  Lemma parrayR_cons {T:Type} ty (R : nat -> T -> Rep) (x:T) (xs: list T) :
+    parrayR ty R (x :: xs) -|- type_ptrR ty ** (.[ ty ! 0 ] |-> (R 0 x)) ** .[ ty ! 1 ] |-> parrayR ty (fun n => R (S n)) xs.
+  Proof using.
+    unfold parrayR.
+    apply: (observe_both (is_Some (size_of _ ty))) => Hsz.
+    repeat rewrite !_offsetR_sub_0; auto.
+    repeat rewrite _offsetR_sep.
+    repeat rewrite _offsetR_big_sepL.
+    repeat rewrite _offsetR_succ_sub.
+    repeat setoid_rewrite  _offsetR_succ_sub.
+    simpl.
+    repeat rewrite Nat2Z.inj_succ.
+    repeat rewrite !_offsetR_sub_0; auto.
+    setoid_rewrite Nat2Z.inj_succ.
+    iSplit; work.
+  Qed.
   Opaque parrayR.
   Hypothesis sender: Transaction -> evm.address.
-cpp.spec 
+  
+  cpp.spec 
   "monad::reset_promises(unsigned long)" as reset_promises
       with
       (\arg{transactions: list Transaction} "n" (Vn (lengthN transactions))
@@ -497,12 +533,12 @@ cpp.spec
             (fun i t => PromiseR (prIds i) (garbage i t))
             (transactions block)
     \pre Exists garbage,
-        _global "senders" |->
+        _global "monad::senders" |->
           arrayR
             (Tnamed "std::optional<evmc::address>")
             (fun t=> optionAddressR 1 (garbage t))
             (transactions block)
-    \post _global "senders" |->
+    \post _global "monad::senders" |->
           arrayR
             (Tnamed "std::optional<evmc::address>")
             (fun t=> optionAddressR 1 (Some (sender t)))
@@ -737,12 +773,23 @@ cpp.spec
 Opaque VectorR.
        #[global] Instance learnVectorRbase: LearnEq4 VectorRbase:= ltac:(solve_learnable).
 
+       (* TODO: generalize over template arg *)
+  cpp.spec "std::optional<evmc::address>::operator=(std::optional<evmc::address>&&)" as opt_move_assign with
+    (fun (this:ptr) =>
+       \arg{other} "other" (Vptr other)
+       \pre{q oaddr} other |-> optionAddressR q oaddr
+       \pre{prev} this |-> optionAddressR 1 prev
+       \post [Vptr this] this |-> optionAddressR 1 oaddr **  other |-> optionAddressR q None
+    ).
+           
+       
 Lemma prf: denoteModule module
              ** tvector_spec
              ** reset_promises
              ** fork_task
              ** vector_op_monad
              ** recover_sender
+             ** opt_move_assign
              |-- compute_senders.
 Proof using.
   verify_spec'.
@@ -752,9 +799,8 @@ Proof using.
   iExists prIds. (* why does the array learning hint not work? *)
   go.
   iExists _.
-  iExists  (fun i t => _global "senders"  |-> .[ "std::optional<evmc::address>" ! i ] |-> optionAddressR 1 (Some (sender t)) ).
+  iExists  (fun i t => _global "monad::senders"  |-> .[ "std::optional<evmc::address>" ! i ] |-> optionAddressR 1 (Some (sender t)) ).
   eagerUnifyU. go.
-  rewrite arrayR_eq. unfold arrayR_def. rewrite arrR_eq. unfold arrR_def. go.
   rewrite (promiseArrDecompose2 (_global "promises") prIds (transactions block)).
   go.
   repeat rewrite _at_big_sepL.
@@ -769,7 +815,10 @@ Proof using.
     aggregateRepPieces a.
     iExists (blockp ,, o_field CU "monad::Block::transactions"
       |-> VectorR "monad::Transaction" (TransactionR qb) qb
-            (transactions block)).
+      (transactions block)
+      **
+      (_global "monad::senders" |-> arrayR "std::optional<evmc::address>" (λ t0 : Transaction, optionAddressR 1 (t t0)) (transactions block))
+            ).
     go.
     iSplitL "".
     -  unfold taskOpSpec.
@@ -784,13 +833,31 @@ Proof using.
        destruct Heq as [tl Heq].
        rewrite Heq.
        autorewrite with syntactic.
-       rewrite arrayR_cons. go.
-       repeat rewrite offset_ptr_sub_0.
+       repeat rewrite arrayR_cons. go.
+       repeat rewrite offset_ptr_sub_0; auto.
        go.
        #[global] Instance learnTrRbase: LearnEq2 TransactionR:= ltac:(solve_learnable).
+       Import Verbose.
+       work.
+       go.
        slauto.
        repeat rewrite offset_ptr_sub_0.
        go.
+       #[global] Instance learnTrRbase2: LearnEq2 optionAddressR:= ltac:(solve_learnable).
+       go.
+       Set Nested Proofs Allowed.
+       (*
+       cpp.spec "std::optional<evmc::address>::~std::optional<evmc::address>()" as destrop with
+           (fun (this:ptr) =>
+              \pre{oa} this |-> optionAddressR 1 oa
+              \post emp
+           ). *)
+  Lemma destr2 (addr:ptr) (P:mpred) :
+    (Exists oa,  addr |-> optionAddressR 1 oa) **
+    P |--  wp_destroy_named module "std::optional<evmc::address>" addr P.
+  Proof. go. Admitted.
+  rewrite <- destr2.
+          slauto.
        
        2:{ hnf. eexists. vm_compute.
        
