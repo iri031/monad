@@ -441,7 +441,7 @@ Context  {MODd : exb.module ⊧ CU}.
   
   cpp.spec "boost::fibers::promise<void>::set_value()"  as set_value with
      (fun (this:ptr) =>
-    \pre{(P:mpred) (q:Qp) (g:gname)} this |-> PromiseProducerR g P
+    \pre{(P:mpred) (g:gname)} this |-> PromiseProducerR g P
     \pre P
     \post emp).
 
@@ -515,8 +515,8 @@ Definition parrayR  {T:Type} ty (Rs : nat -> T -> Rep) (l: list T) : Rep :=
       with
       (\arg{transactions: list Transaction} "n" (Vn (lengthN transactions))
        \pre{prIds oldPromisedResource newPromisedResource}
-           _global "promises" |-> parrayR (Tnamed "boost::fiber::promise") (fun i t => PromiseR (prIds i) (oldPromisedResource i t)) transactions
-       \post _global "promises" |-> parrayR (Tnamed "boost::fiber::promise") (fun i t => PromiseR (prIds i) (newPromisedResource i t)) transactions).
+           _global "monad::promises" |-> parrayR (Tnamed "boost::fibers::promise<void>") (fun i t => PromiseR (prIds i) (oldPromisedResource i t)) transactions
+       \post _global "monad::promises" |-> parrayR (Tnamed "boost::fibers::promise<void>") (fun i t => PromiseR (prIds i) (newPromisedResource i t)) transactions).
   
 cpp.spec
   "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)"
@@ -527,9 +527,9 @@ cpp.spec
     \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
     \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool
     \prepost{prIds} Exists garbage,
-        _global "promises" |->
+        _global "monad::promises" |->
           parrayR
-            (Tnamed "boost::fiber::promise")
+            (Tnamed "boost::fibers::promise<void>")
             (fun i t => PromiseR (prIds i) (garbage i t))
             (transactions block)
     \pre Exists garbage,
@@ -647,16 +647,18 @@ cpp.spec
   Existing Instance learnArrUnsafe.
   Existing Instance learnpArrUnsafe.
   Hint Opaque parrayR: br_opacity.
+  
+  (* not in use anymore *)
   Lemma promiseArrDecompose (p:ptr) prIds ltr promiseRes:
-    p |-> parrayR "boost::fiber::promise"
+    p |-> parrayR "boost::fibers::promise<void>"
             (λ (i : nat) (t : Transaction),
                PromiseR (prIds i) (promiseRes i t))
             ltr
-   -|- (valid_ptr (p .[ "boost::fiber::promise" ! length ltr ])) **
-      [| is_Some (glob_def CU "boost::fiber::promise" ≫= GlobDecl_size_of) |]         **
-      ([∗ list] k↦_ ∈ ltr, □ (type_ptr "boost::fiber::promise" (p .[ "boost::fiber::promise" ! k ]))) ∗
-      ([∗ list] k↦t ∈ ltr, p .[ "boost::fiber::promise" ! k ] |-> PromiseProducerR (prIds k) (promiseRes k t)) ∗
-      ([∗ list] k↦t ∈ ltr, p .[ "boost::fiber::promise" ! k ] |-> PromiseConsumerR (prIds k) (promiseRes k t)).
+   -|- (valid_ptr (p .[ "boost::fibers::promise<void>" ! length ltr ])) **
+      [| is_Some (glob_def CU "boost::fibers::promise<void>" ≫= GlobDecl_size_of) |]         **
+      ([∗ list] k↦_ ∈ ltr, □ (type_ptr "boost::fibers::promise<void>" (p .[ "boost::fibers::promise<void>" ! k ]))) ∗
+      ([∗ list] k↦t ∈ ltr, p .[ "boost::fibers::promise<void>" ! k ] |-> PromiseProducerR (prIds k) (promiseRes k t)) ∗
+      ([∗ list] k↦t ∈ ltr, p .[ "boost::fibers::promise<void>" ! k ] |-> PromiseConsumerR (prIds k) (promiseRes k t)).
   Proof using.
     Transparent parrayR. unfold parrayR.
     iSplit.
@@ -673,13 +675,7 @@ cpp.spec
        simpl. 
        repeat setoid_rewrite big_sepL_sep.
        go.
-       setoid_rewrite right_id.
-       go.
-       go.
-       go.
-       iFrame.
-       rewrite bi.and_elim_l.
-       go.
+       setoid_rewrite (@right_id _ _ ((True)%I:mpred));[go | go; rewrite bi.and_elim_l; go].
     - go.
        setoid_rewrite sharePromise.
        go.
@@ -698,7 +694,7 @@ cpp.spec
        repeat setoid_rewrite big_sepL_sep.
        go.
        rewrite big_sepL_emp. go.
-       setoid_rewrite right_id. go. go.
+       setoid_rewrite (@right_id _ _ ((True)%I:mpred)); go. 
   Qed.
 Lemma cancelLstar {PROP:bi} {T} l (va vb : T -> PROP):
   (forall id, id ∈ l -> va id |-- vb id) ->
@@ -712,15 +708,15 @@ Proof using.
 Qed.
 
   Lemma promiseArrDecompose2 (p:ptr) prIds ltr promiseRes:
-    p |-> parrayR "boost::fiber::promise"
+    p |-> parrayR "boost::fibers::promise<void>"
             (λ (i : nat) (t : Transaction),
                PromiseR (prIds i) (promiseRes i t))
             ltr
-   -|- (valid_ptr (p .[ "boost::fiber::promise" ! length ltr ])) **
-      [| is_Some (glob_def CU "boost::fiber::promise" ≫= GlobDecl_size_of) |]         **
-      (□ ([∗ list] k↦_ ∈ ltr,  (type_ptr "boost::fiber::promise" (p .[ "boost::fiber::promise" ! k ])))) ∗
-      ([∗ list] k↦t ∈ ltr, p .[ "boost::fiber::promise" ! k ] |-> PromiseProducerR (prIds k) (promiseRes k t)) ∗
-      ([∗ list] k↦t ∈ ltr, p .[ "boost::fiber::promise" ! k ] |-> PromiseConsumerR (prIds k) (promiseRes k t)).
+   -|- (valid_ptr (p .[ "boost::fibers::promise<void>" ! length ltr ])) **
+      [| is_Some (glob_def CU "boost::fibers::promise<void>" ≫= GlobDecl_size_of) |]         **
+      (□ ([∗ list] k↦_ ∈ ltr,  (type_ptr "boost::fibers::promise<void>" (p .[ "boost::fibers::promise<void>" ! k ])))) ∗
+      ([∗ list] k↦t ∈ ltr, p .[ "boost::fibers::promise<void>" ! k ] |-> PromiseProducerR (prIds k) (promiseRes k t)) ∗
+      ([∗ list] k↦t ∈ ltr, p .[ "boost::fibers::promise<void>" ! k ] |-> PromiseConsumerR (prIds k) (promiseRes k t)).
   Proof using.
     rewrite promiseArrDecompose.
     iSplit.
@@ -782,6 +778,17 @@ Opaque VectorR.
        \post [Vptr this] this |-> optionAddressR 1 oaddr **  other |-> optionAddressR q None
     ).
            
+       Set Nested Proofs Allowed.
+       (*
+       cpp.spec "std::optional<evmc::address>::~std::optional<evmc::address>()" as destrop with
+           (fun (this:ptr) =>
+              \pre{oa} this |-> optionAddressR 1 oa
+              \post emp
+           ). *)
+  Lemma destr2 (addr:ptr) (P:mpred) :
+    (Exists oa,  addr |-> optionAddressR 1 oa) **
+    P |--  wp_destroy_named module "std::optional<evmc::address>" addr P.
+  Proof. go. Admitted.
        
 Lemma prf: denoteModule module
              ** tvector_spec
@@ -790,6 +797,7 @@ Lemma prf: denoteModule module
              ** vector_op_monad
              ** recover_sender
              ** opt_move_assign
+             ** set_value
              |-- compute_senders.
 Proof using.
   verify_spec'.
@@ -801,7 +809,6 @@ Proof using.
   iExists _.
   iExists  (fun i t => _global "monad::senders"  |-> .[ "std::optional<evmc::address>" ! i ] |-> optionAddressR 1 (Some (sender t)) ).
   eagerUnifyU. go.
-  rewrite (promiseArrDecompose2 (_global "promises") prIds (transactions block)).
   go.
   repeat rewrite _at_big_sepL.
   repeat rewrite big_opL_map.
@@ -813,11 +820,18 @@ Proof using.
     rewrite <- wp_init_lambda.
     slauto.
     aggregateRepPieces a.
-    iExists (blockp ,, o_field CU "monad::Block::transactions"
+    iExists ((blockp ,, o_field CU "monad::Block::transactions"
       |-> VectorR "monad::Transaction" (TransactionR qb) qb
-      (transactions block)
+      (transactions block))
       **
       (_global "monad::senders" |-> arrayR "std::optional<evmc::address>" (λ t0 : Transaction, optionAddressR 1 (t t0)) (transactions block))
+      ** _global "monad::promises"
+      |-> parrayR "boost::fibers::promise<void>"
+            (λ (i : nat) (t0 : Transaction),
+               PromiseR (prIds i)
+                 (_global "monad::senders"
+                  |-> .[ "std::optional<evmc::address>" ! i ] |-> optionAddressR 1 (Some (sender t0))))
+            (transactions block)
             ).
     go.
     iSplitL "".
@@ -845,19 +859,22 @@ Proof using.
        go.
        #[global] Instance learnTrRbase2: LearnEq2 optionAddressR:= ltac:(solve_learnable).
        go.
-       Set Nested Proofs Allowed.
-       (*
-       cpp.spec "std::optional<evmc::address>::~std::optional<evmc::address>()" as destrop with
-           (fun (this:ptr) =>
-              \pre{oa} this |-> optionAddressR 1 oa
-              \post emp
-           ). *)
-  Lemma destr2 (addr:ptr) (P:mpred) :
-    (Exists oa,  addr |-> optionAddressR 1 oa) **
-    P |--  wp_destroy_named module "std::optional<evmc::address>" addr P.
-  Proof. go. Admitted.
-  rewrite <- destr2.
-          slauto.
+       rewrite <- destr2.
+       slauto.
+       rewrite parrayR_cons. go.
+       #[global] Instance : LearnEq2 PromiseR := ltac:(solve_learnable).
+       #[global] Instance : LearnEq2 PromiseProducerR:= ltac:(solve_learnable).
+       repeat rewrite offset_ptr_sub_0.
+       go.
+       rewrite sharePromise.
+       go.
+       repeat rewrite offset_ptr_sub_0.
+       go.
+       
+       unfold PromiseR.
+       type_ptr "boost::fibers::promise<void>" (_global "monad::promises")
+   reference_to "boost::fibers::promise<void>" (_global "monad::promises")
+                                              
        
        2:{ hnf. eexists. vm_compute.
        
