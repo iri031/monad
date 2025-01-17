@@ -510,7 +510,7 @@ Definition parrayR  {T:Type} ty (Rs : nat -> T -> Rep) (l: list T) : Rep :=
   Hypothesis sender: Transaction -> evm.address.
 
 
-  Hint Rewrite offset_ptr_sub_0 using (apply has_size; exact _): syntactic.
+  Hint Rewrite offset_ptr_sub_0 using (auto; apply has_size; exact _): syntactic.
 
   cpp.spec 
   "monad::reset_promises(unsigned long)" as reset_promises
@@ -796,6 +796,73 @@ Opaque VectorR.
        #[global] Instance learnTrRbase2: LearnEq2 optionAddressR:= ltac:(solve_learnable).
        #[global] Instance : LearnEq2 PromiseR := ltac:(solve_learnable).
        #[global] Instance : LearnEq2 PromiseProducerR:= ltac:(solve_learnable).
+
+  Lemma parrayR_sep {V} ty xs  : forall (A B : nat -> V -> Rep),
+    parrayR ty (fun i v => A i v ** B i v) xs -|-
+    parrayR ty (fun i v => A i v) xs **
+    parrayR ty (fun i v=> B i v) xs.
+  Proof.
+    elim: xs => [|x xs IH] /=; intros.
+    Transparent parrayR.
+    - unfold parrayR. simpl. iSplit; go.
+    - repeat rewrite parrayR_cons.  simpl.
+      rewrite {}IH. repeat rewrite _offsetR_sep.
+    all: iSplit; work.
+  Qed.
+
+  #[global] Instance parrayR_proper X ty:
+    Proper ((pointwise_relation nat (pointwise_relation X (≡))) ==> (=) ==> (≡)) (parrayR ty).
+  Proof.
+    unfold parrayR.
+    intros f g Hf xs y ?. subst. f_equiv.
+    f_equiv.
+    f_equiv.
+    hnf.
+    intros. hnf. intros.
+    hnf in Hf.
+    rewrite Hf.
+    reflexivity.
+  Qed.
+
+  #[global] Instance arrayR_mono X ty:
+    Proper (pointwise_relation nat (pointwise_relation X (⊢)) ==> (=) ==> (⊢)) (parrayR ty).
+  Proof.
+    unfold parrayR.
+    intros f g Hf xs y ?. subst. f_equiv.
+    f_equiv.
+    f_equiv.
+    hnf.
+    intros. hnf. intros.
+    hnf in Hf.
+    rewrite Hf.
+    reflexivity.
+  Qed.
+
+  #[global] Instance arrayR_flip_mono X ty:
+    Proper (pointwise_relation nat (pointwise_relation X (flip (⊢))) ==> (=) ==> flip (⊢)) (parrayR ty).
+  Proof. solve_proper. Qed.
+  Hint Rewrite @skipn_0: syntactic.
+  Lemma generalize_arrayR_loopinv (i : nat) (p:ptr) {X : Type} (R : X → Rep) (ty : type) xs (Heq: i=0):
+    p |-> arrayR ty R xs
+    -|- (p  .[ty ! i]) |-> arrayR ty R (drop i xs).
+  Proof using.
+    intros.
+    apply: (observe_both (is_Some (size_of _ ty))) => Hsz.
+    subst.
+    autorewrite with syntactic.
+    reflexivity.
+  Qed.
+    
+  Lemma generalize_parrayR_loopinv (i : nat) (p:ptr) {X : Type} (R : nat -> X → Rep) (ty : type) xs (Heq: i=0):
+    p |-> parrayR ty R xs
+    -|- (p  .[ty ! i]) |-> parrayR ty R (drop i xs).
+  Proof using.
+    intros.
+    apply: (observe_both (is_Some (size_of _ ty))) => Hsz.
+    subst.
+    autorewrite with syntactic.
+    reflexivity.
+  Qed.
        
 Lemma prf: denoteModule module
              ** tvector_spec
@@ -819,8 +886,47 @@ Proof using.
   go.
   repeat rewrite _at_big_sepL.
   repeat rewrite big_opL_map.
-  wp_for (fun _ => emp).
-  slauto.
+  name_locals.
+  Transparent VectorR.
+  unfold VectorR.
+  go.
+  setoid_rewrite sharePromise.
+  rewrite parrayR_sep.
+  go.
+  assert (exists ival:nat, ival=0) as Hex by (eexists; reflexivity).
+  destruct Hex as [ival Hex].
+  hideRhs.
+  IPM.perm_left ltac:(fun L n =>
+                        match L with
+                        | HiddenPostCondition => hideFromWorkAs L fullyHiddenPostcond
+                        end
+                     ).
+  
+  rewrite (generalize_arrayR_loopinv ival (_global "monad::senders")); [| assumption].
+  rename v into vectorbase.
+  rewrite (generalize_arrayR_loopinv ival vectorbase); [| assumption].
+  IPM.perm_left ltac:(fun L n =>
+                        match L with
+                        | context[PromiseConsumerR] => hideFromWorkAs L pc
+                        end
+                      ).
+  
+  rewrite (generalize_parrayR_loopinv ival (_global "monad::promises")); [| assumption].
+
+
+  Definition Qplen {T} (l: list T) := N_to_Qp (lengthN l).
+  
+  Lemma vectorbase_loopinv {T} ty base q (l: list T) (i:nat) (Heq: i=0):
+    VectorRbase ty q base (lengthN l) |--
+    [∗ list] i ∈ (drop i l),  VectorRbase ty (q*Qp.inv (Qplen l)) base (lengthN l).
+  Proof using. Admitted.
+
+  rewrite (@vectorbase_loopinv _ _ _ _ _ ival); auto.
+  assert (Vint 0 = Vnat ival) as Hexx by (subst; auto).
+  rewrite Hexx. (* TODO: use a more precise pattern *)
+  clear Hexx Hex.
+  unhideAllFromWork.
+  wp_for (fun _ => emp).  work. slauto.
   wp_if.
   { (* loop condition is true and thus the body runs. so we need to reistablish the loopinv *)
     slauto.
