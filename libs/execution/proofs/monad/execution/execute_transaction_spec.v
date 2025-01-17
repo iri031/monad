@@ -481,8 +481,7 @@ Definition parrayR  {T:Type} ty (Rs : nat -> T -> Rep) (l: list T) : Rep :=
     rewrite _offsetR_big_sepL -assoc.
     rewrite _offsetR_succ_sub Nat2Z.inj_succ;
       setoid_rewrite _offsetR_succ_sub; setoid_rewrite Nat2Z.inj_succ.
-    iSplit; [ iIntros "(? & ? & ? & ? & ?)" | iIntros "(? & ? & ? & _ & ?)"];
-      by iFrame.
+    iSplit; [ iIntros "(? & ? & ? & ? & ?)" | iIntros "(? & ? & ? & ? & ?)"]; iFrame.
   Qed.
 
   Lemma arrayR_cons0 {T} ty (R:T->Rep) x xs :
@@ -509,7 +508,10 @@ Definition parrayR  {T:Type} ty (Rs : nat -> T -> Rep) (l: list T) : Rep :=
   Qed.
   Opaque parrayR.
   Hypothesis sender: Transaction -> evm.address.
-  
+
+
+  Hint Rewrite offset_ptr_sub_0 using (apply has_size; exact _): syntactic.
+
   cpp.spec 
   "monad::reset_promises(unsigned long)" as reset_promises
       with
@@ -789,6 +791,11 @@ Opaque VectorR.
     (Exists oa,  addr |-> optionAddressR 1 oa) **
     P |--  wp_destroy_named module "std::optional<evmc::address>" addr P.
   Proof. go. Admitted.
+       #[global] Instance learnTrRbase: LearnEq2 TransactionR:= ltac:(solve_learnable).
+       Import Verbose.
+       #[global] Instance learnTrRbase2: LearnEq2 optionAddressR:= ltac:(solve_learnable).
+       #[global] Instance : LearnEq2 PromiseR := ltac:(solve_learnable).
+       #[global] Instance : LearnEq2 PromiseProducerR:= ltac:(solve_learnable).
        
 Lemma prf: denoteModule module
              ** tvector_spec
@@ -835,100 +842,35 @@ Proof using.
             ).
     go.
     iSplitL "".
-    -  unfold taskOpSpec.
+    {
+      unfold taskOpSpec.
        verify_spec'.
        slauto.
        Transparent VectorR.
        unfold VectorR.
        go.
-       Search arrayR cons.
        assert (exists ht tl, transactions block = ht::tl) as Hx by admit.
        destruct Hx as [ht Heq].
        destruct Heq as [tl Heq].
        rewrite Heq.
        autorewrite with syntactic.
-       repeat rewrite arrayR_cons. go.
+       repeat rewrite arrayR_cons0. go.
+       autorewrite with syntactic.
        repeat rewrite offset_ptr_sub_0; auto.
-       go.
-       #[global] Instance learnTrRbase: LearnEq2 TransactionR:= ltac:(solve_learnable).
-       Import Verbose.
-       work.
-       go.
        slauto.
-       repeat rewrite offset_ptr_sub_0.
-       go.
-       #[global] Instance learnTrRbase2: LearnEq2 optionAddressR:= ltac:(solve_learnable).
-       go.
+       progress autorewrite with syntactic.
+       slauto.
        rewrite <- destr2.
        slauto.
        rewrite parrayR_cons. go.
-       #[global] Instance : LearnEq2 PromiseR := ltac:(solve_learnable).
-       #[global] Instance : LearnEq2 PromiseProducerR:= ltac:(solve_learnable).
-       repeat rewrite offset_ptr_sub_0.
-       go.
+       autorewrite with syntactic.
        rewrite sharePromise.
        go.
-       repeat rewrite offset_ptr_sub_0.
-       go.
-       
-       unfold PromiseR.
-       type_ptr "boost::fibers::promise<void>" (_global "monad::promises")
-   reference_to "boost::fibers::promise<void>" (_global "monad::promises")
-                                              
-       
-       2:{ hnf. eexists. vm_compute.
-       
-       Search (_ .[_ ! 0]).
-       
-       Set Nested Proofs Allowed.
-       go.
-      
-
-   Search (?A-* ?B -* _).
-    invariants.closeCinvqs.
-    AUACTactics.
-     callAtomicCommit.
-    Definition combine_reps_fwd := [FWD<-] _at_sep.
-    work using combine_reps_fwd.
-    Check _at_sep.
-    Locate _at_sep.
-    Ltac aggregateRepPieces base :=
-      tryif (IPM.perm_left ltac:(fun n L =>
-                            lazymatch L with
-                            | base |-> ?R =>
-                                iRevert n;
-                                let rec := aggregateRepPieces base in
-                                constr:(R**rec)
-                         )) then 
-    Search (_ ,,_) (_ |-> _) ptr.
-                   
-  iExists (transactions block).
-  go.
-  go using learnArrUnsafe.
-  iExists _.
-  iExists _.
-  iExists _.
-  eagerUnifyU.
-  go.
-  slauto.
-  Search Learnable arrayR.
-
-@globa  
-  iExists _.
-  iExists _.
-  go.
-  slauto.
+       autorewrite with syntactic.
+       slauto.
+    }
+    
   
-  Definition lamName :name :=
-                                      (Nscoped
-                                     (Ninst
-                                        "monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)"
-                                        [Avalue (Eint 0 "enum evmc_revision")])
-                                     (Nanon 0)).
-
-  Search NM.t.
-
-  Compute lamBody.
 Lemma prf: denoteModule module ** tvector_spec |-- exb_spec.
 Proof using.
   verify_spec'.
