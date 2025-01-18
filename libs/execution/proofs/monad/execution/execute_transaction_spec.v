@@ -896,6 +896,15 @@ Proof using. Admitted.
        Ltac iExistsTac  foo:=match goal with
                                |- environments.envs_entails _ (Exists (_:?T), _) => iExists ((ltac:(foo)):T)
                              end.
+  Lemma parrayR_nil {T} (R : nat -> T -> Rep) ty: parrayR ty R [] -|- validR ** [| is_Some (size_of _ ty) |].
+  Proof using.
+    unfold parrayR. simpl.
+    apply: (observe_both (is_Some (size_of _ ty))) => Hsz.
+    change (Z.of_nat 0) with 0%Z.
+    autorewrite with syntactic.
+    rewrite _offsetR_sub_0; try assumption.
+    iSplit; work.
+  Qed.
     
 Lemma prf: denoteModule module
              ** tvector_spec
@@ -1026,10 +1035,13 @@ Proof using.
     assert (ival=length(transactions block))  by lia.
     subst.
     go.
-    
+    Hint Rewrite @drop_all: syntactic.
+    autorewrite with syntactic.
+    repeat rewrite arrayR_nil.
+    go.
 
-   
-    
+  }
+Abort.
        
 Require Import bedrock.auto.evartacs.
 Lemma prf: denoteModule module ** tvector_spec |-- exb_spec.
