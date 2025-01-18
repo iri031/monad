@@ -457,8 +457,8 @@ Context  {MODd : exb.module ⊧ CU}.
     "std::vector<monad::Transaction, std::allocator<monad::Transaction>>::size() const"
     as tvector_spec with
       (fun (this:ptr) =>
-         \prepost{q ts} this |-> VectorR (Tnamed ``::monad::Transaction``) (fun t => TransactionR q (* can be a different q *) t)  q (ts)
-         \post[Vn (lengthN ts)] (emp:mpred)
+         \prepost{q base size} this |-> VectorRbase (Tnamed ``::monad::Transaction``)  q base size
+         \post[Vn size] (emp:mpred)
       ).
   Print lt.
 
@@ -863,6 +863,11 @@ Opaque VectorR.
     autorewrite with syntactic.
     reflexivity.
   Qed.
+  
+  Lemma vectorbase_loopinv {T} ty base q (l: list T) (i:nat) (Heq: i=0):
+    VectorRbase ty q base (lengthN l) -|- (VectorRbase ty (q*Qp.inv (N_to_Qp (1+lengthN l))) base (lengthN l) ** 
+    ([∗ list] _ ∈ (drop i l),  VectorRbase ty (q*Qp.inv (N_to_Qp (1+lengthN l))) base (lengthN l))).
+  Proof using. Admitted.
        
 Lemma prf: denoteModule module
              ** tvector_spec
@@ -876,18 +881,19 @@ Lemma prf: denoteModule module
 Proof using.
   verify_spec'.
   name_locals.
-  unfold BlockR.
+  Transparent VectorR.
+  unfold BlockR, VectorR.
   slauto.
   iExists prIds. (* why does the array learning hint not work? *)
   go.
   iExists _.
+  (* TODO: below, we need more: everything in taskPre needs to be returned back, e.g. transaction ownership (both VectorRbase and the array item at base). promiseproducerR is returned back via set_value *)
   iExists  (fun i t => _global "monad::senders"  |-> .[ "std::optional<evmc::address>" ! i ] |-> optionAddressR 1 (Some (sender t)) ).
   eagerUnifyU. go.
   go.
   repeat rewrite _at_big_sepL.
   repeat rewrite big_opL_map.
   name_locals.
-  Transparent VectorR.
   unfold VectorR.
   go.
   setoid_rewrite sharePromise.
@@ -901,73 +907,88 @@ Proof using.
                         | HiddenPostCondition => hideFromWorkAs L fullyHiddenPostcond
                         end
                      ).
-  
   rewrite (generalize_arrayR_loopinv ival (_global "monad::senders")); [| assumption].
   rename v into vectorbase.
   rewrite (generalize_arrayR_loopinv ival vectorbase); [| assumption].
+  rewrite (@vectorbase_loopinv _ _ _ _ _ ival); auto.
   IPM.perm_left ltac:(fun L n =>
                         match L with
                         | context[PromiseConsumerR] => hideFromWorkAs L pc
                         end
                       ).
-  
   rewrite (generalize_parrayR_loopinv ival (_global "monad::promises")); [| assumption].
-
-
-  Definition Qplen {T} (l: list T) := N_to_Qp (lengthN l).
-  
-  Lemma vectorbase_loopinv {T} ty base q (l: list T) (i:nat) (Heq: i=0):
-    VectorRbase ty q base (lengthN l) |--
-    [∗ list] i ∈ (drop i l),  VectorRbase ty (q*Qp.inv (Qplen l)) base (lengthN l).
-  Proof using. Admitted.
-
-  rewrite (@vectorbase_loopinv _ _ _ _ _ ival); auto.
   assert (Vint 0 = Vnat ival) as Hexx by (subst; auto).
   rewrite Hexx. (* TODO: use a more precise pattern *)
-  clear Hexx Hex.
+  clear Hexx.
+  assert (ival <= length (transactions block)) as Hle by (subst; lia).
+  clear Hex.
   unhideAllFromWork.
-  wp_for (fun _ => emp).  work. slauto.
+  wp_for (fun _ => emp).  slauto.
   wp_if.
   { (* loop condition is true and thus the body runs. so we need to reistablish the loopinv *)
     slauto.
+    Set Printing Coercions.
+    Lemma drop_S2: ∀ {A : Type} (l : list A) (n : nat),
+        (Z.of_nat n < lengthZ l)%Z→
+          exists x,  l !! n = Some x /\ drop n l = x :: drop (S n) l.
+    Proof using.
+      intros ? ? ? Hl.
+      unfold lengthN in Hl.
+      assert (n< length l)%nat as Hln by lia.
+      erewrite <- nth_error_Some in Hln.
+      pose proof (fun x => drop_S l x n).
+      rewrite <- lookup_nth_error in Hln.
+      destruct (l !! n); try congruence.
+      eexists; split; eauto.
+    Qed.
+    applyToSomeHyp @drop_S2.
+    match goal with
+      [H:_ |- _] => destruct H as [tri Htt]; destruct Htt as [Httl Httr]
+    end.
+    rewrite Httr.
+    repeat rewrite -> arrayR_cons0.
+    repeat rewrite -> parrayR_cons.
+    go.
+    autorewrite with syntactic.
+    repeat rewrite o_sub_sub.
+    simpl.
+    go.
     rewrite <- wp_init_lambda.
     slauto.
     aggregateRepPieces a.
-    iExists ((blockp ,, o_field CU "monad::Block::transactions"
-      |-> VectorR "monad::Transaction" (TransactionR qb) qb
-      (transactions block))
-      **
-      (_global "monad::senders" |-> arrayR "std::optional<evmc::address>" (λ t0 : Transaction, optionAddressR 1 (t t0)) (transactions block))
-      ** _global "monad::promises"
-      |-> parrayR "boost::fibers::promise<void>"
-            (λ (i : nat) (t0 : Transaction),
-               PromiseR (prIds i)
-                 (_global "monad::senders"
-                  |-> .[ "std::optional<evmc::address>" ! i ] |-> optionAddressR 1 (Some (sender t0))))
-            (transactions block)
-            ).
     go.
+    IPM.perm_left ltac:(fun L n =>
+      match L with
+      |   _ |-> VectorRbase _ _ _ _ => iRevert n
+      end
+      ).
+    repeat IPM.perm_left ltac:(fun L n =>
+      match L with
+      | _ .[_ ! Z.of_nat ival] |-> _ => iRevert n
+      end
+                              ).
+    repeat rewrite bi.wand_curry.
+    match goal with
+        [ |-environments.envs_entails _ (?R -* _)] => iIntrosDestructs; iExists R
+    end.
+    slauto.
     iSplitL "".
     {
       unfold taskOpSpec.
-       verify_spec'.
-       slauto.
-       Transparent VectorR.
-       unfold VectorR.
-       go.
-       assert (exists ht tl, transactions block = ht::tl) as Hx by admit.
-       destruct Hx as [ht Heq].
-       destruct Heq as [tl Heq].
-       rewrite Heq.
-       autorewrite with syntactic.
-       repeat rewrite arrayR_cons0. go.
-       autorewrite with syntactic.
-       repeat rewrite offset_ptr_sub_0; auto.
-       slauto.
-       progress autorewrite with syntactic.
-       slauto.
-       rewrite <- destr2.
-       slauto.
+      verify_spec'.
+      slauto.
+      iExists (N.of_nat ival). (* automate this using some Refine1 hint *)
+      go.
+      Search (Z.of_N (N.of_nat _)).
+      
+      Hint Rewrite nat_N_Z: syntactic.
+      autorewrite with syntactic.
+      slauto.
+      rewrite <- destr2.
+      slauto.
+      simpl.
+      autorewrite with syntactic.
+      slauto.
        rewrite parrayR_cons. go.
        autorewrite with syntactic.
        rewrite sharePromise.
