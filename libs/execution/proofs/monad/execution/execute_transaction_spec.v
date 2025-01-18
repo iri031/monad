@@ -1046,6 +1046,28 @@ Proof using.
     repeat rewrite arrayR_nil.
     repeat rewrite parrayR_nil.
     go.
+    rename i_addr into i1_addr.
+    name_locals.
+    IPM.perm_left ltac:(fun L n =>
+       match L with     
+       | _ |-> parrayR _ (fun i v => PromiseConsumerR (@?P i) (@?R i v) ) _ =>
+           wp_for (fun _ =>
+           Exists (ival:nat), i_addr |-> uintR (cQp.mut 1) ival **
+           [∗list] j↦v ∈ (take ival (transactions block)),
+               R j v **
+               _global "monad::promises" |-> PromiseR (P j) (R j v))%I
+       end).
+    work.
+    rewrite <- (bi.exist_intro 0%nat).
+    slauto.
+    rename t into ival. (* TODO: use matching *)
+    wp_if.
+    { (* loop continues *)
+      slauto.
+    Search bi_exist.
+    iExists 0%nat.
+    wassert.
+
 
   }
 Abort.
