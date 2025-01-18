@@ -855,7 +855,7 @@ Opaque VectorR.
     
   Lemma generalize_parrayR_loopinv (i : nat) (p:ptr) {X : Type} (R : nat -> X → Rep) (ty : type) xs (Heq: i=0):
     p |-> parrayR ty R xs
-    -|- (p  .[ty ! i]) |-> parrayR ty R (drop i xs).
+    -|- (p  .[ty ! i]) |-> parrayR ty (fun ii => R (i+ii)) (drop i xs).
   Proof using.
     intros.
     apply: (observe_both (is_Some (size_of _ ty))) => Hsz.
@@ -868,7 +868,22 @@ Opaque VectorR.
     VectorRbase ty q base (lengthN l) -|- (VectorRbase ty (q*Qp.inv (N_to_Qp (1+lengthN l))) base (lengthN l) ** 
     ([∗ list] _ ∈ (drop i l),  VectorRbase ty (q*Qp.inv (N_to_Qp (1+lengthN l))) base (lengthN l))).
   Proof using. Admitted.
-       
+
+      Set Printing Coercions.
+    Lemma drop_S2: ∀ {A : Type} (l : list A) (n : nat),
+        (Z.of_nat n < lengthZ l)%Z→
+          exists x,  l !! n = Some x /\ drop n l = x :: drop (S n) l.
+    Proof using.
+      intros ? ? ? Hl.
+      unfold lengthN in Hl.
+      assert (n< length l)%nat as Hln by lia.
+      erewrite <- nth_error_Some in Hln.
+      pose proof (fun x => drop_S l x n).
+      rewrite <- lookup_nth_error in Hln.
+      destruct (l !! n); try congruence.
+      eexists; split; eauto.
+    Qed.
+
 Lemma prf: denoteModule module
              ** tvector_spec
              ** reset_promises
@@ -927,20 +942,6 @@ Proof using.
   wp_if.
   { (* loop condition is true and thus the body runs. so we need to reistablish the loopinv *)
     slauto.
-    Set Printing Coercions.
-    Lemma drop_S2: ∀ {A : Type} (l : list A) (n : nat),
-        (Z.of_nat n < lengthZ l)%Z→
-          exists x,  l !! n = Some x /\ drop n l = x :: drop (S n) l.
-    Proof using.
-      intros ? ? ? Hl.
-      unfold lengthN in Hl.
-      assert (n< length l)%nat as Hln by lia.
-      erewrite <- nth_error_Some in Hln.
-      pose proof (fun x => drop_S l x n).
-      rewrite <- lookup_nth_error in Hln.
-      destruct (l !! n); try congruence.
-      eexists; split; eauto.
-    Qed.
     applyToSomeHyp @drop_S2.
     match goal with
       [H:_ |- _] => destruct H as [tri Htt]; destruct Htt as [Httl Httr]
@@ -979,24 +980,17 @@ Proof using.
       slauto.
       iExists (N.of_nat ival). (* automate this using some Refine1 hint *)
       go.
-      Search (Z.of_N (N.of_nat _)).
-      
       Hint Rewrite nat_N_Z: syntactic.
       autorewrite with syntactic.
       slauto.
       rewrite <- destr2.
       slauto.
       simpl.
-      autorewrite with syntactic.
-      slauto.
-       rewrite parrayR_cons. go.
-       autorewrite with syntactic.
-       rewrite sharePromise.
-       go.
-       autorewrite with syntactic.
-       slauto.
+      replace (ival + 0) with ival;[| lia].
+      go.
     }
-    
+    {
+      slauto.
   
 Lemma prf: denoteModule module ** tvector_spec |-- exb_spec.
 Proof using.
