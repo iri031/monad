@@ -884,6 +884,19 @@ Opaque VectorR.
       eexists; split; eauto.
     Qed.
 
+      (* will not be needed when the automation is fixed by bluerock *)
+Lemma destr3 (a:ptr) (P:mpred) vany blockp:
+  (a ,, o_field CU "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0::i" |-> primR "unsigned long" (cQp.mut 1) vany)
+  ** (a ,, o_field CU "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0::block" |-> refR<"monad::Block"> (cQp.mut 1) blockp)
+  ** (a |-> structR "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0" (cQp.mut 1))
+  ** P
+  |--
+  wp_destroy_named module "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0" a P.
+Proof using. Admitted.
+       Ltac iExistsTac  foo:=match goal with
+                               |- environments.envs_entails _ (Exists (_:?T), _) => iExists ((ltac:(foo)):T)
+                             end.
+    
 Lemma prf: denoteModule module
              ** tvector_spec
              ** reset_promises
@@ -938,10 +951,13 @@ Proof using.
   assert (ival <= length (transactions block)) as Hle by (subst; lia).
   clear Hex.
   unhideAllFromWork.
-  wp_for (fun _ => emp).  slauto.
+  iStopProof.
+  evartacs.revertSPDeps ival.
+  apply wp_for; slauto.
   wp_if.
   { (* loop condition is true and thus the body runs. so we need to reistablish the loopinv *)
     slauto.
+    ren_hyp ival nat.
     applyToSomeHyp @drop_S2.
     match goal with
       [H:_ |- _] => destruct H as [tri Htt]; destruct Htt as [Httl Httr]
@@ -991,7 +1007,31 @@ Proof using.
     }
     {
       slauto.
-  
+       rewrite <- destr3.
+       go.
+       iExists (1+ival).
+       unfold lengthN in *.
+       iExistsTac lia.
+       go.
+       replace (Z.of_nat ival + 1)%Z with (Z.of_nat (S ival)); try lia.
+       go.
+       setoid_rewrite Nat.add_succ_r.
+       go.
+    }
+  }
+  { (* loop condition is false *)
+    go.
+    unfold lengthN in *.
+    ren_hyp ival nat.
+    assert (ival=length(transactions block))  by lia.
+    subst.
+    go.
+    
+
+   
+    
+       
+Require Import bedrock.auto.evartacs.
 Lemma prf: denoteModule module ** tvector_spec |-- exb_spec.
 Proof using.
   verify_spec'.
