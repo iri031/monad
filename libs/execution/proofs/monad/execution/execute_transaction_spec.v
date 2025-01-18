@@ -741,14 +741,13 @@ cpp.spec (fork_task_nameg "monad::compute_senders(const monad::Block&, monad::fi
 
     (* TODO: move out of section *)
     Ltac aggregateRepPieces base :=
-      repeat rewrite <- _at_offsetR;
+      repeat rewrite <- (_at_offsetR base);
       repeat (IPM.perm_left ltac:(fun L n =>
                             lazymatch L with
                             | base |-> _ => iRevert n
                             end
         ));
       repeat rewrite bi.wand_curry;
-      repeat rewrite <- _at_offsetR;
       repeat rewrite <- _at_sep;
       match goal with
         [ |-environments.envs_entails _ (base |-> ?R -* _)] =>
@@ -905,7 +904,8 @@ Proof using. Admitted.
     rewrite _offsetR_sub_0; try assumption.
     iSplit; work.
   Qed.
-    
+
+  Import linearity.
 Lemma prf: denoteModule module
              ** tvector_spec
              ** reset_promises
@@ -921,11 +921,18 @@ Proof using.
   Transparent VectorR.
   unfold BlockR, VectorR.
   slauto.
+  rename v into vectorbase.
+
   iExists prIds. (* why does the array learning hint not work? *)
   go.
   iExists _.
   (* TODO: below, we need more: everything in taskPre needs to be returned back, e.g. transaction ownership (both VectorRbase and the array item at base). promiseproducerR is returned back via set_value *)
-  iExists  (fun i t => _global "monad::senders"  |-> .[ "std::optional<evmc::address>" ! i ] |-> optionAddressR 1 (Some (sender t)) ).
+  iExists  (fun i t => (_global "monad::senders"  |-> .[ "std::optional<evmc::address>" ! i ] |-> optionAddressR 1 (Some (sender t)))
+  ** (vectorbase .[ "monad::Transaction" ! i ] |-> TransactionR qb t)
+  ** (blockp ,, o_field CU "monad::Block::transactions"
+        |-> VectorRbase "monad::Transaction" (qb * / N_to_Qp (1 + lengthN (transactions block))) vectorbase (lengthN (transactions block)))
+           ).
+  
   eagerUnifyU. go.
   go.
   repeat rewrite _at_big_sepL.
@@ -945,7 +952,6 @@ Proof using.
                         end
                      ).
   rewrite (generalize_arrayR_loopinv ival (_global "monad::senders")); [| assumption].
-  rename v into vectorbase.
   rewrite (generalize_arrayR_loopinv ival vectorbase); [| assumption].
   rewrite (@vectorbase_loopinv _ _ _ _ _ ival); auto.
   IPM.perm_left ltac:(fun L n =>
@@ -1038,6 +1044,7 @@ Proof using.
     Hint Rewrite @drop_all: syntactic.
     autorewrite with syntactic.
     repeat rewrite arrayR_nil.
+    repeat rewrite parrayR_nil.
     go.
 
   }
