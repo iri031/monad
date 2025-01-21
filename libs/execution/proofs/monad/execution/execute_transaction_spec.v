@@ -906,6 +906,90 @@ Proof using. Admitted.
   Qed.
 
   Import linearity.
+
+  Lemma arrayR_cell {X} ty (R:X->Rep) xs i x iZ :
+    iZ = Z.of_nat i →	(** Ease [eapply] *)
+    xs !! i = Some x →	(** We have an [i]th element *)
+    arrayR ty R xs -|-
+           arrayR ty R (take i xs) **
+           _sub ty iZ |-> type_ptrR ty **
+           _sub ty iZ |-> R x **
+           _sub ty (iZ + 1) |-> arrayR ty R (drop (S i) xs).
+  Proof.
+    intros Hi Hl.
+    rewrite -{1}(take_drop_middle xs i _ Hl) arrayR_app arrayR_cons !_offsetR_sep.
+    f_equiv.
+    enough (length (take i xs) = i) as ->.
+    { subst. by rewrite _offsetR_sub_sub. }
+    { apply length_take_le.
+      apply lookup_lt_Some in Hl. lia. }
+  Qed.
+
+  Lemma parrayR_app {X} ty xs ys : forall (R:nat -> X->Rep),
+    parrayR ty R (xs ++ ys) -|- parrayR ty R xs ** .[ ty ! length xs ] |-> parrayR ty (fun ii => R (length xs +ii)) ys.
+  Proof.
+    induction xs => /=.
+    { unfold parrayR. intros.
+      apply: (observe_both (is_Some _)) => Hsz.
+      simpl.
+      change (Z.of_nat 0) with 0%Z.
+      repeat rewrite o_sub_0; auto.
+      repeat rewrite _offsetR_id.
+      iSplit; go. admit.
+      (*
+  _ : .[ ty ! Z.of_nat (length ys) ] |-> validR
+  --------------------------------------□
+  validR
+*)
+    }
+    { intros. repeat rewrite parrayR_cons.
+      by rewrite IHxs !_offsetR_sep !_offsetR_succ_sub Nat2Z.inj_succ -!assoc.
+    }
+  Admitted.
+  
+  Lemma parrayR_cell i {X} ty (R:nat -> X->Rep) xs x iZ :
+    iZ = Z.of_nat i →	(** Ease [eapply] *)
+    xs !! i = Some x →	(** We have an [i]th element *)
+    parrayR ty R xs -|-
+           parrayR ty R (take i xs) **
+           _sub ty iZ |-> type_ptrR ty **
+           _sub ty iZ |-> R i x **
+           _sub ty (iZ + 1) |-> parrayR ty (fun ii => R (S i+ii)) (drop (S i) xs).
+  Proof.
+    intros Hi Hl.
+    rewrite -{1}(take_drop_middle xs i _ Hl) parrayR_app parrayR_cons !_offsetR_sep.
+    f_equiv.
+    enough (length (take i xs) = i) as ->.
+    { subst. repeat setoid_rewrite _offsetR_sub_sub.
+      replace (i+0) with i by lia.
+      replace (Z.of_nat i + 0)%Z with (Z.of_nat i) by lia.
+      repeat setoid_rewrite Nat.add_succ_r.
+      iSplit; go.
+    }
+    { apply length_take_le.
+      apply lookup_lt_Some in Hl. lia. }
+  Qed.
+
+  Lemma parrayR_cell2 i {X} ty (R:nat -> X->Rep) xs:
+    (Z.of_nat i < Z.of_nat (length xs))%Z ->
+          exists x, 
+            xs !! i = Some x /\	(** We have an [i]th element *)
+    (parrayR ty R xs -|-
+           parrayR ty R (take i xs) **
+           _sub ty (Z.of_nat i) |-> type_ptrR ty **
+           _sub ty (Z.of_nat i) |-> R i x **
+           _sub ty ((Z.of_nat i) + 1) |-> parrayR ty (fun ii => R (S i+ii)) (drop (S i) xs)).
+  Proof using.
+    intros.
+    assert (i<length xs) as Hex by lia.
+    applyToSomeHyp @lookup_lt_is_Some_2.
+    hnf in autogenhyp.
+    forward_reason.
+    subst.
+    eexists; split; eauto.
+    apply parrayR_cell; auto.
+  Qed.
+  
 Lemma prf: denoteModule module
              ** tvector_spec
              ** reset_promises
@@ -1064,9 +1148,22 @@ Proof using.
     wp_if.
     { (* loop continues *)
       slauto.
-    Search bi_exist.
-    iExists 0%nat.
-    wassert.
+      autorewrite with syntactic in *.
+      eapplyToSomeHyp @parrayR_cell2.
+      forward_reason.
+      rewrite -> autogenhypr.
+      go.
+  
+
+  match goal with
+    H: _ |- _ => rename H into Hl
+  end.
+
+   eapply  (@parrayR_cell2 ival) in Hl.
+    repnd.
+          
+
+      rewrite -> (parrayR_cell ival).
 
 
   }
