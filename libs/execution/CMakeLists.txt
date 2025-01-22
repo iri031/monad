@@ -69,6 +69,13 @@ add_library(
   "src/monad/core/transaction.hpp"
   "src/monad/core/variant.hpp"
   "src/monad/core/withdrawal.hpp"
+  # emitter
+  "src/monad/emitter/block_emitter.hpp"
+  "src/monad/emitter/replay_emitter.cpp"
+  "src/monad/emitter/replay_emitter.hpp"
+  "src/monad/emitter/wal_action.h"
+  "src/monad/emitter/wal_emitter.cpp"
+  "src/monad/emitter/wal_emitter.hpp"
   # db
   "src/monad/db/block_db.cpp"
   "src/monad/db/block_db.hpp"
