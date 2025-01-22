@@ -1045,6 +1045,84 @@ Proof using. Admitted.
     go.
   Qed.
 
+  Lemma arrLearn2 (p:ptr) {T} ltr (R: T -> Rep) (ty:type):
+    p |-> arrayR ty R ltr
+   |-- valid_ptr p ** (valid_ptr (p .[ ty ! length ltr ])) ** [| is_Some (size_of CU ty) |] **
+   ( □ ([∗ list] k↦_ ∈ ltr, (type_ptr ty (p .[ ty ! k ])))) **
+   p |-> arrayR ty R ltr.
+  Proof using.
+    iIntrosDestructs.
+    rewrite arrDecompose.
+    go.
+    destruct ltr.
+    - go. autorewrite with syntactic. go.
+    -  simpl. autorewrite with syntactic. go.
+  Qed.
+
+  Lemma parrDecompose {T} (p:ptr) ltr (R: nat -> T -> Rep) (ty:type):
+    p |-> parrayR ty R ltr
+   -|- (valid_ptr (p .[ ty ! length ltr ])) ** [| is_Some (size_of CU ty) |] **
+     ( □ ([∗ list] k↦_ ∈ ltr, (type_ptr ty (p .[ ty ! k ])))) ∗
+      ([∗ list] k↦t ∈ ltr, p .[ ty ! k ] |-> R k t).
+  Proof using.
+    unfold parrayR.
+    repeat rewrite length_fmap.
+    repeat rewrite big_opL_fmap.
+    iSplit; go.
+    {
+      setoid_rewrite _offsetR_sep.
+      rewrite big_sepL_sep.
+      go.
+      repeat rewrite _at_big_sepL.
+      setoid_rewrite _at_offsetR.
+      go.
+      iClear "#".
+      iStopProof.
+      f_equiv.
+      go.
+    }
+    {
+      setoid_rewrite _offsetR_sep.
+      rewrite big_sepL_sep.
+      go.
+      repeat rewrite _at_big_sepL.
+      setoid_rewrite _at_offsetR.
+      go.
+       hideLhs.
+       rewrite big_sepL_proper; try go.
+       2:{ intros. iSplit. 2:{go.  evartacs.maximallyInstantiateLhsEvar.}  go. }
+       simpl.
+       unhideAllFromWork.
+       go.
+    }
+  Qed.
+
+  Lemma parrLearn (p:ptr) {T} ltr (R: nat -> T -> Rep) (ty:type):
+    p |-> parrayR ty R ltr
+   |-- (valid_ptr (p .[ ty ! length ltr ])) ** [| is_Some (size_of CU ty) |] **
+   ( □ ([∗ list] k↦_ ∈ ltr, (type_ptr ty (p .[ ty ! k ])))) **
+   p |-> parrayR ty R ltr.
+  Proof using.
+    iIntrosDestructs.
+    rewrite parrDecompose.
+    go.
+  Qed.
+
+  Lemma parrLearn2 (p:ptr) {T} ltr (R: nat -> T -> Rep) (ty:type):
+    p |-> parrayR ty R ltr
+   |-- valid_ptr p ** (valid_ptr (p .[ ty ! length ltr ])) ** [| is_Some (size_of CU ty) |] **
+   ( □ ([∗ list] k↦_ ∈ ltr, (type_ptr ty (p .[ ty ! k ])))) **
+   p |-> parrayR ty R ltr.
+  Proof using.
+    iIntrosDestructs.
+    rewrite parrDecompose.
+    go.
+    destruct ltr.
+    - go. autorewrite with syntactic. go.
+    -  simpl. autorewrite with syntactic. go.
+  Qed.
+  
+
   Ltac hideP fullyHiddenPostcond :=
       IPM.perm_left ltac:(fun L n =>
                         match L with
@@ -1061,20 +1139,21 @@ Lemma prf: denoteModule module
              ** wait_for_promise
              ** set_value
              |-- compute_senders.
-Proof using.
+Proof using MODd.
   verify_spec'.
   name_locals.
-  Transparent VectorR.
-  unfold BlockR, VectorR.
-  slauto.
-  rename v into vectorbase.
-  slauto.
   hideRhs.
   hideP ff.
-  rewrite (arrLearn vectorbase).
-  rewrite (arrLearn (_global "monad::senders")).
+  
+  Transparent VectorR.
+  unfold BlockR, VectorR.
+  work.
+  rename v into vectorbase. (* Fix *)
+  rewrite (arrLearn2 vectorbase).
+  rewrite (arrLearn2 (_global "monad::senders")).
+  rewrite parrLearn2.
   unhideAllFromWork.
-  go.
+  slauto.
     iExists  (fun i t => (_global "monad::senders"  .[ "std::optional<evmc::address>" ! i ] |-> optionAddressR 1 (Some (sender t)))
   ** (vectorbase .[ "monad::Transaction" ! i ] |-> TransactionR qb t)
   ** (blockp ,, o_field CU "monad::Block::transactions"
@@ -1206,7 +1285,6 @@ Proof using.
     rewrite <- (bi.exist_intro 0%nat).
     slauto.
     rewrite parrayR_nil. go.
-    iAssert ( valid_ptr (_global "monad::promises")) as "#?";[ admit|].
     autorewrite with syntactic.
     slauto.
     ren_hyp ival nat. 
@@ -1265,7 +1343,6 @@ Proof using.
       repeat rewrite parrayR_nil. go.
       repeat rewrite big_sepL_sep.
       go.
-      Search VectorRbase.
       hideLhs.
       setoid_rewrite -> vectorbase_loopinv with (i:=0); try reflexivity.
       unhideAllFromWork.
@@ -1276,9 +1353,9 @@ Proof using.
       go.
     }
   }
-Abort.
+Qed.
        
-Require Import bedrock.auto.evartacs.
+
 Lemma prf: denoteModule module ** tvector_spec |-- exb_spec.
 Proof using.
   verify_spec'.
@@ -1491,6 +1568,10 @@ Module Generalized2.
 End Generalized2.
 (* demo:
 - int sum(int x, int y)
-- double(int & x, int &res)
-- gcd
+- double(int & x, int & res) : show ocode using double in parallel
+- uint64 gcd(uint64 x, uint64 y)
+- struct Point. void double(Point & x)
 - llist::rev: spec, why trust gallina rev: show lemmas
+
+- forkTask
+*)
