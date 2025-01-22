@@ -35,7 +35,7 @@ TEST(BlockReward, apply_block_reward)
         tdb.commit(
             StateDeltas{{a, StateDelta{.account = {std::nullopt, Account{}}}}},
             Code{},
-            BlockHeader{});
+            MonadConsensusBlockHeader{});
 
         BlockState bs{tdb};
         State as{bs, Incarnation{1, 1}};

@@ -151,13 +151,15 @@ std::shared_ptr<CodeAnalysis> TrieDb::read_code(bytes32_t const &code_hash)
 
 void TrieDb::commit(
     StateDeltas const &state_deltas, Code const &code,
-    BlockHeader const &header, std::vector<Receipt> const &receipts,
+    MonadConsensusBlockHeader const &consensus_header,
+    std::vector<Receipt> const &receipts,
     std::vector<std::vector<CallFrame>> const &call_frames,
     std::vector<Transaction> const &transactions,
     std::vector<BlockHeader> const &ommers,
     std::optional<std::vector<Withdrawal>> const &withdrawals,
     std::optional<uint64_t> const round_number)
 {
+    auto &header = consensus_header.execution_inputs;
     MONAD_ASSERT(header.number <= std::numeric_limits<int64_t>::max());
 
     auto const parent_hash = [&]() {

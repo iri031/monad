@@ -3,6 +3,7 @@
 #include <monad/config.hpp>
 #include <monad/core/address.hpp>
 #include <monad/core/keccak.hpp>
+#include <monad/core/monad_block.hpp>
 #include <monad/db/trie_db.hpp>
 #include <monad/test/config.hpp>
 
@@ -151,7 +152,7 @@ inline void load_db(TrieDb &db, uint64_t const n)
             {D_CODE_HASH, D_CODE_ANALYSIS},
             {E_CODE_HASH, E_CODE_ANALYSIS},
             {H_CODE_HASH, H_CODE_ANALYSIS}},
-        BlockHeader{.number = n}); // commit to block n, finalized
+        MonadConsensusBlockHeader::from_eth_header(BlockHeader{.number = n})); // commit to block n, finalized
 }
 
 MONAD_TEST_NAMESPACE_END

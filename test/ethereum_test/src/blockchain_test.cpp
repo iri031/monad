@@ -80,7 +80,7 @@ Result<std::vector<Receipt>> BlockchainTest::execute(
 
     block_state.log_debug();
     block_state.commit(
-        block.header,
+        MonadConsensusBlockHeader::from_eth_header(block.header),
         receipts,
         call_frames,
         block.transactions,
@@ -229,7 +229,7 @@ void BlockchainTest::TestBody()
             load_state_from_json(j_contents.at("pre"), state);
             bs.merge(state);
             bs.commit(
-                header,
+                MonadConsensusBlockHeader::from_eth_header(header),
                 {} /* receipts */,
                 {} /* call frames */,
                 {} /* transactions */,

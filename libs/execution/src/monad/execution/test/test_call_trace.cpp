@@ -111,7 +111,7 @@ TEST(CallTrace, execute_success)
                      {std::nullopt,
                       Account{.balance = 0, .code_hash = NULL_HASH}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     BlockState bs{tdb};
     Incarnation const incarnation{0, 0};
@@ -177,7 +177,7 @@ TEST(CallTrace, execute_reverted_insufficient_balance)
                      {std::nullopt,
                       Account{.balance = 0, .code_hash = NULL_HASH}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     BlockState bs{tdb};
     Incarnation const incarnation{0, 0};

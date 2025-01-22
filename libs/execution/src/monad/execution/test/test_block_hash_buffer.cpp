@@ -2,6 +2,7 @@
 #include <monad/core/block.hpp>
 #include <monad/core/bytes.hpp>
 #include <monad/core/keccak.hpp>
+#include <monad/core/monad_block.hpp>
 #include <monad/core/rlp/block_rlp.hpp>
 #include <monad/db/trie_db.hpp>
 #include <monad/db/util.hpp>
@@ -188,8 +189,16 @@ TEST(BlockHashBufferTest, init_from_db)
 
     BlockHashBufferFinalized expected;
     for (uint64_t i = 0; i < 256; ++i) {
-        BlockHeader const hdr{.number = i};
-        tdb.commit({}, {}, hdr, {}, {}, {}, {}, std::nullopt);
+        tdb.commit(
+            {},
+            {},
+            MonadConsensusBlockHeader::from_eth_header(
+                BlockHeader{.number = i}),
+            {},
+            {},
+            {},
+            {},
+            std::nullopt);
         expected.set(
             i,
             to_bytes(

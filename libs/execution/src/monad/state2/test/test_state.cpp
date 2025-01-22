@@ -1,6 +1,7 @@
 #include <monad/core/account.hpp>
 #include <monad/core/byte_string.hpp>
 #include <monad/core/bytes.hpp>
+#include <monad/core/monad_block.hpp>
 #include <monad/db/trie_db.hpp>
 #include <monad/db/util.hpp>
 #include <monad/execution/code_analysis.hpp>
@@ -86,7 +87,7 @@ TYPED_TEST(StateTest, access_account)
              StateDelta{
                  .account = {std::nullopt, Account{.balance = 10'000}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
 
@@ -105,7 +106,7 @@ TYPED_TEST(StateTest, account_exists)
              StateDelta{
                  .account = {std::nullopt, Account{.balance = 10'000}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
 
@@ -136,7 +137,7 @@ TYPED_TEST(StateTest, get_balance)
              StateDelta{
                  .account = {std::nullopt, Account{.balance = 10'000}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
 
@@ -152,7 +153,7 @@ TYPED_TEST(StateTest, add_to_balance)
         StateDeltas{
             {a, StateDelta{.account = {std::nullopt, Account{.balance = 1}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
     s.add_to_balance(a, 10'000);
@@ -169,7 +170,7 @@ TYPED_TEST(StateTest, get_nonce)
         StateDeltas{
             {a, StateDelta{.account = {std::nullopt, Account{.nonce = 2}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
 
@@ -197,7 +198,7 @@ TYPED_TEST(StateTest, get_code_hash)
              StateDelta{
                  .account = {std::nullopt, Account{.code_hash = hash1}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
 
@@ -228,7 +229,7 @@ TYPED_TEST(StateTest, selfdestruct)
              StateDelta{
                  .account = {std::nullopt, Account{.balance = 38'000}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
     s.create_contract(b);
@@ -269,7 +270,7 @@ TYPED_TEST(StateTest, selfdestruct_cancun_separate_tx)
                           .balance = 38'000,
                           .incarnation = Incarnation{1, 1}}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 2}};
 
@@ -302,7 +303,7 @@ TYPED_TEST(StateTest, selfdestruct_cancun_same_tx)
                           .balance = 38'000,
                           .incarnation = Incarnation{1, 1}}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
 
@@ -324,7 +325,7 @@ TYPED_TEST(StateTest, selfdestruct_self_separate_tx)
              StateDelta{
                  .account = {std::nullopt, Account{.balance = 18'000}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     {
         // Pre-cancun behavior
@@ -361,7 +362,7 @@ TYPED_TEST(StateTest, selfdestruct_self_same_tx)
                           .balance = 18'000,
                           .incarnation = Incarnation{1, 1}}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     auto run = [&]<evmc_revision rev>() {
         State s{bs, Incarnation{1, 1}};
@@ -387,7 +388,7 @@ TYPED_TEST(StateTest, selfdestruct_merge_incarnation)
                  .account = {std::nullopt, Account{.balance = 18'000}},
                  .storage = {{key1, {bytes32_t{}, value1}}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
     {
         State s1{bs, Incarnation{1, 1}};
 
@@ -415,7 +416,7 @@ TYPED_TEST(StateTest, selfdestruct_merge_create_incarnation)
                  .account = {std::nullopt, Account{.balance = 18'000}},
                  .storage = {{key1, {bytes32_t{}, value1}}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
     {
         State s1{bs, Incarnation{1, 1}};
 
@@ -458,7 +459,7 @@ TYPED_TEST(StateTest, selfdestruct_merge_commit_incarnation)
                  .account = {std::nullopt, Account{.balance = 18'000}},
                  .storage = {{key1, {bytes32_t{}, value1}}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
     {
         State s1{bs, Incarnation{1, 1}};
 
@@ -492,7 +493,7 @@ TYPED_TEST(StateTest, selfdestruct_merge_create_commit_incarnation)
                      {{key1, {bytes32_t{}, value2}},
                       {key3, {bytes32_t{}, value3}}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
     {
         State s1{bs, Incarnation{1, 1}};
 
@@ -563,7 +564,7 @@ TYPED_TEST(StateTest, create_conflict_address_incarnation)
                  .account = {std::nullopt, Account{.balance = 18'000}},
                  .storage = {{key1, {bytes32_t{}, value1}}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s1{bs, Incarnation{1, 1}};
 
@@ -583,7 +584,7 @@ TYPED_TEST(StateTest, destruct_touched_dead)
              StateDelta{.account = {std::nullopt, Account{.balance = 10'000}}}},
             {b, StateDelta{.account = {std::nullopt, Account{}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
     EXPECT_TRUE(s.account_exists(a));
@@ -649,7 +650,7 @@ TYPED_TEST(StateTest, get_storage)
                  .account = {std::nullopt, Account{}},
                  .storage = {{key1, {bytes32_t{}, value1}}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
     EXPECT_TRUE(s.account_exists(a));
@@ -673,7 +674,7 @@ TYPED_TEST(StateTest, set_storage_modified)
                  .storage = {{key2, {bytes32_t{}, value2}}}}},
             {b, StateDelta{.account = {std::nullopt, Account{}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
     EXPECT_TRUE(s.account_exists(a));
@@ -692,7 +693,7 @@ TYPED_TEST(StateTest, set_storage_deleted)
                  .account = {std::nullopt, Account{}},
                  .storage = {{key1, {bytes32_t{}, value1}}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
     EXPECT_TRUE(s.account_exists(b));
@@ -710,7 +711,7 @@ TYPED_TEST(StateTest, set_storage_added)
     this->tdb.commit(
         StateDeltas{{b, StateDelta{.account = {std::nullopt, Account{}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
     EXPECT_TRUE(s.account_exists(b));
@@ -733,7 +734,7 @@ TYPED_TEST(StateTest, set_storage_different_assigned)
                  .storage = {{key2, {bytes32_t{}, value2}}}}},
             {b, StateDelta{.account = {std::nullopt, Account{}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
     EXPECT_TRUE(s.account_exists(a));
@@ -754,7 +755,7 @@ TYPED_TEST(StateTest, set_storage_unchanged_assigned)
                  .storage = {{key2, {bytes32_t{}, value2}}}}},
             {b, StateDelta{.account = {std::nullopt, Account{}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
     EXPECT_TRUE(s.account_exists(a));
@@ -768,7 +769,7 @@ TYPED_TEST(StateTest, set_storage_added_deleted)
     this->tdb.commit(
         StateDeltas{{b, StateDelta{.account = {std::nullopt, Account{}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
     EXPECT_TRUE(s.account_exists(b));
@@ -784,7 +785,7 @@ TYPED_TEST(StateTest, set_storage_added_deleted_null)
     this->tdb.commit(
         StateDeltas{{b, StateDelta{.account = {std::nullopt, Account{}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
     EXPECT_TRUE(s.account_exists(b));
@@ -804,7 +805,7 @@ TYPED_TEST(StateTest, set_storage_modify_delete)
                  .account = {std::nullopt, Account{}},
                  .storage = {{key2, {bytes32_t{}, value2}}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
     EXPECT_TRUE(s.account_exists(b));
@@ -824,7 +825,7 @@ TYPED_TEST(StateTest, set_storage_delete_restored)
                  .account = {std::nullopt, Account{}},
                  .storage = {{key2, {bytes32_t{}, value2}}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
     EXPECT_TRUE(s.account_exists(b));
@@ -844,7 +845,7 @@ TYPED_TEST(StateTest, set_storage_modified_restored)
                  .account = {std::nullopt, Account{}},
                  .storage = {{key2, {bytes32_t{}, value2}}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
     EXPECT_TRUE(s.account_exists(b));
@@ -862,7 +863,7 @@ TYPED_TEST(StateTest, get_code_size)
     this->tdb.commit(
         StateDeltas{{a, StateDelta{.account = {std::nullopt, acct}}}},
         Code{{code_hash1, code_analysis1}},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
     EXPECT_EQ(s.get_code_size(a), code1.size());
@@ -879,7 +880,7 @@ TYPED_TEST(StateTest, copy_code)
             {a, StateDelta{.account = {std::nullopt, acct_a}}},
             {b, StateDelta{.account = {std::nullopt, acct_b}}}},
         Code{{code_hash1, code_analysis1}, {code_hash2, code_analysis2}},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     static constexpr unsigned size{8};
     uint8_t buffer[size];
@@ -931,7 +932,7 @@ TYPED_TEST(StateTest, get_code)
              StateDelta{
                  .account = {std::nullopt, Account{.code_hash = code_hash1}}}}},
         Code{{code_hash1, std::make_shared<CodeAnalysis>(analyze(contract))}},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State s{bs, Incarnation{1, 1}};
 
@@ -979,7 +980,7 @@ TYPED_TEST(StateTest, can_merge_same_account_different_storage)
                      {{key1, {bytes32_t{}, value1}},
                       {key2, {bytes32_t{}, value2}}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State as{bs, Incarnation{1, 1}};
     EXPECT_TRUE(as.account_exists(b));
@@ -1005,7 +1006,7 @@ TYPED_TEST(StateTest, cant_merge_colliding_storage)
                  .account = {std::nullopt, Account{.balance = 40'000}},
                  .storage = {{key1, {bytes32_t{}, value1}}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State as{bs, Incarnation{1, 1}};
     EXPECT_TRUE(as.account_exists(b));
@@ -1050,7 +1051,7 @@ TYPED_TEST(StateTest, merge_txn0_and_txn1)
                      {{key1, {bytes32_t{}, value1}},
                       {key2, {bytes32_t{}, value2}}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     State as{bs, Incarnation{1, 1}};
     EXPECT_TRUE(as.account_exists(b));
@@ -1126,7 +1127,7 @@ TYPED_TEST(StateTest, commit_twice)
                      {{key1, {bytes32_t{}, value1}},
                       {key2, {bytes32_t{}, value2}}}}}},
         Code{},
-        BlockHeader{.number = 9});
+        MonadConsensusBlockHeader::from_eth_header(BlockHeader{.number = 9}));
 
     { // Commit to Block 10 Round 5, on top of block 9 finalized
         this->tdb.set_block_and_round(9);
@@ -1141,7 +1142,15 @@ TYPED_TEST(StateTest, commit_twice)
             as.set_storage(b, key2, value2), EVMC_STORAGE_DELETED_RESTORED);
         EXPECT_TRUE(bs.can_merge(as));
         bs.merge(as);
-        bs.commit({.number = 10}, {}, {}, {}, {}, std::nullopt, 5);
+        bs.commit(
+            MonadConsensusBlockHeader::from_eth_header(
+                BlockHeader{.number = 10}),
+            {},
+            {},
+            {},
+            {},
+            std::nullopt,
+            5);
         this->tdb.finalize(10, 5);
 
         EXPECT_EQ(this->tdb.read_storage(b, Incarnation{1, 1}, key1), value2);
@@ -1159,7 +1168,15 @@ TYPED_TEST(StateTest, commit_twice)
         cs.destruct_suicides<EVMC_SHANGHAI>();
         EXPECT_TRUE(bs.can_merge(cs));
         bs.merge(cs);
-        bs.commit({.number = 11}, {}, {}, {}, {}, std::nullopt, 6);
+        bs.commit(
+            MonadConsensusBlockHeader::from_eth_header(
+                BlockHeader{.number = 11}),
+            {},
+            {},
+            {},
+            {},
+            std::nullopt,
+            6);
     }
     EXPECT_EQ(
         this->tdb.read_storage(c, Incarnation{2, 1}, key1), monad::bytes32_t{});
@@ -1199,7 +1216,7 @@ TEST_F(OnDiskTrieDbFixture, commit_multiple_proposals)
                      {{key1, {bytes32_t{}, value1}},
                       {key2, {bytes32_t{}, value2}}}}}},
         Code{},
-        BlockHeader{.number = 10},
+        MonadConsensusBlockHeader::from_eth_header(BlockHeader{.number = 10}),
         {},
         {},
         {},
@@ -1220,7 +1237,15 @@ TEST_F(OnDiskTrieDbFixture, commit_multiple_proposals)
         EXPECT_TRUE(bs.can_merge(as));
         bs.merge(as);
         // Commit block 11 round 8 on top of block 10 round 5
-        bs.commit({.number = 11}, {}, {}, {}, {}, std::nullopt, 8);
+        bs.commit(
+            MonadConsensusBlockHeader::from_eth_header(
+                BlockHeader{.number = 11}),
+            {},
+            {},
+            {},
+            {},
+            std::nullopt,
+            8);
 
         EXPECT_EQ(this->tdb.read_account(b).value().balance, 82'000);
         EXPECT_EQ(this->tdb.read_storage(b, Incarnation{1, 1}, key1), value2);
@@ -1242,7 +1267,15 @@ TEST_F(OnDiskTrieDbFixture, commit_multiple_proposals)
         EXPECT_TRUE(bs.can_merge(as));
         bs.merge(as);
         // Commit block 11 round 6 on top of block 10 round 5
-        bs.commit({.number = 11}, {}, {}, {}, {}, std::nullopt, 6);
+        bs.commit(
+            MonadConsensusBlockHeader::from_eth_header(
+                BlockHeader{.number = 11}),
+            {},
+            {},
+            {},
+            {},
+            std::nullopt,
+            6);
 
         EXPECT_EQ(this->tdb.read_account(b).value().balance, 84'000);
         EXPECT_EQ(
@@ -1267,7 +1300,15 @@ TEST_F(OnDiskTrieDbFixture, commit_multiple_proposals)
         EXPECT_TRUE(bs.can_merge(as));
         bs.merge(as);
         // Commit block 11 round 7 on top of block 10 round 5
-        bs.commit({.number = 11}, {}, {}, {}, {}, std::nullopt, 7);
+        bs.commit(
+            MonadConsensusBlockHeader::from_eth_header(
+                BlockHeader{.number = 11}),
+            {},
+            {},
+            {},
+            {},
+            std::nullopt,
+            7);
 
         EXPECT_EQ(this->tdb.read_account(b).value().balance, 72'000);
         EXPECT_EQ(this->tdb.read_storage(b, Incarnation{1, 1}, key1), value2);

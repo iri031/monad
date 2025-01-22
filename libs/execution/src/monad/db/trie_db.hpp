@@ -51,7 +51,7 @@ public:
     // TODO: remove round_number parameter, retrieve it from header instead once
     // we add the monad fields in BlockHeader
     virtual void commit(
-        StateDeltas const &, Code const &, BlockHeader const &,
+        StateDeltas const &, Code const &, MonadConsensusBlockHeader const &,
         std::vector<Receipt> const & = {},
         std::vector<std::vector<CallFrame>> const & = {},
         std::vector<Transaction> const & = {},

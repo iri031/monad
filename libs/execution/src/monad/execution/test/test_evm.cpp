@@ -48,7 +48,7 @@ TEST(Evm, create_with_insufficient)
                  .account =
                      {std::nullopt, Account{.balance = 10'000'000'000}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     evmc_message m{
         .kind = EVMC_CREATE,
@@ -92,7 +92,7 @@ TEST(Evm, eip684_existing_code)
              StateDelta{
                  .account = {std::nullopt, Account{.code_hash = code_hash}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     evmc_message m{
         .kind = EVMC_CREATE,
@@ -130,7 +130,7 @@ TEST(Evm, transfer_call_balances)
                      {std::nullopt,
                       Account{.balance = 10'000'000'000, .nonce = 7}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     evmc_message m{
         .kind = EVMC_CALL,
@@ -167,7 +167,7 @@ TEST(Evm, transfer_call_balances_to_self)
                      {std::nullopt,
                       Account{.balance = 10'000'000'000, .nonce = 7}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     evmc_message m{
         .kind = EVMC_CALL,
@@ -206,7 +206,7 @@ TEST(Evm, dont_transfer_on_delegatecall)
                      {std::nullopt,
                       Account{.balance = 10'000'000'000, .nonce = 6}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     evmc_message m{
         .kind = EVMC_DELEGATECALL,
@@ -246,7 +246,7 @@ TEST(Evm, dont_transfer_on_staticcall)
                      {std::nullopt,
                       Account{.balance = 10'000'000'000, .nonce = 6}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     evmc_message m{
         .kind = EVMC_CALL,
@@ -292,7 +292,7 @@ TEST(Evm, create_nonce_out_of_range)
                           .balance = 10'000'000'000,
                           .nonce = std::numeric_limits<uint64_t>::max()}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     evmc_message m{
         .kind = EVMC_CREATE,
@@ -333,7 +333,7 @@ TEST(Evm, static_precompile_execution)
              StateDelta{
                  .account = {std::nullopt, Account{.balance = 15'000}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     static constexpr char data[] = "hello world";
     static constexpr auto data_size = sizeof(data);
@@ -382,7 +382,7 @@ TEST(Evm, out_of_gas_static_precompile_execution)
              StateDelta{
                  .account = {std::nullopt, Account{.balance = 15'000}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
 
     static constexpr char data[] = "hello world";
     static constexpr auto data_size = sizeof(data);
@@ -412,7 +412,7 @@ TEST(Evm, deploy_contract_code)
     tdb.commit(
         StateDeltas{{a, StateDelta{.account = {std::nullopt, Account{}}}}},
         Code{},
-        BlockHeader{});
+        MonadConsensusBlockHeader{});
     BlockState bs{tdb};
 
     // Frontier

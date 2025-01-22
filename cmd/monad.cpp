@@ -163,8 +163,10 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
         }
 
         block_state.log_debug();
+        MonadConsensusBlockHeader consensus_header;
+        consensus_header.execution_inputs = block.header;
         block_state.commit(
-            block.header,
+            consensus_header,
             receipts,
             call_frames,
             block.transactions,
