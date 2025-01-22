@@ -540,7 +540,6 @@ public:
 
     // collect and print trie update stats
     void reset_stats();
-    void collect_expire_stats(bool is_read);
     void collect_number_nodes_created_stats();
     void collect_compaction_read_stats(
         chunk_offset_t node_offset, unsigned bytes_to_read);

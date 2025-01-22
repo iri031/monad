@@ -1435,22 +1435,14 @@ uint32_t UpdateAuxImpl::num_chunks(chunk_list const list) const noexcept
 void UpdateAuxImpl::print_update_stats(uint64_t const version)
 {
 #if MONAD_MPT_COLLECT_STATS
-    if (stats.nodes_updated_expire > 50'000) {
-        LOG_WARNING_CFORMAT(
-            "The number of nodes updated for expire (%u) is excessively large",
-            stats.nodes_updated_expire);
-    }
     char buf[16 << 10];
     char *p = buf;
     p += snprintf(
         p,
         sizeof(buf) - unsigned(p - buf),
-        "Version %lu: nodes created or updated for upsert = %u, nodes "
-        "updated for expire = %u, nreads for expire = %u\n",
+        "Version %lu: nodes created or updated for upsert = %u\n",
         version,
-        stats.nodes_created_or_updated,
-        stats.nodes_updated_expire,
-        stats.nreads_expire);
+        stats.nodes_created_or_updated);
     if (compact_offset_range_fast_) {
         p += snprintf(
             p,
@@ -1626,20 +1618,6 @@ void UpdateAuxImpl::collect_compaction_read_stats(
 #else
     (void)physical_node_offset;
     (void)bytes_to_read;
-#endif
-}
-
-void UpdateAuxImpl::collect_expire_stats(bool const is_read)
-{
-#if MONAD_MPT_COLLECT_STATS
-    if (is_read) {
-        ++stats.nreads_expire;
-    }
-    else {
-        ++stats.nodes_updated_expire;
-    }
-#else
-    (void)is_read;
 #endif
 }
 
