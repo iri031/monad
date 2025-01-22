@@ -991,7 +991,66 @@ Proof using. Admitted.
             \arg{promise} "promise" (Vref promise)
             \pre{(P:mpred) (g:gname)} promise |-> PromiseConsumerR g P
             \post P ** promise |-> PromiseUnusableR).
-  
+
+  Search arrayR equiv.
+  Lemma arrDecompose {T} (p:ptr) ltr (R: T -> Rep) (ty:type):
+    p |-> arrayR ty R ltr
+   -|- (valid_ptr (p .[ ty ! length ltr ])) ** [| is_Some (size_of CU ty) |] **
+     ( □ ([∗ list] k↦_ ∈ ltr, (type_ptr ty (p .[ ty ! k ])))) ∗
+      ([∗ list] k↦t ∈ ltr, p .[ ty ! k ] |-> R t).
+  Proof using.
+    rewrite arrayR_eq.
+    unfold arrayR_def.
+    rewrite arrR_eq.
+    unfold arrR_def.
+    repeat rewrite length_fmap.
+    repeat rewrite big_opL_fmap.
+    iSplit; go.
+    {
+      setoid_rewrite _offsetR_sep.
+      rewrite big_sepL_sep.
+      go.
+      repeat rewrite _at_big_sepL.
+      setoid_rewrite _at_offsetR.
+      go.
+      iClear "#".
+      iStopProof.
+      f_equiv.
+      go.
+    }
+    {
+      setoid_rewrite _offsetR_sep.
+      rewrite big_sepL_sep.
+      go.
+      repeat rewrite _at_big_sepL.
+      setoid_rewrite _at_offsetR.
+      go.
+       hideLhs.
+       rewrite big_sepL_proper; try go.
+       2:{ intros. iSplit. 2:{go.  evartacs.maximallyInstantiateLhsEvar.}  go. }
+       simpl.
+       unhideAllFromWork.
+       go.
+    }
+  Qed.
+
+  Lemma arrLearn (p:ptr) {T} ltr (R: T -> Rep) (ty:type):
+    p |-> arrayR ty R ltr
+   |-- (valid_ptr (p .[ ty ! length ltr ])) ** [| is_Some (size_of CU ty) |] **
+   ( □ ([∗ list] k↦_ ∈ ltr, (type_ptr ty (p .[ ty ! k ])))) **
+   p |-> arrayR ty R ltr.
+  Proof using.
+    iIntrosDestructs.
+    rewrite arrDecompose.
+    go.
+  Qed.
+
+  Ltac hideP fullyHiddenPostcond :=
+      IPM.perm_left ltac:(fun L n =>
+                        match L with
+                        | HiddenPostCondition => hideFromWorkAs L fullyHiddenPostcond
+                        end
+                     ).
 Lemma prf: denoteModule module
              ** tvector_spec
              ** reset_promises
@@ -1010,7 +1069,13 @@ Proof using.
   slauto.
   rename v into vectorbase.
   slauto.
-    iExists  (fun i t => (_global "monad::senders"  |-> .[ "std::optional<evmc::address>" ! i ] |-> optionAddressR 1 (Some (sender t)))
+  hideRhs.
+  hideP ff.
+  rewrite (arrLearn vectorbase).
+  rewrite (arrLearn (_global "monad::senders")).
+  unhideAllFromWork.
+  go.
+    iExists  (fun i t => (_global "monad::senders"  .[ "std::optional<evmc::address>" ! i ] |-> optionAddressR 1 (Some (sender t)))
   ** (vectorbase .[ "monad::Transaction" ! i ] |-> TransactionR qb t)
   ** (blockp ,, o_field CU "monad::Block::transactions"
         |-> VectorRbase "monad::Transaction" (qb * / N_to_Qp (1 + lengthN (transactions block))) vectorbase (lengthN (transactions block)))
@@ -1206,108 +1271,10 @@ Proof using.
       unhideAllFromWork.
       go.
       rewrite _at_big_sepL.
-      Hint Rewrite @length_fmap: syntactic.
-  Lemma prove_arrayR {X} ty (R:X->Rep) xs (p:ptr):
-    p|-> (type_ptrR ty ** (.[ty!length xs] |-> validR) ** [∗ list] k↦y ∈ xs, .[ ty ! Z.of_nat k ] |-> R y) |--  p |-> arrayR ty R xs.
-  Proof using.
-    intros.
-    rewrite arrayR_eq.
-    unfold arrayR_def.
-    rewrite arrR_eq.
-    unfold arrR_def.
-    go.
-    repeat rewrite big_opL_fmap.
-    go.
-    autorewrite with syntactic.
-    go.
-    repeat rewrite _at_big_sepL.
-    wapply big_sepL_wand.
-    eagerUnifyU.
-    go.
-    iSplitFrameL.
-    2:{
-      go. eagerUnifyU.
-      evartacs.maximallyInstantiateLhsEvar_nonpers.
+      go.
+      repeat rewrite arrDecompose.
+      go.
     }
-    go.
-    Search          valid_ptr o_sub.
-    Search type_ptr_sub.
-    Search big_opL ( _).
-    iStopProof.
-    inducti
-
-    Set Printing Parentheses.
-    Search big_opL bi_forall length.
-    Search big_opL (_ -* _).
-    induction xs; auto.
-    simpl in *.
-    go.
-Lemma cancel_at `{xx: cpp_logic} (p:ptr) (R1 R2 : Rep) :
-  (R1 |-- R2) -> (p |-> R1 |-- p |-> R2).
-Proof using.
-  apply _at_mono.
-Qed.
-Lemma cancel_at2 `{xx: cpp_logic} (p:ptr) (R1 R2 : Rep) :
-   (p|->(R1 -* R2) ** p |-> R1 |-- p |-> R2).
-Proof using.
-  apply _at_mono.
-Qed.
-
-icancel cancel_at;[| go].
-f_equiv.
-hnf.
-f_Equiv.
-
-    repeat rewrite _at_big_sepL.
-    go.
-    rewrite big_sepL_sep.
-    go.
-    
-    
-    auto
-    rewrite fmap_
-    
-    
-    assert (i<length xs) as Hex by lia.
-    applyToSomeHyp @lookup_lt_is_Some_2.
-    hnf in autogenhyp.
-    forward_reason.
-    subst.
-    eexists; split; eauto.
-    apply parrayR_cell; auto.
-  Qed.
-      
-Lemma arraR_equiv:       
-      Search arrayR equiv.
-      go.
-      rewrite arrayR_eq.
-      unfold arrayR_def.
-      rewrite arrR_eq.
-      unfold arrR_def.
-      go.
-      autorewrite with syntactic.
-      go.
-      repeat rewrite big_opL_fmap.
-      go.
-      
-      Search "<$>" length.
-      rewrite fmap_length.
-      Search arrayR big_opL.
-      
-      rewrite _at
-      go.
-      unfold lengthN
-      combineLstarLHS l
-      Search big_opL bi_sep.
-      
-
-      setoid_rewrite -> vectorbase_loopinv.
-      Search VectorRbase.
-      rewrite Vecto
-    }
-    
-      
-
   }
 Abort.
        
@@ -1522,3 +1489,8 @@ Module Generalized2.
     }.
     
 End Generalized2.
+(* demo:
+- int sum(int x, int y)
+- double(int & x, int &res)
+- gcd
+- llist::rev: spec, why trust gallina rev: show lemmas
