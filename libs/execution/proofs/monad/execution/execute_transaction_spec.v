@@ -137,10 +137,10 @@ Section with_Sigma.
   Definition PromiseR (g: gname) (P: mpred) : Rep. Proof. Admitted.
   Definition PromiseProducerR (g: gname) (P: mpred) : Rep. Proof. Admitted.
   Definition PromiseConsumerR (g: gname) (P: mpred) : Rep. Proof. Admitted.
+  Definition PromiseUnusableR: Rep. Proof. Admitted.
 
   Lemma sharePromise g P:  PromiseR g P -|- PromiseProducerR g P **  PromiseConsumerR g P.
   Proof. Admitted.
-    
    
   (* defines how [c] is represented in memory as an object of class Chain. this predicate asserts [q] ownership of the object, assuming it can be shared across multiple threads  *)
   Definition ChainR (q: Qp) (c: Chain): Rep. Proof. Admitted.
@@ -445,10 +445,6 @@ Context  {MODd : exb.module ⊧ CU}.
     \pre P
     \post emp).
 
-  Definition promise_getfuture_wait_spec (this:ptr) :WpSpec mpredI val val :=
-    \prepost{(P:mpred) (q:Qp) (g:gname)} this |-> PromiseConsumerR g P
-    \post P ** this |-> PromiseProducerR g P.
-
   cpp.spec (Ninst
    "monad::execute_block(const monad::Chain&, monad::Block&, monad::BlockState&, const monad::BlockHashBuffer&, monad::fiber::PriorityPool&)"
    [Avalue (Eint 11 "enum evmc_revision")]) as exbb_spec with (execute_block_simpler).
@@ -516,9 +512,9 @@ Definition parrayR  {T:Type} ty (Rs : nat -> T -> Rep) (l: list T) : Rep :=
   "monad::reset_promises(unsigned long)" as reset_promises
       with
       (\arg{transactions: list Transaction} "n" (Vn (lengthN transactions))
-       \pre{prIds oldPromisedResource newPromisedResource}
-           _global "monad::promises" |-> parrayR (Tnamed "boost::fibers::promise<void>") (fun i t => PromiseR (prIds i) (oldPromisedResource i t)) transactions
-       \post _global "monad::promises" |-> parrayR (Tnamed "boost::fibers::promise<void>") (fun i t => PromiseR (prIds i) (newPromisedResource i t)) transactions).
+       \pre{newPromisedResource}
+           _global "monad::promises" |-> parrayR (Tnamed "boost::fibers::promise<void>") (fun i t => PromiseUnusableR) transactions
+       \post Exists prIds, _global "monad::promises" |-> parrayR (Tnamed "boost::fibers::promise<void>") (fun i t => PromiseR (prIds i) (newPromisedResource i t)) transactions).
   
 cpp.spec
   "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)"
@@ -528,11 +524,11 @@ cpp.spec
     \prepost{qb (block: Block)} blockp |-> BlockR qb block
     \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
     \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool
-    \prepost{prIds} Exists garbage,
+    \prepost
         _global "monad::promises" |->
           parrayR
             (Tnamed "boost::fibers::promise<void>")
-            (fun i t => PromiseR (prIds i) (garbage i t))
+            (fun i t => PromiseUnusableR)
             (transactions block)
     \pre Exists garbage,
         _global "monad::senders" |->
@@ -989,6 +985,12 @@ Proof using. Admitted.
     eexists; split; eauto.
     apply parrayR_cell; auto.
   Qed.
+
+  cpp.spec "monad::wait_for_promise(boost::fibers::promise<void>&)" as wait_for_promise with 
+          (
+            \arg{promise} "promise" (Vref promise)
+            \pre{(P:mpred) (g:gname)} promise |-> PromiseConsumerR g P
+            \post promise |-> PromiseUnusableR).
   
 Lemma prf: denoteModule module
              ** tvector_spec
@@ -997,6 +999,7 @@ Lemma prf: denoteModule module
              ** vector_op_monad
              ** recover_sender
              ** opt_move_assign
+             ** wait_for_promise
              ** set_value
              |-- compute_senders.
 Proof using.
@@ -1006,21 +1009,13 @@ Proof using.
   unfold BlockR, VectorR.
   slauto.
   rename v into vectorbase.
-
-  iExists prIds. (* why does the array learning hint not work? *)
-  go.
-  iExists _.
-  (* TODO: below, we need more: everything in taskPre needs to be returned back, e.g. transaction ownership (both VectorRbase and the array item at base). promiseproducerR is returned back via set_value *)
-  iExists  (fun i t => (_global "monad::senders"  |-> .[ "std::optional<evmc::address>" ! i ] |-> optionAddressR 1 (Some (sender t)))
+  slauto.
+    iExists  (fun i t => (_global "monad::senders"  |-> .[ "std::optional<evmc::address>" ! i ] |-> optionAddressR 1 (Some (sender t)))
   ** (vectorbase .[ "monad::Transaction" ! i ] |-> TransactionR qb t)
   ** (blockp ,, o_field CU "monad::Block::transactions"
         |-> VectorRbase "monad::Transaction" (qb * / N_to_Qp (1 + lengthN (transactions block))) vectorbase (lengthN (transactions block)))
-           ).
-  
-  eagerUnifyU. go.
-  go.
-  repeat rewrite _at_big_sepL.
-  repeat rewrite big_opL_map.
+             ).
+    go.
   name_locals.
   unfold VectorR.
   go.
@@ -1081,8 +1076,7 @@ Proof using.
     repeat IPM.perm_left ltac:(fun L n =>
       match L with
       | _ .[_ ! Z.of_nat ival] |-> _ => iRevert n
-      end
-                              ).
+      end).
     repeat rewrite bi.wand_curry.
     match goal with
         [ |-environments.envs_entails _ (?R -* _)] => iIntrosDestructs; iExists R
@@ -1133,37 +1127,73 @@ Proof using.
     rename i_addr into i1_addr.
     name_locals.
     IPM.perm_left ltac:(fun L n =>
-       match L with     
-       | _ |-> parrayR _ (fun i v => PromiseConsumerR (@?P i) (@?R i v) ) _ =>
+       match L with
+       | ?p |-> parrayR ?ty (fun i v => PromiseConsumerR (@?P i) (@?R i v) ) ?l =>
            wp_for (fun _ =>
-           Exists (ival:nat), i_addr |-> uintR (cQp.mut 1) ival **
+          Exists (ival:nat), i_addr |-> ulongR (cQp.mut 1) ival **
+          (p .[ty ! ival] |-> parrayR ty (fun i v => PromiseConsumerR (P (ival+i)) (R (ival+i) v) ) (drop ival (transactions block))) **
+          (p |-> parrayR ty (fun i v => PromiseUnusableR) (take ival (transactions block))) **
+          [| ival <= length (transactions block) |] **
            [∗list] j↦v ∈ (take ival (transactions block)),
-               R j v **
-               _global "monad::promises" |-> PromiseR (P j) (R j v))%I
+               R j v)%I
        end).
     work.
     rewrite <- (bi.exist_intro 0%nat).
     slauto.
-    rename t into ival. (* TODO: use matching *)
+    rewrite parrayR_nil. go.
+    iAssert ( valid_ptr (_global "monad::promises")) as "#?";[ admit|].
+    autorewrite with syntactic.
+    slauto.
+    ren_hyp ival nat. 
     wp_if.
     { (* loop continues *)
       slauto.
       autorewrite with syntactic in *.
-      eapplyToSomeHyp @parrayR_cell2.
-      forward_reason.
-      rewrite -> autogenhypr.
+      pose proof @drop_S2 as Hd.
+      unfold lengthN in Hd.
+      autorewrite with syntactic in *.
+      Search Z.of_N Z.of_nat.
+      setoid_rewrite nat_N_Z in Hd.
+      applyToSomeHyp Hd.
+      match goal with
+        [H:_ |- _] => destruct H as [tri Htt]; destruct Htt as [Httl Httr]
+      end.
+      rewrite Httr.
+      rewrite -> parrayR_cons.
+      slauto.
+      #[global] Instance : LearnEq2 PromiseConsumerR:= ltac:(solve_learnable).
       go.
-  
-
-  match goal with
-    H: _ |- _ => rename H into Hl
-  end.
-
-   eapply  (@parrayR_cell2 ival) in Hl.
-    repnd.
-          
-
-      rewrite -> (parrayR_cell ival).
+      Hint Rewrite Nat.add_0_r Z.add_0_r :syntactic.
+      repeat rewrite o_sub_sub.
+      autorewrite with syntactic.
+      Set Printing Coercions.
+      slauto.
+      iExists (1+ival).
+      slauto.
+      replace (Z.of_nat ival + 1)%Z with (Z.of_nat (S ival)); try lia.
+      setoid_rewrite Nat.add_succ_r.
+      slauto.
+      erewrite take_S_r; eauto.
+      rewrite parrayR_app. (* todo: rewrite with a snoc lemma  to cut down the script below *)
+      go.
+      autorewrite with syntactic.
+      rewrite -> length_take_le by lia.
+      go.
+      rewrite parrayR_cons.
+      go.
+      autorewrite with syntactic.
+      go.
+      rewrite parrayR_nil.
+      go.
+      Search big_opL app.
+      rewrite big_opL_snoc.
+      go.
+      Search length take.
+Search take S app.      
+      go.
+      
+      go.
+      Set 
 
 
   }

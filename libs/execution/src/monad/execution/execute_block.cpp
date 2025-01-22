@@ -132,7 +132,7 @@ void compute_senders(Block const &block, fiber::PriorityPool &priority_pool){
         });
     }
 
-    for (unsigned i = 0; i < block.transactions.size(); ++i) {
+    for (uint64_t i = 0; i < block.transactions.size(); ++i) {
         wait_for_promise(promises[i]);
     }
 }
