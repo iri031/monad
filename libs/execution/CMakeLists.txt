@@ -80,6 +80,13 @@ add_library(
   "src/monad/db/trie_db.hpp"
   "src/monad/db/util.cpp"
   "src/monad/db/util.hpp"
+  # emitter
+  "src/monad/emitter/block_emitter.hpp"
+  "src/monad/emitter/replay_emitter.cpp"
+  "src/monad/emitter/replay_emitter.hpp"
+  "src/monad/emitter/wal_action.h"
+  "src/monad/emitter/wal_emitter.cpp"
+  "src/monad/emitter/wal_emitter.hpp"
   # execution
   "src/monad/execution/baseline_execute.cpp"
   "src/monad/execution/baseline_execute.hpp"
@@ -178,6 +185,7 @@ target_link_options(monad_execution PRIVATE LINKER:-z,defs)
 
 monad_add_test_folder("src/monad/core")
 monad_add_test_folder("src/monad/db")
+monad_add_test_folder("src/monad/emitter")
 monad_add_test_folder("src/monad/execution")
 monad_add_test_folder("src/monad/rlp")
 monad_add_test_folder("src/monad/state2")
