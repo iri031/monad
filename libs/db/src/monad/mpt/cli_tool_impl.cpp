@@ -841,8 +841,6 @@ public:
                             old_metadata->latest_voted_version;
                         metadata->latest_voted_round =
                             old_metadata->latest_voted_round;
-                        metadata->auto_expire_version =
-                            old_metadata->auto_expire_version;
                     });
                     fast_list_base_insertion_count =
                         old_metadata->fast_list_begin()->insertion_count();
@@ -1551,8 +1549,7 @@ opened.
                  << ").\n     Latest finalized is "
                  << aux.get_latest_finalized_version()
                  << ", latest verified is " << aux.get_latest_verified_version()
-                 << ", auto expire version is "
-                 << aux.get_auto_expire_version_metadata() << "\n";
+                 << "\n";
 
             if (impl.rewind_database_to) {
                 if (*impl.rewind_database_to <
