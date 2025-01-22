@@ -13,6 +13,7 @@
 #include <monad/core/rlp/block_rlp.hpp>
 #include <monad/core/rlp/bytes_rlp.hpp>
 #include <monad/core/rlp/int_rlp.hpp>
+#include <monad/core/rlp/monad_block_rlp.hpp>
 #include <monad/core/rlp/receipt_rlp.hpp>
 #include <monad/core/rlp/transaction_rlp.hpp>
 #include <monad/core/rlp/withdrawal_rlp.hpp>
@@ -424,9 +425,17 @@ void TrieDb::commit(
         .incarnation = false,
         .next = std::move(block_hash_nested_updates),
         .version = static_cast<int64_t>(block_number_)};
+    auto bft_block_update = Update{
+        .key = bft_block_nibbles,
+        .value = bytes_alloc_.emplace_back(
+            rlp::encode_consensus_block_header(consensus_header)),
+        .incarnation = true,
+        .next = UpdateList{},
+        .version = static_cast<int64_t>(block_number_)};
 
     updates2.push_front(block_header_update);
     updates2.push_front(block_hash_update);
+    updates2.push_front(bft_block_update);
 
     UpdateList ls2;
     ls2.push_front(update_alloc_.emplace_back(Update{
