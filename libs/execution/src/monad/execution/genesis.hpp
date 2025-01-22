@@ -128,30 +128,6 @@ inline void read_genesis_state(
     }
 }
 
-inline void read_genesis_state2(
-    nlohmann::json const &genesis_json, StateDeltas &state_deltas)
-{
-    for (auto const &account_info : genesis_json["alloc"].items()) {
-        Address address{};
-        auto const address_byte_string =
-            evmc::from_hex("0x" + account_info.key());
-        MONAD_ASSERT(address_byte_string.has_value());
-        std::copy_n(
-            address_byte_string.value().begin(),
-            address_byte_string.value().length(),
-            address.bytes);
-
-        Account account{};
-        auto const balance_byte_string =
-            account_info.value()["balance"].get<std::string>();
-        account.balance = intx::from_string<uint256_t>(balance_byte_string);
-        account.nonce = 0u;
-
-        state_deltas.emplace(
-            address, StateDelta{.account = {std::nullopt, account}});
-    }
-}
-
 inline BlockHeader
 read_genesis(std::filesystem::path const &genesis_file, Db &db)
 {
