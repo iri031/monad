@@ -1,8 +1,8 @@
 #include <monad/core/rlp/address_rlp.hpp>
 #include <monad/core/rlp/block_rlp.hpp>
 #include <monad/core/rlp/bytes_rlp.hpp>
-#include <monad/core/rlp/monad_block_rlp.hpp>
 #include <monad/core/rlp/int_rlp.hpp>
+#include <monad/core/rlp/monad_block_rlp.hpp>
 #include <monad/core/rlp/transaction_rlp.hpp>
 #include <monad/core/rlp/withdrawal_rlp.hpp>
 #include <monad/rlp/decode.hpp>
@@ -11,6 +11,23 @@
 #include <vector>
 
 MONAD_RLP_NAMESPACE_BEGIN
+
+byte_string encode_consensus_block_body(MonadConsensusBlockBody const &body)
+{
+    byte_string txns;
+    for (auto const &tx : body.transactions) {
+        txns += encode_transaction(tx);
+    }
+    byte_string withdrawals;
+    for (auto const &w : body.withdrawals) {
+        withdrawals += encode_withdrawal(w);
+    }
+
+    return encode_list2(encode_list2(
+        encode_list2(txns),
+        encode_ommers(body.ommers),
+        encode_list2(withdrawals)));
+}
 
 byte_string encode_execution_inputs(BlockHeader const &header)
 {
@@ -55,7 +72,8 @@ byte_string encode_quorum_certificate(MonadQuorumCertificate const &qc)
         encode_list2(vote_encoded), encode_list2(signatures_encoded));
 }
 
-byte_string encode_consensus_block_header(MonadConsensusBlockHeader const &header)
+byte_string
+encode_consensus_block_header(MonadConsensusBlockHeader const &header)
 {
     byte_string encoded_header;
     encoded_header += encode_unsigned(header.round);
@@ -201,7 +219,8 @@ decode_consensus_block_header(byte_string_view &enc)
     return consensus_header;
 }
 
-Result<MonadConsensusBlockBody> decode_consensus_block_body(byte_string_view &enc)
+Result<MonadConsensusBlockBody>
+decode_consensus_block_body(byte_string_view &enc)
 {
     MonadConsensusBlockBody body;
 
