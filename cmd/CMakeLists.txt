@@ -19,6 +19,11 @@ else()
 endif()
 
 target_compile_definitions(monad PRIVATE GIT_COMMIT_HASH="${GIT_COMMIT_HASH}")
+
 add_executable(monad_cli monad_cli.cpp)
 monad_compile_options(monad_cli)
 target_link_libraries(monad_cli PUBLIC monad_execution CLI11::CLI11)
+
+add_executable(gen gen.cpp)
+monad_compile_options(gen)
+target_link_libraries(gen PUBLIC monad_execution CLI11::CLI11)
