@@ -33,15 +33,19 @@
 
 #include <boost/core/demangle.hpp>
 
-#include <CLI/CLI.hpp>
+#include <brotli/decode.h>
+#include <brotli/encode.h>
+#include <brotli/types.h>
 
-#include <gtest/gtest.h>
+#include <CLI/CLI.hpp>
 
 #include <intx/intx.hpp>
 
 #include <nlohmann/adl_serializer.hpp>
 #include <nlohmann/json.hpp>
 #include <nlohmann/json_fwd.hpp>
+
+#include <iostream>
 
 using namespace monad;
 namespace fs = std::filesystem;
@@ -276,7 +280,6 @@ namespace nlohmann
     };
 }
 
-
 void load_state_from_json(nlohmann::json const &j, State &state)
 {
     for (auto const &[j_addr, j_acc] : j.items()) {
@@ -284,7 +287,6 @@ void load_state_from_json(nlohmann::json const &j, State &state)
             evmc::from_hex<monad::Address>(j_addr).value();
 
         if (j_acc.contains("code") || j_acc.contains("storage")) {
-            ASSERT_TRUE(j_acc.contains("code") && j_acc.contains("storage"));
             state.create_contract(account_address);
         }
 
@@ -302,7 +304,6 @@ void load_state_from_json(nlohmann::json const &j, State &state)
             account_address, integer_from_json<uint64_t>(j_acc.at("nonce")));
 
         if (j_acc.contains("storage")) {
-            ASSERT_TRUE(j_acc["storage"].is_object());
             for (auto const &[key, value] : j_acc["storage"].items()) {
                 nlohmann::json const key_json = key;
                 monad::bytes32_t const key_bytes32 =
@@ -313,13 +314,47 @@ void load_state_from_json(nlohmann::json const &j, State &state)
                     // deletion
                     continue;
                 }
-                EXPECT_EQ(
-                    state.set_storage(
-                        account_address, key_bytes32, value_bytes32),
-                    EVMC_STORAGE_ADDED);
+                state.set_storage(account_address, key_bytes32, value_bytes32);
             }
         }
     }
+}
+
+auto pool_ = new fiber::PriorityPool{1, 1};
+
+template <evmc_revision rev>
+Result<std::vector<Receipt>>
+execute(Block &block, TrieDb &db, BlockHashBuffer const &block_hash_buffer)
+{
+    BOOST_OUTCOME_TRY(static_validate_block<rev>(block));
+
+    BlockState block_state(db);
+    EthereumMainnet const chain;
+    BOOST_OUTCOME_TRY(
+        auto const results,
+        execute_block<rev>(
+            chain, block, block_state, block_hash_buffer, *pool_));
+    std::vector<Receipt> receipts(results.size());
+    std::vector<std::vector<CallFrame>> call_frames(results.size());
+    for (unsigned i = 0; i < results.size(); ++i) {
+        receipts[i] = std::move(results[i].receipt);
+        call_frames[i] = std::move(results[i].call_frames);
+    }
+
+    block_state.log_debug();
+    block_state.commit(
+        block.header,
+        receipts,
+        call_frames,
+        block.transactions,
+        block.ommers,
+        block.withdrawals);
+
+    auto output_header = db.read_eth_header();
+    BOOST_OUTCOME_TRY(
+        chain.validate_output_header(block.header, output_header));
+
+    return receipts;
 }
 
 int main(int const argc, char const *argv[])
@@ -334,6 +369,16 @@ int main(int const argc, char const *argv[])
         ->check(CLI::ExistingFile);
     cli.add_option("--chain", chain, "chain.rlp file")
         ->check(CLI::ExistingFile);
+
+    try {
+        cli.parse(argc, argv);
+    }
+    catch (CLI::CallForHelp const &e) {
+        return cli.exit(e);
+    }
+    catch (CLI::RequiredError const &e) {
+        return cli.exit(e);
+    }
 
     // Initialize triedb (name it as test.db)
     auto const path = [] {
@@ -366,5 +411,37 @@ int main(int const argc, char const *argv[])
     // read chain.rlp and decode it
     BlockHashBufferFinalized block_hash_buffer;
     std::ifstream ifile(chain);
-    
+
+    std::string block_line;
+    while (std::getline(ifile, block_line)) {
+        auto const view = to_byte_string_view(block_line);
+        size_t brotli_size =
+            std::max(block_line.size() * 100, 1ul << 20); // TODO
+        byte_string brotli_buffer;
+        brotli_buffer.resize(brotli_size);
+        auto const brotli_result = BrotliDecoderDecompress(
+            view.size(), view.data(), &brotli_size, brotli_buffer.data());
+        brotli_buffer.resize(brotli_size);
+        MONAD_ASSERT(brotli_result == BROTLI_DECODER_RESULT_SUCCESS);
+        byte_string_view view2{brotli_buffer};
+
+        auto const decoded_block = rlp::decode_block(view2);
+
+        MONAD_ASSERT(!decoded_block.has_error());
+        MONAD_ASSERT(view2.size() == 0);
+        Block block = decoded_block.value();
+
+        MONAD_ASSERT(block.header.number != 0);
+        block_hash_buffer.set(
+            block.header.number - 1, block.header.parent_hash);
+
+        auto const rev = EVMC_SHANGHAI;
+
+        auto const result = execute<rev>(block, tdb, block_hash_buffer);
+
+        if (result.has_error()) {
+            std::cerr << "Error in execution" << std::endl;
+            return 1;
+        }
+    }
 }
