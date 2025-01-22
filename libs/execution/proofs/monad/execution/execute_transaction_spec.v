@@ -1191,6 +1191,119 @@ Proof using.
       go.
     }
     { (* loop condition is false *)
+      go.
+      assert (ival=length(transactions block))  by lia.
+      subst.
+    Hint Rewrite @firstn_all: syntactic.
+      autorewrite with syntactic.
+      go.
+      repeat rewrite parrayR_nil. go.
+      repeat rewrite big_sepL_sep.
+      go.
+      Search VectorRbase.
+      hideLhs.
+      setoid_rewrite -> vectorbase_loopinv with (i:=0); try reflexivity.
+      unhideAllFromWork.
+      go.
+      rewrite _at_big_sepL.
+      Hint Rewrite @length_fmap: syntactic.
+  Lemma prove_arrayR {X} ty (R:X->Rep) xs (p:ptr):
+    p|-> (type_ptrR ty ** (.[ty!length xs] |-> validR) ** [∗ list] k↦y ∈ xs, .[ ty ! Z.of_nat k ] |-> R y) |--  p |-> arrayR ty R xs.
+  Proof using.
+    intros.
+    rewrite arrayR_eq.
+    unfold arrayR_def.
+    rewrite arrR_eq.
+    unfold arrR_def.
+    go.
+    repeat rewrite big_opL_fmap.
+    go.
+    autorewrite with syntactic.
+    go.
+    repeat rewrite _at_big_sepL.
+    wapply big_sepL_wand.
+    eagerUnifyU.
+    go.
+    iSplitFrameL.
+    2:{
+      go. eagerUnifyU.
+      evartacs.maximallyInstantiateLhsEvar_nonpers.
+    }
+    go.
+    Search          valid_ptr o_sub.
+    Search type_ptr_sub.
+    Search big_opL ( _).
+    iStopProof.
+    inducti
+
+    Set Printing Parentheses.
+    Search big_opL bi_forall length.
+    Search big_opL (_ -* _).
+    induction xs; auto.
+    simpl in *.
+    go.
+Lemma cancel_at `{xx: cpp_logic} (p:ptr) (R1 R2 : Rep) :
+  (R1 |-- R2) -> (p |-> R1 |-- p |-> R2).
+Proof using.
+  apply _at_mono.
+Qed.
+Lemma cancel_at2 `{xx: cpp_logic} (p:ptr) (R1 R2 : Rep) :
+   (p|->(R1 -* R2) ** p |-> R1 |-- p |-> R2).
+Proof using.
+  apply _at_mono.
+Qed.
+
+icancel cancel_at;[| go].
+f_equiv.
+hnf.
+f_Equiv.
+
+    repeat rewrite _at_big_sepL.
+    go.
+    rewrite big_sepL_sep.
+    go.
+    
+    
+    auto
+    rewrite fmap_
+    
+    
+    assert (i<length xs) as Hex by lia.
+    applyToSomeHyp @lookup_lt_is_Some_2.
+    hnf in autogenhyp.
+    forward_reason.
+    subst.
+    eexists; split; eauto.
+    apply parrayR_cell; auto.
+  Qed.
+      
+Lemma arraR_equiv:       
+      Search arrayR equiv.
+      go.
+      rewrite arrayR_eq.
+      unfold arrayR_def.
+      rewrite arrR_eq.
+      unfold arrR_def.
+      go.
+      autorewrite with syntactic.
+      go.
+      repeat rewrite big_opL_fmap.
+      go.
+      
+      Search "<$>" length.
+      rewrite fmap_length.
+      Search arrayR big_opL.
+      
+      rewrite _at
+      go.
+      unfold lengthN
+      combineLstarLHS l
+      Search big_opL bi_sep.
+      
+
+      setoid_rewrite -> vectorbase_loopinv.
+      Search VectorRbase.
+      rewrite Vecto
     }
     
       
