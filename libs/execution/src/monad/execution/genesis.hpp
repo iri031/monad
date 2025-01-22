@@ -81,14 +81,14 @@ inline BlockHeader read_genesis_blockheader(nlohmann::json const &genesis_json)
     }
 
     // Shanghai fork
-    if (genesis_json.contains("blobGasUsed")) {
-        block_header.blob_gas_used = std::stoull(
-            genesis_json["blobGasUsed"].get<std::string>(), nullptr, 0);
-    }
-    if (genesis_json.contains("excessBlobGas")) {
-        block_header.excess_blob_gas = std::stoull(
-            genesis_json["excessBlobGas"].get<std::string>(), nullptr, 0);
-    }
+    // if (genesis_json.contains("blobGasUsed")) {
+    //     block_header.blob_gas_used = std::stoull(
+    //         genesis_json["blobGasUsed"].get<std::string>(), nullptr, 0);
+    // }
+    // if (genesis_json.contains("excessBlobGas")) {
+    //     block_header.excess_blob_gas = std::stoull(
+    //         genesis_json["excessBlobGas"].get<std::string>(), nullptr, 0);
+    // }
     if (genesis_json.contains("parentBeaconBlockRoot")) {
         auto const parent_beacon_block_root = evmc::from_hex(
             genesis_json["parentBeaconBlockRoot"].get<std::string>());

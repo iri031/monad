@@ -47,6 +47,8 @@
 
 #include <iostream>
 
+#include <sys/sysinfo.h>
+
 using namespace monad;
 namespace fs = std::filesystem;
 
@@ -300,8 +302,10 @@ void load_state_from_json(nlohmann::json const &j, State &state)
         // we cannot use the nlohmann::json from_json<uint64_t> because
         // it does not use the strtoull implementation, whereas we need
         // it so we can turn a hex string into a uint64_t
-        state.set_nonce(
-            account_address, integer_from_json<uint64_t>(j_acc.at("nonce")));
+        if (j_acc.contains("nonce")){
+            state.set_nonce(
+                account_address, integer_from_json<uint64_t>(j_acc.at("nonce")));
+        }
 
         if (j_acc.contains("storage")) {
             for (auto const &[key, value] : j_acc["storage"].items()) {
@@ -327,6 +331,8 @@ Result<std::vector<Receipt>>
 execute(Block &block, TrieDb &db, BlockHashBuffer const &block_hash_buffer)
 {
     BOOST_OUTCOME_TRY(static_validate_block<rev>(block));
+
+    std::cerr << "Successfully validated block" << std::endl;
 
     BlockState block_state(db);
     EthereumMainnet const chain;
@@ -364,11 +370,18 @@ int main(int const argc, char const *argv[])
 
     fs::path genesis;
     fs::path chain;
+    std::vector<fs::path> dbname_paths;
 
     cli.add_option("--genesis", genesis, "genesis file")
         ->check(CLI::ExistingFile);
     cli.add_option("--chain", chain, "chain.rlp file")
         ->check(CLI::ExistingFile);
+    cli.add_option(
+        "--db",
+        dbname_paths,
+        "A comma-separated list of previously created database paths. You can "
+        "configure the storage pool with one or more files/devices. If no "
+        "value is passed, the replay will run with an in-memory triedb");
 
     try {
         cli.parse(argc, argv);
@@ -380,21 +393,41 @@ int main(int const argc, char const *argv[])
         return cli.exit(e);
     }
 
-    // Initialize triedb (name it as test.db)
-    auto const path = [] {
-        std::filesystem::path dbname("test.db");
-        int const fd = ::mkstemp((char *)dbname.native().data());
-        MONAD_ASSERT(fd != -1);
-        MONAD_ASSERT(
-            -1 !=
-            ::ftruncate(fd, static_cast<off_t>(8ULL * 1024 * 1024 * 1024)));
-        ::close(fd);
-        return dbname;
-    }();
+    // // Initialize triedb (name it as test.db)
+    // auto const path = [] {
+    //     std::filesystem::path dbname(std::filesystem::current_path() / "test.db");
+    //     // int const fd = ::mkstemp((char *)dbname.native().data());
+    //     // MONAD_ASSERT(fd != -1);
+    //     // MONAD_ASSERT(
+    //     //     -1 !=
+    //     //     ::ftruncate(fd, static_cast<off_t>(8ULL * 1024 * 1024 * 1024)));
+    //     // ::close(fd);
+    //     return dbname;
+    // }();
+
+    auto log_level = quill::LogLevel::Info;
+    auto stdout_handler = quill::stdout_handler();
+    stdout_handler->set_pattern(
+        "%(ascii_time) [%(thread)] %(filename):%(lineno) LOG_%(level_name)\t"
+        "%(message)",
+        "%Y-%m-%d %H:%M:%S.%Qns",
+        quill::Timezone::GmtTime);
+    quill::Config cfg;
+    cfg.default_handlers.emplace_back(stdout_handler);
+    quill::configure(cfg);
+    quill::start(true);
+    quill::get_root_logger()->set_log_level(log_level);
 
     OnDiskMachine machine;
     mpt::Db db{
-        machine, mpt::OnDiskDbConfig{.append = false, .dbname_paths = {path}}};
+        machine, mpt::OnDiskDbConfig{
+                    .append = true,
+                    .compaction = false,
+                    .rd_buffers = 8192,
+                    .wr_buffers = 32,
+                    .uring_entries = 128,
+                    .sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 1),
+                    .dbname_paths = dbname_paths}};
     TrieDb tdb{db};
 
     // parse genesis.json
@@ -406,29 +439,32 @@ int main(int const argc, char const *argv[])
     BlockState bs{tdb};
     State state{bs, Incarnation{0, 0}};
     load_state_from_json(genesis_json["alloc"], state);
+    bs.merge(state);
     bs.commit(genesis_header, {}, {}, {}, {}, {}, std::nullopt);
 
     // read chain.rlp and decode it
     BlockHashBufferFinalized block_hash_buffer;
     std::ifstream ifile(chain);
 
+    int success_cnt = 0;
+    int failed_cnt = 0;
+
     std::string block_line;
     while (std::getline(ifile, block_line)) {
-        auto const view = to_byte_string_view(block_line);
-        size_t brotli_size =
-            std::max(block_line.size() * 100, 1ul << 20); // TODO
-        byte_string brotli_buffer;
-        brotli_buffer.resize(brotli_size);
-        auto const brotli_result = BrotliDecoderDecompress(
-            view.size(), view.data(), &brotli_size, brotli_buffer.data());
-        brotli_buffer.resize(brotli_size);
-        MONAD_ASSERT(brotli_result == BROTLI_DECODER_RESULT_SUCCESS);
-        byte_string_view view2{brotli_buffer};
+        std::cerr << "Line is: " << block_line << std::endl;
+        auto view = to_byte_string_view(block_line);
 
-        auto const decoded_block = rlp::decode_block(view2);
+        auto const decoded_block = rlp::decode_block(view);
+
+        if (decoded_block.has_error()){
+            failed_cnt++;
+            continue;
+        }
+
+        success_cnt++;
 
         MONAD_ASSERT(!decoded_block.has_error());
-        MONAD_ASSERT(view2.size() == 0);
+        MONAD_ASSERT(view.size() == 0);
         Block block = decoded_block.value();
 
         MONAD_ASSERT(block.header.number != 0);
@@ -444,4 +480,7 @@ int main(int const argc, char const *argv[])
             return 1;
         }
     }
+
+    std::cerr << "Success cnt is: " << success_cnt << std::endl; 
+    std::cerr << "Failed cnt is: " << failed_cnt << std::endl; 
 }
