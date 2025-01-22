@@ -990,7 +990,7 @@ Proof using. Admitted.
           (
             \arg{promise} "promise" (Vref promise)
             \pre{(P:mpred) (g:gname)} promise |-> PromiseConsumerR g P
-            \post promise |-> PromiseUnusableR).
+            \post P ** promise |-> PromiseUnusableR).
   
 Lemma prf: denoteModule module
              ** tvector_spec
@@ -1187,14 +1187,13 @@ Proof using.
       go.
       Search big_opL app.
       rewrite big_opL_snoc.
+      rewrite -> length_take_le by lia.
       go.
-      Search length take.
-Search take S app.      
-      go.
+    }
+    { (* loop condition is false *)
+    }
+    
       
-      go.
-      Set 
-
 
   }
 Abort.
