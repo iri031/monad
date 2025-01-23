@@ -96,8 +96,8 @@ Inductive Revision := Shanghai | Frontier.
 
 Definition valOfRev (r : Revision) : val := Vint 0. (* TODO: fix *)
 
-Require Import bedrock_auto.tests.data_class.exb.
-Require Import bedrock_auto.tests.data_class.exb_names.
+Require Import monad.asts.exb.
+Require Import monad.asts.exb_names.
 
 Open Scope cpp_name.
 Section with_Sigma.
@@ -492,7 +492,7 @@ Qed.
     -  go.
        hideLhs.
        rewrite big_sepL_proper; try go.
-       2:{ intros. iSplit. 2:{go.  evartacs.maximallyInstantiateLhsEvar.}  go. }
+       2:{ intros. iSplit. 2:{go.  evartacs.maximallyInstantiateLhsEvar. }  go. }
        simpl.
        unhideAllFromWork.
        go.
@@ -783,7 +783,7 @@ Opaque VectorR.
       go.
        hideLhs.
        rewrite big_sepL_proper; try go.
-       2:{ intros. iSplit. 2:{go.  evartacs.maximallyInstantiateLhsEvar.}  go. }
+       2:{ intros. iSplit. 2:{go.  evartacs.maximallyInstantiateLhsEvar. }  go. }
        simpl.
        unhideAllFromWork.
        go.
@@ -846,7 +846,7 @@ Opaque VectorR.
       go.
        hideLhs.
        rewrite big_sepL_proper; try go.
-       2:{ intros. iSplit. 2:{go.  evartacs.maximallyInstantiateLhsEvar.}  go. }
+       2:{ intros. iSplit. 2:{go.  evartacs.maximallyInstantiateLhsEvar. }  go. }
        simpl.
        unhideAllFromWork.
        go.
@@ -1108,7 +1108,7 @@ Proof using MODd.
     }
   }
 Qed.
-       
+(*       
 (*
   erewrite sizeof.size_of_compat;[| eauto; fail| vm_compute; reflexivity].
 *)
@@ -1187,8 +1187,9 @@ Qed.
                           | Some actualAcPostState => acNewStates=[actualAcPostState]
                           | None => False
                           end) |].
-  
+*)  
 End with_Sigma.
+(*
 Module Generalized1.
   Record State :=
     {
@@ -1237,4 +1238,5 @@ End Generalized2.
 - llist::rev: spec, why trust gallina rev: show lemmas
 
 - forkTask
+*)
 *)
