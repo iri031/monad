@@ -457,6 +457,7 @@ int main(int const argc, char const *argv[])
         auto const decoded_block = rlp::decode_block(view);
 
         if (decoded_block.has_error()){
+            std::cerr << decoded_block.assume_error().message().c_str() << std::endl;
             failed_cnt++;
             continue;
         }
