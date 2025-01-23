@@ -4,34 +4,6 @@ Require Import bedrock.lang.cpp.
 
 Import cQp_compat.
 
-(*
-int x;
-int y;
-
-\pre x |-> 1
-\post x |-> 2
-void f()
-
-\pre y |-> 1
-\post y |-> 2
-void g()
-
-Exists q v, x |-q> v
-wp (read x)
-
-(Exists v,  x |-1> v)(write x foo) (x |-> foo)
-
-
-x |-0.4-> 1 ** x |-0.6-> 1 |-- x |-1.0-> 1
-void h()
-{
-  x=1;
-  y=1;
-  f();
-
-  g();
-}
-*)
 #[local] Open Scope Z_scope.
 
 (*
@@ -126,8 +98,6 @@ Definition valOfRev (r : Revision) : val := Vint 0. (* TODO: fix *)
 
 Require Import bedrock_auto.tests.data_class.exb.
 Require Import bedrock_auto.tests.data_class.exb_names.
-Require Import bedrock_auto.tests.data_class.lam.
-Require Import bedrock_auto.tests.data_class.lam_names.
 
 Open Scope cpp_name.
 Section with_Sigma.
@@ -228,210 +198,6 @@ Require Import bedrock.auto.cpp.tactics4.
 
 Ltac slauto := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go; fail); try (apply False_rect; try contradiction; try congruence; try nia; fail); try autorewrite with syntactic equiv iff slbwd in *; try rewrite left_id)
   then slauto  else idtac.
-
-
-Section lam.
-Context  {MOD : lam.module ⊧ CU}.
-
-
-(*
-
-
-#include<functional>
-
-int sum(std::function<int(int)> f)
-{
-  return f(0) + f(1);
-}
-
-int callsum()
-{
-    int x = 42; // Captured variable
-    auto lambda = [x](int y) { return x + y; };
-    return sum(lambda);
-}
-
-
-int main() {
-    int x = 42; // Captured variable
-    auto lambda = [x](int y) { return x + y; };
-    //return callsum();
-    return lambda(10);
-
-template version:
-
-
-~/work/coq/monad$cat ../lam.cpp
-template<typename Func>
-int sum(const Func& f)
-{
-  return f(0) + f(1);
-}
-
-int callsum()
-{
-    int x = 42; // Captured variable
-    auto lambda = [x](int y) { return x + y; };
-    return sum(lambda);
-}
-
-
-int main() {
-    int x = 42; // Captured variable
-    auto lambda = [x](int y) { return x + y; };
-    //return callsum();// returned 85
-    return lambda(10);
-}
-}
- *)
-  cpp.spec "main()::@0::operator()(int) const" as mainlam_spec inline.
-(*   cpp.spec (lam.n5) as destructor_spec2 inline. *)
-  cpp.spec "main()" as main_spec with (\pre emp \post [Vint 52] emp).
-  cpp.spec "callsum()" as csum_spec with (\pre emp \post [Vint 52] emp).
-
-  cpp.spec (Nscoped "main()::@0" (Nfunction function_qualifiers.N Ndtor [])) as lam_destructor_spec  with
-      (fun this:ptr => \pre this |-> structR "main()::@0" (cQp.mut 1)
-                       \pre this ,, o_field CU "main()::@0::x" |-> intR (cQp.mut 1) 42
-                         \post emp).
-
-  Lemma main_proof: denoteModule module |-- csum_spec.
-  Proof using.
-    verify_spec'.
-    go.
-    rewrite <- wp_init_lambda.
-    slauto.
-    (*
-  _ : denoteModule module
-  _ : type_ptr "int" x_addr
-  _ : type_ptr "callsum()::@0" lambda_addr
-  --------------------------------------□
-  _ : HiddenPostCondition
-  _ : x_addr |-> intR (cQp.mut 1) 42
-  _ : lambda_addr ,, o_field CU "callsum()::@0::x" |-> intR (cQp.mut 1) 42
-  _ : lambda_addr |-> structR "callsum()::@0" (cQp.mut 1)
-  --------------------------------------∗
-  ::wpPRᵢ
-    [region: "lambda" @ lambda_addr; "x" @ x_addr; return {?: "int"%cpp_type}]
-    (Pointer ↦ p) 
-    (Econstructor "std::function<int()(int)>::function<callsum()::@0&, void>(callsum()::@0&)"
-       [Evar "lambda" "callsum()::@0"] "std::function<int()(int)>")
-     *)
-  Abort.
-
-
-  Definition pName (n:name): bs :=
-    match n with
-    | Nglobal  (Nfunction _ (Nf i) _) => i
-    | _ => ""
-    end.
-
-  Definition isFunctionNamed (n:name) (fname: ident): bool :=
-    match n with
-    | Nglobal  (Nfunction _ (Nf i) _) => bool_decide (i=fname)
-    | Ninst (Nglobal  (Nfunction _ (Nf i) _)) _ => bool_decide (i=fname)
-    | _ => false
-    end.
-
-  Definition fnArgTypes (n:name) : list type :=
-    match n with
-    | Nglobal  (Nfunction _ (Nf i) argTypes) => argTypes
-    | _ => []
-    end.
-
-  Definition findBodyOfFnNamed module (fname:ident) :=
-    List.filter (fun p => let '(nm, body):=p in isFunctionNamed nm fname) (NM.elements (symbols module)).
-
-  Definition sumEntry : list (name * ObjValue) := (findBodyOfFnNamed module "sum").
-
-
-  Definition firstEntryName (l :list (name * ObjValue)) :=
-    (List.nth 0 (map fst l) (Nunsupported "impossible")).
-      
-  Definition sumStructuredName :name := Eval vm_compute in (firstEntryName sumEntry).
-  cpp.spec "sum<callsum()::@0>(const callsum()::@0&)" as sum_spec with
-      (\pre emp
-         \arg{task} "task" (Vref task)
-         \post [Vint 52] emp).
-  Definition sc :name := "sum<callsum()::@0>(const callsum()::@0&)".
-
-  Definition instee (n:name) : name :=
-    match n with
-    | Ninst base i => base
-    | _ => Nunsupported "not a Ninst"
-    end.
-  Definition basee (n:name) :=
-    match n with
-    | Ninst (Nglobal  (Nfunction q (Nf base) l)) targs => (base,l,q, targs)
-    | _ => (BS.EmptyString,[],function_qualifiers.N, [])
-    end.
-
-  Compute (basee sc).
-
-  Definition sumname (lamTy: core.name) : name :=
-    Ninst (Nglobal  (Nfunction function_qualifiers.N (Nf "sum") [Tref (Tqualified QC (Tnamed lamTy))])) [Atype (Tnamed lamTy)].
-    
-  
-  Definition lamOperator (fullopName: name) :=
-    match fullopName with
-    | Nscoped _ op => op
-    | _ => Nunsupported_atomic ""
-    end.
-
-  Definition lamStructName :name :="callsum()::@0".
-  Definition opName :name := "callsum()::@0::operator()(int) const".
-  Definition lamOpInt := Eval vm_compute in (lamOperator opName).
-  Definition operatorSpec (lamStructName: core.name) (R: Rep) (f: Z->Z):=
-    specify {| info_name :=  (Nscoped lamStructName lamOpInt) ;
-              info_type := tMethod lamStructName QC "int" ["int"%cpp_type] |}
-      (fun (this:ptr) =>
-           \prepost this |-> R
-           \arg{y} "y" (Vint y)
-           \require (y<100)%Z (* to avoid overflow *)
-           \post[Vint (f y)] emp).
-  
-  Definition sumSpec (lamStructName: core.name) : WpSpec mpredI val val :=
-    \arg{func:ptr} "func" (Vref func)
-    \pre{R f} operatorSpec lamStructName R f
-    \prepost func |-> R
-    \post [Vint (f 0 + f 1)] emp.
-
-  cpp.spec (sumname "callsum()::@0") as sum_spec2 with (sumSpec "callsum()::@0").
-  
-  cpp.spec "callsum()" as callsum_spec2 with (\post [Vint 85] emp).
-
-  Lemma destr (lambda_addr:ptr) P :
-    (lambda_addr |-> structR "callsum()::@0" (cQp.mut 1))
-      **
-  (lambda_addr ,, o_field CU "callsum()::@0::x" |-> intR (cQp.mut 1) 42)
-  **
-    P |--    wp_destroy_named module "callsum()::@0" lambda_addr P.
-  Proof. go. Admitted.
-
-  Import linearity.
-  Lemma callsum_proof: denoteModule module ** sum_spec2 |-- callsum_spec2.
-  Proof using MOD.
-    verify_spec'.
-    name_locals.
-    slauto.
-    rewrite <- wp_init_lambda.
-    slauto.
-    iExists (structR "callsum()::@0" 1 ** o_field CU "callsum()::@0::x" |-> intR (cQp.mut 1) 42).
-    iExists (fun x=> x+42)%Z.
-    go.
-    unfold operatorSpec.
-    iSplitL "".
-    - go.
-      verify_spec'.
-      slauto.
-    - go.
-      rewrite <- destr.
-      go.
-   Qed.
-      
-End lam.  
-
-Require Import bedrock_auto.tests.data_class.exb.
-Require Import bedrock_auto.tests.data_class.exb_names.
 
 Context  {MODd : exb.module ⊧ CU}.
 (* Node::Node(Node*,int) *)
@@ -564,7 +330,6 @@ cpp.spec
     NM.map_lookup lamName (types module).
 
 (*  Definition forkEntry : list (name * ObjValue) := *)
-    Eval vm_compute in (findBodyOfFnNamed exb.module "monad::fork_task").
 
     Print atomic_name_.
   Fixpoint isFunctionNamed2 (fname: ident) (n:name): bool :=
@@ -587,6 +352,10 @@ cpp.spec
   Definition findBodyOfFnNamed2 module filter :=
     List.filter (fun p => let '(nm, body):=p in filter nm) (NM.elements (symbols module)).
 
+
+  Definition firstEntryName (l :list (name * ObjValue)) :=
+    (List.nth 0 (map fst l) (Nunsupported "impossible")).
+  
   Definition fork_task_namei:= Eval vm_compute in (firstEntryName (findBodyOfFnNamed2 exb.module (isFunctionNamed2 "fork_task"))).
 
   Definition basee3 (n:name) :=
@@ -1355,100 +1124,9 @@ Proof using MODd.
   }
 Qed.
        
-
-Lemma prf: denoteModule module ** tvector_spec |-- exb_spec.
-Proof using.
-  verify_spec'.
-  name_locals.
-  unfold BlockR.
-  slauto.
-  iExists _.
-  iExists _.
-  go.
+(*
   erewrite sizeof.size_of_compat;[| eauto; fail| vm_compute; reflexivity].
-  assert ((lengthN (transactions block)< 10000000)%N) as Hl by admit.
-  slauto.
-  {
-    (* out of memory error, maybe the code should return an error result here instead of throwing which the logic doesnt support yet *)
-    admit.
-  }
-  {
-    go.
-    go.
-    go.
-  
-    
-  
-  provePure.
-  work.
-  go.
-  provePure.
-  hnf.
-  2:{ go.
-  2:{
-  Search glob_def  GlobDecl_size_of .
-  ego.
-  Search Enew.
-  
-  slauto.
-  ego.
-  provePure.
-  Print pointer_size.
- 
-  Show Proof.
-  hnf.
-
-  invoke.wp_minvoke_O.body module Direct
-    "const std::vector<monad::Transaction, std::allocator<monad::Transaction>>" "unsigned long"%cpp_type
-    "unsigned long()()" "std::vector<monad::Transaction, std::allocator<monad::Transaction>>::size() const"
-    (blockp ,, o_field CU "monad::Block::transactions") [] None
-    (λ x : val,
-        ∃ array_sizeN : N, [| x = Vn array
-
-
-        Sdecl
-          [Dvar "senders" "std::optional<evmc::address>* const"
-             (Some
-                (Enew
-                   ("operator new[](unsigned long, const std::nothrow_t&)"%cpp_name,
-                    "void*()(unsigned long, const std::nothrow_t&)"%cpp_type)
-                   [Eglobal "std::nothrow" "const std::nothrow_t"] (new_form.Allocating false)
-                   "std::optional<evmc::address>"
-                   (Some
-                      (Emember_call false
-                         (inl
-                            ("std::vector<monad::Transaction, std::allocator<monad::Transaction>>::size() const"%cpp_name,
-                             Direct, "unsigned long()()"%cpp_type))
-                         (Ecast
-                            (Cnoop "const std::vector<monad::Transaction, std::allocator<monad::Transaction>>&")
-                            (Emember false (Evar "block" "monad::Block&") (Nid "transactions") false
-                               "std::vector<monad::Transaction, std::allocator<monad::Transaction>>"))
-                         []))
-                   (Some
-                      (Econstructor "std::optional<evmc::address>::optional()" [] "std::optional<evmc::address>[]")                                     
-                                     
-  ego.
-  name_locals.
-  rewrite <- wp_operand_array_new.
-  work.
-  go.
-  
-Compute (lengthN defns).
-Check defns.
-Import NM.
-Compute (nth_error defns 0).
-Search NM.key.
-Print defns.
-(* this is the entry we need to verify:
- Ninst
-   "monad::execute_block(const monad::Chain&, monad::Block&, monad::BlockState&, const monad::BlockHashBuffer&, monad::fiber::PriorityPool&)"
-   [Avalue (Eint 12 "enum evmc_revision")];
-
 *)
-  
-
-  
-
 
   Definition execute_spec : WpSpec mpredI val val :=
     \arg{chainp :ptr} "chain" (Vref chainp)
