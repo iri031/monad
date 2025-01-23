@@ -7,7 +7,6 @@ Require Import bedrock.auto.cpp.proof.
 
 Require Import bedrock.auto.cpp.tactics4.
 Require Import monad.asts.exb.
-Require Import monad.asts.exb_names.
 Require Import monad.proofs.exec_specs.
 
 

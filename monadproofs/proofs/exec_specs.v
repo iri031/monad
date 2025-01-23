@@ -93,7 +93,7 @@ Section with_Sigma.
     \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
     \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool (* TODO: write a spec of priority_pool.submit() *)
     \post{retp}[Vptr retp]
-      let (actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (transactions block) in
+      let (actual_final_state, receipts) := stateAfterBlock block preBlockState in
       retp |-> VectorR (Tnamed "::monad::Receipt") ReceiptR 1 receipts
       ** block_statep |-> BlockState.R block preBlockState actual_final_state.
 
@@ -103,13 +103,6 @@ Require Import List.
 Import bytestring_core.
 Require Import bedrock.auto.cpp.
 Require Import bedrock.auto.cpp.specs.
-
-(*
-                         (Ninst
-                            "monad::compute_senders(std::optional<evmc::address>*, const monad::Block&, monad::fiber::PriorityPool&)"
-                            [Avalue (Eint 0 "enum evmc_revision")])
-
- *)
 
 
 Context  {MODd : exb.module ⊧ CU}.
@@ -152,6 +145,41 @@ cpp.spec
             (fun t=> optionAddressR 1 (Some (sender t)))
             (transactions block)).
 
+cpp.spec (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::PriorityPool&, const monad::Chain&, const monad::BlockHashBuffer&, monad::BlockState &)" [Avalue (Eint 11 "enum evmc_revision")]) as exect with (
+    \arg{blockp: ptr} "block" (Vref blockp)
+    \prepost{qb (block: Block)} blockp |-> BlockR qb block
+    \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
+    \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool
+    \arg{chainp :ptr} "chain" (Vref chainp)
+    \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
+    \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
+    \arg{block_statep: ptr} "block_state" (Vref block_statep)
+    \pre{(preBlockState: StateOfAccounts)}
+      block_statep |-> BlockState.R block preBlockState preBlockState
+    \prepost
+        _global "monad::promises" |->
+          parrayR
+            (Tnamed "boost::fibers::promise<void>")
+            (fun i t => PromiseUnusableR)
+            (transactions block)
+    \pre Exists garbage,
+        _global "monad::results" |->
+          arrayR
+            (Tnamed "std::optional<Result<Receipt>>")
+            (fun t=> libspecs.optionR ReceiptR 1 (garbage t))
+            (transactions block)
+    \pre{qs} _global "monad::senders" |->
+          arrayR
+            (Tnamed "std::optional<evmc::address>")
+            (fun t=> optionAddressR qs (Some (sender t)))
+            (transactions block)
+   \post
+      let (actual_final_state, receipts) := stateAfterBlock block preBlockState in
+      _global "monad::senders" |-> arrayR (Tnamed "std::optional<Result<Receipt>>") (fun r => libspecs.optionR ReceiptR 1 (Some r)) receipts
+      ** block_statep |-> BlockState.R block preBlockState actual_final_state
+
+    ).
+    
     (* \pre assumes that the input is a valid transaction encoding (sender computation will not fail) *)
     cpp.spec "monad::recover_sender(const monad::Transaction&)"  as recover_sender with
         (
@@ -169,7 +197,6 @@ cpp.spec
   cpp.spec (Nscoped 
               "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0" (Nfunction function_qualifiers.N Ndtor []))  as cslamdestr inline.
 
-(*       
 (*
   erewrite sizeof.size_of_compat;[| eauto; fail| vm_compute; reflexivity].
 *)
@@ -182,19 +209,20 @@ cpp.spec
     \pre{(qtx: Qp) (block: Block) t} Exists t, [| nth_error (transactions block) i = Some t |]
     \pre txp |-> TransactionR qtx t
     \arg{senderp} "sender" (Vref senderp)
-    \pre{qs} senderp |-> optionAddressR qs (Some (Message.caller t))
+    \pre{qs} senderp |-> optionAddressR qs (Some (sender t))
     \arg{hdrp: ptr} "hdr" (Vref hdrp)
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \arg{block_statep: ptr} "block_state" (Vref block_statep)
     \prepost{(preBlockState: StateOfAccounts) (gl: BlockState.glocs)}
       block_statep |-> BlockState.Rc block preBlockState 1 gl (* the concurrent invariant does not hold during BlockState.merge : Fix *)
     \arg{prevp: ptr} "prev" (Vref prevp)
-    \prepost{prg: gname} prevp |-> PromiseR (1/2) prg (storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) (i-1))
+    \prepost{prg: gname} prevp |-> PromiseR prg (storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) (i-1))
     \post{retp}[Vptr retp]
       let actualPreState := fst (stateAfterTransactions (header block) preBlockState (firstn i (transactions block))) in
       let '(_, result) := stateAfterTransactionAux actualPreState t in
        retp |-> ResultR ReceiptR result
        ** storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) i.
+(*       
 
   Record State :=
     {

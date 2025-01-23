@@ -59,7 +59,9 @@ Context  {MODd : exb.module ⊧ CU}.
          \post[Vn size] (emp:mpred)
       ).
 
-  Definition optionAddressR (q:Qp) (oaddr: option evm.address): Rep. Proof. Admitted.
+  Definition optionR {B} (baseRep: B-> Rep) (q:Qp) (oaddr: option B): Rep. Proof. Admitted.
+  Definition addressR (a: evm.address) (q: Qp): Rep. Proof. Admitted.
+  Definition optionAddressR (q:Qp) (oaddr: option evm.address): Rep := optionR (fun a => addressR a q) q oaddr.
 
   cpp.spec "monad::wait_for_promise(boost::fibers::promise<void>&)" as wait_for_promise with 
           (
@@ -154,6 +156,7 @@ Opaque VectorR.
       ).
   
   #[global] Instance learnTrRbase2: LearnEq2 optionAddressR:= ltac:(solve_learnable).
+  #[global] Instance learnOpt b: LearnEq3 (@optionR b):= ltac:(solve_learnable).
   #[global] Instance : LearnEq2 PromiseR := ltac:(solve_learnable).
   #[global] Instance : LearnEq2 PromiseProducerR:= ltac:(solve_learnable).
   

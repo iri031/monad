@@ -110,6 +110,8 @@ void fork_tasks(
 #define MAX_TRANSACTIONS 800
 boost::fibers::promise<void> promises[MAX_TRANSACTIONS];
 std::optional<Address> senders[MAX_TRANSACTIONS];
+std::optional<Result<Receipt>> results[MAX_TRANSACTIONS];
+
 void reset_promises(uint64_t num_transactions){
     for (uint64_t i = 0; i < num_transactions; ++i) {
         promises[i]=boost::fibers::promise<void>();
@@ -139,25 +141,22 @@ void compute_senders(Block const &block, fiber::PriorityPool &priority_pool){
 
     
 template <evmc_revision rev>
-void execute_transactions(vanilla_ptr<std::optional<Address>> const senders, Block const &block, vanilla_ptr<std::optional<Result<Receipt>>> const results, 
-fiber::PriorityPool &priority_pool, Chain const &chain, BlockHashBuffer const &block_hash_buffer, BlockState &block_state){
+void execute_transactions(Block const &block, fiber::PriorityPool &priority_pool, Chain const &chain, BlockHashBuffer const &block_hash_buffer, BlockState &block_state){
     reset_promises(block.transactions.size()+1);
     promises[0].set_value();
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         fork_task(priority_pool, i, [&chain = chain,
              i = i,
-             results = results,
              &transaction = block.transactions[i],
-             &sender = senders[i],
              &header = block.header,
-             &block_hash_buffer = block_hash_buffer,
+             &block_hash_buffer,
              &block_state] {
                 results[i] = execute<rev>(
                     chain,
                     i,
                     transaction,
-                    sender,
+                    senders[i],
                     header,
                     block_hash_buffer,
                     block_state,
@@ -171,7 +170,7 @@ fiber::PriorityPool &priority_pool, Chain const &chain, BlockHashBuffer const &b
 
 }
 template <evmc_revision rev>
-Result<std::vector<Receipt>> finalize_block(Block const &block, vanilla_ptr<std::optional<Result<Receipt>>> const results, BlockState &block_state) {
+Result<std::vector<Receipt>> finalize_block(Block const &block, BlockState &block_state) {
     std::vector<Receipt> receipts;
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
@@ -182,7 +181,6 @@ Result<std::vector<Receipt>> finalize_block(Block const &block, vanilla_ptr<std:
                 i,
                 block.transactions[i],
                 results[i].value().assume_error().message().c_str());
-            delete[] results;
         }
         BOOST_OUTCOME_TRY(Receipt receipt, std::move(results[i].value()));
         receipts.push_back(std::move(receipt));
@@ -209,7 +207,6 @@ Result<std::vector<Receipt>> finalize_block(Block const &block, vanilla_ptr<std:
 
     MONAD_ASSERT(block_state.can_merge(state));
     block_state.merge(state);
-    delete[] results;
     return receipts;
 }
 
@@ -235,12 +232,9 @@ Result<std::vector<Receipt>> execute_block(
     compute_senders(block, priority_pool);
 
 
-    vanilla_ptr<std::optional<Result<Receipt>>> const results{
-        new (std::nothrow) std::optional<Result<Receipt>>[block.transactions.size()]};
-    MONAD_ASSERT(results != nullptr);
-    execute_transactions<rev>(senders, block, results, priority_pool, chain, block_hash_buffer, block_state);
+    execute_transactions<rev>(block, priority_pool, chain, block_hash_buffer, block_state);
 
-    return finalize_block<rev>(block, results, block_state);
+    return finalize_block<rev>(block, block_state);
 }
 
 EXPLICIT_EVMC_REVISION(execute_block);

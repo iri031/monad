@@ -29,11 +29,31 @@ Definition stateAfterTransactions  (hdr: BlockHeader) (s: StateOfAccounts) (ts: 
                     let '(si, rl) := s in
                     let (sf, r) := stateAfterTransaction hdr si t in (sf, r::rl)) ts (s,[]).
 
+Record Withdrawal:=
+  {
+    recipient: evm.address;
+    value_wei: N;
+  }.
+
 Record Block :=
   {
     transactions: list Transaction;
     header: BlockHeader;
+    ommers: list BlockHeader;
+    withdrawals: list Withdrawal;
   }.
+
+Definition applyWithdrawals (s: StateOfAccounts) (ws: list Withdrawal): StateOfAccounts.
+Proof. Admitted.
+
+Definition applyBlockReward (s: StateOfAccounts) (num_omsers: nat): StateOfAccounts.
+Proof. Admitted.
+
+Definition stateAfterBlock (b: Block) (s: StateOfAccounts): StateOfAccounts * list TransactionResult :=
+  let '(s, tr) := stateAfterTransactions (header b) s (transactions b) in
+  let s:= applyWithdrawals s (withdrawals b) in
+  (applyBlockReward s (length (ommers b)), tr).
+
 (* Coq model of the Chain type in C++ *)
 Definition Chain: Type. Admitted.
 Inductive Revision := Shanghai | Frontier.
