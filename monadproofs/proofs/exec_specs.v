@@ -59,7 +59,6 @@ End with_Sigma. End BlockState.
 Import bedrock.lang.cpp.semantics.values.VALUES_INTF_AXIOM.
 
 Require Import monad.asts.exb.
-Require Import monad.asts.exb_names.
 
 Open Scope cpp_name.
 Section with_Sigma.
@@ -73,8 +72,8 @@ Section with_Sigma.
   #[global] Instance learnTrRbase: LearnEq2 TransactionR:= ltac:(solve_learnable).
  
   Definition BlockR (q: Qp) (c: Block): Rep :=
-    _field ``::monad::Block::transactions`` |-> VectorR (Tnamed ``::monad::Transaction``) (fun t => TransactionR q t) q (transactions c)
-      ** structR ``::monad::Block`` q.
+    _field "::monad::Block::transactions" |-> VectorR (Tnamed "::monad::Transaction") (fun t => TransactionR q t) q (transactions c)
+      ** structR "::monad::Block" q.
   
   Definition ResultR {T} (trep: T -> Rep) (t:T): Rep. Proof. Admitted.
   Definition ReceiptR (t: TransactionResult): Rep. Admitted.
@@ -95,7 +94,7 @@ Section with_Sigma.
     \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool (* TODO: write a spec of priority_pool.submit() *)
     \post{retp}[Vptr retp]
       let (actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (transactions block) in
-      retp |-> VectorR (Tnamed ``::monad::Receipt``) ReceiptR 1 receipts
+      retp |-> VectorR (Tnamed "::monad::Receipt") ReceiptR 1 receipts
       ** block_statep |-> BlockState.R block preBlockState actual_final_state.
 
 Import namemap.
