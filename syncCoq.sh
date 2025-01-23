@@ -1,0 +1,1 @@
+cp /home/abhishek/work/coq/blue/fm-workspace-snapshot3b/fm-workspace-12-16/fmdeps/cpp2v/coq-bluerock-auto-cpp/tests/data_class/execute_transaction_spec.v ~/work/coq/monad/libs/execution/proofs/monad/execution/execute_transaction_spec.v

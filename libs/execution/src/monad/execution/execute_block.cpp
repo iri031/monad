@@ -145,9 +145,7 @@ fiber::PriorityPool &priority_pool, Chain const &chain, BlockHashBuffer const &b
     promises[0].set_value();
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
-        priority_pool.submit(
-            i,
-            [&chain = chain,
+        fork_task(priority_pool, i, [&chain = chain,
              i = i,
              results = results,
              &transaction = block.transactions[i],

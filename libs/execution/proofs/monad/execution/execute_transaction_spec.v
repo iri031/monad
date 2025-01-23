@@ -361,7 +361,7 @@ cpp.spec
   Definition basee3 (n:name) :=
     match n with
     | Ninst (Nscoped (Nglobal (Nid scopename)) _) targs => scopename
-    | _ => BS.EmptyString
+    | _ => ""%pstring
     end.
 
   Definition all_but_last {T:Type} (l: list T):= take (length l -1)%nat l. 
@@ -369,8 +369,8 @@ cpp.spec
     match fork_task_namei with
     | Ninst (Nscoped (Nglobal (Nid scopename)) (Nfunction q (Nf base) argTypes)) templateArgs =>
         let argTypes' := all_but_last argTypes ++  [Tref (Tqualified QC (Tnamed taskLamStructTy))] in
-        Ninst (Nscoped (Nglobal (Nid scopename)) (Nfunction q (Nf base) argTypes')) templateArgs
-    | _ => fork_task_namei
+        Ninst (Nscoped (Nglobal (Nid scopename)) (Nfunction q (Nf base) argTypes')) [Atype (Tnamed taskLamStructTy)]
+    | _ => Nunsupported "no match"
     end.
 
 
@@ -500,7 +500,7 @@ Qed.
   Opaque parrayR.
 
 cpp.spec (fork_task_nameg "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0") as fork_task with (forkTaskSpec "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0").
-
+  
 #[global] Instance learnPpool : LearnEq2 PriorityPoolR := ltac:(solve_learnable).
     Require Import bedrock.auto.invariants.
 
@@ -545,16 +545,12 @@ Opaque VectorR.
     ).
            
        Set Nested Proofs Allowed.
-       (*
-       cpp.spec "std::optional<evmc::address>::~std::optional<evmc::address>()" as destrop with
+       cpp.spec (Nscoped "std::optional<evmc::address>" (Nfunction function_qualifiers.N Ndtor [])) as destrop with
            (fun (this:ptr) =>
               \pre{oa} this |-> optionAddressR 1 oa
               \post emp
-           ). *)
-  Lemma destr2 (addr:ptr) (P:mpred) :
-    (Exists oa,  addr |-> optionAddressR 1 oa) **
-    P |--  wp_destroy_named module "std::optional<evmc::address>" addr P.
-  Proof. go. Admitted.
+           ).
+       
        #[global] Instance learnTrRbase: LearnEq2 TransactionR:= ltac:(solve_learnable).
        Import Verbose.
        #[global] Instance learnTrRbase2: LearnEq2 optionAddressR:= ltac:(solve_learnable).
@@ -648,15 +644,6 @@ Opaque VectorR.
       eexists; split; eauto.
     Qed.
 
-      (* will not be needed when the automation is fixed by bluerock *)
-Lemma destr3 (a:ptr) (P:mpred) vany blockp:
-  (a ,, o_field CU "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0::i" |-> primR "unsigned long" (cQp.mut 1) vany)
-  ** (a ,, o_field CU "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0::block" |-> refR<"monad::Block"> (cQp.mut 1) blockp)
-  ** (a |-> structR "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0" (cQp.mut 1))
-  ** P
-  |--
-  wp_destroy_named module "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0" a P.
-Proof using. Admitted.
        Ltac iExistsTac  foo:=match goal with
                                |- environments.envs_entails _ (Exists (_:?T), _) => iExists ((ltac:(foo)):T)
                              end.
@@ -897,7 +884,10 @@ Proof using. Admitted.
                         match L with
                         | HiddenPostCondition => hideFromWorkAs L fullyHiddenPostcond
                         end
-                     ).
+                         ).
+
+  cpp.spec (Nscoped 
+"monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0" (Nfunction function_qualifiers.N Ndtor []))  as cslamdestr inline.  
 Lemma prf: denoteModule module
              ** tvector_spec
              ** reset_promises
@@ -907,6 +897,7 @@ Lemma prf: denoteModule module
              ** opt_move_assign
              ** wait_for_promise
              ** set_value
+             ** destrop
              |-- compute_senders.
 Proof using MODd.
   verify_spec'.
@@ -976,9 +967,7 @@ Proof using MODd.
     autorewrite with syntactic.
     repeat rewrite o_sub_sub.
     simpl.
-    go.
-    rewrite <- wp_init_lambda.
-    slauto.
+    progress go.
     aggregateRepPieces a.
     go.
     IPM.perm_left ltac:(fun L n =>
@@ -1005,16 +994,12 @@ Proof using MODd.
       Hint Rewrite nat_N_Z: syntactic.
       autorewrite with syntactic.
       slauto.
-      rewrite <- destr2.
-      slauto.
-      simpl.
       replace (ival + 0) with ival;[| lia].
       go.
     }
     {
       slauto.
-       rewrite <- destr3.
-       go.
+      go.
        iExists (1+ival).
        unfold lengthN in *.
        iExistsTac lia.
