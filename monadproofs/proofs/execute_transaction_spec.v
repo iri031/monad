@@ -1,53 +1,17 @@
 Require Import QArith.
 Require Import Lens.Elpi.Elpi.
 Require Import bedrock.lang.cpp.
+Require Import stdpp.gmap.
+Require Import monad.proofs.misc.
+Require Import monad.proofs.libspecs.
+Require Import monad.proofs.evmopsem.
 
 Import cQp_compat.
 
 #[local] Open Scope Z_scope.
-
 (*
 Require Import EVMOpSem.evmfull. *)
-Require Import stdpp.gmap.
-Axiom GlobalState: Set.
-Notation StateOfAccounts := GlobalState.
-Axiom Transaction : Set.
-Module evm.
-  Axiom log_entry: Set.
-  Axiom address: Set.
-End evm.
-Definition BlockHeader: Type. Admitted.
-Record TransactionResult :=
-  {
-    gas_used: N;
-    gas_refund: N;
-    logs: list evm.log_entry;
-  }.
-
-Definition stateAfterTransactionAux  (s: StateOfAccounts) (t: Transaction): StateOfAccounts * TransactionResult.
-Admitted. (* To be provided by an appropriate EVM semantics *)
-
-(* similar to what execute_final does *)
-Definition applyGasRefundsAndRewards (hdr: BlockHeader) (s: StateOfAccounts) (t: TransactionResult): StateOfAccounts. Admitted.
-
-Definition stateAfterTransaction (hdr: BlockHeader) (s: StateOfAccounts) (t: Transaction): StateOfAccounts * TransactionResult :=
-  let (si, r) := stateAfterTransactionAux s t in
-  (applyGasRefundsAndRewards hdr si r, r).
-
-Definition stateAfterTransactions  (hdr: BlockHeader) (s: StateOfAccounts) (ts: list Transaction): StateOfAccounts * list TransactionResult :=
-  List.fold_left (fun s t =>
-                    let '(si, rl) := s in
-                    let (sf, r) := stateAfterTransaction hdr si t in (sf, r::rl)) ts (s,[]).
-
-Record Block :=
-  {
-    transactions: list Transaction;
-    header: BlockHeader;
-  }.
-  Import cancelable_invariants.
-
-  Definition storedAtGhostLoc  `{Sigma:cpp_logic} {CU: genv} (q: Q) (g: gname) (n: nat) : mpred.
-  Admitted.
+Import cancelable_invariants.
   
 Module BlockState. Section with_Sigma.
   Context `{Sigma:cpp_logic} {CU: genv} {hh: HasOwn mpredI fracR}. (* some standard assumptions about the c++ logic *)
@@ -86,15 +50,9 @@ Module BlockState. Section with_Sigma.
   
 End with_Sigma. End BlockState.
 
-(* Coq model of the Chain type in C++ *)
-Definition Chain: Type. Admitted.
 
 (* Coq model of the priority pool type in C++ *)
-Definition PriorityPool: Type. Admitted.
 Import bedrock.lang.cpp.semantics.values.VALUES_INTF_AXIOM.
-Inductive Revision := Shanghai | Frontier.
-
-Definition valOfRev (r : Revision) : val := Vint 0. (* TODO: fix *)
 
 Require Import monad.asts.exb.
 Require Import monad.asts.exb_names.
@@ -139,6 +97,7 @@ Section with_Sigma.
   Definition ResultR {T} (trep: T -> Rep) (t:T): Rep. Proof. Admitted.
   Definition ReceiptR (t: TransactionResult): Rep. Admitted.
   
+  Definition valOfRev (r : Revision) : val := Vint 0. (* TODO: fix *)
 
 (*  
   Definition execute_block_spec : WpSpec mpredI val val :=

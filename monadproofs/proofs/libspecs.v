@@ -1,0 +1,2 @@
+
+Definition PriorityPool: Type. Admitted.
