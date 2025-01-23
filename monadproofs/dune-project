@@ -5,11 +5,3 @@
 (maintainers
  "Abhishek Anand <abhishek@category.xyz>")
 (source (github category-labs/monad))
-
-(package
- (name monad)
- (synopsis "correctness proofs of category lab's implementation of the monad virtual machine")
- (depends
-  (coq-cpp2v (= dev))
-  elpi-cpp
-  coq-bluerock-auto-core))

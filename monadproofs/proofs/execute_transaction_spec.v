@@ -154,6 +154,7 @@ Section with_Sigma.
     \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
     \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool
     \post storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) (length (transactions block)).
+
  *)
   
   Definition execute_block_simpler : WpSpec mpredI val val :=
