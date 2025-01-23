@@ -37,4 +37,7 @@ Record Block :=
 (* Coq model of the Chain type in C++ *)
 Definition Chain: Type. Admitted.
 Inductive Revision := Shanghai | Frontier.
+Axiom sender: Transaction -> evm.address.
+
+
 
