@@ -31,6 +31,11 @@ using namespace monad;
 
 namespace
 {
+    bool operator==(evmc_address const &lhs, evmc_address const &rhs)
+    {
+        return std::memcmp(lhs.bytes, rhs.bytes, sizeof(lhs.bytes)) == 0;
+    }
+
     template <evmc_revision rev>
     Result<evmc::Result> eth_call_impl(
         Chain const &chain, Transaction const &txn, BlockHeader const &header,
@@ -136,13 +141,25 @@ namespace
             enriched_txn, sender, header, chain.get_chain_id());
         NoopCallTracer call_tracer;
         EvmcHost<rev> host{call_tracer, tx_context, buffer, state};
-        return execute_impl_no_validation<rev>(
+        auto result = execute_impl_no_validation<rev>(
             state,
             host,
             enriched_txn,
             sender,
             header.base_fee_per_gas.value_or(0),
             header.beneficiary);
+
+        if (result.create_address != evmc_address{} &&
+            result.status_code != EVMC_REVERT) {
+            auto const deployed_code =
+                state.get_code(result.create_address)->executable_code;
+            uint8_t *output_buffer = new uint8_t[deployed_code.size()];
+            std::memcpy(
+                output_buffer, deployed_code.data(), deployed_code.size());
+            result.output_data = output_buffer;
+            result.output_size = deployed_code.size();
+        }
+        return result;
     }
 
     Result<evmc::Result> eth_call_impl(
