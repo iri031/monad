@@ -357,11 +357,10 @@ struct read_single_child_receiver
             // child offset is older than current node writer's start offset
             MONAD_DEBUG_ASSERT(
                 virtual_child_offset <
-                aux->physical_to_virtual((virtual_child_offset.in_fast_list()
-                                              ? aux->node_writer_fast
-                                              : aux->node_writer_slow)
-                                             ->sender()
-                                             .offset()));
+                aux->physical_to_virtual(
+                    aux->get_writer_of_list(virtual_child_offset.which_list())
+                        ->sender()
+                        .offset()));
         }
         rd_offset = round_down_align<DISK_PAGE_BITS>(child.offset);
         rd_offset.set_spare(0);
@@ -515,8 +514,9 @@ Node::UniquePtr create_node_from_children_if_any(
                 // won't duplicate write of unchanged old child
                 MONAD_DEBUG_ASSERT(child.branch < 16);
                 MONAD_DEBUG_ASSERT(child.ptr);
-                child.offset =
-                    async_write_node_set_spare(aux, *child.ptr, true);
+                // TODO: if expire, write to expire list
+                child.offset = async_write_node_set_spare(
+                    aux, *child.ptr, chunk_list::fast);
                 std::tie(child.min_offset_fast, child.min_offset_slow) =
                     calc_min_offsets(
                         *child.ptr, aux.physical_to_virtual(child.offset));
@@ -1094,15 +1094,16 @@ void compact_(
     auto const virtual_node_offset = node_offset == INVALID_OFFSET
                                          ? INVALID_VIRTUAL_OFFSET
                                          : aux.physical_to_virtual(node_offset);
+    MONAD_ASSERT(virtual_node_offset.which_list() != chunk_list::expire);
     bool const rewrite_to_fast = [&aux, &virtual_node_offset] {
         if (virtual_node_offset == INVALID_VIRTUAL_OFFSET) {
             return true;
         }
         compact_virtual_chunk_offset_t const compacted_virtual_offset{
             virtual_node_offset};
-        return (virtual_node_offset.in_fast_list() &&
+        return (virtual_node_offset.which_list() == chunk_list::fast &&
                 compacted_virtual_offset >= aux.compact_offset_fast) ||
-               (!virtual_node_offset.in_fast_list() &&
+               (virtual_node_offset.which_list() == chunk_list::slow &&
                 compacted_virtual_offset >= aux.compact_offset_slow);
     }();
 
@@ -1148,8 +1149,10 @@ void try_fillin_parent_with_rewritten_node(
     if (min_offset_fast != INVALID_COMPACT_VIRTUAL_OFFSET) {
         tnode->rewrite_to_fast = true; // override that
     }
-    auto const new_offset =
-        async_write_node_set_spare(aux, *tnode->node, tnode->rewrite_to_fast);
+    auto const new_offset = async_write_node_set_spare(
+        aux,
+        *tnode->node,
+        tnode->rewrite_to_fast ? chunk_list::fast : chunk_list::slow);
     compact_virtual_chunk_offset_t const truncated_new_virtual_offset{
         aux.physical_to_virtual(new_offset)};
     // update min offsets in subtrie
@@ -1193,8 +1196,8 @@ node_writer_unique_ptr_type replace_node_writer_to_start_at_new_chunk(
     UpdateAuxImpl &aux, node_writer_unique_ptr_type &node_writer)
 {
     auto *sender = &node_writer->sender();
-    bool const in_fast_list =
-        aux.db_metadata()->at(sender->offset().id)->in_fast_list;
+    chunk_list const list_type =
+        aux.db_metadata()->at(sender->offset().id)->which_list();
     auto const *ci_ = aux.db_metadata()->free_list_end();
     MONAD_ASSERT(ci_ != nullptr); // we are out of free blocks!
     auto idx = ci_->index(aux.db_metadata());
@@ -1258,10 +1261,7 @@ node_writer_unique_ptr_type replace_node_writer_to_start_at_new_chunk(
         return {};
     }
     aux.remove(idx);
-    aux.append(
-        in_fast_list ? UpdateAuxImpl::chunk_list::fast
-                     : UpdateAuxImpl::chunk_list::slow,
-        idx);
+    aux.append(list_type, idx);
     return ret;
 }
 
@@ -1271,8 +1271,8 @@ node_writer_unique_ptr_type replace_node_writer(
     // Can't use add_to_offset(), because it asserts if we go past the
     // capacity
     auto offset_of_next_writer = node_writer->sender().offset();
-    bool const in_fast_list =
-        aux.db_metadata()->at(offset_of_next_writer.id)->in_fast_list;
+    chunk_list const list_type =
+        aux.db_metadata()->at(offset_of_next_writer.id)->which_list();
     file_offset_t offset = offset_of_next_writer.offset;
     offset += node_writer->sender().written_buffer_bytes();
     offset_of_next_writer.offset = offset & chunk_offset_t::max_offset;
@@ -1305,10 +1305,7 @@ node_writer_unique_ptr_type replace_node_writer(
     if (ci_ != nullptr) {
         MONAD_DEBUG_ASSERT(ci_ == aux.db_metadata()->free_list_end());
         aux.remove(idx);
-        aux.append(
-            in_fast_list ? UpdateAuxImpl::chunk_list::fast
-                         : UpdateAuxImpl::chunk_list::slow,
-            idx);
+        aux.append(list_type, idx);
     }
     return ret;
 }
@@ -1433,22 +1430,19 @@ retry:
 // Return node's physical offset the node is written at, triedb should not
 // depend on any metadata to walk the data structure.
 chunk_offset_t
-async_write_node_set_spare(UpdateAuxImpl &aux, Node &node, bool write_to_fast)
+async_write_node_set_spare(UpdateAuxImpl &aux, Node &node, chunk_list list_type)
 {
-    write_to_fast &= aux.can_write_to_fast();
-    if (aux.alternate_slow_fast_writer()) {
+    if (!aux.can_write_to_fast() && list_type == chunk_list::fast) {
+        list_type = chunk_list::slow;
+    }
+    if (list_type != chunk_list::expire && aux.alternate_slow_fast_writer()) {
         // alternate between slow and fast writer
         aux.set_can_write_to_fast(!aux.can_write_to_fast());
     }
 
-    auto off = async_write_node(
-                   aux,
-                   write_to_fast ? aux.node_writer_fast : aux.node_writer_slow,
-                   node)
+    auto off = async_write_node(aux, aux.get_writer_of_list(list_type), node)
                    .offset_written_to;
-    MONAD_ASSERT(
-        (write_to_fast && aux.db_metadata()->at(off.id)->in_fast_list) ||
-        (!write_to_fast && aux.db_metadata()->at(off.id)->in_slow_list));
+    MONAD_ASSERT(list_type == aux.db_metadata()->at(off.id)->which_list());
     unsigned const pages = num_pages(off.offset, node.get_disk_size());
     off.set_spare(static_cast<uint16_t>(node_disk_pages_spare_15{pages}));
     return off;
@@ -1478,10 +1472,14 @@ void flush_buffered_writes(UpdateAuxImpl &aux)
         // shall be recycled by the i/o receiver
         to_initiate.release();
     };
-    replace(aux.node_writer_fast);
+    if (aux.node_writer_fast->sender().written_buffer_bytes()) {
+        replace(aux.node_writer_fast);
+    }
     if (aux.node_writer_slow->sender().written_buffer_bytes()) {
-        // replace slow node writer
         replace(aux.node_writer_slow);
+    }
+    if (aux.node_writer_expire->sender().written_buffer_bytes()) {
+        replace(aux.node_writer_expire);
     }
     aux.io->flush();
 }
@@ -1490,12 +1488,14 @@ void flush_buffered_writes(UpdateAuxImpl &aux)
 chunk_offset_t
 write_new_root_node(UpdateAuxImpl &aux, Node &root, uint64_t const version)
 {
-    auto const offset_written_to = async_write_node_set_spare(aux, root, true);
+    auto const offset_written_to =
+        async_write_node_set_spare(aux, root, chunk_list::fast);
     flush_buffered_writes(aux);
     // advance fast and slow ring's latest offset in db metadata
     aux.advance_db_offsets_to(
         aux.node_writer_fast->sender().offset(),
-        aux.node_writer_slow->sender().offset());
+        aux.node_writer_slow->sender().offset(),
+        aux.node_writer_expire->sender().offset());
     // update root offset
     auto const max_version_in_db = aux.db_history_max_version();
     if (MONAD_UNLIKELY(max_version_in_db == INVALID_BLOCK_ID)) {

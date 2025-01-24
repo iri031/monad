@@ -79,28 +79,32 @@ UpdateAuxImpl::physical_to_virtual(chunk_offset_t const offset) const noexcept
     MONAD_ASSERT(offset.id < io->chunk_count());
     auto const *ci = db_metadata()->at(offset.id);
     // should never invoke a translation for offset in free list
-    MONAD_DEBUG_ASSERT(ci->in_fast_list || ci->in_slow_list);
+    MONAD_DEBUG_ASSERT(ci->which_list() != chunk_list::free);
     return {
         uint32_t(ci->insertion_count()),
         offset.offset,
-        ci->in_fast_list,
+        ci->which_list(),
         offset.spare & virtual_chunk_offset_t::max_spare};
 }
 
-std::pair<UpdateAuxImpl::chunk_list, detail::unsigned_20>
+std::pair<chunk_list, detail::unsigned_20>
 UpdateAuxImpl::chunk_list_and_age(uint32_t const idx) const noexcept
 {
     MONAD_ASSERT(is_on_disk());
     auto const *ci = db_metadata()->at(idx);
     std::pair<chunk_list, detail::unsigned_20> ret(
         chunk_list::free, ci->insertion_count());
-    if (ci->in_fast_list) {
+    if (ci->which_list() == chunk_list::fast) {
         ret.first = chunk_list::fast;
         ret.second -= db_metadata()->fast_list_begin()->insertion_count();
     }
-    else if (ci->in_slow_list) {
+    else if (ci->which_list() == chunk_list::slow) {
         ret.first = chunk_list::slow;
         ret.second -= db_metadata()->slow_list_begin()->insertion_count();
+    }
+    else if (ci->which_list() == chunk_list::expire) {
+        ret.first = chunk_list::expire;
+        ret.second -= db_metadata()->expire_list_begin()->insertion_count();
     }
     else {
         ret.second -= db_metadata()->free_list_begin()->insertion_count();
@@ -122,6 +126,9 @@ void UpdateAuxImpl::append(chunk_list const list, uint32_t const idx) noexcept
         case chunk_list::slow:
             m->append_(m->slow_list, m->at_(idx));
             break;
+        case chunk_list::expire:
+            m->append_(m->expire_list, m->at_(idx));
+            break;
         }
     };
     do_(db_metadata_[0].main);
@@ -139,8 +146,7 @@ void UpdateAuxImpl::remove(uint32_t const idx) noexcept
 {
     MONAD_ASSERT(is_on_disk());
     bool const is_free_list =
-        (!db_metadata_[0].main->at_(idx)->in_fast_list &&
-         !db_metadata_[0].main->at_(idx)->in_slow_list);
+        db_metadata_[0].main->at_(idx)->which_list() == chunk_list::free;
     auto do_ = [&](detail::db_metadata *m) { m->remove_(m->at_(idx)); };
     do_(db_metadata_[0].main);
     do_(db_metadata_[1].main);
@@ -154,16 +160,22 @@ void UpdateAuxImpl::remove(uint32_t const idx) noexcept
 }
 
 void UpdateAuxImpl::advance_db_offsets_to(
-    chunk_offset_t const fast_offset, chunk_offset_t const slow_offset) noexcept
+    chunk_offset_t const fast_offset, chunk_offset_t const slow_offset,
+    chunk_offset_t const expire_offset) noexcept
 {
     MONAD_ASSERT(is_on_disk());
     // To detect bugs in replacing fast/slow node writer to the wrong chunk
     // list
-    MONAD_ASSERT(db_metadata()->at(fast_offset.id)->in_fast_list);
-    MONAD_ASSERT(db_metadata()->at(slow_offset.id)->in_slow_list);
+    MONAD_ASSERT(
+        db_metadata()->at(fast_offset.id)->which_list() == chunk_list::fast);
+    MONAD_ASSERT(
+        db_metadata()->at(slow_offset.id)->which_list() == chunk_list::slow);
+    MONAD_ASSERT(
+        db_metadata()->at(expire_offset.id)->which_list() ==
+        chunk_list::expire);
     auto do_ = [&](detail::db_metadata *m) {
-        m->advance_db_offsets_to_(
-            detail::db_metadata::db_offsets_info_t{fast_offset, slow_offset});
+        m->advance_db_offsets_to_(detail::db_metadata::db_offsets_info_t{
+            fast_offset, slow_offset, expire_offset});
     };
     do_(db_metadata_[0].main);
     do_(db_metadata_[1].main);
@@ -308,10 +320,16 @@ void UpdateAuxImpl::rewind_to_match_offsets()
     MONAD_ASSERT(is_on_disk());
 
     auto const fast_offset = db_metadata()->db_offsets.start_of_wip_offset_fast;
-    MONAD_ASSERT(db_metadata()->at(fast_offset.id)->in_fast_list);
+    MONAD_ASSERT(
+        db_metadata()->at(fast_offset.id)->which_list() == chunk_list::fast);
     auto const slow_offset = db_metadata()->db_offsets.start_of_wip_offset_slow;
-    MONAD_ASSERT(db_metadata()->at(slow_offset.id)->in_slow_list);
-
+    MONAD_ASSERT(
+        db_metadata()->at(slow_offset.id)->which_list() == chunk_list::slow);
+    auto const expire_offset =
+        db_metadata()->db_offsets.start_of_wip_offset_expire;
+    MONAD_ASSERT(
+        db_metadata()->at(expire_offset.id)->which_list() ==
+        chunk_list::expire);
     // fast/slow list offsets should always be greater than last written root
     // offset.
     auto const ro = root_offsets();
@@ -319,7 +337,8 @@ void UpdateAuxImpl::rewind_to_match_offsets()
     if (last_root_offset != INVALID_OFFSET) {
         auto const virtual_last_root_offset =
             physical_to_virtual(last_root_offset);
-        if (db_metadata()->at(last_root_offset.id)->in_fast_list) {
+        if (db_metadata()->at(last_root_offset.id)->which_list() ==
+            chunk_list::fast) {
             auto const virtual_fast_offset = physical_to_virtual(fast_offset);
             MONAD_ASSERT_PRINTF(
                 virtual_fast_offset > virtual_last_root_offset,
@@ -333,7 +352,9 @@ void UpdateAuxImpl::rewind_to_match_offsets()
                 fast_offset.offset,
                 virtual_fast_offset.count);
         }
-        else if (db_metadata()->at(last_root_offset.id)->in_slow_list) {
+        else if (
+            db_metadata()->at(last_root_offset.id)->which_list() ==
+            chunk_list::slow) {
             auto const virtual_slow_offset = physical_to_virtual(slow_offset);
             MONAD_ASSERT_PRINTF(
                 virtual_slow_offset > virtual_last_root_offset,
@@ -346,6 +367,23 @@ void UpdateAuxImpl::rewind_to_match_offsets()
                 slow_offset.id,
                 virtual_slow_offset.count,
                 slow_offset.offset);
+        }
+        else if (MONAD_UNLIKELY(
+                     db_metadata()->at(last_root_offset.id)->which_list() ==
+                     chunk_list::expire)) {
+            auto const virtual_expire_offset =
+                physical_to_virtual(expire_offset);
+            MONAD_ASSERT_PRINTF(
+                virtual_expire_offset > virtual_last_root_offset,
+                "Detected corruption. Last root offset (id=%d, count=%d, "
+                "offset=%d, is ahead of expire list offset (id=%d, "
+                "count=%d, offset=%d)",
+                last_root_offset.id,
+                virtual_last_root_offset.count,
+                last_root_offset.offset,
+                expire_offset.id,
+                virtual_expire_offset.count,
+                expire_offset.offset);
         }
         else {
             MONAD_ABORT_PRINTF(
@@ -377,6 +415,18 @@ void UpdateAuxImpl::rewind_to_match_offsets()
         io->storage_pool().chunk(storage_pool::seq, slow_offset.id);
     MONAD_ASSERT(slow_offset_chunk->try_trim_contents(slow_offset.offset));
 
+    // Same for expire list
+    auto const *expire_ci = db_metadata()->at(expire_offset.id);
+    while (expire_ci != db_metadata()->expire_list_end()) {
+        auto const idx = db_metadata()->expire_list.end;
+        remove(idx);
+        io->storage_pool().chunk(storage_pool::seq, idx)->destroy_contents();
+        append(chunk_list::free, idx);
+    }
+    auto expire_offset_chunk =
+        io->storage_pool().chunk(storage_pool::seq, expire_offset.id);
+    MONAD_ASSERT(expire_offset_chunk->try_trim_contents(expire_offset.offset));
+
     // Reset node_writers offset to the same offsets in db_metadata
     reset_node_writers();
 }
@@ -396,7 +446,8 @@ void UpdateAuxImpl::clear_ondisk_db()
 
     advance_db_offsets_to(
         {db_metadata()->fast_list.begin, 0},
-        {db_metadata()->slow_list.begin, 0});
+        {db_metadata()->slow_list.begin, 0},
+        {db_metadata()->expire_list.begin, 0});
     rewind_to_match_offsets();
     return;
 }
@@ -424,12 +475,15 @@ void UpdateAuxImpl::rewind_to_version(uint64_t const version)
     }
     set_latest_voted(INVALID_BLOCK_ID, INVALID_ROUND_NUM);
     auto last_written_offset = root_offsets()[version];
-    bool const last_written_offset_is_in_fast_list =
-        db_metadata()->at(last_written_offset.id)->in_fast_list;
+    auto *last_written_ci = db_metadata()->at(last_written_offset.id);
     unsigned const bytes_to_read =
         node_disk_pages_spare_15{last_written_offset}.to_pages()
         << DISK_PAGE_BITS;
-    if (last_written_offset_is_in_fast_list) {
+    // TODO Vicky: decode the expire chunk offset from root->value of that
+    // version, update start_of_wip_expire_offset, so that
+    // rewind_to_match_offsets() will free expire chunk of count greater than
+    // that as well
+    if (last_written_ci->which_list() == chunk_list::fast) {
         // Form offset after the root node for future appends
         last_written_offset = round_down_align<DISK_PAGE_BITS>(
             last_written_offset.add_to_offset(bytes_to_read));
@@ -439,7 +493,9 @@ void UpdateAuxImpl::rewind_to_version(uint64_t const version)
             last_written_offset.offset = 0;
         }
         advance_db_offsets_to(
-            last_written_offset, get_start_of_wip_slow_offset());
+            last_written_offset,
+            get_start_of_wip_slow_offset(),
+            get_start_of_wip_expire_offset()); // TODO: this should be changed
     }
     // Discard all chunks no longer in use, and if root is on fast list
     // replace the now partially written chunk with a fresh one able to be
@@ -787,6 +843,10 @@ void UpdateAuxImpl::set_io(
             &db_metadata_[0].main->slow_list,
             0xff,
             sizeof(db_metadata_[0].main->slow_list));
+        memset(
+            &db_metadata_[0].main->expire_list,
+            0xff,
+            sizeof(db_metadata_[0].main->expire_list));
         auto *chunk_info =
             start_lifetime_as_array<detail::db_metadata::chunk_info_t>(
                 db_metadata_[0].main->chunk_info, chunk_count);
@@ -798,7 +858,6 @@ void UpdateAuxImpl::set_io(
         // magics are not set yet, so memcpy is fine here
         memcpy(db_metadata_[1].main, db_metadata_[0].main, map_size);
 
-        // Insert all chunks into the free list
         std::vector<uint32_t> chunks;
         chunks.reserve(chunk_count);
         for (uint32_t n = 0; n < chunk_count; n++) {
@@ -845,6 +904,7 @@ void UpdateAuxImpl::set_io(
             auto *i = db_metadata_[0].main->at_(id);
             MONAD_ASSERT(i->index(db_metadata()) == id);
         };
+        MONAD_ASSERT(chunks.size() >= 3);
         // root offset is the front of fast list
         chunk_offset_t const fast_offset(chunks.front(), 0);
         append_with_insertion_count_override(chunk_list::fast, fast_offset.id);
@@ -855,10 +915,17 @@ void UpdateAuxImpl::set_io(
         append_with_insertion_count_override(chunk_list::slow, slow_offset.id);
         LOG_DEBUG_CFORMAT(
             "Append one chunk to slow list, id: %d", slow_offset.id);
-        std::span const chunks_after_second(
-            chunks.data() + 2, chunks.size() - 2);
+        // init the first expire chunk and expire_offset
+        chunk_offset_t const expire_offset(chunks[2], 0);
+        append_with_insertion_count_override(
+            chunk_list::expire, expire_offset.id);
+        LOG_DEBUG_CFORMAT(
+            "Append one chunk to expire list, id: %d", expire_offset.id);
+
+        std::span const chunks_after_third(
+            chunks.data() + 3, chunks.size() - 3);
         // insert the rest of the chunks to free list
-        for (uint32_t const i : chunks_after_second) {
+        for (uint32_t const i : chunks_after_third) {
             append(chunk_list::free, i);
             auto *i_ = db_metadata_[0].main->at_(i);
             MONAD_ASSERT(i_->index(db_metadata()) == i);
@@ -866,7 +933,7 @@ void UpdateAuxImpl::set_io(
 
         // Mark as done, init root offset and history versions for the new
         // database as invalid
-        advance_db_offsets_to(fast_offset, slow_offset);
+        advance_db_offsets_to(fast_offset, slow_offset, expire_offset);
         if (!db_metadata_[0].main->using_chunks_for_root_offsets) {
             root_offsets(0).reset_all(0);
             root_offsets(1).reset_all(0);
@@ -945,6 +1012,7 @@ void UpdateAuxImpl::unset_io()
 {
     node_writer_fast.reset();
     node_writer_slow.reset();
+    node_writer_expire.reset();
     if (db_metadata_[0].root_offsets.data() != nullptr) {
         (void)::munmap(
             db_metadata_[0].root_offsets.data(),
@@ -988,11 +1056,14 @@ void UpdateAuxImpl::reset_node_writers()
         init_node_writer(db_metadata()->db_offsets.start_of_wip_offset_fast);
     node_writer_slow =
         init_node_writer(db_metadata()->db_offsets.start_of_wip_offset_slow);
-
+    node_writer_expire =
+        init_node_writer(db_metadata()->db_offsets.start_of_wip_offset_expire);
     last_block_end_offset_fast_ = compact_virtual_chunk_offset_t{
         physical_to_virtual(node_writer_fast->sender().offset())};
     last_block_end_offset_slow_ = compact_virtual_chunk_offset_t{
         physical_to_virtual(node_writer_slow->sender().offset())};
+    last_block_end_offset_expire_ = compact_virtual_chunk_offset_t{
+        physical_to_virtual(node_writer_expire->sender().offset())};
 }
 
 /* upsert() supports both on disk and in memory db updates. User should
@@ -1079,24 +1150,30 @@ Node::UniquePtr UpdateAuxImpl::do_update(
         // log stats
         print_update_stats(version);
     }
-    [[maybe_unused]] auto const curr_fast_writer_offset =
+    [[maybe_unused]] auto const curr_writer_offset_fast =
         physical_to_virtual(node_writer_fast->sender().offset());
-    [[maybe_unused]] auto const curr_slow_writer_offset =
+    [[maybe_unused]] auto const curr_writer_offset_slow =
         physical_to_virtual(node_writer_slow->sender().offset());
+    [[maybe_unused]] auto const curr_writer_offset_expire =
+        physical_to_virtual(node_writer_expire->sender().offset());
     LOG_INFO_CFORMAT(
         "Finish upserting version %lu. Time elapsed: %ld us. Disk usage: %.4f. "
-        "Chunks: %u fast, %u slow, %u free. Writer offsets: fast={%u,%u}, "
-        "slow={%u,%u}.",
+        "Chunks: %u fast, %u slow, %u expire, %u free. Writer offsets: "
+        "fast={%u,%u}, "
+        "slow={%u,%u}, expire={%u,%u}.",
         version,
         duration.count(),
         disk_usage(),
         num_chunks(chunk_list::fast),
         num_chunks(chunk_list::slow),
+        num_chunks(chunk_list::expire),
         num_chunks(chunk_list::free),
-        curr_fast_writer_offset.count,
-        curr_fast_writer_offset.offset,
-        curr_slow_writer_offset.count,
-        curr_slow_writer_offset.offset);
+        curr_writer_offset_fast.count,
+        curr_writer_offset_fast.offset,
+        curr_writer_offset_slow.count,
+        curr_writer_offset_slow.offset,
+        curr_writer_offset_expire.count,
+        curr_writer_offset_expire.offset);
     if (duration > std::chrono::microseconds(500'000)) {
         LOG_WARNING_CFORMAT(
             "Upsert version %lu takes longer than 0.5 s, time elapsed: %ld us.",
@@ -1341,9 +1418,8 @@ void UpdateAuxImpl::free_compacted_chunks()
                 io->storage_pool()
                     .chunk(monad::async::storage_pool::seq, idx)
                     ->destroy_contents();
-                append(
-                    UpdateAuxImpl::chunk_list::free,
-                    idx); // append not prepend
+                append(chunk_list::free,
+                       idx); // append not prepend
             }
         };
     MONAD_ASSERT(
@@ -1384,6 +1460,16 @@ uint32_t UpdateAuxImpl::num_chunks(chunk_list const list) const noexcept
 
         return (uint32_t)(db_metadata()->slow_list_end()->insertion_count() -
                           db_metadata()->slow_list_begin()->insertion_count()) +
+               1;
+    case chunk_list::expire:
+        // Triggers when out of storage
+        MONAD_ASSERT(db_metadata()->expire_list_begin() != nullptr);
+        MONAD_ASSERT(db_metadata()->expire_list_end() != nullptr);
+
+        return (uint32_t)(db_metadata()->expire_list_end()->insertion_count() -
+                          db_metadata()
+                              ->expire_list_begin()
+                              ->insertion_count()) +
                1;
     }
     return 0;
@@ -1613,7 +1699,7 @@ void UpdateAuxImpl::collect_compacted_nodes_stats(
     }
 #else
     if (!copy_node_for_fast && !rewrite_to_fast) {
-        MONAD_ASSERT(!node_offset.in_fast_list());
+        MONAD_ASSERT(node_offset.which_list() == chunk_list::slow);
         MONAD_ASSERT(
             compact_virtual_chunk_offset_t{node_offset} < compact_offset_slow);
         stats.compacted_bytes_in_slow += node_disk_size;

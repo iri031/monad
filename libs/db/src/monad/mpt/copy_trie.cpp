@@ -35,8 +35,8 @@ Node::UniquePtr create_node_add_new_branch(
             child.ptr = std::move(new_child);
             child.subtrie_min_version = calc_min_version(*child.ptr);
             if (aux.is_on_disk()) {
-                child.offset =
-                    async_write_node_set_spare(aux, *child.ptr, true);
+                child.offset = async_write_node_set_spare(
+                    aux, *child.ptr, chunk_list::fast);
                 std::tie(child.min_offset_fast, child.min_offset_slow) =
                     calc_min_offsets(
                         *child.ptr, aux.physical_to_virtual(child.offset));
@@ -84,7 +84,8 @@ Node::UniquePtr create_node_with_two_children(
         child.subtrie_min_version = calc_min_version(*child.ptr);
         child.branch = branch0;
         if (aux.is_on_disk()) {
-            child.offset = async_write_node_set_spare(aux, *child.ptr, true);
+            child.offset =
+                async_write_node_set_spare(aux, *child.ptr, chunk_list::fast);
             std::tie(child.min_offset_fast, child.min_offset_slow) =
                 calc_min_offsets(*child.ptr);
         }
@@ -95,7 +96,8 @@ Node::UniquePtr create_node_with_two_children(
         child.subtrie_min_version = calc_min_version(*child.ptr);
         child.branch = branch1;
         if (aux.is_on_disk()) {
-            child.offset = async_write_node_set_spare(aux, *child.ptr, true);
+            child.offset =
+                async_write_node_set_spare(aux, *child.ptr, chunk_list::fast);
             std::tie(child.min_offset_fast, child.min_offset_slow) =
                 calc_min_offsets(*child.ptr);
         }
@@ -127,7 +129,8 @@ Node::UniquePtr copy_trie_impl(
         ChildData child{.ptr = std::move(new_node), .branch = dest.get(0)};
         child.subtrie_min_version = calc_min_version(*child.ptr);
         if (aux.is_on_disk()) {
-            child.offset = async_write_node_set_spare(aux, *child.ptr, true);
+            child.offset =
+                async_write_node_set_spare(aux, *child.ptr, chunk_list::fast);
             std::tie(child.min_offset_fast, child.min_offset_slow) =
                 calc_min_offsets(
                     *child.ptr, aux.physical_to_virtual(child.offset));
@@ -255,7 +258,8 @@ Node::UniquePtr copy_trie_impl(
         while (!parents_and_indexes.empty()) {
             auto const &[p, i] = parents_and_indexes.top();
             auto &node = *p->next(i);
-            p->set_fnext(i, async_write_node_set_spare(aux, node, true));
+            p->set_fnext(
+                i, async_write_node_set_spare(aux, node, chunk_list::fast));
             auto const [min_offset_fast, min_offset_slow] =
                 calc_min_offsets(node);
             p->set_min_offset_fast(i, min_offset_fast);
