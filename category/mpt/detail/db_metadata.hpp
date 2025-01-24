@@ -127,6 +127,7 @@ namespace detail
             // should be rewound if restart.
             chunk_offset_t start_of_wip_offset_fast;
             chunk_offset_t start_of_wip_offset_slow;
+            chunk_offset_t start_of_wip_offset_expire;
 
             db_offsets_info_t() = delete;
             db_offsets_info_t(db_offsets_info_t const &) = delete;
@@ -138,9 +139,11 @@ namespace detail
 
             constexpr db_offsets_info_t(
                 chunk_offset_t start_of_wip_offset_fast_,
-                chunk_offset_t start_of_wip_offset_slow_)
+                chunk_offset_t start_of_wip_offset_slow_,
+                chunk_offset_t start_of_wip_offset_expire_)
                 : start_of_wip_offset_fast(start_of_wip_offset_fast_)
                 , start_of_wip_offset_slow(start_of_wip_offset_slow_)
+                , start_of_wip_offset_expire(start_of_wip_offset_expire_)
             {
             }
 
@@ -148,6 +151,7 @@ namespace detail
             {
                 start_of_wip_offset_fast = o.start_of_wip_offset_fast;
                 start_of_wip_offset_slow = o.start_of_wip_offset_slow;
+                start_of_wip_offset_expire = o.start_of_wip_offset_expire;
             }
         } db_offsets;
 
@@ -184,19 +188,23 @@ namespace detail
         struct id_pair
         {
             uint32_t begin, end;
-        } free_list, fast_list, slow_list;
+        } free_list, fast_list, slow_list, expire_list;
 
         struct chunk_info_t
         {
             static constexpr uint32_t INVALID_CHUNK_ID = 0xfffff;
             uint64_t prev_chunk_id : 20; // same bits as from chunk_offset_t
-            uint64_t in_fast_list : 1;
-            uint64_t in_slow_list : 1;
+            uint64_t which_list_ : 2; // 0: fast, 1: slow, 2: expire
             uint64_t insertion_count0_ : 10; // align next to 8 bit boundary
                                              // to aid codegen
             uint64_t next_chunk_id : 20; // same bits as from chunk_offset_t
             uint64_t unused0_ : 2;
             uint64_t insertion_count1_ : 10;
+
+            chunk_list which_list() const noexcept
+            {
+                return (chunk_list)which_list_;
+            }
 
             uint32_t index(db_metadata const *parent) const noexcept
             {
@@ -352,6 +360,24 @@ namespace detail
             return &chunk_info[slow_list.end];
         }
 
+        chunk_info_t const *expire_list_begin() const noexcept
+        {
+            if (expire_list.begin == UINT32_MAX) {
+                return nullptr;
+            }
+            MONAD_DEBUG_ASSERT(expire_list.begin < chunk_info_count);
+            return &chunk_info[expire_list.begin];
+        }
+
+        chunk_info_t const *expire_list_end() const noexcept
+        {
+            if (expire_list.end == UINT32_MAX) {
+                return nullptr;
+            }
+            MONAD_DEBUG_ASSERT(expire_list.end < chunk_info_count);
+            return &chunk_info[expire_list.end];
+        }
+
     private:
         chunk_info_t *at_(uint32_t idx) noexcept
         {
@@ -359,13 +385,29 @@ namespace detail
             return &chunk_info[idx];
         }
 
-        void append_(id_pair &list, chunk_info_t *i) noexcept
+        void assign_list_(id_pair &list, chunk_info_t *const i) noexcept
+        {
+            if (&list == &fast_list) {
+                i->which_list_ = (uint64_t)chunk_list::fast;
+            }
+            else if (&list == &slow_list) {
+                i->which_list_ = (uint64_t)chunk_list::slow;
+            }
+            else if (&list == &expire_list) {
+                i->which_list_ = (uint64_t)chunk_list::expire;
+            }
+            else {
+                MONAD_ASSERT(&list == &free_list);
+                i->which_list_ = (uint64_t)chunk_list::free;
+            }
+        }
+
+        void append_(id_pair &list, chunk_info_t *const i) noexcept
         {
             // Insertion count is assigned to chunk_info_t *i atomically
             auto g = hold_dirty();
             chunk_info_t info;
-            info.in_fast_list = (&list == &fast_list);
-            info.in_slow_list = (&list == &slow_list);
+            assign_list_(list, &info);
             info.insertion_count0_ = info.insertion_count1_ = 0;
             info.next_chunk_id = chunk_info_t::INVALID_CHUNK_ID;
             if (list.end == UINT32_MAX) {
@@ -389,15 +431,14 @@ namespace detail
                 info, std::memory_order_release);
         }
 
-        void prepend_(id_pair &list, chunk_info_t *i) noexcept
+        void prepend_(id_pair &list, chunk_info_t *const i) noexcept
         {
             // Insertion count is assigned to chunk_info_t *i atomically
             auto g = hold_dirty();
             chunk_info_t info;
-            info.in_fast_list = (&list == &fast_list);
-            info.in_slow_list = (&list == &slow_list);
+            assign_list_(list, &info);
             info.insertion_count0_ = info.insertion_count1_ = 0;
-            info.next_chunk_id = chunk_info_t::INVALID_CHUNK_ID;
+            info.prev_chunk_id = chunk_info_t::INVALID_CHUNK_ID;
             if (list.begin == UINT32_MAX) {
                 MONAD_DEBUG_ASSERT(list.end == UINT32_MAX);
                 info.next_chunk_id = chunk_info_t::INVALID_CHUNK_ID;
@@ -419,14 +460,17 @@ namespace detail
                 info, std::memory_order_release);
         }
 
-        void remove_(chunk_info_t *i) noexcept
+        void remove_(chunk_info_t *const i) noexcept
         {
             auto get_list = [&]() -> id_pair & {
-                if (i->in_fast_list) {
+                if (i->which_list() == chunk_list::fast) {
                     return fast_list;
                 }
-                if (i->in_slow_list) {
+                if (i->which_list() == chunk_list::slow) {
                     return slow_list;
+                }
+                if (i->which_list() == chunk_list::expire) {
+                    return expire_list;
                 }
                 return free_list;
             };
@@ -438,7 +482,7 @@ namespace detail
                 MONAD_DEBUG_ASSERT(list.end == i->index(this));
                 list.begin = list.end = UINT32_MAX;
 #ifndef NDEBUG
-                i->in_fast_list = i->in_slow_list = false;
+                i->which_list_ = (uint64_t)chunk_list::free;
 #endif
                 return;
             }
@@ -449,7 +493,7 @@ namespace detail
                 next->prev_chunk_id = chunk_info_t::INVALID_CHUNK_ID;
                 list.begin = next->index(this);
 #ifndef NDEBUG
-                i->in_fast_list = i->in_slow_list = false;
+                i->which_list_ = (uint64_t)chunk_list::free;
                 i->next_chunk_id = chunk_info_t::INVALID_CHUNK_ID;
 #endif
                 return;
@@ -461,21 +505,20 @@ namespace detail
                 prev->next_chunk_id = chunk_info_t::INVALID_CHUNK_ID;
                 list.end = prev->index(this);
 #ifndef NDEBUG
-                i->in_fast_list = i->in_slow_list = false;
+                i->which_list_ = (uint64_t)chunk_list::free;
                 i->prev_chunk_id = chunk_info_t::INVALID_CHUNK_ID;
 #endif
                 return;
             }
             MONAD_ASSERT(
-                "remove_() has had mid-list removals explicitly disabled "
-                "to "
+                "remove_() has had mid-list removals explicitly disabled to "
                 "prevent insertion count becoming inaccurate" == nullptr);
             auto *prev = at_(i->prev_chunk_id);
             auto *next = at_(i->next_chunk_id);
             prev->next_chunk_id = next->index(this) & 0xfffffU;
             next->prev_chunk_id = prev->index(this) & 0xfffffU;
 #ifndef NDEBUG
-            i->in_fast_list = i->in_slow_list = false;
+            i->which_list_ = (uint64_t)chunk_list::free;
             i->prev_chunk_id = i->next_chunk_id =
                 chunk_info_t::INVALID_CHUNK_ID;
 #endif
@@ -503,7 +546,7 @@ namespace detail
 
     static_assert(std::is_trivially_copyable_v<db_metadata>);
     static_assert(std::is_trivially_copy_assignable_v<db_metadata>);
-    static_assert(sizeof(db_metadata) == 528504);
+    static_assert(sizeof(db_metadata) == 528520);
     static_assert(alignof(db_metadata) == 8);
 
     inline void atomic_memcpy(

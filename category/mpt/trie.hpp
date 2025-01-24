@@ -166,8 +166,7 @@ public:
     }
 };
 
-chunk_offset_t
-async_write_node_set_spare(UpdateAuxImpl &, Node &, bool is_fast);
+chunk_offset_t async_write_node_set_spare(UpdateAuxImpl &, Node &, chunk_list);
 
 chunk_offset_t
 write_new_root_node(UpdateAuxImpl &, Node &root, uint64_t version);
@@ -220,6 +219,10 @@ class UpdateAuxImpl
         MIN_COMPACT_VIRTUAL_OFFSET};
     compact_virtual_chunk_offset_t compact_offset_range_slow_{
         MIN_COMPACT_VIRTUAL_OFFSET};
+    // auto expire progress
+    file_offset_t last_block_end_offset_expire_{0};
+    [[maybe_unused]] file_offset_t last_block_disk_growth_expire_{0};
+    [[maybe_unused]] file_offset_t expire_offset_head_{0};
 
     std::optional<pid_t> current_upsert_tid_; // used to detect what thread is
                                               // currently upserting
@@ -383,6 +386,7 @@ public:
     MONAD_ASYNC_NAMESPACE::AsyncIO *io{nullptr};
     node_writer_unique_ptr_type node_writer_fast{};
     node_writer_unique_ptr_type node_writer_slow{};
+    node_writer_unique_ptr_type node_writer_expire{};
 
     detail::TrieUpdateCollectedStats stats;
 
@@ -555,13 +559,6 @@ public:
 
     void print_update_stats(uint64_t version);
 
-    enum class chunk_list : uint8_t
-    {
-        free = 0,
-        fast = 1,
-        slow = 2
-    };
-
     detail::db_metadata const *db_metadata() const noexcept
     {
         return db_metadata_[0].main;
@@ -710,7 +707,8 @@ public:
 
     // This function should only be invoked after completing a upsert
     void advance_db_offsets_to(
-        chunk_offset_t fast_offset, chunk_offset_t slow_offset) noexcept;
+        chunk_offset_t fast_offset, chunk_offset_t slow_offset,
+        chunk_offset_t expire_offset) noexcept;
 
     void append_root_offset(chunk_offset_t root_offset) noexcept;
     void update_root_offset(size_t i, chunk_offset_t root_offset) noexcept;
@@ -730,6 +728,21 @@ public:
     void rewind_to_match_offsets();
     void rewind_to_version(uint64_t version);
     void clear_ondisk_db();
+
+    node_writer_unique_ptr_type &get_writer_of_list(chunk_list const list_type)
+    {
+        switch (list_type) {
+        case (chunk_list::fast):
+            return node_writer_fast;
+        case (chunk_list::slow):
+            return node_writer_slow;
+        case (chunk_list::expire):
+            return node_writer_expire;
+        default:
+            MONAD_ABORT_PRINTF(
+                "Invalid input argument. No writer for free list.");
+        }
+    }
 
     void set_initial_insertion_count_unit_testing_only(uint32_t count)
     {
@@ -800,6 +813,7 @@ public:
         return get_root_offset_at_version(version) != INVALID_OFFSET;
     }
 
+    // TODO Vicky: better name around this
     chunk_offset_t get_start_of_wip_fast_offset() const noexcept
     {
         MONAD_ASSERT(this->is_on_disk());
@@ -810,6 +824,12 @@ public:
     {
         MONAD_ASSERT(this->is_on_disk());
         return db_metadata()->db_offsets.start_of_wip_offset_slow;
+    }
+
+    chunk_offset_t get_start_of_wip_expire_offset() const noexcept
+    {
+        MONAD_ASSERT(this->is_on_disk());
+        return db_metadata()->db_offsets.start_of_wip_offset_expire;
     }
 
     file_offset_t get_lower_bound_free_space() const noexcept
@@ -834,7 +854,7 @@ public:
 };
 
 static_assert(
-    sizeof(UpdateAuxImpl) == 152 + sizeof(detail::TrieUpdateCollectedStats));
+    sizeof(UpdateAuxImpl) == 184 + sizeof(detail::TrieUpdateCollectedStats));
 static_assert(alignof(UpdateAuxImpl) == 8);
 
 template <lockable_or_void LockType = void>
@@ -1127,10 +1147,11 @@ calc_min_offsets(
     if (node_virtual_offset != INVALID_VIRTUAL_OFFSET) {
         auto const truncated_offset =
             compact_virtual_chunk_offset_t{node_virtual_offset};
-        if (node_virtual_offset.in_fast_list()) {
+        if (node_virtual_offset.which_list() == chunk_list::fast) {
             fast_ret = truncated_offset;
         }
         else {
+            MONAD_ASSERT(node_virtual_offset.which_list() == chunk_list::slow);
             slow_ret = truncated_offset;
         }
     }
