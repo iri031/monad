@@ -36,6 +36,11 @@ Section with_Sigma.
     autorewrite with syntactic.
     reflexivity.
   Qed.
+
+  Set Nested Proofs Allowed.
+  Lemma arrayR_nil{T} ty (R:T->_) : arrayR ty R [] = (.[ ty ! 0%nat ] |-> validR ∗ [| is_Some (size_of CU ty) |] ∗ emp)%I.
+  Proof. rewrite arrayR_eq /arrayR_def arrR_eq /arrR_def. simpl. reflexivity. Qed.
+  
   Hint Rewrite @repeat_length: syntactic.
   Hint Rewrite @length_cons: syntactic.
   
@@ -75,19 +80,22 @@ Proof using MODd.
             (take i (transactions block))).
   go.
   unfold lengthN in *.
-  
   autorewrite with syntactic.
   go.
   go. (* reference to obligation *)
   autorewrite with syntactic.
   go.
+   (*  promise[0].set_value() *)
   hideP pp.
   rewrite parrayR_cons. go.
   autorewrite with syntactic.
-  go.
   setoid_rewrite sharePromise.
   go.
-   (*  promise[0].set_value() *)
+  repeat rewrite arrayR_nil.
+  go.
+  
+  (* give up the promised resource *)
+  setoid_rewrite arrayR_nil.
 
 
 
