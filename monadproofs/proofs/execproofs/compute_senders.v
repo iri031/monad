@@ -79,9 +79,51 @@ progress   IPM.perm_left ltac:(fun L n =>
   assert (ival <= length (transactions block)) as Hle by (subst; lia).
   clear Hex.
   unhideAllFromWork.
-  iStopProof.
-  evartacs.revertSPDeps ival.
-  apply wp_for; slauto.
+  Set Nested Proofs Allowed.
+  Lemma pureAsWand (mpred:bi) (P:Prop) (C:mpred) E: P -> environments.envs_entails E ([|P|] -* C) ->  environments.envs_entails E C.
+  Proof using.
+    intros p.
+    repeat rewrite to_entails.
+    intros Hp.
+    go.
+    rewrite Hp.
+    go.
+  Qed.
+  Lemma genWand  (mpred:bi) {T} (ival:T)  W (C:mpred) E :
+    environments.envs_entails E ((Exists ival, W ival) -* C) ->  environments.envs_entails E (W ival-* C).
+  Proof using.
+    repeat rewrite to_entails.
+    intros Hp.
+    go.
+    rewrite Hp.
+    go.
+    iExists _. iStopProof. reflexivity.
+  Qed.
+  
+  Ltac genOver ival :=
+    repeat match goal with
+      | H:context[ival] |- _ => apply (@pureAsWand _ _ _ _ H); clear H
+    end;
+    repeat IPM.perm_left ltac:(fun L n =>
+                     match L with
+                     | context[ival] => iRevert n
+                     end
+                              );
+    repeat rewrite bi.wand_curry;
+    pattern ival;
+    lazymatch goal with
+    | |- (fun x => environments.envs_entails _ (@?P x -* _)) _ =>
+        apply (@genWand mpredI nat ival P)
+    end; clear ival; simpl;
+    lazymatch goal with
+      |- environments.envs_entails _ (?P -* _) => hideFromWork P
+    end;
+    iIntros "?"%string.
+
+
+  genOver ival.
+  wp_for (fun _ => emp). go.
+  unhideAllFromWork. slauto.
   wp_if.
   { (* loop condition is true and thus the body runs. so we need to reistablish the loopinv *)
     slauto.
@@ -125,16 +167,16 @@ progress   IPM.perm_left ltac:(fun L n =>
       slauto.
     }
     {
-      slauto.
+      work.
       go.
-       iExists (1+ival).
-       unfold lengthN in *.
-       iExistsTac lia.
-       go.
-       replace (Z.of_nat ival + 1)%Z with (Z.of_nat (S ival)); try lia.
-       go.
-       setoid_rewrite Nat.add_succ_r.
-       go.
+      iExists (1+ival). simpl.
+      slauto.
+      unfold lengthN in *.
+      go.
+      replace (Z.of_nat ival + 1)%Z with (Z.of_nat (S ival)); try lia.
+      go.
+      setoid_rewrite Nat.add_succ_r.
+      go.
     }
   }
   { (* loop condition is false *)
