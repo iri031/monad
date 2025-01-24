@@ -194,6 +194,34 @@ Section cp.
     go.
   Qed.
 
+  Lemma generalize_arrayR_loopinv_produce (i : nat) (p:ptr) {X : Type} (R : X → Rep) (ty : type) xs (Heq: i=(length xs)):
+    p |-> arrayR ty R xs
+    -|- p |-> arrayR ty R (take i xs).
+  Proof using.
+    intros. subst.
+    autorewrite with syntactic.
+    reflexivity.
+  Qed.
+    
+  Lemma generalize_parrayR_loopinv_produce (i : nat) (p:ptr) {X : Type} (R : nat -> X → Rep) (ty : type) xs (Heq: i=length xs):
+    p |-> parrayR ty R xs
+    -|- (p |-> parrayR ty R (take i xs)).
+  Proof using.
+    intros. subst.
+    autorewrite with syntactic.
+    reflexivity.
+  Qed.
+
+  Lemma arrayR_nils{T} ty (R:T->_) : arrayR ty R [] = (.[ ty ! 0%nat ] |-> validR ∗ [| is_Some (size_of CU ty) |] ∗ emp)%I.
+  Proof. rewrite arrayR_eq /arrayR_def arrR_eq /arrR_def. simpl. reflexivity. Qed.
+  Lemma unit_snoc_cons (l: list unit) : (l++[()] = ()::l).
+  Proof using.
+    induction l; auto.
+    simpl.
+    destruct a.
+    rewrite IHl. reflexivity.
+  Qed.
+
   Lemma parrLearn2 (p:ptr) {T} ltr (R: nat -> T -> Rep) (ty:type):
     p |-> parrayR ty R ltr
    |-- valid_ptr p ** (valid_ptr (p .[ ty ! length ltr ])) ** [| is_Some (size_of CU ty) |] **
@@ -207,29 +235,77 @@ Section cp.
     - go. autorewrite with syntactic. go.
     -  simpl. autorewrite with syntactic. go.
   Qed.
-  
 
+   Lemma parrLearn2r {T} ltr (R: nat -> T -> Rep) (ty:type):
+   parrayR ty R ltr
+   |-- validR ** (.[ ty ! length ltr ] |-> validR) ** [| is_Some (size_of CU ty) |] **
+   ( □ ([∗ list] k↦_ ∈ ltr, (.[ ty ! k ] |-> type_ptrR ty))) **
+   parrayR ty R ltr.
+   Proof using.
+     apply Rep_entails_at.
+     intros.
+     rewrite -> parrLearn2 at 1.
+     Opaque parrayR.
+     go.
+     setoid_rewrite _at_big_sepL.
+     go.
+     setoid_rewrite _at_offsetR.
+     setoid_rewrite _at_type_ptrR.
+     go.
+   Qed.
+   Transparent parrayR.
+    
   Lemma parrayR_app {X} ty xs ys : forall (R:nat -> X->Rep),
     parrayR ty R (xs ++ ys) -|- parrayR ty R xs ** .[ ty ! length xs ] |-> parrayR ty (fun ii => R (length xs +ii)) ys.
   Proof.
     induction xs => /=.
-    { unfold parrayR. intros.
-      apply: (observe_both (is_Some _)) => Hsz.
-      simpl.
-      change (Z.of_nat 0) with 0%Z.
-      repeat rewrite o_sub_0; auto.
-      repeat rewrite _offsetR_id.
-      iSplit; go. admit.
-      (*
-  _ : .[ ty ! Z.of_nat (length ys) ] |-> validR
-  --------------------------------------□
-  validR
-*)
+    { intros.
+      intros.
+      iSplit.
+      {
+        go.
+        rewrite -> parrLearn2r at 1.
+        go.
+        change (Z.of_nat 0) with 0%Z.
+        repeat rewrite o_sub_0; auto.
+        repeat rewrite _offsetR_id.
+        go.
+        unfold parrayR. go.
+        change (Z.of_nat 0) with 0%Z.
+        repeat rewrite o_sub_0; auto.
+        repeat rewrite _offsetR_id.
+        go.
+      }
+
+      {
+        unfold parrayR.
+        go.
+        simpl.
+        change (Z.of_nat 0) with 0%Z.
+        repeat rewrite o_sub_0; auto.
+        repeat rewrite _offsetR_id.
+        go.
+      }
     }
     { intros. repeat rewrite parrayR_cons.
       by rewrite IHxs !_offsetR_sep !_offsetR_succ_sub Nat2Z.inj_succ -!assoc.
     }
-  Admitted.
+  Qed.
+
+  Lemma parrayR_app1 {X} ty xs y : forall (R:nat -> X->Rep),
+    parrayR ty R (xs ++ [y]) -|- parrayR ty R xs ** .[ ty ! length xs ] |-> (R (length xs) y ** type_ptrR ty).
+  Proof.
+    intros.
+    apply Rep_equiv_at.
+    intros.
+    apply: (observe_both (is_Some (size_of _ ty))) => Hsz.
+    rewrite parrayR_app.
+    iSplit; go; unfold parrayR; simpl;
+      autorewrite with syntactic;
+      repeat rewrite o_sub_0; auto; go.
+    normalize_ptrs.
+    go.
+  Qed.
   
   Lemma parrayR_cell i {X} ty (R:nat -> X->Rep) xs x iZ :
     iZ = Z.of_nat i →	(** Ease [eapply] *)
@@ -324,7 +400,7 @@ Section cp.
     reflexivity.
   Qed.
 
-  #[global] Instance arrayR_mono X ty:
+  #[global] Instance parrayR_mono X ty:
     Proper (pointwise_relation nat (pointwise_relation X (⊢)) ==> (=) ==> (⊢)) (parrayR ty).
   Proof.
     unfold parrayR.
@@ -338,7 +414,7 @@ Section cp.
     reflexivity.
   Qed.
 
-  #[global] Instance arrayR_flip_mono X ty:
+  #[global] Instance parrayR_flip_mono X ty:
     Proper (pointwise_relation nat (pointwise_relation X (flip (⊢))) ==> (=) ==> flip (⊢)) (parrayR ty).
   Proof. solve_proper. Qed.
   Lemma generalize_arrayR_loopinv (i : nat) (p:ptr) {X : Type} (R : X → Rep) (ty : type) xs (Heq: i=0):
@@ -401,3 +477,8 @@ Proof using.
   eapply elem_of_list_lookup_2; eauto.
 Qed.
 Hint Opaque parrayR: br_opacity.
+Hint Rewrite @arrayR_nils: syntactic.
+Hint Rewrite @repeat_length: syntactic.
+Hint Rewrite @length_cons: syntactic.
+Hint Rewrite @firstn_0: syntactic.
+

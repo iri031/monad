@@ -184,7 +184,7 @@ cpp.spec (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::
           parrayR
             (Tnamed "boost::fibers::promise<void>")
             (fun i t => PromiseUnusableR)
-            (() :: repeat () (length (transactions block)))
+            ((map (fun _ => ()) (transactions block))++[()])
     \pre Exists garbage,
         _global "monad::results" |->
           arrayR

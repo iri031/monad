@@ -67,7 +67,7 @@ Proof using MODd.
   rewrite (generalize_arrayR_loopinv ival (_global "monad::senders")); [| assumption].
   rewrite (generalize_arrayR_loopinv ival vectorbase); [| assumption].
   rewrite (vectorbase_loopinv _ _ _ _ ival); auto.
-  IPM.perm_left ltac:(fun L n =>
+progress   IPM.perm_left ltac:(fun L n =>
                         match L with
                         | context[PromiseConsumerR] => hideFromWorkAs L pc
                         end

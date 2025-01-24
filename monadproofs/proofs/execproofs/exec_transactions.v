@@ -17,34 +17,8 @@ Section with_Sigma.
 
   Existing Instance learnArrUnsafe.
   Existing Instance learnpArrUnsafe.
-  Hint Rewrite @firstn_0: syntactic.
-
-  Lemma generalize_arrayR_loopinv_produce (i : nat) (p:ptr) {X : Type} (R : X → Rep) (ty : type) xs (Heq: i=(length xs)):
-    p |-> arrayR ty R xs
-    -|- p |-> arrayR ty R (take i xs).
-  Proof using.
-    intros. subst.
-    autorewrite with syntactic.
-    reflexivity.
-  Qed.
-    
-  Lemma generalize_parrayR_loopinv_produce (i : nat) (p:ptr) {X : Type} (R : nat -> X → Rep) (ty : type) xs (Heq: i=length xs):
-    p |-> parrayR ty R xs
-    -|- (p |-> parrayR ty R (take i xs)).
-  Proof using.
-    intros. subst.
-    autorewrite with syntactic.
-    reflexivity.
-  Qed.
 
   Set Nested Proofs Allowed.
-  Lemma arrayR_nils{T} ty (R:T->_) : arrayR ty R [] = (.[ ty ! 0%nat ] |-> validR ∗ [| is_Some (size_of CU ty) |] ∗ emp)%I.
-  Proof. rewrite arrayR_eq /arrayR_def arrR_eq /arrR_def. simpl. reflexivity. Qed.
-
-  Hint Rewrite @arrayR_nils: syntactic.
-  Hint Rewrite @repeat_length: syntactic.
-  Hint Rewrite @length_cons: syntactic.
-
   Opaque BlockHashBufferR.
   Hint Opaque BlockHashBufferR: br_opacity.
 Lemma prf: denoteModule module
@@ -74,7 +48,8 @@ Proof using MODd.
   rewrite parrLearn2.
   unhideAllFromWork.
   slauto.
-  iExists unit, (repeat tt (1+(length (transactions block)))).
+  iExists unit.
+  go.
   iExists  (fun i _ =>
     let '(actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (take i (transactions block)) in
     _global "monad::results" |-> arrayR (Tnamed "std::optional<Result<Receipt>>") (fun r => libspecs.optionR ReceiptR 1 (Some r)) (take i receipts)
@@ -88,28 +63,39 @@ Proof using MODd.
   autorewrite with syntactic.
   go.
   autorewrite with syntactic.
-  progress go.
-   (*  promise[0].set_value() *)
-  hideP pp.
-  rewrite parrayR_cons. go.
-  autorewrite with syntactic.
+  go.
+  hideP p.
   setoid_rewrite sharePromise.
+  rewrite parrayR_sep. go.
+  IPM.perm_left ltac:(fun L n =>
+                        match L with
+                        | context[PromiseProducerR] =>  iRevert n
+                        end
+                     ).
+  hideLhs.
+  rewrite unit_snoc_cons.
+  unhideAllFromWork.
+  iIntros "?"%string.
+  rewrite parrayR_cons.
+  autorewrite with syntactic.
   go.
   autorewrite with syntactic.
   go.
+  autorewrite with syntactic.
+  go.
+  hideP p.
+  rewrite parrayR_app1.
+  go.
+  autorewrite with syntactic.
+  (* for loop *)
   name_locals.
   assert (exists ival:nat, ival=0) as Hex by (eexists; reflexivity).
   destruct Hex as [ival Hex].
   rewrite (generalize_arrayR_loopinv ival (_global "monad::senders")); [| assumption].
-  rewrite (generalize_arrayR_loopinv ival vectorbase); [| assumption].
+  rewrite -> (generalize_arrayR_loopinv ival vectorbase); [| assumption].
   rewrite (vectorbase_loopinv _ _ _ _ ival); auto.
-  
-  IPM.perm_left ltac:(fun L n =>
-                        match L with
-                        | context[PromiseConsumerR] => hideFromWorkAs L pc
-                        end
-                      ).
   rewrite (generalize_parrayR_loopinv ival (_global "monad::promises")); [| assumption].
+  rewrite (generalize_parrayR_loopinv ival (_global "monad::promises" ,, _)); [| assumption].
   assert (Vint 0 = Vnat ival) as Hexx by (subst; auto).
   rewrite Hexx. (* TODO: use a more precise pattern *)
   clear Hexx.
