@@ -127,9 +127,84 @@ Proof using MODd.
     iExists (N.of_nat ival). (* automate this using some Refine1 hint *)
     slauto.
 
+    (* copied from the proof obligation *)
+    Definition lm : core.name :=
+      (Ninst
+             (Nscoped (Nglobal (Nid "monad"))
+                (Nfunction function_qualifiers.N (Nf "fork_task")
+                   [Tref (Tnamed (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "fiber")) (Nid "PriorityPool"))); "unsigned long"%cpp_type;
+                    Tref
+                      (Tconst
+                         (Tnamed
+                            (Nscoped
+                               (Ninst
+                                  (Nscoped (Nglobal (Nid "monad"))
+                                     (Nfunction function_qualifiers.N (Nf "execute_transactions")
+                                        [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Block"))));
+                                         Tref (Tnamed (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "fiber")) (Nid "PriorityPool")));
+                                         Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Chain"))));
+                                         Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockHashBuffer"))));
+                                         Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState")))]))
+                                  [Avalue (Eint 11 (Tenum (Nglobal (Nid "evmc_revision"))))])
+                               (Nanon 0))))]))
+             [Atype
+                (Tnamed
+                   (Nscoped
+                      (Ninst
+                         (Nscoped (Nglobal (Nid "monad"))
+                            (Nfunction function_qualifiers.N (Nf "execute_transactions")
+                               [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Block"))));
+                                Tref (Tnamed (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "fiber")) (Nid "PriorityPool")));
+                                Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Chain"))));
+                                Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockHashBuffer"))));
+                                Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState")))]))
+                         [Avalue (Eint 11 (Tenum (Nglobal (Nid "evmc_revision"))))])
+                      (Nanon 0)))]).
 
-cpp.spec (fork_task_nameg "monad::execute_transactions(const monad::Block&, monad::fiber::PriorityPool&, const monad::Chain&, const monad::BlockHashBuffer&, monad::BlockState &)::@0") as fork_task2 with (\pre emp \post emp ).
+  Definition fork_task_namei:= Eval vm_compute in ((findBodyOfFnNamed2 exb.module (isFunctionNamed2 "fork_task"))).
 
+  Compute (nth_error fork_task_namei 11).
+ (* copied from the above's output *)
+  Definition lm2 :=
+    (Ninst
+            (Nscoped (Nglobal (Nid "monad"))
+               (Nfunction function_qualifiers.N (Nf "fork_task")
+                  [Tref (Tnamed (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "fiber")) (Nid "PriorityPool"))); "unsigned long"%cpp_type;
+                   Tref
+                     (Tconst
+                        (Tnamed
+                           (Nscoped
+                              (Ninst
+                                 (Nscoped (Nglobal (Nid "monad"))
+                                    (Nfunction function_qualifiers.N (Nf "execute_transactions")
+                                       [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Block"))));
+                                        Tref (Tnamed (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "fiber")) (Nid "PriorityPool")));
+                                        Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Chain"))));
+                                        Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockHashBuffer"))));
+                                        Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState")))]))
+                                 [Avalue (Eint 11 (Tenum (Nglobal (Nid "evmc_revision"))))])
+                              (Nanon 0))))]))
+            [Atype
+               (Tnamed
+                  (Nscoped
+                     (Ninst
+                        (Nscoped (Nglobal (Nid "monad"))
+                           (Nfunction function_qualifiers.N (Nf "execute_transactions")
+                              [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Block"))));
+                               Tref (Tnamed (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "fiber")) (Nid "PriorityPool")));
+                               Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Chain"))));
+                               Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockHashBuffer"))));
+                               Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState")))]))
+                        [Avalue (Eint 11 (Tenum (Nglobal (Nid "evmc_revision"))))])
+                     (Nanon 0)))]).
+
+  (* name found: 
+cpp.spec ((fork_task_nameg "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0")) as fork_task2 with (\pre emp \post emp ).
+   *)
+  (* no matching symbols:
+  cpp.spec lm2 as fork_task2 with (\pre emp \post emp ).
+   *)
+  
     aggregateRepPieces a.
     go.
     IPM.perm_left ltac:(fun L n =>
