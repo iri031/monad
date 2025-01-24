@@ -38,12 +38,15 @@ Section with_Sigma.
   Qed.
 
   Set Nested Proofs Allowed.
-  Lemma arrayR_nil{T} ty (R:T->_) : arrayR ty R [] = (.[ ty ! 0%nat ] |-> validR ∗ [| is_Some (size_of CU ty) |] ∗ emp)%I.
+  Lemma arrayR_nils{T} ty (R:T->_) : arrayR ty R [] = (.[ ty ! 0%nat ] |-> validR ∗ [| is_Some (size_of CU ty) |] ∗ emp)%I.
   Proof. rewrite arrayR_eq /arrayR_def arrR_eq /arrR_def. simpl. reflexivity. Qed.
-  
+
+  Hint Rewrite @arrayR_nils: syntactic.
   Hint Rewrite @repeat_length: syntactic.
   Hint Rewrite @length_cons: syntactic.
-  
+
+  Opaque BlockHashBufferR.
+  Hint Opaque BlockHashBufferR: br_opacity.
 Lemma prf: denoteModule module
              ** tvector_spec
              ** reset_promises
@@ -67,6 +70,7 @@ Proof using MODd.
   ren_hyp vectorbase ptr.
   rewrite (arrLearn2 vectorbase).
   rewrite (arrLearn2 (_global "monad::senders")).
+  rewrite (arrLearn2 (_global "monad::results")).
   rewrite parrLearn2.
   unhideAllFromWork.
   slauto.
@@ -74,45 +78,32 @@ Proof using MODd.
   iExists  (fun i _ =>
     let '(actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (take i (transactions block)) in
     _global "monad::results" |-> arrayR (Tnamed "std::optional<Result<Receipt>>") (fun r => libspecs.optionR ReceiptR 1 (Some r)) (take i receipts)
-      ** block_state_addr |-> BlockState.R block preBlockState actual_final_state
+     ** block_statep |-> BlockState.R block preBlockState actual_final_state
+     ** ([∗ list] _ ∈ (take i (transactions block)),  (block_hash_bufferp |-> BlockHashBufferR (qbuf*/(N_to_Qp (1+ lengthN (transactions block)))) buf))
      **  vectorbase
-      |-> arrayR (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))) (λ t0 : Transaction, TransactionR qb t0)
-            (take i (transactions block))).
+          |-> arrayR (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))) (λ t0 : Transaction, TransactionR qb t0)
+               (take i (transactions block))).
   go.
   unfold lengthN in *.
   autorewrite with syntactic.
   go.
-  go. (* reference to obligation *)
   autorewrite with syntactic.
-  go.
+  progress go.
    (*  promise[0].set_value() *)
   hideP pp.
   rewrite parrayR_cons. go.
   autorewrite with syntactic.
   setoid_rewrite sharePromise.
   go.
-  repeat rewrite arrayR_nil.
+  autorewrite with syntactic.
   go.
-  
-  (* give up the promised resource *)
-  setoid_rewrite arrayR_nil.
-
-
-
-    
-  rewrite parrayR_sep.
-  go.
+  name_locals.
   assert (exists ival:nat, ival=0) as Hex by (eexists; reflexivity).
   destruct Hex as [ival Hex].
-  hideRhs.
-  IPM.perm_left ltac:(fun L n =>
-                        match L with
-                        | HiddenPostCondition => hideFromWorkAs L fullyHiddenPostcond
-                        end
-                     ).
   rewrite (generalize_arrayR_loopinv ival (_global "monad::senders")); [| assumption].
   rewrite (generalize_arrayR_loopinv ival vectorbase); [| assumption].
   rewrite (vectorbase_loopinv _ _ _ _ ival); auto.
+  
   IPM.perm_left ltac:(fun L n =>
                         match L with
                         | context[PromiseConsumerR] => hideFromWorkAs L pc

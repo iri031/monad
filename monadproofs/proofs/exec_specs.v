@@ -79,6 +79,26 @@ Section with_Sigma.
   Definition ReceiptR (t: TransactionResult): Rep. Admitted.
   
   Definition valOfRev (r : Revision) : val := Vint 0. (* TODO: fix *)
+
+  Record BlockHashBuffer :=
+    { fullHistory: list N;
+      startIndex: N}.
+
+  Definition lastIndex (b: BlockHashBuffer) : N := startIndex b + lengthN (fullHistory b).
+
+  (* move to utils
+  Definition rotate_list {A} (r : Z) (elems : list A) : list A :=
+    let sz : Z := length elems in
+    let split_count : nat := Z.to_nat $ r `mod` length elems in
+    drop split_count elems ++ take split_count elems.
+*)  
+  Definition BlockHashBufferR (q:Qp) (m: BlockHashBuffer) : Rep :=
+    _field "monad::n_" |-> u64R q (lastIndex m).
+    (* ** _field "monad::b_" |-> arrayR ... (rotate_list ) *)
+  Lemma bhb_split_sn {T} q (b: BlockHashBuffer) (l : list T):
+    BlockHashBufferR q b -|- BlockHashBufferR (q/(N_to_Qp (1+ lengthN l))) b ** 
+    ([∗ list] _ ∈ l,  (BlockHashBufferR (q*/(N_to_Qp (1+ lengthN l))) b)).
+  Proof using. Admitted.
   
   Definition execute_block_simpler : WpSpec mpredI val val :=
     \arg{chainp :ptr} "chain" (Vref chainp)
@@ -90,6 +110,7 @@ Section with_Sigma.
     \pre{(preBlockState: StateOfAccounts)}
       block_statep |-> BlockState.R block preBlockState preBlockState
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
+    \prepost{buf qbuf} block_hash_bufferp |-> BlockHashBufferR qbuf buf
     \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
     \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool (* TODO: write a spec of priority_pool.submit() *)
     \post{retp}[Vptr retp]
@@ -154,6 +175,7 @@ cpp.spec (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::
     \arg{chainp :ptr} "chain" (Vref chainp)
     \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
+    \prepost{buf qbuf} block_hash_bufferp |-> BlockHashBufferR qbuf buf
     \arg{block_statep: ptr} "block_state" (Vref block_statep)
     \pre{(preBlockState: StateOfAccounts)}
       block_statep |-> BlockState.R block preBlockState preBlockState

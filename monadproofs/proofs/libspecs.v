@@ -69,6 +69,7 @@ Context  {MODd : exb.module ⊧ CU}.
             \pre{(P:mpred) (g:gname)} promise |-> PromiseConsumerR g P
             \post P ** promise |-> PromiseUnusableR).
 
+  (* TODO: rename to vectorbase_split_n *)
   Lemma vectorbase_loopinv {T} ty base q (l: list T) (i:nat) (Heq: i=0):
     VectorRbase ty q base (lengthN l) -|- (VectorRbase ty (q*Qp.inv (N_to_Qp (1+lengthN l))) base (lengthN l) ** 
     ([∗ list] _ ∈ (drop i l),  VectorRbase ty (q*Qp.inv (N_to_Qp (1+lengthN l))) base (lengthN l))).
