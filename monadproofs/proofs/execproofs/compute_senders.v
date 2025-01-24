@@ -17,11 +17,12 @@ Section with_Sigma.
 
   Existing Instance learnArrUnsafe.
   Existing Instance learnpArrUnsafe.
+Print fork_task_nameg.
 
 Lemma prf: denoteModule module
              ** tvector_spec
              ** reset_promises
-             ** fork_task
+             ** (fork_taskg "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0")
              ** vector_op_monad
              ** recover_sender
              ** opt_move_assign

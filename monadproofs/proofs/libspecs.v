@@ -74,7 +74,7 @@ Context  {MODd : exb.module ⊧ CU}.
     VectorRbase ty q base (lengthN l) -|- (VectorRbase ty (q*Qp.inv (N_to_Qp (1+lengthN l))) base (lengthN l) ** 
     ([∗ list] _ ∈ (drop i l),  VectorRbase ty (q*Qp.inv (N_to_Qp (1+lengthN l))) base (lengthN l))).
   Proof using. Admitted.
-  Definition fork_task_namei:= Eval vm_compute in (firstEntryName (findBodyOfFnNamed2 exb.module (isFunctionNamed2 "fork_task"))).
+  #[local] Definition fork_task_namei:= Eval vm_compute in (firstEntryName (findBodyOfFnNamed2 exb.module (isFunctionNamed2 "fork_task"))).
 
   Definition basee3 (n:name) :=
     match n with
@@ -117,6 +117,31 @@ Context  {MODd : exb.module ⊧ CU}.
     \prepost task |-> objOwnership
     \pre taskPre
     \post emp.
+
+  Definition fork_taskg (lamStructTyName: core.name):=
+λ {thread_info : biIndex} {_Σ : gFunctors} {Sigma : cpp_logic thread_info _Σ} {CU : genv},
+  specify
+    {|
+      info_name :=
+        Ninst
+          (Nscoped (Nglobal (Nid "monad"))
+             (Nfunction function_qualifiers.N (Nf "fork_task")
+                [Tref (Tnamed (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "fiber")) (Nid "PriorityPool"))); "unsigned long"%cpp_type;
+                 Tref
+                   (Tconst
+                      (Tnamed lamStructTyName))]))
+          [Atype
+             (Tnamed
+                lamStructTyName)];
+      info_type :=
+        tFunction "void"
+          [Tref (Tnamed (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "fiber")) (Nid "PriorityPool"))); "unsigned long"%cpp_type;
+           Tref
+             (Tconst
+                (Tnamed
+                   lamStructTyName))]
+    |}
+    (forkTaskSpec lamStructTyName).
   
   Lemma learnVUnsafe e t (r:e->Rep): LearnEq2 (VectorR t r).
   Proof. solve_learnable. Qed.
