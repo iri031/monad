@@ -37,6 +37,7 @@ Proof using MODd.
   name_locals.
   hideRhs.
   hideP ff.
+
   
   Transparent VectorR.
   unfold BlockR, VectorR.
@@ -101,10 +102,11 @@ Proof using MODd.
   clear Hexx.
   assert (ival <= length (transactions block)) as Hle by (subst; lia).
   clear Hex.
+  genOver ival.
+  wp_for (fun _ => emp).
+  go.
   unhideAllFromWork.
-  iStopProof.
-  evartacs.revertSPDeps ival.
-  apply wp_for; slauto.
+  slauto.
   wp_if.
   { (* loop condition is true and thus the body runs. so we need to reistablish the loopinv *)
     slauto.
@@ -121,6 +123,13 @@ Proof using MODd.
     progress repeat rewrite o_sub_sub.
     simpl.
     progress go.
+    Set Printing Coercions.
+    iExists (N.of_nat ival). (* automate this using some Refine1 hint *)
+    slauto.
+
+
+cpp.spec (fork_task_nameg "monad::execute_transactions(const monad::Block&, monad::fiber::PriorityPool&, const monad::Chain&, const monad::BlockHashBuffer&, monad::BlockState &)::@0") as fork_task2 with (\pre emp \post emp ).
+
     aggregateRepPieces a.
     go.
     IPM.perm_left ltac:(fun L n =>

@@ -79,48 +79,6 @@ progress   IPM.perm_left ltac:(fun L n =>
   assert (ival <= length (transactions block)) as Hle by (subst; lia).
   clear Hex.
   unhideAllFromWork.
-  Set Nested Proofs Allowed.
-  Lemma pureAsWand (mpred:bi) (P:Prop) (C:mpred) E: P -> environments.envs_entails E ([|P|] -* C) ->  environments.envs_entails E C.
-  Proof using.
-    intros p.
-    repeat rewrite to_entails.
-    intros Hp.
-    go.
-    rewrite Hp.
-    go.
-  Qed.
-  Lemma genWand  (mpred:bi) {T} (ival:T)  W (C:mpred) E :
-    environments.envs_entails E ((Exists ival, W ival) -* C) ->  environments.envs_entails E (W ival-* C).
-  Proof using.
-    repeat rewrite to_entails.
-    intros Hp.
-    go.
-    rewrite Hp.
-    go.
-    iExists _. iStopProof. reflexivity.
-  Qed.
-  
-  Ltac genOver ival :=
-    repeat match goal with
-      | H:context[ival] |- _ => apply (@pureAsWand _ _ _ _ H); clear H
-    end;
-    repeat IPM.perm_left ltac:(fun L n =>
-                     match L with
-                     | context[ival] => iRevert n
-                     end
-                              );
-    repeat rewrite bi.wand_curry;
-    pattern ival;
-    lazymatch goal with
-    | |- (fun x => environments.envs_entails _ (@?P x -* _)) _ =>
-        apply (@genWand mpredI nat ival P)
-    end; clear ival; simpl;
-    lazymatch goal with
-      |- environments.envs_entails _ (?P -* _) => hideFromWork P
-    end;
-    iIntros "?"%string.
-
-
   genOver ival.
   wp_for (fun _ => emp). go.
   unhideAllFromWork. slauto.

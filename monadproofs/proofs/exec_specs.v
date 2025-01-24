@@ -211,7 +211,7 @@ cpp.spec (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::
     \post{retp} [Vptr retp] retp |-> optionAddressR 1 (Some (sender tr))).
 
 
-cpp.spec (fork_task_nameg "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0") as fork_task with (forkTaskSpec "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0").
+    cpp.spec (fork_task_nameg "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0") as fork_task with (forkTaskSpec "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0").
 
     (* todo: generalize over the template arg *)
 cpp.spec 
