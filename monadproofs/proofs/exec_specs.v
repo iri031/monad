@@ -112,9 +112,9 @@ Context  {MODd : exb.module ⊧ CU}.
 
 
   cpp.spec 
-  "monad::reset_promises(unsigned long)" as reset_promises
-      with
-      (\arg{transactions: list Transaction} "n" (Vn (lengthN transactions))
+  "monad::reset_promises(unsigned long)" as reset_promises with
+      ( \with (Transaction: Type)
+        \arg{transactions: list Transaction} "n" (Vn (lengthN transactions))
        \pre{newPromisedResource}
            _global "monad::promises" |-> parrayR (Tnamed "boost::fibers::promise<void>") (fun i t => PromiseUnusableR) transactions
        \post Exists prIds, _global "monad::promises" |-> parrayR (Tnamed "boost::fibers::promise<void>") (fun i t => PromiseR (prIds i) (newPromisedResource i t)) transactions).
@@ -148,6 +148,7 @@ cpp.spec
 cpp.spec (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::PriorityPool&, const monad::Chain&, const monad::BlockHashBuffer&, monad::BlockState &)" [Avalue (Eint 11 "enum evmc_revision")]) as exect with (
     \arg{blockp: ptr} "block" (Vref blockp)
     \prepost{qb (block: Block)} blockp |-> BlockR qb block
+    \pre [| lengthN (transactions block) < 2^64 - 1 |]%N
     \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
     \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool
     \arg{chainp :ptr} "chain" (Vref chainp)
@@ -161,7 +162,7 @@ cpp.spec (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::
           parrayR
             (Tnamed "boost::fibers::promise<void>")
             (fun i t => PromiseUnusableR)
-            (transactions block)
+            (() :: repeat () (length (transactions block)))
     \pre Exists garbage,
         _global "monad::results" |->
           arrayR
@@ -174,7 +175,7 @@ cpp.spec (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::
             (fun t=> optionAddressR qs (Some (sender t)))
             (transactions block)
    \post
-      let (actual_final_state, receipts) := stateAfterBlock block preBlockState in
+      let (actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (transactions block) in
       _global "monad::senders" |-> arrayR (Tnamed "std::optional<Result<Receipt>>") (fun r => libspecs.optionR ReceiptR 1 (Some r)) receipts
       ** block_statep |-> BlockState.R block preBlockState actual_final_state
 

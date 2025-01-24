@@ -43,7 +43,7 @@ Proof using MODd.
   rewrite (arrLearn2 (_global "monad::senders")).
   rewrite parrLearn2.
   unhideAllFromWork.
-  slauto.
+  slauto. iExists Transaction.  go.
     iExists  (fun i t => (_global "monad::senders"  .[ "std::optional<evmc::address>" ! i ] |-> optionAddressR 1 (Some (sender t)))
   ** (vectorbase .[ "monad::Transaction" ! i ] |-> TransactionR qb t)
   ** (blockp ,, o_field CU "monad::Block::transactions"

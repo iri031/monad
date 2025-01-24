@@ -362,6 +362,7 @@ Section cp.
     autorewrite with syntactic.
     reflexivity.
   Qed.
+
   
   Lemma drop_S2: ∀ {A : Type} (l : list A) (n : nat),
       (Z.of_nat n < lengthZ l)%Z→
