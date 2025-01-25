@@ -20,14 +20,20 @@ Admitted. (* To be provided by an appropriate EVM semantics *)
 (* similar to what execute_final does *)
 Definition applyGasRefundsAndRewards (hdr: BlockHeader) (s: StateOfAccounts) (t: TransactionResult): StateOfAccounts. Admitted.
 
-Definition stateAfterTransaction (hdr: BlockHeader) (s: StateOfAccounts) (t: Transaction): StateOfAccounts * TransactionResult :=
+(* txindex can be used to store incarnation numbers *)
+Definition stateAfterTransaction (hdr: BlockHeader) (txindex: nat) (s: StateOfAccounts) (t: Transaction): StateOfAccounts * TransactionResult :=
   let (si, r) := stateAfterTransactionAux s t in
   (applyGasRefundsAndRewards hdr si r, r).
 
-Definition stateAfterTransactions  (hdr: BlockHeader) (s: StateOfAccounts) (ts: list Transaction): StateOfAccounts * list TransactionResult :=
-  List.fold_left (fun s t =>
-                    let '(si, rl) := s in
-                    let (sf, r) := stateAfterTransaction hdr si t in (sf, r::rl)) ts (s,[]).
+Fixpoint stateAfterTransactions' (hdr: BlockHeader) (s: StateOfAccounts) (ts: list Transaction) (start:nat) (prevResults: list TransactionResult): StateOfAccounts * list TransactionResult :=
+  match ts with
+  | [] => (s, prevResults)
+  | t::tls => let (sf, r) := stateAfterTransaction hdr start s t in
+              stateAfterTransactions' hdr sf tls (1+start) (prevResults++[r])
+  end.
+    
+    
+Definition stateAfterTransactions  (hdr: BlockHeader) (s: StateOfAccounts) (ts: list Transaction): StateOfAccounts * list TransactionResult := stateAfterTransactions' hdr s ts 0 [].
 
 Record Withdrawal:=
   {

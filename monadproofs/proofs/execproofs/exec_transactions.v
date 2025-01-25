@@ -38,8 +38,6 @@ Proof using MODd.
   name_locals.
   hideRhs.
   hideP ff.
-
-  
   Transparent VectorR.
   unfold BlockR, VectorR.
   work.
@@ -94,6 +92,7 @@ Proof using MODd.
   assert (exists ival:nat, ival=0) as Hex by (eexists; reflexivity).
   destruct Hex as [ival Hex].
   rewrite (generalize_arrayR_loopinv ival (_global "monad::senders")); [| assumption].
+  rewrite (generalize_arrayR_loopinv ival (_global "monad::results")); [| assumption].
   rewrite -> (generalize_arrayR_loopinv ival vectorbase); [| assumption].
   rewrite (vectorbase_loopinv _ _ _ _ ival); auto.
   rewrite (generalize_parrayR_loopinv ival (_global "monad::promises")); [| assumption].
@@ -134,7 +133,7 @@ Proof using MODd.
       |   _ |-> VectorRbase _ _ _ _ => iRevert n
       end
       ).
-    repeat IPM.perm_left ltac:(fun L n =>
+    repeat IPM.perm_left_spatial  ltac:(fun L n =>
       match L with
       | _ .[_ ! Z.of_nat ival] |-> _ => iRevert n
       end).

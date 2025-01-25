@@ -22,36 +22,29 @@ Import cancelable_invariants.
 Module BlockState. Section with_Sigma.
   Context `{Sigma:cpp_logic} {CU: genv} {hh: HasOwn mpredI fracR}. (* some standard assumptions about the c++ logic *)
 
-   (*TODO:  delete? this comes from the iris separation logic library *)
-  Definition cinvq (g : gname) (q : Qp) (P : mpred) := cinv_own g q ** cinv nroot (* FIX? *) g P.
-  
 
-  Context (b: Block) (blockPreState: StateOfAccounts). (* BlockState is a type that makes sense in the context of a block and the state before the block  *)
+  Context (blockPreState: StateOfAccounts). (* BlockState is a type that makes sense in the context of a block and the state before the block  *)
   (** defines how the Coq (mathematical) state of Coq type [StateOfAccounts] is represented as a C++ datastructure in the fields of the BlockState class.
       [blockPreState] is the state at the beginning of the block.  newState
    *)
-  Definition R (newState: StateOfAccounts): Rep.
     
-  Admitted. (* To be defined later. something like: [_field db_ |-> DbR blockPreState ** _field deltas |-> StateDeltasR blockPreState newState] *)
-
-
-  Definition inv  (commitedIndexLoc: gname)
-    : Rep :=
-    Exists committedIndex: nat,
-        R (fst (stateAfterTransactions (header b) blockPreState (List.firstn committedIndex (transactions b))))
-          ** pureR (storedAtGhostLoc (1/3)%Q commitedIndexLoc committedIndex).
 
   Record glocs :=
     {
-      commitedIndexLoc: gname;
-      invLoc: gname;
+      cmap: gname;
     }.
-  
-  Definition Rc (q: Qp) (g: glocs) : Rep  :=
-    as_Rep (fun this:ptr =>
-              cinvq (invLoc g) q (this |-> inv (commitedIndexLoc g))).
 
-  
+  Definition Rauth (g: glocs) (newState: StateOfAccounts): Rep.
+  Proof using blockPreState. Admitted. (* To be defined later. something like: [_field db_ |-> DbR blockPreState ** _field deltas |-> StateDeltasR blockPreState newState] *)
+
+  Definition Rfrag (q:Qp) (g: glocs): Rep.
+  Proof using blockPreState. Admitted.
+
+  Lemma split_frag {T} q g (l : list T):
+    Rfrag q g -|- Rfrag (q/(N_to_Qp (1+ lengthN l))) g ** 
+    ([∗ list] _ ∈ l,  (Rfrag (q*/(N_to_Qp (1+ lengthN l))) g)).
+  Proof using. Admitted.
+    
 End with_Sigma. End BlockState.
 
 
@@ -99,6 +92,8 @@ Section with_Sigma.
     BlockHashBufferR q b -|- BlockHashBufferR (q/(N_to_Qp (1+ lengthN l))) b ** 
     ([∗ list] _ ∈ l,  (BlockHashBufferR (q*/(N_to_Qp (1+ lengthN l))) b)).
   Proof using. Admitted.
+
+  Definition BheaderR (q:Qp) (hdr: BlockHeader) : Rep. Proof. Admitted.
   
   Definition execute_block_simpler : WpSpec mpredI val val :=
     \arg{chainp :ptr} "chain" (Vref chainp)
@@ -107,8 +102,9 @@ Section with_Sigma.
     \arg{blockp: ptr} "block" (Vref blockp)
     \prepost{qb (block: Block)} blockp |-> BlockR qb block
     \arg{block_statep: ptr} "block_state" (Vref block_statep)
-    \pre{(preBlockState: StateOfAccounts)}
-      block_statep |-> BlockState.R block preBlockState preBlockState
+    \pre{(preBlockState: StateOfAccounts) g qf}
+       block_statep |-> BlockState.Rauth preBlockState g preBlockState
+    \prepost block_statep |-> BlockState.Rfrag preBlockState qf g
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \prepost{buf qbuf} block_hash_bufferp |-> BlockHashBufferR qbuf buf
     \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
@@ -116,7 +112,7 @@ Section with_Sigma.
     \post{retp}[Vptr retp]
       let (actual_final_state, receipts) := stateAfterBlock block preBlockState in
       retp |-> VectorR (Tnamed "::monad::Receipt") ReceiptR 1 receipts
-      ** block_statep |-> BlockState.R block preBlockState actual_final_state.
+      ** block_statep |-> BlockState.Rauth preBlockState g actual_final_state.
 
 Import namemap.
 Import translation_unit.
@@ -177,8 +173,9 @@ cpp.spec (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \prepost{buf qbuf} block_hash_bufferp |-> BlockHashBufferR qbuf buf
     \arg{block_statep: ptr} "block_state" (Vref block_statep)
-    \pre{(preBlockState: StateOfAccounts)}
-      block_statep |-> BlockState.R block preBlockState preBlockState
+    \pre{(preBlockState: StateOfAccounts) g qf}
+       block_statep |-> BlockState.Rauth preBlockState g preBlockState
+    \prepost block_statep |-> BlockState.Rfrag preBlockState qf g
     \prepost
         _global "monad::promises" |->
           parrayR
@@ -199,7 +196,7 @@ cpp.spec (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::
    \post
       let (actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (transactions block) in
       _global "monad::senders" |-> arrayR (Tnamed "std::optional<Result<Receipt>>") (fun r => libspecs.optionR ReceiptR 1 (Some r)) receipts
-      ** block_statep |-> BlockState.R block preBlockState actual_final_state
+      ** block_statep |-> BlockState.Rauth preBlockState g actual_final_state
 
     ).
     
@@ -223,28 +220,27 @@ cpp.spec
 (*
   erewrite sizeof.size_of_compat;[| eauto; fail| vm_compute; reflexivity].
 *)
-
-  Definition execute_spec : WpSpec mpredI val val :=
+  
+  Definition execute_transaction_spec : WpSpec mpredI val val :=
     \arg{chainp :ptr} "chain" (Vref chainp)
     \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
     \arg{i:nat} "i" (Vnat i)
     \arg{txp} "tx" (Vref txp)
-    \pre{(qtx: Qp) (block: Block) t} Exists t, [| nth_error (transactions block) i = Some t |]
-    \pre txp |-> TransactionR qtx t
+    \pre{qtx t} txp |-> TransactionR qtx t
     \arg{senderp} "sender" (Vref senderp)
     \pre{qs} senderp |-> optionAddressR qs (Some (sender t))
     \arg{hdrp: ptr} "hdr" (Vref hdrp)
+    \pre{qh header} hdrp |-> BheaderR qh header
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \arg{block_statep: ptr} "block_state" (Vref block_statep)
-    \prepost{(preBlockState: StateOfAccounts) (gl: BlockState.glocs)}
-      block_statep |-> BlockState.Rc block preBlockState 1 gl (* the concurrent invariant does not hold during BlockState.merge : Fix *)
+    \prepost{g qf preBlockState} block_statep |-> BlockState.Rfrag preBlockState qf g
     \arg{prevp: ptr} "prev" (Vref prevp)
-    \prepost{prg: gname} prevp |-> PromiseR prg (storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) (i-1))
+    \prepost{(prg: gname) (prevTxGlobalState: StateOfAccounts) (OtherPromisedResources:mpred)}
+        prevp |-> PromiseConsumerR prg (OtherPromisedResources ** block_statep |-> BlockState.Rauth preBlockState g prevTxGlobalState)
     \post{retp}[Vptr retp]
-      let actualPreState := fst (stateAfterTransactions (header block) preBlockState (firstn i (transactions block))) in
-      let '(_, result) := stateAfterTransactionAux actualPreState t in
+      let '(finalState, result) := stateAfterTransaction header i prevTxGlobalState t in
        retp |-> ResultR ReceiptR result
-       ** storedAtGhostLoc (2/3)%Q (BlockState.commitedIndexLoc gl) i.
+       ** block_statep |->  BlockState.Rauth preBlockState g finalState.
 (*       
 
   Record State :=
