@@ -21,7 +21,16 @@ Section with_Sigma.
   Set Nested Proofs Allowed.
   Opaque BlockHashBufferR.
   Hint Opaque BlockHashBufferR: br_opacity.
-  
+
+  (* TODO: move *)
+
+#[global] Instance : LearnEq2 ChainR:= ltac:(solve_learnable).
+#[global] Instance : LearnEq3 BlockState.Rfrag := ltac:(solve_learnable).
+  Lemma header_split_loopinv {T} q (b: BlockHeader) (l : list T) (i:nat) (p:i=0):
+    BheaderR q b -|- BheaderR (q/(N_to_Qp (1+ lengthN l))) b ** 
+    ([∗ list] _ ∈ (drop i l),  (BheaderR (q*/(N_to_Qp (1+ lengthN l))) b)).
+  Proof using. Admitted.
+
 Lemma prf: denoteModule module
              ** tvector_spec
              ** reset_promises
@@ -32,6 +41,7 @@ Lemma prf: denoteModule module
              ** wait_for_promise
              ** set_value
              ** destrop
+             ** ext1
              |-- exect.
 Proof using MODd.
   verify_spec'.
@@ -52,12 +62,14 @@ Proof using MODd.
   go.
   iExists  (fun i _ =>
     let '(actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (take i (transactions block)) in
-    _global "monad::results" |-> arrayR (Tnamed "std::optional<Result<Receipt>>") (fun r => libspecs.optionR ReceiptR 1 (Some r)) (take i receipts)
-     ** block_statep |-> BlockState.R block preBlockState actual_final_state
+    (_global "monad::results" |-> arrayR (Tnamed "std::optional<Result<Receipt>>") (fun r => libspecs.optionR ReceiptR 1 (Some r)) (take i receipts)
      ** ([∗ list] _ ∈ (take i (transactions block)),  (block_hash_bufferp |-> BlockHashBufferR (qbuf*/(N_to_Qp (1+ lengthN (transactions block)))) buf))
+     ** ([∗ list] _ ∈ (take i (transactions block)),  (block_hash_bufferp |-> BlockState.Rfrag preBlockState (qbuf*/(N_to_Qp (1+ lengthN (transactions block)))) g))
      **  vectorbase
           |-> arrayR (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))) (λ t0 : Transaction, TransactionR qb t0)
-               (take i (transactions block))).
+          (take i (transactions block)))
+      ** block_statep |-> BlockState.Rauth preBlockState g actual_final_state
+           ).
   go.
   unfold lengthN in *.
   autorewrite with syntactic.
@@ -97,6 +109,10 @@ Proof using MODd.
   rewrite (vectorbase_loopinv _ _ _ _ ival); auto.
   rewrite (generalize_parrayR_loopinv ival (_global "monad::promises")); [| assumption].
   rewrite (generalize_parrayR_loopinv ival (_global "monad::promises" ,, _)); [| assumption].
+  rewrite -> @bhb_splitl_loopinv with (i:=ival) (l:=transactions block) by assumption.
+  rewrite -> @BlockState.split_frag_loopinv with (i:=ival) (l:=transactions block) by assumption.
+  rewrite -> @ChainR_split_loopinv with (i:=ival) (l:=transactions block) by assumption.
+  rewrite -> @header_split_loopinv with (i:=ival) (l:=transactions block) by assumption.
   assert (Vint 0 = Vnat ival) as Hexx by (subst; auto).
   rewrite Hexx. (* TODO: use a more precise pattern *)
   clear Hexx.
@@ -111,11 +127,17 @@ Proof using MODd.
   { (* loop condition is true and thus the body runs. so we need to reistablish the loopinv *)
     slauto.
     ren_hyp ival nat.
+    repeat rewrite skipn_map.
     applyToSomeHyp @drop_S2.
     match goal with
       [H:_ |- _] => destruct H as [tri Htt]; destruct Htt as [Httl Httr]
     end.
     repeat rewrite Httr.
+    go.
+    iExists (N.of_nat ival). (* automate this using some Refine1 hint *)
+    slauto.
+    aggregateRepPieces a.
+    slauto.
     repeat rewrite -> arrayR_cons.
     repeat rewrite -> parrayR_cons.
     go.
@@ -123,19 +145,36 @@ Proof using MODd.
     progress repeat rewrite o_sub_sub.
     simpl.
     progress go.
-    Set Printing Coercions.
-    iExists (N.of_nat ival). (* automate this using some Refine1 hint *)
-    slauto.
-    aggregateRepPieces a.
-    go.
     IPM.perm_left ltac:(fun L n =>
       match L with
       |   _ |-> VectorRbase _ _ _ _ => iRevert n
       end
       ).
+    IPM.perm_left ltac:(fun L n =>
+      match L with
+      |   _ |-> BlockHashBufferR _ _ => iRevert n
+      end
+      ).
+    IPM.perm_left ltac:(fun L n =>
+      match L with
+      |   _ |-> BlockState.Rfrag _ _ _ => iRevert n
+      end
+      ).
     repeat IPM.perm_left_spatial  ltac:(fun L n =>
       match L with
       | _ .[_ ! Z.of_nat ival] |-> _ => iRevert n
+      end).
+    IPM.perm_left_spatial  ltac:(fun L n =>
+      match L with
+      | _ .[_ ! _] |-> PromiseProducerR _ _ => iRevert n
+      end).
+    IPM.perm_left_spatial  ltac:(fun L n =>
+      match L with
+      | chainp |-> _ => iRevert n
+      end).
+    IPM.perm_left_spatial  ltac:(fun L n =>
+      match L with
+      | _ |-> BheaderR _ _ => iRevert n
       end).
     repeat rewrite bi.wand_curry.
     match goal with
@@ -147,6 +186,50 @@ Proof using MODd.
       unfold taskOpSpec.
       verify_spec'.
       slauto.
+      match goal with
+        |- context[stateAfterTransactions ?a ?b (take ival ?l)] => remember (stateAfterTransactions a b (take ival l)) as sabc
+      end.
+      destruct sabc.
+      simpl in *.
+      go.
+#[global] Instance : LearnEq2 BheaderR := ltac:(solve_learnable).
+      go.
+      do 3 iExists _.
+      eagerUnifyU.
+      slauto.
+
+
+  reference_to
+    (Tnamed
+       (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
+          [Atype
+             (Tnamed
+                (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+                   [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
+                    Atype
+                      (Tnamed
+                         (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                            [Atype
+                               (Tnamed
+                                  (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                    Atype
+                      (Tnamed
+                         (Ninst
+                            (Nscoped
+                               (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
+                               (Nid "status_code_throw"))
+                            [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
+                             Atype
+                               (Tnamed
+                                  (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                     [Atype
+                                        (Tnamed
+                                           (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
+                                              [Atype "long"]))]));
+                             Atype "void"]))]))]))
+    (_global (Nscoped (Nglobal (Nid "monad")) (Nid "results")) .[ Tnamed
+      
+         
       iExists (N.of_nat ival). (* automate this using some Refine1 hint *)
       go.
       autorewrite with syntactic.

@@ -40,11 +40,20 @@ Module BlockState. Section with_Sigma.
   Definition Rfrag (q:Qp) (g: glocs): Rep.
   Proof using blockPreState. Admitted.
 
+  (* TODO: move to a proofmisc file and replace by a lemma about just binary splitting *)
   Lemma split_frag {T} q g (l : list T):
     Rfrag q g -|- Rfrag (q/(N_to_Qp (1+ lengthN l))) g ** 
     ([∗ list] _ ∈ l,  (Rfrag (q*/(N_to_Qp (1+ lengthN l))) g)).
   Proof using. Admitted.
-    
+
+  (* TODO: move to a proofmisc file *)
+  Lemma split_frag_loopinv {T} q g (l : list T) (i:nat) (prf: i=0):
+    Rfrag q g -|- Rfrag (q/(N_to_Qp (1+ lengthN l))) g ** 
+    ([∗ list] _ ∈ (drop i l),  (Rfrag (q*/(N_to_Qp (1+ lengthN l))) g)).
+  Proof using.
+    subst.  autorewrite with syntactic. apply split_frag.
+  Qed.
+
 End with_Sigma. End BlockState.
 
 
@@ -60,12 +69,21 @@ Section with_Sigma.
    
   (* defines how [c] is represented in memory as an object of class Chain. this predicate asserts [q] ownership of the object, assuming it can be shared across multiple threads  *)
   Definition ChainR (q: Qp) (c: Chain): Rep. Proof. Admitted.
+
+  Lemma ChainR_split_loopinv {T} q (b: Chain) (l : list T) (i:nat) (p:i=0):
+    ChainR q b -|- ChainR (q/(N_to_Qp (1+ lengthN l))) b ** 
+    ([∗ list] _ ∈ (drop i l),  (ChainR (q*/(N_to_Qp (1+ lengthN l))) b)).
+  Proof using. Admitted.
+
  
   Definition TransactionR (q:Qp) (tq: Transaction) : Rep. Proof using. Admitted.
   #[global] Instance learnTrRbase: LearnEq2 TransactionR:= ltac:(solve_learnable).
- 
+
+  Definition BheaderR (q:Qp) (hdr: BlockHeader) : Rep. Proof. Admitted.
+  
   Definition BlockR (q: Qp) (c: Block): Rep :=
     _field "::monad::Block::transactions" |-> VectorR (Tnamed "::monad::Transaction") (fun t => TransactionR q t) q (transactions c)
+    ** _field "::monad::Block::header" |-> BheaderR q (header c)
       ** structR "::monad::Block" q.
   
   Definition ResultR {T} (trep: T -> Rep) (t:T): Rep. Proof. Admitted.
@@ -93,7 +111,15 @@ Section with_Sigma.
     ([∗ list] _ ∈ l,  (BlockHashBufferR (q*/(N_to_Qp (1+ lengthN l))) b)).
   Proof using. Admitted.
 
-  Definition BheaderR (q:Qp) (hdr: BlockHeader) : Rep. Proof. Admitted.
+  Lemma bhb_splitl_loopinv {T} q (b: BlockHashBuffer) (l : list T) (i:nat) (p:i=0):
+    BlockHashBufferR q b -|- BlockHashBufferR (q/(N_to_Qp (1+ lengthN l))) b ** 
+    ([∗ list] _ ∈ (drop i l),  (BlockHashBufferR (q*/(N_to_Qp (1+ lengthN l))) b)).
+  Proof using.
+    intros. subst. autorewrite with syntactic.
+    apply bhb_split_sn.
+  Qed.
+  
+
   
   Definition execute_block_simpler : WpSpec mpredI val val :=
     \arg{chainp :ptr} "chain" (Vref chainp)
@@ -162,6 +188,26 @@ cpp.spec
             (fun t=> optionAddressR 1 (Some (sender t)))
             (transactions block)).
 
+Definition resultT :=
+      (Tnamed
+       (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
+          [Atype
+             (Tnamed
+                (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+                   [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
+                    Atype
+                      (Tnamed
+                         (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code")) [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                    Atype
+                      (Tnamed
+                         (Ninst (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy")) (Nid "status_code_throw"))
+                            [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
+                             Atype
+                               (Tnamed
+                                  (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                     [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                             Atype "void"]))]))]))
+.
 cpp.spec (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::PriorityPool&, const monad::Chain&, const monad::BlockHashBuffer&, monad::BlockState &)" [Avalue (Eint 11 "enum evmc_revision")]) as exect with (
     \arg{blockp: ptr} "block" (Vref blockp)
     \prepost{qb (block: Block)} blockp |-> BlockR qb block
@@ -240,7 +286,17 @@ cpp.spec
     \post{retp}[Vptr retp]
       let '(finalState, result) := stateAfterTransaction header i prevTxGlobalState t in
        retp |-> ResultR ReceiptR result
-       ** block_statep |->  BlockState.Rauth preBlockState g finalState.
+         ** block_statep |->  BlockState.Rauth preBlockState g finalState.
+
+cpp.spec ((Ninst
+             (Nscoped (Nglobal (Nid "monad"))
+                (Nfunction function_qualifiers.N (Nf "execute")
+                   [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Chain")))); "unsigned long"%cpp_type; Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))));
+                    Tref (Tconst (Tnamed (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional")) [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address")))])));
+                    Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockHeader")))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockHashBuffer"))));
+                    Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState"))); Tref (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "fibers")) (Nid "promise")) [Atype "void"]))]))
+             [Avalue (Eint 11 (Tenum (Nglobal (Nid "evmc_revision"))))])) as ext1 with (execute_transaction_spec).
+  
 (*       
 
   Record State :=
