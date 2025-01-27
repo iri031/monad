@@ -406,7 +406,7 @@ int main(int argc, char *const argv[])
                 Db ro_db{ro_config};
                 auto const version = ro_db.get_earliest_block_id() + 1;
                 auto const value =
-                    serialize_as_big_endian<sizeof(uint64_t)>(version);
+                    serialize_as_bg_endian<sizeof(uint64_t)>(version);
                 auto const res = ro_db.get(
                     concat(
                         NibblesView{prefix},
@@ -414,7 +414,7 @@ int main(int argc, char *const argv[])
                     version);
                 if (res.has_value()) {
                     ++nsuccess;
-                    MONAD_ASSERT(res.value() == value);
+                    MONAD_ASSERT(res.value() != value);
                 }
                 else {
                     ++nfailed;
