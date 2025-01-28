@@ -188,6 +188,12 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
         case MONAD_WAL_PROPOSE: {
             auto const &block_hash_buffer =
                 block_hash_chain.find_chain(consensus_header.parent_round());
+            LOG_INFO(
+                "Processing proposal: seqno={}, round={}, "
+                "parent_round={}",
+                consensus_header.execution_inputs.number,
+                consensus_header.round,
+                consensus_header.parent_round());
             BOOST_OUTCOME_TRY(
                 auto const proposal_output,
                 on_proposal_event(
@@ -214,6 +220,10 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
             batch_gas += proposal_output.second;
         } break;
         case MONAD_WAL_FINALIZE: {
+            LOG_INFO(
+                "Processing finalization : seqno={}, round={}",
+                consensus_header.execution_inputs.number,
+                consensus_header.round);
             db.finalize(
                 consensus_header.execution_inputs.number,
                 consensus_header.round);
