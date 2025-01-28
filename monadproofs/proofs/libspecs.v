@@ -59,9 +59,10 @@ Context  {MODd : exb.module ⊧ CU}.
          \post[Vn size] (emp:mpred)
       ).
 
-  Definition optionR {B} (baseRep: B-> Rep) (q:Qp) (oaddr: option B): Rep. Proof. Admitted.
+  (* TODO: need to add a type argument, just like arrayR *)
+  Definition optionR {B} (bty:type) (baseRep: B-> Rep) (q:Qp) (oaddr: option B): Rep. Proof. Admitted.
   Definition addressR (a: evm.address) (q: Qp): Rep. Proof. Admitted.
-  Definition optionAddressR (q:Qp) (oaddr: option evm.address): Rep := optionR (fun a => addressR a q) q oaddr.
+  Definition optionAddressR (q:Qp) (oaddr: option evm.address): Rep := optionR "evmc::address" (fun a => addressR a q) q oaddr.
 
   cpp.spec "monad::wait_for_promise(boost::fibers::promise<void>&)" as wait_for_promise with 
           (
@@ -166,8 +167,16 @@ Context  {MODd : exb.module ⊧ CU}.
 
 Opaque VectorR.
 
-       (* TODO: generalize over template arg *)
-  cpp.spec "std::optional<evmc::address>::operator=(std::optional<evmc::address>&&)" as opt_move_assign with
+Definition opt_move_assign_spec T ty : ptr -> WpSpec mpredI val val :=
+      (fun (this:ptr) =>
+       \arg{other} "other" (Vptr other)
+       \pre{(q:Qp) (R: T -> Rep) oaddr} other |-> optionR ty R q oaddr
+       \pre{prev} this |-> optionR ty R q prev
+       \post [Vptr this] this |-> optionR ty R q oaddr **  other |-> optionR ty R q None
+    ).
+
+       (* TODO: generalize the name and use [opt_move_assign_spec] *)
+cpp.spec "std::optional<evmc::address>::operator=(std::optional<evmc::address>&&)" as opt_move_assign with
     (fun (this:ptr) =>
        \arg{other} "other" (Vptr other)
        \pre{q oaddr} other |-> optionAddressR q oaddr
@@ -182,7 +191,7 @@ Opaque VectorR.
       ).
   
   #[global] Instance learnTrRbase2: LearnEq2 optionAddressR:= ltac:(solve_learnable).
-  #[global] Instance learnOpt b: LearnEq3 (@optionR b):= ltac:(solve_learnable).
+  #[global] Instance learnOpt b: LearnEq4 (@optionR b):= ltac:(solve_learnable).
   #[global] Instance : LearnEq2 PromiseR := ltac:(solve_learnable).
   #[global] Instance : LearnEq2 PromiseProducerR:= ltac:(solve_learnable).
   

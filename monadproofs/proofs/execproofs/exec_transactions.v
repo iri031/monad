@@ -31,13 +31,94 @@ Section with_Sigma.
     ([∗ list] _ ∈ (drop i l),  (BheaderR (q*/(N_to_Qp (1+ lengthN l))) b)).
   Proof using. Admitted.
 
+      Definition cpName:=
+        (Ninst
+       (Nscoped
+          (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
+             [Atype
+                (Tnamed
+                   (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+                      [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
+                       Atype
+                         (Tnamed (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code")) [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                       Atype
+                         (Tnamed
+                            (Ninst (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy")) (Nid "status_code_throw"))
+                               [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
+                                Atype
+                                  (Tnamed
+                                     (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                        [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                                Atype "void"]))]))])
+          (Nfunction function_qualifiers.N (Nop OOEqual)
+             [Trv_ref
+                (Tnamed
+                   (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+                      [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
+                       Atype
+                         (Tnamed (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code")) [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                       Atype
+                         (Tnamed
+                            (Ninst (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy")) (Nid "status_code_throw"))
+                               [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
+                                Atype
+                                  (Tnamed
+                                     (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                        [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                                Atype "void"]))]))]))
+       [Atype
+          (Tnamed
+             (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+                [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
+                 Atype (Tnamed (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code")) [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                 Atype
+                   (Tnamed
+                      (Ninst (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy")) (Nid "status_code_throw"))
+                         [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
+                          Atype
+                            (Tnamed
+                               (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code")) [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                          Atype "void"]))]))]).
+
+      Print opt_move_assign.
+
+Definition opt_move_assign baseModelTy basety :=
+λ {thread_info : biIndex} {_Σ : gFunctors} {Sigma : cpp_logic thread_info _Σ} {CU : genv},
+  specify
+    {|
+      info_name :=
+        Ninst
+        (Nscoped
+          (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
+             [Atype basety])
+          (Nfunction function_qualifiers.N (Nop OOEqual)
+             [Trv_ref
+                (Tnamed
+                   (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
+                      [Atype basety]))])) [Atype basety];
+      info_type :=
+        tMethod
+          (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
+             [Atype basety])
+          QM
+          (Tref
+             (Tnamed
+                (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
+                   [Atype basety])))
+          [Trv_ref
+             (Tnamed
+                (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
+                   [Atype basety]))]
+    |} (opt_move_assign_spec baseModelTy resultT).
+      
+  
 Lemma prf: denoteModule module
+             ** (opt_move_assign TransactionResult resultT)
              ** tvector_spec
              ** reset_promises
              ** (fork_taskg (Nscoped (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::PriorityPool&, const monad::Chain&, const monad::BlockHashBuffer&, monad::BlockState &)" [Avalue (Eint 11 "enum evmc_revision")]) (Nanon 0)))
              ** vector_op_monad
              ** recover_sender
-             ** opt_move_assign
              ** wait_for_promise
              ** set_value
              ** destrop
@@ -62,7 +143,7 @@ Proof using MODd.
   go.
   iExists  (fun i _ =>
     let '(actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (take i (transactions block)) in
-    (_global "monad::results" |-> arrayR (Tnamed "std::optional<Result<Receipt>>") (fun r => libspecs.optionR ReceiptR 1 (Some r)) (take i receipts)
+    (_global "monad::results" |-> arrayR resultT (fun r => libspecs.optionR resultT ReceiptR 1 (Some r)) (take i receipts)
      ** ([∗ list] _ ∈ (take i (transactions block)),  (block_hash_bufferp |-> BlockHashBufferR (qbuf*/(N_to_Qp (1+ lengthN (transactions block)))) buf))
      ** ([∗ list] _ ∈ (take i (transactions block)),  (block_hash_bufferp |-> BlockState.Rfrag preBlockState (qbuf*/(N_to_Qp (1+ lengthN (transactions block)))) g))
      **  vectorbase
@@ -197,10 +278,24 @@ Proof using MODd.
       do 3 iExists _.
       eagerUnifyU.
       slauto.
+      unfold opt_move_assign.
+      fold resultT.
+      IPM.perm_left_persistent ltac:(fun L n => match L with
+                                                | specify ?s _ => assert (info_name s = cpName)
+                                                end
+                                    ).
+      simpl.
+      unfold cpName.
+      
+ma
 
-
-  reference_to
-    (Tnamed
+      
+Lemma feq: 
+  Nscoped (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional")) [Atype resultT])
+    (Nfunction function_qualifiers.N (Nop OOEqual)
+       [Trv_ref (Tnamed (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional")) [Atype resultT]))]) =
+  Ninst
+    (Nscoped
        (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
           [Atype
              (Tnamed
@@ -211,12 +306,16 @@ Proof using MODd.
                          (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
                             [Atype
                                (Tnamed
-                                  (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                                  (Ninst
+                                     (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
+                                     [Atype "long"]))]));
                     Atype
                       (Tnamed
                          (Ninst
                             (Nscoped
-                               (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
+                               (Nscoped
+                                  (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental"))
+                                  (Nid "policy"))
                                (Nid "status_code_throw"))
                             [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
                              Atype
@@ -224,10 +323,79 @@ Proof using MODd.
                                   (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
                                      [Atype
                                         (Tnamed
-                                           (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
+                                           (Ninst
+                                              (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail"))
+                                                 (Nid "erased"))
+                                              [Atype "long"]))]));
+                             Atype "void"]))]))])
+       (Nfunction function_qualifiers.N (Nop OOEqual)
+          [Trv_ref
+             (Tnamed
+                (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+                   [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
+                    Atype
+                      (Tnamed
+                         (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                            [Atype
+                               (Tnamed
+                                  (Ninst
+                                     (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
+                                     [Atype "long"]))]));
+                    Atype
+                      (Tnamed
+                         (Ninst
+                            (Nscoped
+                               (Nscoped
+                                  (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental"))
+                                  (Nid "policy"))
+                               (Nid "status_code_throw"))
+                            [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
+                             Atype
+                               (Tnamed
+                                  (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                     [Atype
+                                        (Tnamed
+                                           (Ninst
+                                              (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail"))
+                                                 (Nid "erased"))
                                               [Atype "long"]))]));
                              Atype "void"]))]))]))
-    (_global (Nscoped (Nglobal (Nid "monad")) (Nid "results")) .[ Tnamed
+    [Atype
+       (Tnamed
+          (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+             [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
+              Atype
+                (Tnamed
+                   (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                      [Atype
+                         (Tnamed
+                            (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
+                               [Atype "long"]))]));
+              Atype
+                (Tnamed
+                   (Ninst
+                      (Nscoped
+                         (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental"))
+                            (Nid "policy"))
+                         (Nid "status_code_throw"))
+                      [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
+                       Atype
+                         (Tnamed
+                            (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                               [Atype
+                                  (Tnamed
+                                     (Ninst
+                                        (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
+                                        [Atype "long"]))]));
+                       Atype "void"]))]))]
+      
+      repeat f_equal.
+      Check info_name.
+      as_specify.
+      work.
+
+
+      
       
          
       iExists (N.of_nat ival). (* automate this using some Refine1 hint *)

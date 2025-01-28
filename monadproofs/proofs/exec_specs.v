@@ -188,11 +188,9 @@ cpp.spec
             (fun t=> optionAddressR 1 (Some (sender t)))
             (transactions block)).
 
+
 Definition resultT :=
-      (Tnamed
-       (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
-          [Atype
-             (Tnamed
+(Tnamed
                 (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
                    [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
                     Atype
@@ -206,8 +204,10 @@ Definition resultT :=
                                (Tnamed
                                   (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
                                      [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                             Atype "void"]))]))]))
-.
+                             Atype "void"]))])).
+
+Definition oResultT := (Tnamed (Ninst "std::optional" [Atype resultT])).
+
 cpp.spec (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::PriorityPool&, const monad::Chain&, const monad::BlockHashBuffer&, monad::BlockState &)" [Avalue (Eint 11 "enum evmc_revision")]) as exect with (
     \arg{blockp: ptr} "block" (Vref blockp)
     \prepost{qb (block: Block)} blockp |-> BlockR qb block
@@ -231,8 +231,8 @@ cpp.spec (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::
     \pre Exists garbage,
         _global "monad::results" |->
           arrayR
-            (Tnamed "std::optional<Result<Receipt>>")
-            (fun t=> libspecs.optionR ReceiptR 1 (garbage t))
+            oResultT
+            (fun t=> libspecs.optionR resultT ReceiptR 1 (garbage t))
             (transactions block)
     \pre{qs} _global "monad::senders" |->
           arrayR
@@ -241,7 +241,7 @@ cpp.spec (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::
             (transactions block)
    \post
       let (actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (transactions block) in
-      _global "monad::senders" |-> arrayR (Tnamed "std::optional<Result<Receipt>>") (fun r => libspecs.optionR ReceiptR 1 (Some r)) receipts
+      _global "monad::senders" |-> arrayR oResultT (fun r => libspecs.optionR resultT ReceiptR 1 (Some r)) receipts
       ** block_statep |-> BlockState.Rauth preBlockState g actual_final_state
 
     ).
