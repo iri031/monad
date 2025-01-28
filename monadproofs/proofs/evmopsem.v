@@ -35,6 +35,31 @@ Fixpoint stateAfterTransactions' (hdr: BlockHeader) (s: StateOfAccounts) (ts: li
     
 Definition stateAfterTransactions  (hdr: BlockHeader) (s: StateOfAccounts) (ts: list Transaction): StateOfAccounts * list TransactionResult := stateAfterTransactions' hdr s ts 0 [].
 
+      Lemma stateAfterTransactionsC' (hdr: BlockHeader) (s: StateOfAccounts) (c: Transaction) (ts: list Transaction) (start:nat) (prevResults: list TransactionResult):
+        stateAfterTransactions' hdr s (ts++[c]) start prevResults
+        = let '(sf, prevs) := stateAfterTransactions' hdr s (ts) start prevResults in
+          let '(sff, res) := stateAfterTransaction hdr (length ts) sf c in
+          (sff, prevs ++ [res]).
+      Proof using.
+        revert s.
+        revert start.
+        revert prevResults.
+        induction ts;[reflexivity|].
+        intros. simpl.
+        destruct (stateAfterTransaction hdr start s a).
+        simpl.
+        rewrite IHts.
+        reflexivity.
+      Qed.
+      Lemma stateAfterTransactionsC (hdr: BlockHeader) (s: StateOfAccounts) (c: Transaction) (ts: list Transaction):
+        stateAfterTransactions hdr s (ts++[c])
+        = let '(sf, prevs) := stateAfterTransactions hdr s (ts) in
+          let '(sff, res) := stateAfterTransaction hdr (length ts) sf c in
+          (sff, prevs ++ [res]).
+      Proof using.
+        apply stateAfterTransactionsC'.
+      Qed.
+
 Record Withdrawal:=
   {
     recipient: evm.address;

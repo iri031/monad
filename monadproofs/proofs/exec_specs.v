@@ -11,6 +11,21 @@ Require Import bedrock.auto.cpp.proof.
 
 Require Import bedrock.auto.cpp.tactics4.
 
+Notation resultn :=
+                  (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+                   [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
+                    Atype
+                      (Tnamed
+                         (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code")) [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                    Atype
+                      (Tnamed
+                         (Ninst (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy")) (Nid "status_code_throw"))
+                            [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
+                             Atype
+                               (Tnamed
+                                  (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                     [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                             Atype "void"]))]).
 
 Import cQp_compat.
 
@@ -189,22 +204,7 @@ cpp.spec
             (transactions block)).
 
 
-Definition resultT :=
-(Tnamed
-                (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
-                   [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
-                    Atype
-                      (Tnamed
-                         (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code")) [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                    Atype
-                      (Tnamed
-                         (Ninst (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy")) (Nid "status_code_throw"))
-                            [Atype (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")));
-                             Atype
-                               (Tnamed
-                                  (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                     [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                             Atype "void"]))])).
+Definition resultT := (Tnamed resultn).
 
 Definition oResultT := (Tnamed (Ninst "std::optional" [Atype resultT])).
 
@@ -283,7 +283,7 @@ cpp.spec
     \arg{prevp: ptr} "prev" (Vref prevp)
     \prepost{(prg: gname) (prevTxGlobalState: StateOfAccounts) (OtherPromisedResources:mpred)}
         prevp |-> PromiseConsumerR prg (OtherPromisedResources ** block_statep |-> BlockState.Rauth preBlockState g prevTxGlobalState)
-    \post{retp}[Vptr retp]
+    \post{retp}[Vptr retp] OtherPromisedResources **
       let '(finalState, result) := stateAfterTransaction header i prevTxGlobalState t in
        retp |-> ResultR ReceiptR result
          ** block_statep |->  BlockState.Rauth preBlockState g finalState.

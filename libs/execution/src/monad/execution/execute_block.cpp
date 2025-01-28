@@ -145,7 +145,7 @@ void execute_transactions(Block const &block, fiber::PriorityPool &priority_pool
     reset_promises(block.transactions.size()+1);
     promises[0].set_value();
 
-    for (unsigned i = 0; i < block.transactions.size(); ++i) {
+    for (uint64_t i = 0; i < block.transactions.size(); ++i) {
         fork_task(priority_pool, i, [&chain = chain,
              i = i,
              &transaction = block.transactions[i],
@@ -173,7 +173,7 @@ template <evmc_revision rev>
 Result<std::vector<Receipt>> finalize_block(Block const &block, BlockState &block_state) {
     std::vector<Receipt> receipts;
 
-    for (unsigned i = 0; i < block.transactions.size(); ++i) {
+    for (uint64_t i = 0; i < block.transactions.size(); ++i) {
         MONAD_ASSERT(results[i].has_value());
         if (MONAD_UNLIKELY(results[i].value().has_error())) {
             LOG_ERROR(
