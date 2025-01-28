@@ -65,6 +65,11 @@ Definition opt_move_assign baseModelTy basety :=
           [Trv_ref  basety]
     |} (opt_constr_spec baseModelTy resultT).
       
+      Lemma  rect_len g l lt h bs : (g, l) = stateAfterTransactions h bs lt ->
+                                    length l = length lt.
+      Proof using. Admitted. (* easy *)
+      Lemma takesr2 {X} l n (x:X) : length l = n → take (S n) (l++[x]) = take n l ++ [x].
+      Proof using. Admitted. (* easy *)
 
 Definition destr_res :=
 λ {thread_info : biIndex} {_Σ : gFunctors} {Sigma : cpp_logic thread_info _Σ} {CU : genv},
@@ -110,11 +115,17 @@ Proof using MODd.
   slauto.
   iExists unit.
   go.
+  
   iExists  (fun i _ =>
     let '(actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (take i (transactions block)) in
-    (_global "monad::results" |-> arrayR oResultT (fun r => libspecs.optionR resultT (ResultR ReceiptR) 1 (Some r)) (take i receipts)
+    (_global "monad::results" |-> arrayR oResultT (fun r => libspecs.optionR resultT (ResultR ReceiptR) 1 (Some r)) receipts
      ** ([∗ list] _ ∈ (take i (transactions block)),  (block_hash_bufferp |-> BlockHashBufferR (qbuf*/(N_to_Qp (1+ lengthN (transactions block)))) buf))
      ** ([∗ list] _ ∈ (take i (transactions block)),  (chainp |-> ChainR (qchain*/(N_to_Qp (1+ lengthN (transactions block)))) chain))
+     ** (_global "monad::promises" |->
+            parrayR
+              (Tnamed "boost::fibers::promise<void>")
+              (fun i t => PromiseUnusableR)
+              ((map (fun _ => ()) (take i (transactions block)))))
      ** ([∗ list] _ ∈ (take i (transactions block)),  blockp ,, o_field CU (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "Block")) (Nid "header"))
       |-> BheaderR (qb*/(N_to_Qp (1+ lengthN (transactions block)))) (header block))
      ** ([∗ list] _ ∈ (take i (transactions block)),  (block_statep |-> BlockState.Rfrag preBlockState (qf*/(N_to_Qp (1+ lengthN (transactions block)))) g))
@@ -146,6 +157,7 @@ Proof using MODd.
   go.
   autorewrite with syntactic.
   go.
+  rewrite parrayR_nil. go.
   autorewrite with syntactic.
   go.
   hideP p.
@@ -262,31 +274,6 @@ Proof using MODd.
       replace (1+ival)%Z with (ival+1)%Z  by lia.
       go.
       erewrite -> take_S_r with (n:=ival);[| eauto].
-      Lemma stateAfterTransactionsC' (hdr: BlockHeader) (s: StateOfAccounts) (c: Transaction) (ts: list Transaction) (start:nat) (prevResults: list TransactionResult):
-        stateAfterTransactions' hdr s (ts++[c]) start prevResults
-        = let '(sf, prevs) := stateAfterTransactions' hdr s (ts) start prevResults in
-          let '(sff, res) := stateAfterTransaction hdr (length ts) sf c in
-          (sff, prevs ++ [res]).
-      Proof using.
-        revert s.
-        revert start.
-        revert prevResults.
-        induction ts;[reflexivity|].
-        intros. simpl.
-        destruct (stateAfterTransaction hdr start s a).
-        simpl.
-        rewrite IHts.
-        reflexivity.
-      Qed.
-      Lemma stateAfterTransactionsC (hdr: BlockHeader) (s: StateOfAccounts) (c: Transaction) (ts: list Transaction):
-        stateAfterTransactions hdr s (ts++[c])
-        = let '(sf, prevs) := stateAfterTransactions hdr s (ts) in
-          let '(sff, res) := stateAfterTransaction hdr (length ts) sf c in
-          (sff, prevs ++ [res]).
-      Proof using.
-        apply stateAfterTransactionsC'.
-      Qed.
-      
       rewrite stateAfterTransactionsC.
       rewrite <- Heqsabc.
       simpl.
@@ -301,20 +288,31 @@ Proof using MODd.
       go.
       repeat rewrite big_opL_snoc.
       go.
-      Lemma  rect_len g l lt h bs : (g, l) = stateAfterTransactions h bs lt ->
-                                    length l = length lt.
-      Proof using. Admitted. (* easy *)
       applyToSomeHyp rect_len.
       autorewrite with syntactic in *.
-      Lemma takesr2 {X} l n (x:X) : length l = n → take (S n) (l++[x]) = take n l ++ [x].
-      Proof using. Admitted. (* easy *)
-      rewrite takesr2;[| lia].
-      rewrite arrayR_snoc.
+      go.
+      rewrite map_app.
+      simpl.
+      subst.
+      rewrite parrayR_app1.
+      go.
+      autorewrite with syntactic.
+      go.
+      unfold oResultT. unfold resultT. go.
+      Search parrayR app.
+      rewrite parrayR_snoc.
       autorewrite with syntactic.
       go.
       unfold oResultT, resultT. go.
       eagerUnifyC.
       go.
+    \pre{qs} _global "monad::senders" |->
+          arrayR
+            (Tnamed "std::optional<evmc::address>")
+            (fun t=> optionAddressR qs (Some (sender t)))
+            (take i (transactions block))
+      
+_global "monad::results" |-> arrayR oResultT (fun r => libspecs.optionR resultT (ResultR ReceiptR) 1 (Some r)) receipts      
       go.
 
       (* some leftover resources. some specs have a leak:

@@ -283,7 +283,7 @@ cpp.spec
     \arg{prevp: ptr} "prev" (Vref prevp)
     \pre{(prg: gname) (prevTxGlobalState: StateOfAccounts) (OtherPromisedResources:mpred)}
         prevp |-> PromiseConsumerR prg (OtherPromisedResources ** block_statep |-> BlockState.Rauth preBlockState g prevTxGlobalState)
-    \post{retp}[Vptr retp] OtherPromisedResources **
+    \post{retp}[Vptr retp] OtherPromisedResources ** prevp |-> PromiseUnusableR **
       let '(finalState, result) := stateAfterTransaction header i prevTxGlobalState t in
        retp |-> ResultR ReceiptR result
          ** block_statep |->  BlockState.Rauth preBlockState g finalState.
