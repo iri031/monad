@@ -177,7 +177,6 @@ Proof using MODd.
   rewrite -> (generalize_arrayR_loopinv ival (_global "monad::senders")); [| assumption].
   rewrite (generalize_arrayR_loopinv ival (_global "monad::results")); [| assumption].
   rewrite -> (generalize_arrayR_loopinv ival vectorbase); [| assumption].
-  rewrite (vectorbase_loopinv _ _ _ _ ival); auto.
   rewrite (generalize_parrayR_loopinv ival (_global "monad::promises")); [| assumption].
   rewrite (generalize_parrayR_loopinv ival (_global "monad::promises" ,, _)); [| assumption].
   rewrite -> @bhb_splitl_loopinv with (i:=ival) (l:=transactions block) by assumption.
@@ -333,20 +332,7 @@ Qed.
         repeat f_equiv; try 
                           apply Nat.add_succ_r.
       }
-
-      (*
-  --------------------------------------□
-  _ : blockp ,, o_field CU (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "Block")) (Nid "transactions"))
-      |-> VectorRbase (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction")))
-            (qb * / N_to_Qp (1 + N.of_nat (length (transactions block)))) vectorbase (N.of_nat (length (transactions block)))
-  --------------------------------------∗
-  emp
-*)
-      
-    }
-    
-      
-      
+      go.
     }
   }
   { (* loop condition is false *)
