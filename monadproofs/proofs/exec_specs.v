@@ -100,8 +100,9 @@ Section with_Sigma.
     _field "::monad::Block::transactions" |-> VectorR (Tnamed "::monad::Transaction") (fun t => TransactionR q t) q (transactions c)
     ** _field "::monad::Block::header" |-> BheaderR q (header c)
       ** structR "::monad::Block" q.
-  
-  Definition ResultR {T} (trep: T -> Rep) (t:T): Rep. Proof. Admitted.
+
+  (* TODO: add a Result T type in Coq and change the type of t to Result T *)
+  Definition ResultSuccessR {T} (trep: T -> Rep) (t:T): Rep. Proof. Admitted.
   Definition ReceiptR (t: TransactionResult): Rep. Admitted.
   
   Definition valOfRev (r : Revision) : val := Vint 0. (* TODO: fix *)
@@ -232,7 +233,7 @@ cpp.spec (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::
         _global "monad::results" |->
           arrayR
             oResultT
-            (fun t=> libspecs.optionR resultT ReceiptR 1 (garbage t))
+            (fun t=> libspecs.optionR resultT (ResultSuccessR ReceiptR) 1 (garbage t))
             (transactions block)
     \pre{qs} _global "monad::senders" |->
           arrayR
@@ -285,7 +286,7 @@ cpp.spec
         prevp |-> PromiseConsumerR prg (OtherPromisedResources ** block_statep |-> BlockState.Rauth preBlockState g prevTxGlobalState)
     \post{retp}[Vptr retp] OtherPromisedResources ** prevp |-> PromiseUnusableR **
       let '(finalState, result) := stateAfterTransaction header i prevTxGlobalState t in
-       retp |-> ResultR ReceiptR result
+       retp |-> ResultSuccessR ReceiptR result
          ** block_statep |->  BlockState.Rauth preBlockState g finalState.
 
 cpp.spec ((Ninst
