@@ -281,7 +281,7 @@ cpp.spec
     \arg{block_statep: ptr} "block_state" (Vref block_statep)
     \prepost{g qf preBlockState} block_statep |-> BlockState.Rfrag preBlockState qf g
     \arg{prevp: ptr} "prev" (Vref prevp)
-    \prepost{(prg: gname) (prevTxGlobalState: StateOfAccounts) (OtherPromisedResources:mpred)}
+    \pre{(prg: gname) (prevTxGlobalState: StateOfAccounts) (OtherPromisedResources:mpred)}
         prevp |-> PromiseConsumerR prg (OtherPromisedResources ** block_statep |-> BlockState.Rauth preBlockState g prevTxGlobalState)
     \post{retp}[Vptr retp] OtherPromisedResources **
       let '(finalState, result) := stateAfterTransaction header i prevTxGlobalState t in

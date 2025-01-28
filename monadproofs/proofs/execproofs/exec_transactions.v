@@ -200,11 +200,6 @@ Proof using MODd.
     progress go.
     IPM.perm_left ltac:(fun L n =>
       match L with
-      |   _ |-> VectorRbase _ _ _ _ => iRevert n
-      end
-      ).
-    IPM.perm_left ltac:(fun L n =>
-      match L with
       |   _ |-> BlockHashBufferR _ _ => iRevert n
       end
       ).
@@ -329,9 +324,6 @@ Proof using MODd.
                                                                      (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
                                                                         [Atype (Tnamed resultn)]) ! 
       Z.of_nat (length l) ] |-> libspecs.optionR (Tnamed resultn) ReceiptR 1 (_t_ tri)
-  _ : blockp ,, o_field CU (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "Block")) (Nid "transactions"))
-      |-> VectorRbase (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction")))
-            (qb * / N_to_Qp (1 + lengthN (transactions block))) vectorbase (lengthN (transactions block))
   _ : _global (Nscoped (Nglobal (Nid "monad")) (Nid "senders")) .[ Tnamed
                                                                      (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
                                                                         [Atype
