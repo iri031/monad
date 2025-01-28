@@ -10,6 +10,9 @@
 
 #include <boost/outcome/try.hpp>
 
+#include <iomanip>
+#include <iostream>
+
 MONAD_RLP_NAMESPACE_BEGIN
 
 template <unsigned_integral T>
@@ -99,6 +102,9 @@ constexpr Result<byte_string_view> parse_list_metadata(byte_string_view &enc)
     }
 
     if (MONAD_UNLIKELY(enc[0] < 0xc0)) {
+        std::cerr << "Expecting list but got " << std::setfill('0')
+                  << std::setw(2) << std::hex << static_cast<int>(enc[0])
+                  << std::endl;
         return DecodeError::TypeUnexpected;
     }
 

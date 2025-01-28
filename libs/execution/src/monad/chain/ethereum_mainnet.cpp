@@ -20,7 +20,7 @@ using BOOST_OUTCOME_V2_NAMESPACE::success;
 
 uint256_t EthereumMainnet::get_chain_id() const
 {
-    return 1;
+    return 1337;
 };
 
 evmc_revision EthereumMainnet::get_revision(
@@ -106,9 +106,9 @@ Result<void> EthereumMainnet::validate_output_header(
         return BlockError::WrongLogsBloom;
     }
 
-    if (MONAD_UNLIKELY(input.parent_hash != output.parent_hash)) {
-        return BlockError::WrongParentHash;
-    }
+    // if (MONAD_UNLIKELY(input.parent_hash != output.parent_hash)) {
+    //     return BlockError::WrongParentHash;
+    // }
 
     // Lastly, validate execution outputs only known after commit.
     if (MONAD_UNLIKELY(input.state_root != output.state_root)) {

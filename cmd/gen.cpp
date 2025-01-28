@@ -302,9 +302,10 @@ void load_state_from_json(nlohmann::json const &j, State &state)
         // we cannot use the nlohmann::json from_json<uint64_t> because
         // it does not use the strtoull implementation, whereas we need
         // it so we can turn a hex string into a uint64_t
-        if (j_acc.contains("nonce")){
+        if (j_acc.contains("nonce")) {
             state.set_nonce(
-                account_address, integer_from_json<uint64_t>(j_acc.at("nonce")));
+                account_address,
+                integer_from_json<uint64_t>(j_acc.at("nonce")));
         }
 
         if (j_acc.contains("storage")) {
@@ -393,18 +394,6 @@ int main(int const argc, char const *argv[])
         return cli.exit(e);
     }
 
-    // // Initialize triedb (name it as test.db)
-    // auto const path = [] {
-    //     std::filesystem::path dbname(std::filesystem::current_path() / "test.db");
-    //     // int const fd = ::mkstemp((char *)dbname.native().data());
-    //     // MONAD_ASSERT(fd != -1);
-    //     // MONAD_ASSERT(
-    //     //     -1 !=
-    //     //     ::ftruncate(fd, static_cast<off_t>(8ULL * 1024 * 1024 * 1024)));
-    //     // ::close(fd);
-    //     return dbname;
-    // }();
-
     auto log_level = quill::LogLevel::Info;
     auto stdout_handler = quill::stdout_handler();
     stdout_handler->set_pattern(
@@ -420,14 +409,14 @@ int main(int const argc, char const *argv[])
 
     OnDiskMachine machine;
     mpt::Db db{
-        machine, mpt::OnDiskDbConfig{
-                    .append = true,
-                    .compaction = false,
-                    .rd_buffers = 8192,
-                    .wr_buffers = 32,
-                    .uring_entries = 128,
-                    .sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 1),
-                    .dbname_paths = dbname_paths}};
+        machine,
+        mpt::OnDiskDbConfig{
+            .compaction = false,
+            .rd_buffers = 8192,
+            .wr_buffers = 32,
+            .uring_entries = 128,
+            .sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 1),
+            .dbname_paths = dbname_paths}};
     TrieDb tdb{db};
 
     // parse genesis.json
@@ -444,28 +433,32 @@ int main(int const argc, char const *argv[])
 
     // read chain.rlp and decode it
     BlockHashBufferFinalized block_hash_buffer;
-    std::ifstream ifile(chain);
+    std::ifstream in(chain, std::ios::in | std::ios::binary);
 
-    int success_cnt = 0;
-    int failed_cnt = 0;
+    if (!in) {
+        std::cerr << "Can't find chain.rlp file to read" << std::endl;
+        return 1;
+    }
 
-    std::string block_line;
-    while (std::getline(ifile, block_line)) {
-        std::cerr << "Line is: " << block_line << std::endl;
-        auto view = to_byte_string_view(block_line);
+    std::string value;
+    in.seekg(0, std::ios::end);
+    auto const pos = in.tellg();
+    MONAD_ASSERT(pos >= 0);
+    value.resize(static_cast<size_t>(pos));
+    in.seekg(0, std::ios::beg);
+    in.read(&value[0], static_cast<std::streamsize>(value.size()));
+    in.close();
 
+    auto view = to_byte_string_view(value);
+
+    while (view.length() != 0) {
         auto const decoded_block = rlp::decode_block(view);
-
-        if (decoded_block.has_error()){
-            std::cerr << decoded_block.assume_error().message().c_str() << std::endl;
-            failed_cnt++;
-            continue;
+        if (decoded_block.has_error()) {
+            std::cerr << decoded_block.assume_error().message().c_str()
+                      << std::endl;
+            return 1;
         }
 
-        success_cnt++;
-
-        MONAD_ASSERT(!decoded_block.has_error());
-        MONAD_ASSERT(view.size() == 0);
         Block block = decoded_block.value();
 
         MONAD_ASSERT(block.header.number != 0);
@@ -477,11 +470,9 @@ int main(int const argc, char const *argv[])
         auto const result = execute<rev>(block, tdb, block_hash_buffer);
 
         if (result.has_error()) {
-            std::cerr << "Error in execution" << std::endl;
+            std::cerr << "Error in execution: "
+                      << result.assume_error().message().c_str() << std::endl;
             return 1;
         }
     }
-
-    std::cerr << "Success cnt is: " << success_cnt << std::endl; 
-    std::cerr << "Failed cnt is: " << failed_cnt << std::endl; 
 }

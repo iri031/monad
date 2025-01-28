@@ -24,7 +24,7 @@ struct OnDiskDbConfig
     std::optional<unsigned> sq_thread_cpu{0};
     std::optional<uint64_t> start_block_id{std::nullopt};
     std::vector<std::filesystem::path> dbname_paths{};
-    int64_t file_size_db{512}; // truncate files to this size
+    int64_t file_size_db{3}; // truncate files to this size
     unsigned concurrent_read_io_limit{1024};
     // fixed history length if contains value, otherwise rely on db to adjust
     // history length upon disk usage
