@@ -272,11 +272,11 @@ cpp.spec
     \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
     \arg{i:nat} "i" (Vnat i)
     \arg{txp} "tx" (Vref txp)
-    \pre{qtx t} txp |-> TransactionR qtx t
+    \prepost{qtx t} txp |-> TransactionR qtx t
     \arg{senderp} "sender" (Vref senderp)
-    \pre{qs} senderp |-> optionAddressR qs (Some (sender t))
+    \prepost{qs} senderp |-> optionAddressR qs (Some (sender t))
     \arg{hdrp: ptr} "hdr" (Vref hdrp)
-    \pre{qh header} hdrp |-> BheaderR qh header
+    \prepost{qh header} hdrp |-> BheaderR qh header
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \arg{block_statep: ptr} "block_state" (Vref block_statep)
     \prepost{g qf preBlockState} block_statep |-> BlockState.Rfrag preBlockState qf g

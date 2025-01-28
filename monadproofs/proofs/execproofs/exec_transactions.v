@@ -112,9 +112,12 @@ Proof using MODd.
   go.
   iExists  (fun i _ =>
     let '(actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (take i (transactions block)) in
-    (_global "monad::results" |-> arrayR resultT (fun r => libspecs.optionR resultT ReceiptR 1 (Some r)) (take i receipts)
+    (_global "monad::results" |-> arrayR oResultT (fun r => libspecs.optionR resultT (ResultR ReceiptR) 1 (Some r)) (take i receipts)
      ** ([∗ list] _ ∈ (take i (transactions block)),  (block_hash_bufferp |-> BlockHashBufferR (qbuf*/(N_to_Qp (1+ lengthN (transactions block)))) buf))
-     ** ([∗ list] _ ∈ (take i (transactions block)),  (block_hash_bufferp |-> BlockState.Rfrag preBlockState (qbuf*/(N_to_Qp (1+ lengthN (transactions block)))) g))
+     ** ([∗ list] _ ∈ (take i (transactions block)),  (chainp |-> ChainR (qchain*/(N_to_Qp (1+ lengthN (transactions block)))) chain))
+     ** ([∗ list] _ ∈ (take i (transactions block)),  blockp ,, o_field CU (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "Block")) (Nid "header"))
+      |-> BheaderR (qb*/(N_to_Qp (1+ lengthN (transactions block)))) (header block))
+     ** ([∗ list] _ ∈ (take i (transactions block)),  (block_statep |-> BlockState.Rfrag preBlockState (qf*/(N_to_Qp (1+ lengthN (transactions block)))) g))
      **  vectorbase
           |-> arrayR (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))) (λ t0 : Transaction, TransactionR qb t0)
           (take i (transactions block)))
@@ -264,6 +267,31 @@ Proof using MODd.
       replace (1+ival)%Z with (ival+1)%Z  by lia.
       go.
       erewrite -> take_S_r with (n:=ival);[| eauto].
+      Lemma stateAfterTransactionsC' (hdr: BlockHeader) (s: StateOfAccounts) (c: Transaction) (ts: list Transaction) (start:nat) (prevResults: list TransactionResult):
+        stateAfterTransactions' hdr s (ts++[c]) start prevResults
+        = let '(sf, prevs) := stateAfterTransactions' hdr s (ts) start prevResults in
+          let '(sff, res) := stateAfterTransaction hdr (length ts) sf c in
+          (sff, prevs ++ [res]).
+      Proof using.
+        revert s.
+        revert start.
+        revert prevResults.
+        induction ts;[reflexivity|].
+        intros. simpl.
+        destruct (stateAfterTransaction hdr start s a).
+        simpl.
+        rewrite IHts.
+        reflexivity.
+      Qed.
+      Lemma stateAfterTransactionsC (hdr: BlockHeader) (s: StateOfAccounts) (c: Transaction) (ts: list Transaction):
+        stateAfterTransactions hdr s (ts++[c])
+        = let '(sf, prevs) := stateAfterTransactions hdr s (ts) in
+          let '(sff, res) := stateAfterTransaction hdr (length ts) sf c in
+          (sff, prevs ++ [res]).
+      Proof using.
+        apply stateAfterTransactionsC'.
+      Qed.
+      
       rewrite stateAfterTransactionsC.
       rewrite <- Heqsabc.
       simpl.
@@ -274,6 +302,104 @@ Proof using MODd.
       go.
       repeat rewrite arrayR_snoc.
       go.
+      autorewrite with syntactic.
+      go.
+      repeat rewrite big_opL_snoc.
+      go.
+      Lemma  rect_len g l lt h bs : (g, l) = stateAfterTransactions h bs lt ->
+                                    length l = length lt.
+      Proof using. Admitted. (* easy *)
+      applyToSomeHyp rect_len.
+      autorewrite with syntactic in *.
+      Lemma takesr2 {X} l n (x:X) : length l = n → take (S n) (l++[x]) = take n l ++ [x].
+      Proof using. Admitted. (* easy *)
+      rewrite takesr2;[| lia].
+      rewrite arrayR_snoc.
+      autorewrite with syntactic.
+      go.
+      unfold oResultT, resultT. go.
+      eagerUnifyC.
+      go.
+      go.
+
+      (* some leftover resources. some specs have a leak:
+
+  --------------------------------------□
+  _ : _global (Nscoped (Nglobal (Nid "monad")) (Nid "results")) .[ Tnamed
+                                                                     (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
+                                                                        [Atype (Tnamed resultn)]) ! 
+      Z.of_nat (length l) ] |-> libspecs.optionR (Tnamed resultn) ReceiptR 1 (_t_ tri)
+  _ : blockp ,, o_field CU (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "Block")) (Nid "transactions"))
+      |-> VectorRbase (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction")))
+            (qb * / N_to_Qp (1 + lengthN (transactions block))) vectorbase (lengthN (transactions block))
+  _ : _global (Nscoped (Nglobal (Nid "monad")) (Nid "senders")) .[ Tnamed
+                                                                     (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
+                                                                        [Atype
+                                                                           (Tnamed
+                                                                              (Nscoped (Nglobal (Nid "evmc")) (Nid "address")))]) ! 
+      Z.of_nat (length l) ] |-> optionAddressR qs (Some (sender tri))
+  _ : _global (Nscoped (Nglobal (Nid "monad")) (Nid "promises")) .[ Tnamed
+                                                                      (Ninst
+                                                                         (Nscoped
+                                                                            (Nscoped (Nglobal (Nid "boost")) (Nid "fibers"))
+                                                                            (Nid "promise"))
+                                                                         [Atype "void"]) ! Z.of_nat (length l) ]
+      |-> PromiseConsumerR (t (length l))
+            ((_global (Nscoped (Nglobal (Nid "monad")) (Nid "results"))
+              |-> arrayR (Tnamed (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional")) [Atype (Tnamed resultn)]))
+                    (λ r : TransactionResult, libspecs.optionR (Tnamed resultn) (ResultR ReceiptR) 1 (Some r))
+                    (take (length l) l) ∗
+              ([∗ list] _ ∈ take (length l) (transactions block), block_hash_bufferp
+                                                                  |-> BlockHashBufferR
+                                                                        (qbuf *
+                                                                         /
+                                                                         N_to_Qp (1 + N.of_nat (length (transactions block))))
+                                                                        buf) ∗
+              ([∗ list] _ ∈ take (length l) (transactions block), chainp
+                                                                  |-> ChainR
+                                                                        (qchain *
+                                                                         /
+                                                                         N_to_Qp (1 + N.of_nat (length (transactions block))))
+                                                                        chain) ∗
+              ([∗ list] _ ∈ take (length l) (transactions block), blockp ,, o_field CU
+                                                                              (Nscoped
+                                                                                 (Nscoped (Nglobal (Nid "monad"))
+                                                                                    (Nid "Block"))
+                                                                                 (Nid "header"))
+                                                                  |-> BheaderR
+                                                                        (qb *
+                                                                         /
+                                                                         N_to_Qp (1 + N.of_nat (length (transactions block))))
+                                                                        (header block)) ∗
+              ([∗ list] _ ∈ take (length l) (transactions block), block_statep
+                                                                  |-> BlockState.Rfrag preBlockState
+                                                                        (qf *
+                                                                         /
+                                                                         N_to_Qp (1 + N.of_nat (length (transactions block))))
+                                                                        g) ∗
+              vectorbase
+              |-> arrayR (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction")))
+                    (λ t1 : Transaction, TransactionR qb t1) (take (length l) (transactions block))) ∗
+             block_statep |-> BlockState.Rauth preBlockState g g0)
+  --------------------------------------∗
+  emp
+*)
+      
+      unfold oResultT. unfold resultT. go.
+      autorewi
+  _ : _global (Nscoped (Nglobal (Nid "monad")) (Nid "results")) .[ oResultT ! Z.of_nat ival ]
+      |-> libspecs.optionR resultT ReceiptR 1 (_t_ tri)
+      
+      2:{ lia.
+      
+      erewrite -> take_S_r with (n:=ival);[| eauto].
+      
+      Forward.rwHyps.
+      
+      work.
+  _ : block_statep |-> BlockState.Rfrag preBlockState (qf * / N_to_Qp (1 + lengthN (transactions block))) g
+      
+      Print execute_transaction_spec.
       autorewrite with syntactic.
       go.
       erewrite -> take_S_r with (n:=ival);[| eauto].
