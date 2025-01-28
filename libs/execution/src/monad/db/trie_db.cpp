@@ -346,6 +346,13 @@ void TrieDb::commit(
         .key = block_header_nibbles,
         .value = std::nullopt,
         .next = UpdateList{}};
+    auto bft_block_update = Update{
+        .key = bft_block_nibbles,
+        .value = bytes_alloc_.emplace_back(
+            rlp::encode_consensus_block_header(consensus_header)),
+        .incarnation = true,
+        .next = UpdateList{},
+        .version = static_cast<int64_t>(block_number_)};
     updates.push_front(state_update);
     updates.push_front(code_update);
     updates.push_front(receipt_update);
@@ -362,6 +369,8 @@ void TrieDb::commit(
             block_number_);
         updates.push_front(block_header_erase);
     }
+    updates.push_front(bft_block_update);
+
     UpdateList withdrawal_updates;
     if (withdrawals.has_value()) {
         // only commit withdrawals when the optional has value
@@ -439,17 +448,9 @@ void TrieDb::commit(
         .incarnation = false,
         .next = std::move(block_hash_nested_updates),
         .version = static_cast<int64_t>(block_number_)};
-    auto bft_block_update = Update{
-        .key = bft_block_nibbles,
-        .value = bytes_alloc_.emplace_back(
-            rlp::encode_consensus_block_header(consensus_header)),
-        .incarnation = true,
-        .next = UpdateList{},
-        .version = static_cast<int64_t>(block_number_)};
 
     updates2.push_front(block_header_update);
     updates2.push_front(block_hash_update);
-    updates2.push_front(bft_block_update);
 
     UpdateList ls2;
     ls2.push_front(update_alloc_.emplace_back(Update{
