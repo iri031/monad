@@ -336,98 +336,28 @@ Qed.
     }
   }
   { (* loop condition is false *)
-    go.
+    slauto.
     unfold lengthN in *.
     ren_hyp ival nat.
     assert (ival=length(transactions block))  by lia.
     subst.
-    go.
+    slauto.
     autorewrite with syntactic.
+    rewrite drop_ge;[|autorewrite with syntactic; lia].
+    go.
     repeat rewrite arrayR_nil.
     repeat rewrite parrayR_nil.
     go.
     rename i_addr into i1_addr.
     name_locals.
-    IPM.perm_left ltac:(fun L n =>
-       match L with
-       | ?p |-> parrayR ?ty (fun i v => PromiseConsumerR (@?P i) (@?R i v) ) ?l =>
-           wp_for (fun _ =>
-          Exists (ival:nat), i_addr |-> ulongR (cQp.mut 1) ival **
-          (p .[ty ! ival] |-> parrayR ty (fun i v => PromiseConsumerR (P (ival+i)) (R (ival+i) v) ) (drop ival (transactions block))) **
-          (p |-> parrayR ty (fun i v => PromiseUnusableR) (take ival (transactions block))) **
-          [| ival <= length (transactions block) |] **
-           [∗list] j↦v ∈ (take ival (transactions block)),
-               R j v)%I
-       end).
-    work.
-    rewrite <- (bi.exist_intro 0%nat).
-    slauto.
-    rewrite parrayR_nil. go.
-    autorewrite with syntactic.
-    slauto.
-    ren_hyp ival nat. 
-    wp_if.
-    { (* loop continues *)
-      slauto.
-      autorewrite with syntactic in *.
-      pose proof @drop_S2 as Hd.
-      unfold lengthN in Hd.
-      autorewrite with syntactic in *.
-      Search Z.of_N Z.of_nat.
-      setoid_rewrite nat_N_Z in Hd.
-      applyToSomeHyp Hd.
-      match goal with
-        [H:_ |- _] => destruct H as [tri Htt]; destruct Htt as [Httl Httr]
-      end.
-      rewrite Httr.
-      rewrite -> parrayR_cons.
-      slauto.
-      #[global] Instance : LearnEq2 PromiseConsumerR:= ltac:(solve_learnable).
-      go.
-      repeat rewrite o_sub_sub.
-      autorewrite with syntactic.
-      Set Printing Coercions.
-      slauto.
-      iExists (1+ival).
-      slauto.
-      replace (Z.of_nat ival + 1)%Z with (Z.of_nat (S ival)); try lia.
-      setoid_rewrite Nat.add_succ_r.
-      slauto.
-      erewrite take_S_r; eauto.
-      rewrite parrayR_app. (* todo: rewrite with a snoc lemma  to cut down the script below *)
-      go.
-      autorewrite with syntactic.
-      rewrite -> length_take_le by lia.
-      go.
-      rewrite parrayR_cons.
-      go.
-      autorewrite with syntactic.
-      go.
-      rewrite parrayR_nil.
-      go.
-      Search big_opL app.
-      rewrite big_opL_snoc.
-      rewrite -> length_take_le by lia.
-      go.
-    }
-    { (* loop condition is false *)
-      go.
-      assert (ival=length(transactions block))  by lia.
-      subst.
-      autorewrite with syntactic.
-      go.
-      repeat rewrite parrayR_nil. go.
-      repeat rewrite big_sepL_sep.
-      go.
-      hideLhs.
-      setoid_rewrite -> vectorbase_loopinv with (i:=0); try reflexivity.
-      unhideAllFromWork.
-      go.
-      rewrite _at_big_sepL.
-      go.
-      repeat rewrite arrDecompose.
-      go.
-    }
+    go.
+    simpl in *.
+    #[global] Instance : LearnEq2 PromiseConsumerR:= ltac:(solve_learnable).
+    go.
+    remember (stateAfterTransactions (header block) preBlockState (transactions block)) as abc.
+    destruct abc.
+    go.
+    
   }
 Abort.
 End with_Sigma.

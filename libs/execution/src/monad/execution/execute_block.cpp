@@ -166,7 +166,7 @@ void execute_transactions(Block const &block, fiber::PriorityPool &priority_pool
     }
 
     //auto const last = static_cast<std::ptrdiff_t>(block.transactions.size());  this old code results in a stricter assumption about the number of transactions
-    promises[block.transactions.size()].get_future().wait();
+    wait_for_promise(promises[block.transactions.size()]);
 
 }
 template <evmc_revision rev>
