@@ -521,3 +521,13 @@ Hint Rewrite @repeat_length: syntactic.
 Hint Rewrite @length_cons: syntactic.
 Hint Rewrite @firstn_0: syntactic.
 
+Lemma takesr2 {X} l n (x:X) : length l = n → take (S n) (l++[x]) = take n l ++ [x].
+Proof using. Admitted. (* easy *)
+
+Hint Rewrite @length_take_le using lia: syntactic.
+
+Lemma cancel_at `{xx: cpp_logic} (p:ptr) (R1 R2 : Rep) :
+  (R1 |-- R2) -> (p |-> R1 |-- p |-> R2).
+Proof using.
+  apply _at_mono.
+Qed.

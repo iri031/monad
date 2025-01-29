@@ -15,87 +15,9 @@ Section with_Sigma.
            (*   hh = @has_own_monpred thread_info _Σ fracR (@cinv_inG _Σ (@cpp_has_cinv thread_info _Σ Sigma)) *)
   Context  {MODd : exb.module ⊧ CU}.
 
-
-  Existing Instance learnArrUnsafe.
-  Existing Instance learnpArrUnsafe.
-
   Set Nested Proofs Allowed.
-  Opaque BlockHashBufferR.
-  Hint Opaque BlockHashBufferR: br_opacity.
-
-  (* TODO: move *)
-
-#[global] Instance : LearnEq2 ChainR:= ltac:(solve_learnable).
-#[global] Instance : LearnEq3 BlockState.Rfrag := ltac:(solve_learnable).
-#[global] Instance : LearnEq2 BheaderR := ltac:(solve_learnable).
-      #[global] Instance rrr {T}: LearnEq2 (@ResultSuccessR _ _ _ T) := ltac:(solve_learnable).
-    #[global] Instance : LearnEq2 PromiseConsumerR:= ltac:(solve_learnable).
-
-  Lemma header_split_loopinv {T} q (b: BlockHeader) (l : list T) (i:nat) (p:i=0):
-    BheaderR q b -|- BheaderR (q/(N_to_Qp (1+ lengthN l))) b ** 
-    ([∗ list] _ ∈ (drop i l),  (BheaderR (q*/(N_to_Qp (1+ lengthN l))) b)).
-  Proof using. Admitted.
-
-
-Definition opt_reconstr_spec T ty : ptr -> WpSpec mpredI val val :=
-      (fun (this:ptr) =>
-       \arg{other} "other" (Vptr other)
-       \prepost{(R: T -> Rep) t} other |-> R t
-       \pre{prev} this |-> libspecs.optionR ty R 1 prev
-       \post [Vptr this] this |-> libspecs.optionR ty R 1 (Some t)
-    ).
-      
-Definition opt_reconstr baseModelTy basety :=
-λ {thread_info : biIndex} {_Σ : gFunctors} {Sigma : cpp_logic thread_info _Σ} {CU : genv},
-  specify
-    {|
-      info_name :=
-        Ninst
-        (Nscoped
-          (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
-             [Atype basety])
-          (Nfunction function_qualifiers.N (Nop OOEqual)
-             [Trv_ref
-                      basety])) [Atype basety];
-      info_type :=
-        tMethod
-          (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
-             [Atype basety])
-          QM
-          (Tref
-             (Tnamed
-                (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
-                   [Atype basety])))
-          [Trv_ref  basety]
-    |} (opt_reconstr_spec baseModelTy resultT).
-      
-      Lemma  rect_len g l lt h bs : (g, l) = stateAfterTransactions h bs lt ->
-                                    length l = length lt.
-      Proof using. Admitted. (* easy *)
-      Lemma takesr2 {X} l n (x:X) : length l = n → take (S n) (l++[x]) = take n l ++ [x].
-      Proof using. Admitted. (* easy *)
-
-Definition destr_res :=
-λ {thread_info : biIndex} {_Σ : gFunctors} {Sigma : cpp_logic thread_info _Σ} {CU : genv},
-  specify
-    {|
-      info_name :=
-        Nscoped
-          resultn
-          (Nfunction function_qualifiers.N Ndtor []);
-      info_type :=
-        tDtor
-          resultn
-    |} (λ this : ptr, \pre{res} this |-> ResultSuccessR ReceiptR res
-                        \post    emp).
-      Hint Rewrite @length_take_le using lia: syntactic.
-
-Lemma cancel_at `{xx: cpp_logic} (p:ptr) (R1 R2 : Rep) :
-  (R1 |-- R2) -> (p |-> R1 |-- p |-> R2).
-Proof using.
-  apply _at_mono.
-Qed.
-Set Printing Coercions.
+  Set Printing Coercions.
+  
   cpp.spec (Nscoped 
               (Nscoped (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::PriorityPool&, const monad::Chain&, const monad::BlockHashBuffer&, monad::BlockState &)" [Avalue (Eint 11 "enum evmc_revision")]) (Nanon 0)) (Nfunction function_qualifiers.N Ndtor []))  as exlamdestr inline.
       

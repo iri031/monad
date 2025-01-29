@@ -60,6 +60,10 @@ Definition stateAfterTransactions  (hdr: BlockHeader) (s: StateOfAccounts) (ts: 
         apply stateAfterTransactionsC'.
       Qed.
 
+      Lemma  rect_len g l lt h bs : (g, l) = stateAfterTransactions h bs lt ->
+                                    length l = length lt.
+      Proof using. Admitted. (* easy *)
+      
 Record Withdrawal:=
   {
     recipient: evm.address;

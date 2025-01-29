@@ -146,18 +146,44 @@ Context  {MODd : exb.module ⊧ CU}.
   
   Lemma learnVUnsafe e t (r:e->Rep): LearnEq2 (VectorR t r).
   Proof. solve_learnable. Qed.
-  Lemma learnVUnsafe2 e t: LearnEq3 (@VectorR e t).
-  Proof. solve_learnable. Qed.
-
-  Existing Instance learnVUnsafe2.
-  Lemma learnArrUnsafe e t: LearnEq2 (@arrayR _ _ _ e _ t).
-  Proof. solve_learnable. Qed.
-  Lemma learnpArrUnsafe e t: LearnEq2 (@parrayR _ _ _ _ e t).
-  Proof. solve_learnable. Qed.
-  
+  #[global] Instance learnVUnsafe2 e t: LearnEq3 (@VectorR e t) := ltac:(solve_learnable).
+  #[global] Instance learnArrUnsafe e t: LearnEq2 (@arrayR _ _ _ e _ t) := ltac:(solve_learnable).
+  #[global] Instance learnpArrUnsafe e t: LearnEq2 (@parrayR _ _ _ _ e t) := ltac:(solve_learnable).
   #[global] Instance learnVectorRbase: LearnEq4 VectorRbase:= ltac:(solve_learnable).
   #[global] Instance learnPpool : LearnEq2 PriorityPoolR := ltac:(solve_learnable).
 
+Definition opt_reconstr_spec T ty : ptr -> WpSpec mpredI val val :=
+      (fun (this:ptr) =>
+       \arg{other} "other" (Vptr other)
+       \prepost{(R: T -> Rep) t} other |-> R t
+       \pre{prev} this |-> optionR ty R 1 prev
+       \post [Vptr this] this |-> optionR ty R 1 (Some t)
+    ).
+      
+Definition opt_reconstr baseModelTy basety :=
+λ {thread_info : biIndex} {_Σ : gFunctors} {Sigma : cpp_logic thread_info _Σ} {CU : genv},
+  specify
+    {|
+      info_name :=
+        Ninst
+        (Nscoped
+          (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
+             [Atype basety])
+          (Nfunction function_qualifiers.N (Nop OOEqual)
+             [Trv_ref
+                      basety])) [Atype basety];
+      info_type :=
+        tMethod
+          (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
+             [Atype basety])
+          QM
+          (Tref
+             (Tnamed
+                (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
+                   [Atype basety])))
+          [Trv_ref  basety]
+    |} (opt_reconstr_spec baseModelTy basety).
+  
 
   Definition vector_opg (cppType: type) (this:ptr): WpSpec mpredI val val :=
     \arg{index} "index" (Vn index)
@@ -196,5 +222,4 @@ cpp.spec "std::optional<evmc::address>::operator=(std::optional<evmc::address>&&
   #[global] Instance : LearnEq2 PromiseProducerR:= ltac:(solve_learnable).
   
 End cp.
-
 

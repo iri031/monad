@@ -8,6 +8,7 @@ Require Import bedrock.auto.cpp.proof.
 Require Import bedrock.auto.cpp.tactics4.
 Require Import monad.asts.exb.
 Require Import monad.proofs.exec_specs.
+      Set Printing Coercions.
 
 
 Section with_Sigma.
@@ -15,9 +16,8 @@ Section with_Sigma.
   Context  {MODd : exb.module ⊧ CU}.
 
 
-  Existing Instance learnArrUnsafe.
-  Existing Instance learnpArrUnsafe.
-Print fork_task_nameg.
+  cpp.spec (Nscoped 
+              "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0" (Nfunction function_qualifiers.N Ndtor []))  as cslamdestr inline.
 
 Lemma prf: denoteModule module
              ** tvector_spec
@@ -176,7 +176,6 @@ progress   IPM.perm_left ltac:(fun L n =>
       pose proof @drop_S2 as Hd.
       unfold lengthN in Hd.
       autorewrite with syntactic in *.
-      Search Z.of_N Z.of_nat.
       setoid_rewrite nat_N_Z in Hd.
       applyToSomeHyp Hd.
       match goal with
@@ -185,11 +184,8 @@ progress   IPM.perm_left ltac:(fun L n =>
       rewrite Httr.
       rewrite -> parrayR_cons.
       slauto.
-      #[global] Instance : LearnEq2 PromiseConsumerR:= ltac:(solve_learnable).
-      go.
       repeat rewrite o_sub_sub.
       autorewrite with syntactic.
-      Set Printing Coercions.
       slauto.
       iExists (1+ival).
       slauto.
@@ -200,7 +196,7 @@ progress   IPM.perm_left ltac:(fun L n =>
       rewrite parrayR_app. (* todo: rewrite with a snoc lemma  to cut down the script below *)
       go.
       autorewrite with syntactic.
-      rewrite -> length_take_le by lia.
+      (* rewrite -> length_take_le. by lia. *)
       go.
       rewrite parrayR_cons.
       go.
@@ -208,7 +204,6 @@ progress   IPM.perm_left ltac:(fun L n =>
       go.
       rewrite parrayR_nil.
       go.
-      Search big_opL app.
       rewrite big_opL_snoc.
       rewrite -> length_take_le by lia.
       go.

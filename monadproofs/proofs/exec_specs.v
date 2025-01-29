@@ -135,6 +135,11 @@ Section with_Sigma.
     apply bhb_split_sn.
   Qed.
   
+  Lemma header_split_loopinv {T} q (b: BlockHeader) (l : list T) (i:nat) (p:i=0):
+    BheaderR q b -|- BheaderR (q/(N_to_Qp (1+ lengthN l))) b ** 
+    ([∗ list] _ ∈ (drop i l),  (BheaderR (q*/(N_to_Qp (1+ lengthN l))) b)).
+  Proof using. Admitted.
+
 
   
   Definition execute_block_simpler : WpSpec mpredI val val :=
@@ -261,9 +266,6 @@ cpp.spec (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::
 cpp.spec 
   "std::vector<monad::Transaction, std::allocator<monad::Transaction>>::operator[](unsigned long) const" as vector_op_monad with (vector_opg "monad::Transaction").
 
-  cpp.spec (Nscoped 
-              "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0" (Nfunction function_qualifiers.N Ndtor []))  as cslamdestr inline.
-
 (*
   erewrite sizeof.size_of_compat;[| eauto; fail| vm_compute; reflexivity].
 *)
@@ -297,7 +299,26 @@ cpp.spec ((Ninst
                     Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockHeader")))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockHashBuffer"))));
                     Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState"))); Tref (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "fibers")) (Nid "promise")) [Atype "void"]))]))
              [Avalue (Eint 11 (Tenum (Nglobal (Nid "evmc_revision"))))])) as ext1 with (execute_transaction_spec).
-  
+
+Definition destr_res :=
+λ {thread_info : biIndex} {_Σ : gFunctors} {Sigma : cpp_logic thread_info _Σ} {CU : genv},
+  specify
+    {|
+      info_name :=
+        Nscoped
+          resultn
+          (Nfunction function_qualifiers.N Ndtor []);
+      info_type :=
+        tDtor
+          resultn
+    |} (λ this : ptr, \pre{res} this |-> ResultSuccessR ReceiptR res
+                        \post    emp).
+#[global] Instance : LearnEq2 ChainR:= ltac:(solve_learnable).
+#[global] Instance : LearnEq3 BlockState.Rfrag := ltac:(solve_learnable).
+#[global] Instance : LearnEq2 BheaderR := ltac:(solve_learnable).
+#[global] Instance rrr {T}: LearnEq2 (@ResultSuccessR T) := ltac:(solve_learnable).
+#[global] Instance : LearnEq2 PromiseConsumerR:= ltac:(solve_learnable).
+
 (*       
 
   Record State :=
@@ -405,3 +426,7 @@ End Generalized2.
 - forkTask
 *)
 *)
+
+
+Opaque BlockHashBufferR.
+Hint Opaque BlockHashBufferR: br_opacity.
