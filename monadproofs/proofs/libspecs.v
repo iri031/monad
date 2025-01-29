@@ -60,7 +60,13 @@ Context  {MODd : exb.module ⊧ CU}.
       ).
 
   (* TODO: need to add a type argument, just like arrayR *)
-  Definition optionR {B} (bty:type) (baseRep: B-> Rep) (q:Qp) (oaddr: option B): Rep. Proof. Admitted.
+  Definition opt_base_offset (bty:type): offset. Proof. Admitted.
+
+  Definition optionR {B} (bty:type) (baseRep: B-> Rep) (q:Qp) (o: option B): Rep :=
+    match o with
+    | None => _field "engaged_" |-> boolR (cQp.mut q) false
+    | Some b => opt_base_offset bty |-> baseRep b
+    end.
   Definition addressR (a: evm.address) (q: Qp): Rep. Proof. Admitted.
   Definition optionAddressR (q:Qp) (oaddr: option evm.address): Rep := optionR "evmc::address" (fun a => addressR a q) q oaddr.
 
@@ -209,13 +215,44 @@ cpp.spec "std::optional<evmc::address>::operator=(std::optional<evmc::address>&&
        \pre{prev} this |-> optionAddressR 1 prev
        \post [Vptr this] this |-> optionAddressR 1 oaddr **  other |-> optionAddressR q None
     ).
-           
+
+(* TODO: generalize *)
   cpp.spec (Nscoped "std::optional<evmc::address>" (Nfunction function_qualifiers.N Ndtor [])) as destrop with
       (fun (this:ptr) =>
          \pre{oa} this |-> optionAddressR 1 oa
            \post emp
       ).
-  
+
+Definition has_value ty:=
+  specify
+    {|
+    info_name :=
+      Nscoped (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional")) [Atype ty])
+        (Nfunction function_qualifiers.Nc (Nf "has_value") []);
+    info_type :=
+      tMethod (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional")) [Atype ty]) QC
+        "bool" []
+    |}
+    (λ (this : ptr),
+      \prepost{(T:Type) ty (R:T->Rep) (o: option T) q } this |-> optionR ty R q o
+        \post [Vbool  (isSome o)] emp).
+
+
+   Definition value ty :=
+     specify
+  {|
+    info_name :=
+      Nscoped (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional")) [Atype ty])
+        (Nfunction function_qualifiers.Ncl (Nf "value") []);
+    info_type :=
+      tMethod (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional")) [Atype ty]) QC
+        (Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))))) []
+  |}
+  (λ (this : ptr),
+    \prepost{(T:Type) ty (R:T->Rep) (t: T) q } this |-> optionR ty R q (Some t)
+      \post [Vref (this ,, opt_base_offset ty)] emp).
+
+   
   #[global] Instance learnTrRbase2: LearnEq2 optionAddressR:= ltac:(solve_learnable).
   #[global] Instance learnOpt b: LearnEq4 (@optionR b):= ltac:(solve_learnable).
   #[global] Instance : LearnEq2 PromiseR := ltac:(solve_learnable).
@@ -223,3 +260,4 @@ cpp.spec "std::optional<evmc::address>::operator=(std::optional<evmc::address>&&
   
 End cp.
 
+#[global] Opaque optionR.
