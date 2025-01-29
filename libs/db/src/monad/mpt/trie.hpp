@@ -66,7 +66,11 @@ struct write_operation_io_receiver
     {
         MONAD_ASSERT_PRINTF(
             res, "i/o failed with %s", res.assume_error().message().c_str());
-        MONAD_ASSERT(res.assume_value().get().size() == should_be_written);
+        MONAD_ASSERT_PRINTF(
+            res.assume_value().get().size() == should_be_written,
+            "actually written %lu should be written %lu",
+            res.assume_value().get().size(),
+            should_be_written);
         res.assume_value()
             .get()
             .reset(); // release i/o buffer before initiating other work
