@@ -27,6 +27,10 @@ Section with_Sigma.
 
 #[global] Instance : LearnEq2 ChainR:= ltac:(solve_learnable).
 #[global] Instance : LearnEq3 BlockState.Rfrag := ltac:(solve_learnable).
+#[global] Instance : LearnEq2 BheaderR := ltac:(solve_learnable).
+      #[global] Instance rrr {T}: LearnEq2 (@ResultSuccessR _ _ _ T) := ltac:(solve_learnable).
+    #[global] Instance : LearnEq2 PromiseConsumerR:= ltac:(solve_learnable).
+
   Lemma header_split_loopinv {T} q (b: BlockHeader) (l : list T) (i:nat) (p:i=0):
     BheaderR q b -|- BheaderR (q/(N_to_Qp (1+ lengthN l))) b ** 
     ([∗ list] _ ∈ (drop i l),  (BheaderR (q*/(N_to_Qp (1+ lengthN l))) b)).
@@ -84,7 +88,17 @@ Definition destr_res :=
           resultn
     |} (λ this : ptr, \pre{res} this |-> ResultSuccessR ReceiptR res
                         \post    emp).
+      Hint Rewrite @length_take_le using lia: syntactic.
 
+Lemma cancel_at `{xx: cpp_logic} (p:ptr) (R1 R2 : Rep) :
+  (R1 |-- R2) -> (p |-> R1 |-- p |-> R2).
+Proof using.
+  apply _at_mono.
+Qed.
+Set Printing Coercions.
+  cpp.spec (Nscoped 
+              (Nscoped (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::PriorityPool&, const monad::Chain&, const monad::BlockHashBuffer&, monad::BlockState &)" [Avalue (Eint 11 "enum evmc_revision")]) (Nanon 0)) (Nfunction function_qualifiers.N Ndtor []))  as exlamdestr inline.
+      
 Lemma prf: denoteModule module
              ** (opt_reconstr TransactionResult resultT)
              ** tvector_spec
@@ -257,16 +271,13 @@ Proof using MODd.
       destruct sabc.
       simpl in *.
       go.
-#[global] Instance : LearnEq2 BheaderR := ltac:(solve_learnable).
-      go.
-      unshelve (do 3 iExists _; eagerUnifyU);[].
+      unshelve (do 2 iExists _; eagerUnifyU);[].
       slauto.
       match goal with
         |- context[stateAfterTransaction ?a ?b ?c ?d] => remember (stateAfterTransaction a b c d) as sat
       end.
       destruct sat.
       simpl in *.
-      #[global] Instance rrr {T}: LearnEq2 (@ResultSuccessR _ _ _ T) := ltac:(solve_learnable).
       slauto.
       replace (1+ival)%Z with (ival+1)%Z  by lia.
       go.
@@ -274,7 +285,6 @@ Proof using MODd.
       rewrite stateAfterTransactionsC.
       rewrite <- Heqsabc.
       simpl.
-      Hint Rewrite @length_take_le using lia: syntactic.
       autorewrite with syntactic.
       rewrite <- Heqsat.
       simpl.
@@ -297,20 +307,10 @@ Proof using MODd.
       go.
     }
     {
-  cpp.spec (Nscoped 
-              (Nscoped (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::PriorityPool&, const monad::Chain&, const monad::BlockHashBuffer&, monad::BlockState &)" [Avalue (Eint 11 "enum evmc_revision")]) (Nanon 0)) (Nfunction function_qualifiers.N Ndtor []))  as exlamdestr inline.
-      
       slauto.
       iExists (1+ival).
       unfold lengthN in *.
       go.
-Lemma cancel_at `{xx: cpp_logic} (p:ptr) (R1 R2 : Rep) :
-  (R1 |-- R2) -> (p |-> R1 |-- p |-> R2).
-Proof using.
-  apply _at_mono.
-Qed.
-      Set Printing Coercions.
-      
       replace (Z.of_nat ival + 1)%Z with (Z.of_nat (S ival)); try lia.
       go.
       progress repeat rewrite Nat.add_succ_r.
@@ -349,10 +349,7 @@ Qed.
     repeat rewrite parrayR_nil.
     go.
     rename i_addr into i1_addr.
-    name_locals.
-    go.
     simpl in *.
-    #[global] Instance : LearnEq2 PromiseConsumerR:= ltac:(solve_learnable).
     go.
     remember (stateAfterTransactions (header block) preBlockState (transactions block)) as abc.
     destruct abc.
@@ -367,7 +364,6 @@ Qed.
     repeat rewrite _at_big_sepL. go.
     rewrite parrayR_app1. go.
     autorewrite with syntactic. go.
-    
   }
 Qed.
 End with_Sigma.
