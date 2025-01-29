@@ -357,8 +357,18 @@ Qed.
     remember (stateAfterTransactions (header block) preBlockState (transactions block)) as abc.
     destruct abc.
     go.
+    hideLhs.
+    rewrite -> @ChainR_split_loopinv with (i:=0) (l:=transactions block) by reflexivity.
+    rewrite -> @header_split_loopinv with (i:=0) (l:=transactions block) by reflexivity.
+    rewrite -> @bhb_splitl_loopinv with (i:=0) (l:=transactions block) by reflexivity.
+    rewrite -> @BlockState.split_frag_loopinv with (i:=0) (l:=transactions block) by reflexivity.
+    unhideAllFromWork. go.
+    autorewrite with syntactic.
+    repeat rewrite _at_big_sepL. go.
+    rewrite parrayR_app1. go.
+    autorewrite with syntactic. go.
     
   }
-Abort.
+Qed.
 End with_Sigma.
 

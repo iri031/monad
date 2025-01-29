@@ -235,14 +235,14 @@ cpp.spec (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::
             oResultT
             (fun t=> libspecs.optionR resultT (ResultSuccessR ReceiptR) 1 (garbage t))
             (transactions block)
-    \pre{qs} _global "monad::senders" |->
+   \prepost{qs} _global "monad::senders" |->
           arrayR
             (Tnamed "std::optional<evmc::address>")
             (fun t=> optionAddressR qs (Some (sender t)))
             (transactions block)
    \post
       let (actual_final_state, receipts) := stateAfterTransactions (header block) preBlockState (transactions block) in
-      _global "monad::senders" |-> arrayR oResultT (fun r => libspecs.optionR resultT ReceiptR 1 (Some r)) receipts
+      _global "monad::results" |-> arrayR oResultT (fun r => libspecs.optionR resultT (ResultSuccessR ReceiptR) 1 (Some r)) receipts
       ** block_statep |-> BlockState.Rauth preBlockState g actual_final_state
 
     ).
