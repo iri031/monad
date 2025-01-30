@@ -656,6 +656,10 @@ bool AsyncIO::poll_uring_(bool blocking, unsigned poll_rings_mask)
         if (capture_io_latencies_) {
             state->elapsed =
                 std::chrono::steady_clock::now() - state->initiated;
+            std::cout << std::chrono::duration_cast<std::chrono::microseconds>(
+                             state->elapsed)
+                             .count()
+                      << "us" << std::endl;
         }
         return true;
     };
