@@ -96,10 +96,22 @@ struct EvmcHost final : public EvmcHostBase
     virtual evmc::Result call(evmc_message const &msg) noexcept override
     {
         call_tracer_.on_enter(msg);
-        auto result =
-            (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2)
-                ? ::monad::create_contract_account<rev>(this, state_, msg)
-                : ::monad::call<rev>(this, state_, msg);
+        evmc::Result result{};
+        if (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2) {
+            result = create_contract_account<rev>(this, state_, msg);
+
+            // EIP-211
+            if (result.status_code != EVMC_REVERT) {
+                result = evmc::Result{
+                    result.status_code,
+                    result.gas_left,
+                    result.gas_refund,
+                    result.create_address};
+            }
+            call_tracer_.on_exit(result);
+            return result;
+        }
+        result = ::monad::call(this, state_, msg);
         call_tracer_.on_exit(result);
         return result;
     }

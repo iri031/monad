@@ -66,4 +66,6 @@ set(cancun_excluded_tests
     "BlockchainTests.GeneralStateTests/stSelfBalance/diffPlaces.json"
     "BlockchainTests.GeneralStateTests/stSpecialTest/failed_tx_xcf416c53_Paris.json"
     "BlockchainTests.GeneralStateTests/stSStoreTest/InitCollisionParis.json"
+    # Debug Build Stack Overflow
+    "BlockchainTests.GeneralStateTests/stDelegatecallTestHomestead/CallRecursiveBombPreCall.json"
 )

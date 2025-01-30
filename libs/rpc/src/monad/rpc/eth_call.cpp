@@ -137,6 +137,7 @@ namespace
         NoopCallTracer call_tracer;
         EvmcHost<rev> host{call_tracer, tx_context, buffer, state};
         return execute_impl_no_validation<rev>(
+            call_tracer,
             state,
             host,
             enriched_txn,

@@ -34,9 +34,9 @@ struct ExecutionResult
 
 template <evmc_revision rev>
 evmc::Result execute_impl_no_validation(
-    State &state, EvmcHost<rev> &host, Transaction const &tx,
-    Address const &sender, uint256_t const &base_fee_per_gas,
-    Address const &beneficiary);
+    CallTracerBase &call_tracer, State &state, EvmcHost<rev> &host,
+    Transaction const &tx, Address const &sender,
+    uint256_t const &base_fee_per_gas, Address const &beneficiary);
 
 template <evmc_revision rev>
 Result<ExecutionResult> execute_impl(

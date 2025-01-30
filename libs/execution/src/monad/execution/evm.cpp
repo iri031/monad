@@ -199,15 +199,6 @@ void post_create_contract_account(
             state.touch(ripemd_address);
         }
     }
-
-    // eip-211, eip-140
-    if (result.status_code != EVMC_REVERT) {
-        result = evmc::Result{
-            result.status_code,
-            result.gas_left,
-            result.gas_refund,
-            result.create_address};
-    }
 }
 
 template <evmc_revision rev>
