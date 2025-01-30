@@ -52,8 +52,104 @@ Section with_Sigma.
         \prepost{qtx t} txp |-> TransactionR qtx t
         \arg{basefeep} "base" (Vref basefeep)
         \arg{chainidp} "base" (Vref chainidp)
-       \post{retp} [Vptr retp] (retp |-> emp)
+       \post{retp} [Vptr retp] (reference_to
+    (Tnamed
+       (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+          [Atype "void";
+           Atype
+             (Tnamed
+                (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                   [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+           Atype
+             (Tnamed
+                (Ninst
+                   (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
+                      (Nid "status_code_throw"))
+                   [Atype "void";
+                    Atype
+                      (Tnamed
+                         (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                            [Atype
+                               (Tnamed
+                                  (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                    Atype "void"]))]))
+    retp ∗
+ retp |-> emp)
     ).
+Definition destr_u256 :=
+λ {thread_info : biIndex} {_Σ : gFunctors} {Sigma : cpp_logic thread_info _Σ} {CU : genv},
+  specify
+    {|
+      info_name :=
+        Nscoped
+          (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")])
+          (Nfunction function_qualifiers.N Ndtor []);
+      info_type :=
+        tDtor
+          (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")])
+    |} (λ this : ptr, \pre{w} this |-> u256R 1 w
+                        \post    emp).
+  #[global] Instance : LearnEq2 u256R := ltac:(solve_learnable).
+
+  cpp.spec 
+          (Ninst
+             (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2"))
+                (Nfunction function_qualifiers.N (Nf "try_operation_has_value")
+                   [Tref
+                      (Tnamed
+                         (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+                            [Atype "void";
+                             Atype
+                               (Tnamed
+                                  (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                     [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                             Atype
+                               (Tnamed
+                                  (Ninst (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy")) (Nid "status_code_throw"))
+                                     [Atype "void";
+                                      Atype
+                                        (Tnamed
+                                           (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                              [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                                      Atype "void"]))]));
+                    Tnamed (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "has_value_overload"))]))
+             [Atype
+                (Tref
+                   (Tnamed
+                      (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+                         [Atype "void";
+                          Atype
+                            (Tnamed
+                               (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                  [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                          Atype
+                            (Tnamed
+                               (Ninst (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy")) (Nid "status_code_throw"))
+                                  [Atype "void";
+                                   Atype
+                                     (Tnamed
+                                        (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                           [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                                   Atype "void"]))])));
+              Atype "bool"]) as try_op_has_val with
+      (
+        \arg{basefeep} "base" (Vref basefeep)
+        \arg{chainidp} "base" (Vref chainidp)        
+        \post [Vbool true] emp).
+
+Definition destr_outcome_overload :=
+λ {thread_info : biIndex} {_Σ : gFunctors} {Sigma : cpp_logic thread_info _Σ} {CU : genv},
+  specify
+    {|
+      info_name :=
+        Nscoped
+          (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "has_value_overload"))
+          (Nfunction function_qualifiers.N Ndtor []);
+      info_type :=
+        tDtor
+          (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "has_value_overload"))
+    |} (λ this : ptr, \pre this |->  structR (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "has_value_overload")) (cQp.mut 1)
+                        \post    emp).
   
 Lemma prf: denoteModule module
              ** (opt_reconstr TransactionResult resultT)
@@ -66,10 +162,13 @@ Lemma prf: denoteModule module
              ** set_value
              ** destrop
              ** destr_res
+             ** destr_u256
              ** (has_value "evmc::address")
              ** (value "evmc::address")
              ** get_chain_id
              ** validate_spec
+             ** try_op_has_val
+             ** destr_outcome_overload
              |-- ext1.
 Proof using MODd.
   verify_spec'.
@@ -77,40 +176,12 @@ Proof using MODd.
   Transparent BheaderR.
   unfold BheaderR.
   slauto.
-  rewrite <- wp_const_const.
-  2:{ hnf.
-  Search wp_const.
-  Locate "wp_make_mutable".
-   Search wp_mutable.
-  slauto.
-  Search wp_const.
-  rewrite <- wp_const_const.
-  2:{ hnf.
-
-  _ : _x_8 |-> u256R 1 (chainid chain)
-  _ : txp |-> TransactionR qtx _t_
-  --------------------------------------∗
-  wp_destroy_named module (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")]) _x_8
-    (interp module 1
-       (wp_decls module
-          [region:
-            "_outcome_try_unique_name_temporary1" @ _outcome_try_unique_name_temporary1_addr; "prev" @ prev_addr;
-            "block_state" @ block_state_addr; "block_hash_buffer" @ block_hash_buffer_addr; "hdr" @ hdr_addr; "sender" @ sender_addr;
-            "tx" @ tx_addr; "i" @ i_addr; "chain" @ chain_addr; return {?: Tnamed resultn}]
-          []
-          (λ (ρ : region) (free' : FreeTemps),
-             ▷ wp_block module ρ
-                 [Sif None
-                    (Ecall
-                       (Ecast Cfun2ptr
-                          (Eglobal
-                             (Ninst
-                                (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2"))
-                                   (Nfunction function_qualifiers.N (Nf "try_operation_has_value")
-                                      [Tref
-                                         (Tnamed
-                                            (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
-                                               [Atype "void";      
+  rewrite <- wp_const_const;[| admit (* reduces to False. there may be a weakness in semantics *)].
+  go.
+  Locate   "::wpPRᵢ".
+  Search wp_init Eimplicit.
+  unshelve rewrite <- wp_init_implicit.
+  go.
 Abort.
 
 End with_Sigma.
