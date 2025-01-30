@@ -194,6 +194,12 @@ Result<evmc::Result> execute_impl2(
         hdr.beneficiary);
 }
 
+//temporary hack to avoid virtual dispatch reasoning on chain
+// if the return type is not const, a precondition of the wp_const rule in C++ semantics is violated
+const monad::uint256_t get_chain_id(Chain const &chain) {
+    return chain.get_chain_id();
+}
+
 template <evmc_revision rev>
 Result<Receipt> execute_impl(
     Chain const &chain, uint64_t const i, Transaction const &tx,
@@ -202,7 +208,7 @@ Result<Receipt> execute_impl(
     boost::fibers::promise<void> &prev)
 {
     BOOST_OUTCOME_TRY(static_validate_transaction<rev>(
-        tx, hdr.base_fee_per_gas, chain.get_chain_id()));
+        tx, hdr.base_fee_per_gas, get_chain_id(chain)));
 
     {
         TRACE_TXN_EVENT(StartExecution);

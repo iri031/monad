@@ -19,24 +19,7 @@ Section with_Sigma.
   Set Nested Proofs Allowed.
   Set Printing Coercions.
   #[global] Instance learnOpt a b c d e a1 b1 c1 d1 e1: Learnable (@libspecs.optionR _ _ _ _ a b c d e) (@libspecs.optionR _ _ _ _ a1 b1 c1 d1 e1) [a=a1] := ltac:(solve_learnable).
-  
-Lemma prf: denoteModule module
-             ** (opt_reconstr TransactionResult resultT)
-             ** tvector_spec
-             ** reset_promises
-             ** (fork_taskg (Nscoped (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::PriorityPool&, const monad::Chain&, const monad::BlockHashBuffer&, monad::BlockState &)" [Avalue (Eint 11 "enum evmc_revision")]) (Nanon 0)))
-             ** vector_op_monad
-             ** recover_sender
-             ** wait_for_promise
-             ** set_value
-             ** destrop
-             ** destr_res
-             ** (has_value "evmc::address")
-             ** (value "evmc::address")
-             |-- ext1.
-Proof using MODd.
-  verify_spec'.
-  go; try (ego; fail).
+
   cpp.spec (
           (Ninst
              (Nscoped (Nglobal (Nid "monad"))
@@ -52,8 +35,34 @@ Proof using MODd.
                          (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "fibers")) (Nid "promise"))
                             [Atype "void"]))]))
              [Avalue (Eint 11 (Tenum (Nglobal (Nid "evmc_revision"))))])) as fff inline.
+  
+Lemma prf: denoteModule module
+             ** (opt_reconstr TransactionResult resultT)
+             ** tvector_spec
+             ** reset_promises
+             ** (fork_taskg (Nscoped (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::PriorityPool&, const monad::Chain&, const monad::BlockHashBuffer&, monad::BlockState &)" [Avalue (Eint 11 "enum evmc_revision")]) (Nanon 0)))
+             ** vector_op_monad
+             ** recover_sender
+             ** wait_for_promise
+             ** set_value
+             ** destrop
+             ** destr_res
+             ** (has_value "evmc::address")
+             ** (value "evmc::address")
+             ** get_chain_id
+             |-- ext1.
+Proof using MODd.
+  verify_spec'.
+  go; try (ego; fail).
   slauto.
-
+  Transparent BheaderR.
+  unfold BheaderR.
+  slauto.
+  go.
+  Search wp_const.
+  rewrite <- wp_const_const.
+  2:{ hnf.
+  
 Abort.
 
 End with_Sigma.

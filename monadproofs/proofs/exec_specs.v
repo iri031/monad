@@ -3,13 +3,14 @@ Require Import Lens.Elpi.Elpi.
 Require Import bedrock.lang.cpp.
 Require Import stdpp.gmap.
 Require Import monad.proofs.misc.
-Require Import monad.proofs.libspecs.
 Require Import monad.proofs.evmopsem.
 Import linearity.
+Require Import monad.asts.exb.
 Require Import bedrock.auto.invariants.
 Require Import bedrock.auto.cpp.proof.
-
 Require Import bedrock.auto.cpp.tactics4.
+Require Import monad.proofs.libspecs.
+Import cQp_compat.
 
 Notation resultn :=
                   (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
@@ -27,7 +28,6 @@ Notation resultn :=
                                      [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
                              Atype "void"]))]).
 
-Import cQp_compat.
 
 #[local] Open Scope Z_scope.
 (*
@@ -72,10 +72,8 @@ Module BlockState. Section with_Sigma.
 End with_Sigma. End BlockState.
 
 
-(* Coq model of the priority pool type in C++ *)
-Import bedrock.lang.cpp.semantics.values.VALUES_INTF_AXIOM.
+(* Import bedrock.lang.cpp.semantics.values.VALUES_INTF_AXIOM. *)
 
-Require Import monad.asts.exb.
 
 Open Scope cpp_name.
 Section with_Sigma.
@@ -94,7 +92,11 @@ Section with_Sigma.
   Definition TransactionR (q:Qp) (tq: Transaction) : Rep. Proof using. Admitted.
   #[global] Instance learnTrRbase: LearnEq2 TransactionR:= ltac:(solve_learnable).
 
-  Definition BheaderR (q:Qp) (hdr: BlockHeader) : Rep. Proof. Admitted.
+  Definition u256R  (q:Qp) (n:N) : Rep. Proof. Admitted.
+  Definition u256t : type := (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")])).
+  Definition BheaderR (q:Qp) (hdr: BlockHeader) : Rep :=
+    structR "monad::BlockHeader" q
+    ** _field "base_fee_per_gas" |-> libspecs.optionR u256t (u256R q) q  (base_fee_per_gas hdr).
   
   Definition BlockR (q: Qp) (c: Block): Rep :=
     _field "::monad::Block::transactions" |-> VectorR (Tnamed "::monad::Transaction") (fun t => TransactionR q t) q (transactions c)
@@ -319,6 +321,20 @@ Definition destr_res :=
 #[global] Instance rrr {T}: LearnEq2 (@ResultSuccessR T) := ltac:(solve_learnable).
 #[global] Instance : LearnEq2 PromiseConsumerR:= ltac:(solve_learnable).
 
+End with_Sigma.
+
+
+Require Import monad.asts.ext.
+Section with_Sigma.
+  Context `{Sigma:cpp_logic} {CU: genv} {hh: HasOwn mpredI fracR}.
+  Context  {MODd : ext.module ⊧ CU}.
+  
+  cpp.spec (Nscoped (Nglobal (Nid "monad")) (Nfunction function_qualifiers.N (Nf "get_chain_id") [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Chain"))))]))
+    as get_chain_id with(
+      \arg{chainp} "" (Vref chainp)
+      \pre{chain q} chainp |-> ChainR q chain
+      \post{retp} [Vptr retp] (retp |-> u256R 1 (chainid chain))).
+
 (*       
 
   Record State :=
@@ -428,5 +444,7 @@ End Generalized2.
 *)
 
 
-Opaque BlockHashBufferR.
-Hint Opaque BlockHashBufferR: br_opacity.
+#[global] Opaque BlockHashBufferR.
+#[global] Hint Opaque BlockHashBufferR: br_opacity.
+#[global] Opaque BheaderR.
+#[global] Hint Opaque BheaderR : br_opacity.

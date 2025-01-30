@@ -6,7 +6,11 @@ Module evm.
   Axiom log_entry: Set.
   Axiom address: Set.
 End evm.
-Definition BlockHeader: Type. Admitted.
+Definition w256 := N.
+
+Record BlockHeader :={
+    base_fee_per_gas: option w256
+    }.
 Record TransactionResult :=
   {
     gas_used: N;
@@ -90,7 +94,9 @@ Definition stateAfterBlock (b: Block) (s: StateOfAccounts): StateOfAccounts * li
   (applyBlockReward s (length (ommers b)), tr).
 
 (* Coq model of the Chain type in C++ *)
-Definition Chain: Type. Admitted.
+Record Chain := {
+    chainid: N
+  }.
 Inductive Revision := Shanghai | Frontier.
 Axiom sender: Transaction -> evm.address.
 
