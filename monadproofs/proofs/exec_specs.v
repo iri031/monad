@@ -88,15 +88,20 @@ Section with_Sigma.
     ([∗ list] _ ∈ (drop i l),  (ChainR (q*/(N_to_Qp (1+ lengthN l))) b)).
   Proof using. Admitted.
 
- 
-  Definition TransactionR (q:Qp) (tq: Transaction) : Rep. Proof using. Admitted.
+  Definition tx_nonce tx :=
+    (Z.to_N (Zdigits.binary_value _ (block.tr_nonce tx))).
+  Definition TransactionR (q:Qp) (tx: Transaction) : Rep :=
+    structR "monad::Transaction" q **
+      _field "monad::Transaction::nonce" |-> ulongR q (tx_nonce tx).
+
   #[global] Instance learnTrRbase: LearnEq2 TransactionR:= ltac:(solve_learnable).
 
   Definition u256R  (q:Qp) (n:N) : Rep. Proof. Admitted.
   Definition u256t : type := (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")])).
   Definition BheaderR (q:Qp) (hdr: BlockHeader) : Rep :=
     structR "monad::BlockHeader" q
-    ** _field "base_fee_per_gas" |-> libspecs.optionR u256t (u256R q) q  (base_fee_per_gas hdr).
+    ** _field "monad::BlockHeader::base_fee_per_gas" |-> libspecs.optionR u256t (u256R q) q  (base_fee_per_gas hdr)
+    ** _field "monad::BlockHeader::number" |-> ulongR q  (number hdr).
   
   Definition BlockR (q: Qp) (c: Block): Rep :=
     _field "::monad::Block::transactions" |-> VectorR (Tnamed "::monad::Transaction") (fun t => TransactionR q t) q (transactions c)
@@ -336,58 +341,93 @@ Section with_Sigma.
       \post{retp} [Vptr retp] (retp |-> u256R 1 (chainid chain))).
 
   Import evm.
-  Record State :=
+  Record Incarnation :=
+    {
+      block_index: N;
+      tx_index: N;
+    }.
+      
+  Record AssumptionsAndUpdates (* StateM *) :=
     {
       original: gmap evm.address evm.account_state;
       newStates: gmap evm.address (list evm.account_state); (* head is the latest *)
       blockStatePtr: ptr;
+      incarnation: Incarnation
     }.
 
   (* not supposed to be shared, so no fraction *)
-  Definition StateR (s: State): Rep. Proof. Admitted.
+  Definition StateR (s: AssumptionsAndUpdates): Rep :=
+    structR "monad::State" 1.
 
-  Definition preImpl2State (blockStatePtr: ptr) (senderAddr: evm.address) (sender: account_state): State:=
+  (*
+  Definition preImpl2 (blockStatePtr: ptr) (senderAddr: evm.address) (sender: account_state): AssumptionsAndUpdates:=
     {|
       blockStatePtr:= blockStatePtr;
       newStates:= ∅;
       original := <[senderAddr := sender]>∅;
-      |}.
+    |}. *)
+(*
+  Definition EvmcResultR (r: TransactionResult): Rep. Proof. Admitted. *)
 
-  Definition tnonce (t: Transaction) : N. Proof. Admitted.
+  Definition satisfiesAssumptions (a: AssumptionsAndUpdates) (preTxState: StateOfAccounts) : Prop :=
+    forall acAddr,
+      match original a !! acAddr  with
+      | Some acState => Some acState = preTxState !! acAddr
+      | None => True
+      end.
 
-  Definition EvmcResultR (r: TransactionResult): Rep. Proof. Admitted.
-  (*
+    Search (gmap.gmap ?a ?b) (list (?a * ?b)).
+
+    
+  Definition applyUpdate (s: StateOfAccounts) (acup: address * list account_state) : StateOfAccounts :=
+    let '(addr, upd) :=  acup in
+    match upd with
+    | [] => s (* should not happen *)
+    | h::_ => <[addr := h]>s
+    end.
+
+  Definition applyUpdates (a: AssumptionsAndUpdates) (preTxState: StateOfAccounts) :StateOfAccounts :=
+    let ups := map_to_list (newStates a) in fold_left applyUpdate ups preTxState.
+  
   Definition execute_impl2_spec : WpSpec mpredI val val :=
     \arg{chainp :ptr} "chain" (Vref chainp)
     \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
     \arg{txp} "tx" (Vref txp)
-    \pre{(qtx: Qp) (i:nat) (block: Block) t} Exists t, [| nth_error (transactions block) i = Some t |]
-    \pre txp |-> TransactionR qtx t
+    \pre{qtx t} txp |-> TransactionR qtx t
     \arg{senderp} "sender" (Vref senderp)
     \pre{qs} senderp |-> optionAddressR qs (Some (sender t))
     \arg{hdrp: ptr} "hdr" (Vref hdrp)
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \arg{statep: ptr} "state" (Vref statep)
-    \pre{(blockStatePtr: ptr) (senderAddr: evm.address) (senderAcState: account_state)}
-      statep |-> StateR (preImpl2State blockStatePtr senderAddr senderAcState)
-    \prepost{(preBlockState: StateOfAccounts) (gl: BlockState.glocs)}
-      blockStatePtr |-> BlockState.Rfrag block preBlockState 1 gl
-    \pre [| account.nonce senderAcState = tnonce t|]
-    \post{retp}[Vptr retp] Exists stateFinal,
-      let actualPreState := fst (stateAfterTransactions (header block) preBlockState (firstn i (transactions block))) in
-      let '(actualPostState, result) := stateAfterTransactionAux actualPreState t in
-      retp |-> ResultR EvmcResultR result 
-      ** statep |-> StateR stateFinal
-      ** [| match original stateFinal !! senderAddr with
+    \pre{au: AssumptionsAndUpdates} statep |-> StateR au
+    \pre [| newStates au = ∅ |] (* this is a weaker asumption than the impl, which also guarantees that original only has the sender's account *)
+    \prepost{(preBlockState: StateOfAccounts) (gl: BlockState.glocs) qb}
+      (blockStatePtr au) |-> BlockState.Rfrag preBlockState qb gl
+    \post{retp}[Vptr retp] Exists assumptionsAndUpdates result,
+      statep |-> StateR assumptionsAndUpdates
+      ** retp |-> ResultSuccessR ReceiptR result 
+      ** [| forall preState,
+            satisfiesAssumptions assumptionsAndUpdates preState -> 
+            let '(postTxState, actualResult) := stateAfterTransactionAux preState t in
+            postTxState = applyUpdates assumptionsAndUpdates preState /\ result = actualResult |].
+
+  Definition IncarnationR (q:Qp) (i: Incarnation): Rep. Proof. Admitted.
+
+  (* delete *)
+  Definition StateConstr : ptr -> WpSpec mpredI val val :=
+    fun (this:ptr) =>
+      \arg{bsp} "" (Vref bsp)
+      \arg{incp} "" (Vptr incp)
+      \pre{q inc} incp |-> IncarnationR q inc 
+      \post this |-> StateR {| blockStatePtr := bsp; incarnation:= inc; original := ∅; newStates:= ∅ |}.
+
+  (*
+      \pre [| block.block_account_nonce senderAcState = block.tr_nonce t|]
+     \post  [| match original assumptionsAndUpdates !! senderAddr with
             | Some senderAcState' => senderAcState'= senderAcState
             | _ => False
             end |]
-      ** [| (forall acAddr acState, original stateFinal !! acAddr = Some acState -> Some acState = actualPreState !! acAddr) (* original matches the result of sequential execution of previous transactions *)
-            ->  (forall acAddr acNewStates, newStates stateFinal !! acAddr = Some acNewStates ->
-                          match actualPostState !! acAddr with
-                          | Some actualAcPostState => acNewStates=[actualAcPostState]
-                          | None => False
-                          end) |].
+
 *)  
 End with_Sigma.
 (*
@@ -432,13 +472,24 @@ Module Generalized2.
     
 End Generalized2.
 (* demo:
-- int sum(int x, int y)
+- int sum() with x, y, z as global variables
 - double(int & x, int & res) : show ocode using double in parallel
-- uint64 gcd(uint64 x, uint64 y)
+- fork_task
+- promise
+- fork thread to show split ownership. do proof.
+
 - struct Point. void double(Point & x)
 - llist::rev: spec, why trust gallina rev: show lemmas
+Proofs:
+- uint64 gcd(uint64 x, uint64 y)
+- llist::rev
 
-- forkTask
+offer docker image, homework (llist::apend, factorial),  and office hours.
+
+
+day 2:
+
+- Lock specs 
 *)
 *)
 
@@ -447,3 +498,7 @@ End Generalized2.
 #[global] Hint Opaque BlockHashBufferR: br_opacity.
 #[global] Opaque BheaderR.
 #[global] Hint Opaque BheaderR : br_opacity.
+#[global] Opaque TransactionR.
+#[global] Hint Opaque TransactionR : br_opacity.
+#[global] Opaque StateR.
+#[global] Hint Opaque StateR : br_opacity.

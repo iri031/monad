@@ -22,7 +22,8 @@ Definition sender: Transaction -> evm.address:= tr_from.
 Definition w256 := N.
 
 Record BlockHeader :={
-    base_fee_per_gas: option w256
+    base_fee_per_gas: option w256;
+    number: N
     }.
 Record TransactionResult :=
   {

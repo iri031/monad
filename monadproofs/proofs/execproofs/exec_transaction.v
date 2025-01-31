@@ -156,6 +156,15 @@ Definition destr_outcome_overload :=
     Q |-- wp_const tu from to p ty Q.
   Proof using. Admitted.
 
+  cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "Incarnation"))
+             (Nfunction function_qualifiers.N Nctor ["unsigned long"%cpp_type; "unsigned long"%cpp_type]))
+         as incarnation_constr with
+  (fun this:ptr =>
+     \arg{bn} "" (Vn bn)
+     \arg{txn} "" (Vn txn)
+     \post this |-> IncarnationR 1 (Build_Incarnation bn txn)  
+  ).
+
 Lemma prf: denoteModule module
              ** (opt_reconstr TransactionResult resultT)
              ** tvector_spec
@@ -174,6 +183,7 @@ Lemma prf: denoteModule module
              ** validate_spec
              ** try_op_has_val
              ** destr_outcome_overload
+             ** incarnation_constr
              |-- ext1.
 Proof using MODd.
   verify_spec'.
@@ -185,7 +195,62 @@ Proof using MODd.
   go.
   unshelve rewrite <- wp_init_implicit.
   go.
+  cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "State"))
+          (Nfunction function_qualifiers.N Nctor
+             [Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState")));
+              Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Incarnation"))]))
+    as StateConstr with
+  (    fun (this:ptr) =>
+      \arg{bsp} "" (Vref bsp)
+      \arg{incp} "" (Vptr incp)
+      \prepost{q inc} incp |-> IncarnationR q inc 
+      \post this |-> StateR {| blockStatePtr := bsp; incarnation:= inc; original := ∅; newStates:= ∅ |}).
+  iAssert (StateConstr) as "#?"%string;[admit|].
+  slauto.
+  unfold BheaderR.
+  go.
+  work.
+  #[global] Instance : LearnEq2 IncarnationR := ltac:(solve_learnable).
+  go.
+Definition destr_incarnation :=
+  specify
+    {|
+      info_name :=
+        Nscoped
+          (Nscoped (Nglobal (Nid "monad")) (Nid "Incarnation"))
+          (Nfunction function_qualifiers.N Ndtor []);
+      info_type :=
+        tDtor
+          (Nscoped (Nglobal (Nid "monad")) (Nid "Incarnation"))
+    |} (λ this : ptr, \pre{w} this |-> IncarnationR 1 w
+                        \post    emp).
   
+iAssert destr_incarnation as "#?"%string;[admit|].
+go.
+
+(* add structR to StateR *)
+iAssert (reference_to (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))) state_addr) as "#?"%string;[admit|].
+slauto.
+Transparent TransactionR.
+unfold TransactionR.
+slauto.
+cpp.spec ((Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "State"))
+       (Nfunction function_qualifiers.N (Nf "set_original_nonce")
+          [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address")))); "unsigned long"%cpp_type])))
+  as set_original_nonce with
+    ().
+      
+         
+  
+TransactionR
+_field "monad::Transaction::nonce" |-> ulongR q nonce
+#[global] Instance obsst {a}:  Observe (reference_toR (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State")))) (StateR a). Admitted.
+go.
+Search Cancel.
+  ulonglongR.
+  ulong
+  BheaderR
+  go.
 Abort.
 
 End with_Sigma.
