@@ -1,0 +1,7 @@
+(lang dune 3.8)
+(using coq 0.8)
+(name evm-op-sem)
+
+(maintainers
+ "Abhishek Anand <abhishek@category.xyz>")
+(source (github aa755/EvmOpSem))
