@@ -1,17 +1,23 @@
+Require Import EVMOpSem.block.
 Require Import stdpp.gmap.
-Axiom Transaction : Set.
+
+(* delete and inline? *)
+Definition Transaction := transaction.
+
 Module evm.
-  Axiom log_entry: Set.
-  Axiom address: Set.
-  Axiom account_state: Set.
-  Axiom eqa : EqDecision address.
-  Existing Instance eqa.
-  Axiom ca : Countable address.
-  Existing Instance ca.
+  Definition log_entry: Type := EVMOpSem.evm.log_entry.
+  Definition address: Type := EVMOpSem.evm.address.
+  Definition account_state: Type (* TODO: investigate why Set doesnt work here *) := block_account.
+
+  #[global] Instance : EqDecision address. Proof. Admitted.
+   #[global] Instance : Countable address. Proof. Admitted.
   
-  Definition GlobalState := gmap address account_state.
+  Definition GlobalState := gmap address account_state. (* EVMOpSem defines it as a function type which can cause hassles for computation and for separation logic reasoning *)
 End evm.
 Notation StateOfAccounts := evm.GlobalState.
+
+(* delete and inline? *)
+Definition sender: Transaction -> evm.address:= tr_from.
 
 Definition w256 := N.
 
@@ -105,7 +111,6 @@ Record Chain := {
     chainid: N
   }.
 Inductive Revision := Shanghai | Frontier.
-Axiom sender: Transaction -> evm.address.
 
 
 
