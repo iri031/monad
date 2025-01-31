@@ -1,11 +1,18 @@
 Require Import stdpp.gmap.
-Axiom GlobalState: Set.
-Notation StateOfAccounts := GlobalState.
 Axiom Transaction : Set.
 Module evm.
   Axiom log_entry: Set.
   Axiom address: Set.
+  Axiom account_state: Set.
+  Axiom eqa : EqDecision address.
+  Existing Instance eqa.
+  Axiom ca : Countable address.
+  Existing Instance ca.
+  
+  Definition GlobalState := gmap address account_state.
 End evm.
+Notation StateOfAccounts := evm.GlobalState.
+
 Definition w256 := N.
 
 Record BlockHeader :={

@@ -150,7 +150,12 @@ Definition destr_outcome_overload :=
           (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "has_value_overload"))
     |} (λ this : ptr, \pre this |->  structR (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "has_value_overload")) (cQp.mut 1)
                         \post    emp).
-  
+
+(* use a const instance instead *)
+  Lemma wp_const_const_delete tu ty from to p Q :
+    Q |-- wp_const tu from to p ty Q.
+  Proof using. Admitted.
+
 Lemma prf: denoteModule module
              ** (opt_reconstr TransactionResult resultT)
              ** tvector_spec
@@ -176,12 +181,11 @@ Proof using MODd.
   Transparent BheaderR.
   unfold BheaderR.
   slauto.
-  rewrite <- wp_const_const;[| admit (* reduces to False. there may be a weakness in semantics *)].
+  rewrite <- wp_const_const_delete.
   go.
-  Locate   "::wpPRᵢ".
-  Search wp_init Eimplicit.
   unshelve rewrite <- wp_init_implicit.
   go.
+  
 Abort.
 
 End with_Sigma.

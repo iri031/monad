@@ -221,7 +221,7 @@ Result<Receipt> execute_impl(
 
         {
             TRACE_TXN_EVENT(StartStall);
-            prev.get_future().wait();
+            wait_for_promise(prev);
         }
 
         if (block_state.can_merge(state)) {

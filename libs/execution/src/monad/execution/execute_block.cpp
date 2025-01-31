@@ -118,10 +118,6 @@ void reset_promises(uint64_t num_transactions){
     }
 }
 
-inline void wait_for_promise(boost::fibers::promise<void> &promise){
-    promise.get_future().wait();
-}
-
 template <typename T>
 using vanilla_ptr = T*;
 void compute_senders(Block const &block, fiber::PriorityPool &priority_pool){

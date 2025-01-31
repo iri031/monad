@@ -42,4 +42,8 @@ Result<Receipt> execute(
     std::optional<Address> const &, BlockHeader const &,
     BlockHashBuffer const &, BlockState &, boost::fibers::promise<void> &prev);
 
+inline void wait_for_promise(boost::fibers::promise<void> &promise){
+    promise.get_future().wait();
+}
+
 MONAD_NAMESPACE_END

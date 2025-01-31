@@ -335,19 +335,18 @@ Section with_Sigma.
       \pre{chain q} chainp |-> ChainR q chain
       \post{retp} [Vptr retp] (retp |-> u256R 1 (chainid chain))).
 
-(*       
-
+  Import evm.
   Record State :=
     {
-      original: gmap evm.address account.state;
-      newStates: gmap evm.address (list account.state); (* head is the latest *)
+      original: gmap evm.address evm.account_state;
+      newStates: gmap evm.address (list evm.account_state); (* head is the latest *)
       blockStatePtr: ptr;
     }.
 
   (* not supposed to be shared, so no fraction *)
   Definition StateR (s: State): Rep. Proof. Admitted.
 
-  Definition preImpl2State (blockStatePtr: ptr) (senderAddr: evm.address) (sender: account.state): State:=
+  Definition preImpl2State (blockStatePtr: ptr) (senderAddr: evm.address) (sender: account_state): State:=
     {|
       blockStatePtr:= blockStatePtr;
       newStates:= ∅;
@@ -357,7 +356,7 @@ Section with_Sigma.
   Definition tnonce (t: Transaction) : N. Proof. Admitted.
 
   Definition EvmcResultR (r: TransactionResult): Rep. Proof. Admitted.
-  
+  (*
   Definition execute_impl2_spec : WpSpec mpredI val val :=
     \arg{chainp :ptr} "chain" (Vref chainp)
     \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
@@ -365,14 +364,14 @@ Section with_Sigma.
     \pre{(qtx: Qp) (i:nat) (block: Block) t} Exists t, [| nth_error (transactions block) i = Some t |]
     \pre txp |-> TransactionR qtx t
     \arg{senderp} "sender" (Vref senderp)
-    \pre{qs} senderp |-> optionAddressR qs (Some (Message.caller t))
+    \pre{qs} senderp |-> optionAddressR qs (Some (sender t))
     \arg{hdrp: ptr} "hdr" (Vref hdrp)
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \arg{statep: ptr} "state" (Vref statep)
-    \pre{(blockStatePtr: ptr) (senderAddr: evm.address) (senderAcState: account.state)}
+    \pre{(blockStatePtr: ptr) (senderAddr: evm.address) (senderAcState: account_state)}
       statep |-> StateR (preImpl2State blockStatePtr senderAddr senderAcState)
     \prepost{(preBlockState: StateOfAccounts) (gl: BlockState.glocs)}
-      blockStatePtr |-> BlockState.Rc block preBlockState 1 gl
+      blockStatePtr |-> BlockState.Rfrag block preBlockState 1 gl
     \pre [| account.nonce senderAcState = tnonce t|]
     \post{retp}[Vptr retp] Exists stateFinal,
       let actualPreState := fst (stateAfterTransactions (header block) preBlockState (firstn i (transactions block))) in
