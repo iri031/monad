@@ -236,17 +236,6 @@ const monad::uint256_t get_chain_id(Chain const &chain) {
     return chain.get_chain_id();
 }
 
-template <typename T>
-bool has_error(const Result<T> & rec)
-{
-    return rec.has_error();
-}
-
-template <typename T>
-const T & value(const Result<T> & rec)
-{
-    return rec.value();
-}
 template <evmc_revision rev>
 Result<Receipt> execute_impl(
     Chain const &chain, uint64_t const i, Transaction const &tx,
@@ -272,7 +261,7 @@ Result<Receipt> execute_impl(
         }
 
         if (block_state.can_merge(state)) {
-            if (has_error(result)) {
+            if (result.has_error()) {
                 return std::move(result.error());
             }
             auto const receipt = execute_final<rev>(
@@ -280,7 +269,7 @@ Result<Receipt> execute_impl(
                 tx,
                 sender,
                 hdr.base_fee_per_gas.value_or(0),
-                value(result),//TODO uninline
+                result.value(),
                 hdr.beneficiary);
             block_state.merge(state);
             return receipt;
