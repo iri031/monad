@@ -288,12 +288,73 @@ Check H.
 forward_reason.
 subst.
 slauto.
-Definition can_merge_spec : ptr -> WpSpec mpredI val val  := fun (this:ptr) =>
+cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState"))
+       (Nfunction function_qualifiers.N (Nf "can_merge")
+          [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))))]))
+         as can_merge with
+  (
+         fun (this:ptr) =>
   \arg{statep} "" (Vptr statep) 
   \prepost{assumptionsAndUpdates} statep |-> StateR assumptionsAndUpdates
   \prepost{preBlockState g preTxState} this |-> BlockState.Rauth preBlockState g preTxState
-  \post{b} [Vbool b] [| b=true <-> (satisfiesAssumptions assumptionsAndUpdates preTxState) |].
+  \post{b} [Vbool b] [| if b then  (satisfiesAssumptions assumptionsAndUpdates preTxState) else Logic.True |]).
 
+iAssert (can_merge) as "#?"%string;[admit|].
+#[global] Instance : LearnEq3 (BlockState.Rauth) := ltac:(solve_learnable).
+slauto.
+wp_if.
+{
+  slauto. 
+cpp.spec 
+(Nscoped
+       (Ninst
+          (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "basic_result_final"))
+          [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
+           Atype
+             (Tnamed
+                (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                   [Atype
+                      (Tnamed
+                         (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
+                            [Atype "long"]))]));
+           Atype
+             (Tnamed
+                (Ninst
+                   (Nscoped
+                      (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental"))
+                         (Nid "policy"))
+                      (Nid "status_code_throw"))
+                   [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
+                    Atype
+                      (Tnamed
+                         (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                            [Atype
+                               (Tnamed
+                                  (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
+                                     [Atype "long"]))]));
+                    Atype "void"]))])
+       (Nfunction function_qualifiers.Nc (Nf "has_error") [])) as has_error with
+    (fun this => \pre emp (* TODO: fix *)
+     \post [Vbool false] emp
+    ).
+iAssert (has_error) as "#?"%string;[admit|].
+slauto.
+work.
+go.
+Definition merge : ptr -> WpSpec mpredI val val :=
+    (
+         fun (this:ptr) =>
+  \arg{statep} "" (Vptr statep) 
+  \prepost{assumptionsAndUpdates} statep |-> StateR assumptionsAndUpdates
+  \pre{preBlockState g preTxState} this |-> BlockState.Rauth preBlockState g preTxState
+  \pre [| satisfiesAssumptions assumptionsAndUpdates preTxState |]
+  \post this |-> BlockState.Rauth preBlockState g (applyUpdates assumptionsAndUpdates preTxState)).
+iAssert (merge) as "#?"%string;[admit|].
+slauto.
+
+slauto.
+Search Learnable BlockState.Rfrag.
+go.
 Check H.
 go.
 eagerUnifyU.
