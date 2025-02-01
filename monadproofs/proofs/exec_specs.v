@@ -337,7 +337,7 @@ Section with_Sigma.
   cpp.spec (Nscoped (Nglobal (Nid "monad")) (Nfunction function_qualifiers.N (Nf "get_chain_id") [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Chain"))))]))
     as get_chain_id with(
       \arg{chainp} "" (Vref chainp)
-      \pre{chain q} chainp |-> ChainR q chain
+      \prepost{chain q} chainp |-> ChainR q chain
       \post{retp} [Vptr retp] (retp |-> u256R 1 (chainid chain))).
 
   Import evm.
@@ -393,9 +393,9 @@ Section with_Sigma.
     \arg{chainp :ptr} "chain" (Vref chainp)
     \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
     \arg{txp} "tx" (Vref txp)
-    \pre{qtx t} txp |-> TransactionR qtx t
+    \prepost{qtx t} txp |-> TransactionR qtx t
     \arg{senderp} "sender" (Vref senderp)
-    \pre{qs} senderp |-> optionAddressR qs (Some (sender t))
+    \prepost{qs} senderp |-> addressR qs (sender t)
     \arg{hdrp: ptr} "hdr" (Vref hdrp)
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \arg{statep: ptr} "state" (Vref statep)

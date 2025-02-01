@@ -194,6 +194,42 @@ Result<evmc::Result> execute_impl2(
         hdr.beneficiary);
 }
 
+template <evmc_revision rev>
+std::optional<Receipt> exec_check_merge(
+    Chain const &chain, Transaction const &tx, Address const &sender,
+    BlockHeader const &hdr, BlockHashBuffer const &block_hash_buffer,
+    State &state, boost::fibers::promise<void> &prev, BlockState &block_state, bool speculative=true)
+{
+    auto result =
+        execute_impl2<rev>(chain, tx, sender, hdr, block_hash_buffer, state);
+
+    if(speculative){
+        TRACE_TXN_EVENT(StartStall);
+        wait_for_promise(prev);
+    }
+
+    bool can_merge=block_state.can_merge(state);
+    if(!speculative){
+        MONAD_ASSERT(can_merge);
+    }
+
+    if (can_merge) {
+        if (result.has_error()) {
+            return std::move(result.error());
+        }
+        auto const receipt = execute_final<rev>(
+            state,
+            tx,
+            sender,
+            hdr.base_fee_per_gas.value_or(0),
+            result.value(),
+            hdr.beneficiary);
+        block_state.merge(state);
+        return receipt;
+    }
+    return std::nullopt;
+}
+
 //temporary hack to avoid virtual dispatch reasoning on chain
 // if the return type is not const, a precondition of the wp_const rule in C++ semantics is violated
 const monad::uint256_t get_chain_id(Chain const &chain) {
@@ -247,7 +283,7 @@ Result<Receipt> execute_impl(
         auto result = execute_impl2<rev>(
             chain, tx, sender, hdr, block_hash_buffer, state);
 
-        MONAD_ASSERT(block_state.can_merge(state));
+        //MONAD_ASSERT(block_state.can_merge(state));
         if (result.has_error()) {
             return std::move(result.error());
         }

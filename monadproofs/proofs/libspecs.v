@@ -67,8 +67,8 @@ Context  {MODd : exb.module ⊧ CU}.
     | None => _field "engaged_" |-> boolR (cQp.mut q) false
     | Some b => opt_base_offset bty |-> baseRep b
     end.
-  Definition addressR (a: evm.address) (q: Qp): Rep. Proof. Admitted.
-  Definition optionAddressR (q:Qp) (oaddr: option evm.address): Rep := optionR "evmc::address" (fun a => addressR a q) q oaddr.
+  Definition addressR (q: Qp) (a: evm.address): Rep. Proof. Admitted.
+  Definition optionAddressR (q:Qp) (oaddr: option evm.address): Rep := optionR "evmc::address" (fun a => addressR q a) q oaddr.
 
   cpp.spec "monad::wait_for_promise(boost::fibers::promise<void>&)" as wait_for_promise with 
           (

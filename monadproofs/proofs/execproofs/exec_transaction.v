@@ -165,53 +165,6 @@ Definition destr_outcome_overload :=
      \post this |-> IncarnationR 1 (Build_Incarnation bn txn)  
   ).
 
-Lemma prf: denoteModule module
-             ** (opt_reconstr TransactionResult resultT)
-             ** tvector_spec
-             ** reset_promises
-             ** (fork_taskg (Nscoped (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::PriorityPool&, const monad::Chain&, const monad::BlockHashBuffer&, monad::BlockState &)" [Avalue (Eint 11 "enum evmc_revision")]) (Nanon 0)))
-             ** vector_op_monad
-             ** recover_sender
-             ** wait_for_promise
-             ** set_value
-             ** destrop
-             ** destr_res
-             ** destr_u256
-             ** (has_value "evmc::address")
-             ** (value "evmc::address")
-             ** get_chain_id
-             ** validate_spec
-             ** try_op_has_val
-             ** destr_outcome_overload
-             ** incarnation_constr
-             |-- ext1.
-Proof using MODd.
-  verify_spec'.
-  go; try (ego; fail).
-  Transparent BheaderR.
-  unfold BheaderR.
-  slauto.
-  rewrite <- wp_const_const_delete.
-  go.
-  unshelve rewrite <- wp_init_implicit.
-  go.
-  cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "State"))
-          (Nfunction function_qualifiers.N Nctor
-             [Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState")));
-              Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Incarnation"))]))
-    as StateConstr with
-  (    fun (this:ptr) =>
-      \arg{bsp} "" (Vref bsp)
-      \arg{incp} "" (Vptr incp)
-      \prepost{q inc} incp |-> IncarnationR q inc 
-      \post this |-> StateR {| blockStatePtr := bsp; incarnation:= inc; original := ∅; newStates:= ∅ |}).
-  iAssert (StateConstr) as "#?"%string;[admit|].
-  slauto.
-  unfold BheaderR.
-  go.
-  work.
-  #[global] Instance : LearnEq2 IncarnationR := ltac:(solve_learnable).
-  go.
 Definition destr_incarnation :=
   specify
     {|
@@ -224,33 +177,140 @@ Definition destr_incarnation :=
           (Nscoped (Nglobal (Nid "monad")) (Nid "Incarnation"))
     |} (λ this : ptr, \pre{w} this |-> IncarnationR 1 w
                         \post    emp).
-  
-iAssert destr_incarnation as "#?"%string;[admit|].
-go.
+Require Import bedrock.prelude.lens.
+    #[only(lens)] derive AssumptionsAndUpdates.
+    #[only(lens)] derive block.block_account.
 
-(* add structR to StateR *)
+
+    Import LensNotations.
+    #[local] Open Scope lens_scope.
+
+  Definition set_original_nonce (addr: evm.address) (n: keccak.w256) (s sf : AssumptionsAndUpdates) : Prop :=
+  match original s !! addr with
+  | Some ac => sf = (s &: _original %= <[addr:=ac &: _block_account_nonce .= n]>)
+  | None => exists loadedAc, (block.block_account_nonce loadedAc = n)
+                             /\ sf = (s &: _original %= <[addr:= loadedAc]>)
+  end.
+
+
+  Search Bvector.Bvector Z.
+cpp.spec ((Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "State"))
+       (Nfunction function_qualifiers.N (Nf "set_original_nonce")
+          [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address")))); "unsigned long"%cpp_type])))
+  as set_original_nonce_spec with
+    (fun this:ptr =>
+       \arg{addrp} "a" (Vptr addrp)
+       \arg{nonce} "a" (Vint nonce)
+       \prepost{addr q} addrp |-> addressR q addr
+       \pre{au} this |-> StateR au
+       \post Exists auf, this |-> StateR auf **
+                [| set_original_nonce addr (Zdigits.Z_to_binary 256 nonce) au auf |]
+    ).
+#[global] Instance : LearnEq2 (addressR) := ltac:(solve_learnable).
+#[global] Instance : LearnEq1 (StateR) := ltac:(solve_learnable).
+cpp.spec (Ninst
+             (Nscoped (Nglobal (Nid "monad"))
+                (Nfunction function_qualifiers.N (Nf "execute_impl2")
+                   [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Chain"))));
+                    Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))));
+                    Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))));
+                    Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockHeader"))));
+                    Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockHashBuffer"))));
+                    Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State")))]))
+             [Avalue (Eint 11 (Tenum (Nglobal (Nid "evmc_revision"))))])
+  as execute_impl2 with (execute_impl2_spec).
+  cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "State"))
+          (Nfunction function_qualifiers.N Nctor
+             [Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState")));
+              Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Incarnation"))]))
+    as StateConstr with
+  (    fun (this:ptr) =>
+      \arg{bsp} "" (Vref bsp)
+      \arg{incp} "" (Vptr incp)
+      \prepost{q inc} incp |-> IncarnationR q inc 
+      \post this |-> StateR {| blockStatePtr := bsp; incarnation:= inc; original := ∅; newStates:= ∅ |}).
+  
+  #[global] Instance : LearnEq2 IncarnationR := ltac:(solve_learnable).
+Opaque Zdigits.Z_to_binary.
+
+  Lemma prf: denoteModule module
+             ** (opt_reconstr TransactionResult resultT)
+             ** wait_for_promise
+             ** destrop
+             ** destr_res
+             ** destr_u256
+             ** (has_value "evmc::address")
+             ** (value "evmc::address")
+             ** get_chain_id
+             ** validate_spec
+             ** try_op_has_val
+             ** destr_outcome_overload
+             ** incarnation_constr
+             ** StateConstr
+             ** set_original_nonce_spec
+             ** execute_impl2
+             ** destr_incarnation
+             |-- ext1.
+Proof using MODd.
+  verify_spec'.
+  go; try (ego; fail).
+  Transparent BheaderR.
+  unfold BheaderR.
+  slauto.
+  rewrite <- wp_const_const_delete.
+  go.
+  unshelve rewrite <- wp_init_implicit.
+  slauto.
 iAssert (reference_to (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))) state_addr) as "#?"%string;[admit|].
 slauto.
 Transparent TransactionR.
 unfold TransactionR.
 slauto.
-cpp.spec ((Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "State"))
-       (Nfunction function_qualifiers.N (Nf "set_original_nonce")
-          [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address")))); "unsigned long"%cpp_type])))
-  as set_original_nonce with
-    ().
-      
-         
-  
-TransactionR
-_field "monad::Transaction::nonce" |-> ulongR q nonce
-#[global] Instance obsst {a}:  Observe (reference_toR (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State")))) (StateR a). Admitted.
+
+Ltac slauto2 := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go; fail); try (apply False_rect; try contradiction; try congruence; try nia; fail); try autorewrite with syntactic)
+  then slauto2  else idtac.
+Ltac slauto1 := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go; fail); try (apply False_rect; try contradiction; try congruence; try nia; fail))
+  then slauto1  else idtac.
+
+Transparent libspecs.optionR.
+slauto1.
+do 5 (iExists _).
+unfold TransactionR. go. eagerUnifyU. slauto.
+Transparent set_original_nonce.
+unfold set_original_nonce in *.
+simpl in *.
+Check H.
+autorewrite with syntactic.
+
+rewrite lookup_empty in H.
 go.
-Search Cancel.
-  ulonglongR.
-  ulong
-  BheaderR
-  go.
+Check H.
+forward_reason.
+subst.
+slauto.
+Definition can_merge_spec : ptr -> WpSpec mpredI val val  := fun (this:ptr) =>
+  \arg{statep} "" (Vptr statep) 
+  \prepost{assumptionsAndUpdates} statep |-> StateR assumptionsAndUpdates
+  \prepost{preBlockState g preTxState} this |-> BlockState.Rauth preBlockState g preTxState
+  \post{b} [Vbool b] [| b=true <-> (satisfiesAssumptions assumptionsAndUpdates preTxState) |].
+
+Check H.
+go.
+eagerUnifyU.
+Check t.
+
+slauto.
+unfold libspecs.optionR. go.
+go.
+slauto.
+slauto.
+slauto.
+slauto.
+slauto.
+go.
+
+slauto.
+
 Abort.
 
-End with_Sigma.
+  End with_Sigma.
