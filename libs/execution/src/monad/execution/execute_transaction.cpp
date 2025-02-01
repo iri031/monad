@@ -195,7 +195,7 @@ Result<evmc::Result> execute_impl2(
 }
 
 template <evmc_revision rev>
-std::optional<Result<Receipt>> exec_check_merge(
+std::optional<Receipt> exec_check_merge(
     Chain const &chain, Transaction const &tx, Address const &sender,
     BlockHeader const &hdr, BlockHashBuffer const &block_hash_buffer,
     State &state, boost::fibers::promise<void> &prev, BlockState &block_state, bool speculative=true)
@@ -208,7 +208,7 @@ std::optional<Result<Receipt>> exec_check_merge(
         wait_for_promise(prev);
     }
 
-    bool can_merge=block_state.can_merge(state);// once the code is proven, we may not want to do this in the non-speculative case
+    bool can_merge=block_state.can_merge(state);
     if(!speculative){
         MONAD_ASSERT(can_merge);
     }
@@ -228,7 +228,7 @@ std::optional<Result<Receipt>> exec_check_merge(
         return receipt;
     }
     return std::nullopt;
- }
+}
 
 //temporary hack to avoid virtual dispatch reasoning on chain
 // if the return type is not const, a precondition of the wp_const rule in C++ semantics is violated
@@ -252,19 +252,51 @@ Result<Receipt> execute_impl(
         State state{block_state, Incarnation{hdr.number, i + 1}};
         state.set_original_nonce(sender, tx.nonce);
 
-        auto result=exec_check_merge<rev>(chain, tx, sender, hdr, block_hash_buffer, state, prev, block_state, true);
-        if (result.has_value()){
-            return std::move(result.value());
+        auto result = execute_impl2<rev>(
+            chain, tx, sender, hdr, block_hash_buffer, state);
+
+        {
+            TRACE_TXN_EVENT(StartStall);
+            wait_for_promise(prev);
+        }
+
+        if (block_state.can_merge(state)) {
+            if (result.has_error()) {
+                return std::move(result.error());
+            }
+            auto const receipt = execute_final<rev>(
+                state,
+                tx,
+                sender,
+                hdr.base_fee_per_gas.value_or(0),
+                result.value(),
+                hdr.beneficiary);
+            block_state.merge(state);
+            return receipt;
         }
     }
     {
         TRACE_TXN_EVENT(StartRetry);
 
         State state{block_state, Incarnation{hdr.number, i + 1}};
-        auto result=exec_check_merge<rev>(chain, tx, sender, hdr, block_hash_buffer, state, prev, block_state, false);
-        
-        assert(result.has_value());
-        return std::move(result.value());
+
+        auto result = execute_impl2<rev>(
+            chain, tx, sender, hdr, block_hash_buffer, state);
+
+        //MONAD_ASSERT(block_state.can_merge(state));
+        if (result.has_error()) {
+            return std::move(result.error());
+        }
+        auto const receipt = execute_final<rev>(
+            state,
+            tx,
+            sender,
+            hdr.base_fee_per_gas.value_or(0),
+            result.value(),
+            hdr.beneficiary);
+        block_state.merge(state);
+
+        return receipt;
     }
 }
 
