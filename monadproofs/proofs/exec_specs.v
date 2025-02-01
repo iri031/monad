@@ -111,6 +111,7 @@ Section with_Sigma.
   (* TODO: add a Result T type in Coq and change the type of t to Result T *)
   Definition ResultSuccessR {T} (trep: T -> Rep) (t:T): Rep. Proof. Admitted.
   Definition ReceiptR (t: TransactionResult): Rep. Admitted.
+  Definition EvmcResultR (t: TransactionResult): Rep. Admitted.
   
   Definition valOfRev (r : Revision) : val := Vint 0. (* TODO: fix *)
 
@@ -405,12 +406,33 @@ Section with_Sigma.
       (blockStatePtr au) |-> BlockState.Rfrag preBlockState qb gl
     \post{retp}[Vptr retp] Exists assumptionsAndUpdates result,
       statep |-> StateR assumptionsAndUpdates
-      ** retp |-> ResultSuccessR ReceiptR result 
+      ** retp |-> ResultSuccessR EvmcResultR result 
       ** [| forall preState,
             satisfiesAssumptions assumptionsAndUpdates preState -> 
             let '(postTxState, actualResult) := stateAfterTransactionAux preState t in
             postTxState = applyUpdates assumptionsAndUpdates preState /\ result = actualResult |].
 
+   Definition execute_final_spec : WpSpec mpredI val val :=
+    \arg{txp} "tx" (Vref txp)
+    \prepost{qtx t} txp |-> TransactionR qtx t
+    \arg{senderp} "sender" (Vref senderp)
+    \prepost{qs} senderp |-> addressR qs (sender t)
+    \arg{hdrp: ptr} "hdr" (Vref hdrp)
+    \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
+    \arg{statep: ptr} "state" (Vref statep)
+    \pre{au: AssumptionsAndUpdates} statep |-> StateR au
+    \arg{resultp} "" (Vptr resultp)
+    \pre [| newStates au = ∅ |] (* this is a weaker asumption than the impl, which also guarantees that original only has the sender's account *)
+    \prepost{(preBlockState: StateOfAccounts) (gl: BlockState.glocs) qb}
+      (blockStatePtr au) |-> BlockState.Rfrag preBlockState qb gl
+    \post{retp}[Vptr retp] Exists assumptionsAndUpdates result,
+      statep |-> StateR assumptionsAndUpdates
+      ** retp |-> ResultSuccessR ReceiptR result 
+      ** [| forall preState,
+            satisfiesAssumptions assumptionsAndUpdates preState -> 
+            let '(postTxState, actualResult) := stateAfterTransactionAux preState t in
+            postTxState = applyUpdates assumptionsAndUpdates preState /\ result = actualResult |].
+ 
   Definition IncarnationR (q:Qp) (i: Incarnation): Rep. Proof. Admitted.
 
   (* delete *)
@@ -472,9 +494,9 @@ Module Generalized2.
     
 End Generalized2.
 (* demo:
-- int sum() with x, y, z as global variables
-- double(int & x, int & res) : show ocode using double in parallel
-- fork_task
+- first spec: int x,y; void doubleXintoY()
+- double(int & x, int & y) : arguments in specs 
+- fork_task: skip the lambda struct part a bit
 - promise
 - fork thread to show split ownership. do proof.
 
