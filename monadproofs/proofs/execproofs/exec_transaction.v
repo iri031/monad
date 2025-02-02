@@ -436,6 +436,81 @@ cpp.spec (Ninst
 
 iAssert (result_value) as "#?"%string;[admit|].
 go.
+#[ignore_errors]
+cpp.spec (Ninst
+             (Nscoped (Nglobal (Nid "monad"))
+                (Nfunction function_qualifiers.N (Nf "execute_final")
+                   [Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State")));
+                    Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))));
+                    Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))));
+                    Tref (Tconst (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")])));
+                    Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result"))));
+                    Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))))]))
+             [Avalue (Eint 11 (Tenum (Nglobal (Nid "evmc_revision"))))])
+          as execute_final with (\post emp).
+   Definition execute_final_spec : WpSpec mpredI val val :=
+    \arg{statep: ptr} "state" (Vref statep)
+    \pre{au: AssumptionsAndUpdates} statep |-> StateR au
+    \arg{txp} "tx" (Vref txp)
+    \prepost{qtx t} txp |-> TransactionR qtx t
+    \arg{senderp} "sender" (Vref senderp)
+    \prepost{qs} senderp |-> addressR qs (sender t)
+    \arg{bfeep: ptr} "base_fee_per_gase" (Vref bfeep)
+    \prepost{q basefeepergas} bfeep |-> u256R q basefeepergas
+    \arg{i preTxState resultp hdr} "" (Vptr resultp)
+    \let '(postTxState, result) := stateAfterTransactionAux hdr preTxState i t
+    \pre resultp |-> ResultSuccessR EvmcResultR result
+    \arg{benp} "beneficiary" (Vref benp)
+    \prepost{benAddr qben} benp |-> addressR qben benAddr
+    \pre{assumptionsAndUpdates}  statep |-> StateR assumptionsAndUpdates
+    \pre [| postTxState = applyUpdates assumptionsAndUpdates preTxState |]
+    \post{retp}[Vptr retp] Exists assumptionsAndUpdatesFinal,
+        retp |-> ReceiptR result **
+       [| (stateAfterTransaction hdr i preTxState t).1 = applyUpdates assumptionsAndUpdatesFinal preTxState |].
+
+
+Definition exec_final :=
+  specify
+  {|
+    info_name :=
+      Ninst
+        (Nscoped (Nglobal (Nid "monad"))
+           (Nfunction function_qualifiers.N (Nf "execute_final")
+              [Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))));
+               Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))));
+               Tref (Tconst (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")])));
+               Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))))]))
+        [Avalue (Eint 11 (Tenum (Nglobal (Nid "evmc_revision"))))];
+    info_type :=
+      tFunction (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")))
+        [Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))));
+         Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))));
+         Tref (Tconst (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")])));
+         Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))))]
+  |} execute_final_spec.
+iAssert (exec_final) as "#?"%string;[admit|].
+go.
+iExists state_addr.
+iExists _.
+ren_hyp tx Transaction.
+do 2 (iExists _).
+iExists tx.
+do 5 (iExists _).
+iExists i. iExists prevTxGlobalState.
+iExists _.
+iExists header.
+destruct (stateAfterTransactionAux header prevTxGlobalState i tx).
+simpl.
+work. eagerUnifyC.
+go.
+simpl.
+go.
+
+do 7 (iExists _). 
+iExists _, _, _, _
+rewrite <- (bi.exist_intro prevTxGlobalState).
+slauto.
+go.
 
 
 
