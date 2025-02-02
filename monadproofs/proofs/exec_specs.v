@@ -398,6 +398,7 @@ Section with_Sigma.
     \arg{senderp} "sender" (Vref senderp)
     \prepost{qs} senderp |-> addressR qs (sender t)
     \arg{hdrp: ptr} "hdr" (Vref hdrp)
+    \prepost{qh header} hdrp |-> BheaderR qh header
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
     \arg{statep: ptr} "state" (Vref statep)
     \pre{au: AssumptionsAndUpdates} statep |-> StateR au
@@ -407,31 +408,30 @@ Section with_Sigma.
     \post{retp}[Vptr retp] Exists assumptionsAndUpdates result,
       statep |-> StateR assumptionsAndUpdates
       ** retp |-> ResultSuccessR EvmcResultR result 
-      ** [| forall preState,
-            satisfiesAssumptions assumptionsAndUpdates preState -> 
-            let '(postTxState, actualResult) := stateAfterTransactionAux preState t in
-            postTxState = applyUpdates assumptionsAndUpdates preState /\ result = actualResult |].
+      ** [| forall preTxState,
+            satisfiesAssumptions assumptionsAndUpdates preTxState -> 
+            let '(postTxState, actualResult) := stateAfterTransactionAux header preTxState (N.to_nat (tx_index (incarnation au))) t in
+            postTxState = applyUpdates assumptionsAndUpdates preTxState /\ result = actualResult |].
 
    Definition execute_final_spec : WpSpec mpredI val val :=
+    \arg{statep: ptr} "state" (Vref statep)
+    \pre{au: AssumptionsAndUpdates} statep |-> StateR au
     \arg{txp} "tx" (Vref txp)
     \prepost{qtx t} txp |-> TransactionR qtx t
     \arg{senderp} "sender" (Vref senderp)
     \prepost{qs} senderp |-> addressR qs (sender t)
-    \arg{hdrp: ptr} "hdr" (Vref hdrp)
+    \arg{bfeep: ptr} "base_fee_per_gase" (Vref bfeep)
+    \prepost{q basefeepergas} bfeep |-> u256R q basefeepergas
     \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
-    \arg{statep: ptr} "state" (Vref statep)
-    \pre{au: AssumptionsAndUpdates} statep |-> StateR au
-    \arg{resultp} "" (Vptr resultp)
-    \pre [| newStates au = ∅ |] (* this is a weaker asumption than the impl, which also guarantees that original only has the sender's account *)
-    \prepost{(preBlockState: StateOfAccounts) (gl: BlockState.glocs) qb}
-      (blockStatePtr au) |-> BlockState.Rfrag preBlockState qb gl
-    \post{retp}[Vptr retp] Exists assumptionsAndUpdates result,
-      statep |-> StateR assumptionsAndUpdates
-      ** retp |-> ResultSuccessR ReceiptR result 
-      ** [| forall preState,
-            satisfiesAssumptions assumptionsAndUpdates preState -> 
-            let '(postTxState, actualResult) := stateAfterTransactionAux preState t in
-            postTxState = applyUpdates assumptionsAndUpdates preState /\ result = actualResult |].
+    \arg{i preTxState resultp hdr} "" (Vptr resultp)
+    \let '(postTxState, result) := stateAfterTransactionAux hdr preTxState i t
+    \pre resultp |-> ResultSuccessR EvmcResultR result
+    \arg{benp} "beneficiary" (Vref benp)
+    \prepost{benAddr qben} benp |-> addressR qben benAddr
+    \pre{assumptionsAndUpdates}  statep |-> StateR assumptionsAndUpdates
+    \pre [| postTxState = applyUpdates assumptionsAndUpdates preTxState |]
+    \post{retp}[Vptr retp] Exists assumptionsAndUpdatesFinal,
+       [| (stateAfterTransaction hdr i preTxState t).1 = applyUpdates assumptionsAndUpdatesFinal preTxState |].
  
   Definition IncarnationR (q:Qp) (i: Incarnation): Rep. Proof. Admitted.
 

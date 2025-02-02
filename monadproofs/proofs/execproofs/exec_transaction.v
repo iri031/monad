@@ -304,46 +304,10 @@ iAssert (can_merge) as "#?"%string;[admit|].
 slauto.
 wp_if.
 {
-  slauto. 
-cpp.spec 
-(Nscoped
-       (Ninst
-          (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "basic_result_final"))
-          [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-           Atype
-             (Tnamed
-                (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                   [Atype
-                      (Tnamed
-                         (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
-                            [Atype "long"]))]));
-           Atype
-             (Tnamed
-                (Ninst
-                   (Nscoped
-                      (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental"))
-                         (Nid "policy"))
-                      (Nid "status_code_throw"))
-                   [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                    Atype
-                      (Tnamed
-                         (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                            [Atype
-                               (Tnamed
-                                  (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
-                                     [Atype "long"]))]));
-                    Atype "void"]))])
-       (Nfunction function_qualifiers.Nc (Nf "has_error") [])) as has_error with
-    (fun this => \pre emp (* TODO: fix *)
-     \post [Vbool false] emp
-    ).
-iAssert (has_error) as "#?"%string;[admit|].
-slauto.
-work.
-
-iAssert (  reference_to
+  slauto.
+  iAssert (  reference_to
     (Tnamed
-       (Ninst (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "basic_result_final"))
+       (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
           [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
            Atype
              (Tnamed
@@ -351,85 +315,55 @@ iAssert (  reference_to
                    [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
            Atype
              (Tnamed
-                (Ninst (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy")) (Nid "status_code_throw"))
+                (Ninst
+                   (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
+                      (Nid "status_code_throw"))
                    [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
                     Atype
                       (Tnamed
                          (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
                             [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
                     Atype "void"]))]))
-    (result_addr ,, o_base CU
-                      (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
-                         [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                          Atype
-                            (Tnamed
-                               (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                  [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                          Atype
-                            (Tnamed
-                               (Ninst (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy")) (Nid "status_code_throw"))
-                                  [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                   Atype
-                                     (Tnamed
-                                        (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                           [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                                   Atype "void"]))])
-                      (Ninst (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "basic_result_final"))
-                         [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                          Atype
-                            (Tnamed
-                               (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                  [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                          Atype
-                            (Tnamed
-                               (Ninst (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy")) (Nid "status_code_throw"))
-                                  [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                   Atype
-                                     (Tnamed
-                                        (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                           [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                                   Atype "void"]))]))
-        ) as "#?"%string;[admit|]. (* add a cancellation hint for observe for ResultR *)
-slauto.
-iAssert (  reference_to
-    (Tnamed
+    result_addr) as "#?"%string;[admit|]. (* TODO: add this to ResultSuccessR  and maybe add an observe hint*)
+  go.
+
+
+  (* TODO: generalize over evmc::Result *)
+cpp.spec 
        (Ninst
-          (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
-          [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-           Atype
-             (Tnamed
-                (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                   [Atype
-                      (Tnamed
-                         (Ninst
-                            (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail"))
-                               (Nid "erased"))
-                            [Atype "long"]))]));
-           Atype
-             (Tnamed
-                (Ninst
-                   (Nscoped
-                      (Nscoped
-                         (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2"))
-                            (Nid "experimental"))
-                         (Nid "policy"))
-                      (Nid "status_code_throw"))
-                   [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                    Atype
-                      (Tnamed
-                         (Ninst
-                            (Nscoped (Nglobal (Nid "system_error2"))
-                               (Nid "errored_status_code"))
-                            [Atype
-                               (Tnamed
-                                  (Ninst
-                                     (Nscoped
-                                        (Nscoped (Nglobal (Nid "system_error2"))
-                                           (Nid "detail"))
-                                        (Nid "erased"))
-                                     [Atype "long"]))]));
-                    Atype "void"]))]))
-    result_addr)  as "#?"%string;[admit|]. (* add a cancellation hint for observe for ResultR *)
+             (Nscoped (Nglobal (Nid "monad"))
+                (Nfunction function_qualifiers.N (Nf "has_error")
+                   [Tref
+                      (Tconst
+                         (Tnamed
+                            (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+                               [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
+                                Atype
+                                  (Tnamed
+                                     (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                        [Atype
+                                           (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                                Atype
+                                  (Tnamed
+                                     (Ninst
+                                        (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
+                                           (Nid "status_code_throw"))
+                                        [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
+                                         Atype
+                                           (Tnamed
+                                              (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                                 [Atype
+                                                    (Tnamed
+                                                       (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                                         Atype "void"]))])))]))
+             [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")))]) as has_error with
+      (\pre emp (* TODO: fix *)
+         \arg{resp} "res" (Vptr resp)
+         \prepost{res} resp |->  ResultSuccessR EvmcResultR (* TODO: EvmcResultR *) res
+         \post [Vbool false] emp
+    ).
+  
+iAssert (has_error) as "#?"%string;[admit|].
 slauto.
 
 
@@ -457,8 +391,11 @@ specify
       \post{retp} [Vptr retp] retp |-> u256R 1 (match (base_fee_per_gas hdr) with | Some x => x | None => n end)
     ).
 
+Existing Instance UNSAFE_read_prim_cancel.
 iAssert (opt_value_or) as "#?"%string;[admit|].
 slauto.
+Search (primR) Learnable.
+go.
 repeat (iExists _).
 eagerUnifyU.
 slauto.
@@ -468,760 +405,42 @@ slauto.
 (*
 constexpr const value_type &&value() const && { return static_cast<value_type &&>(_value); }
 *)
-cpp.spec (Nscoped
-       (Ninst
-          (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail"))
-             (Nid "basic_result_value_observers"))
-          [Atype
-             (Tnamed
-                (Ninst
-                   (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail"))
-                      (Nid "basic_result_storage"))
-                   [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                    Atype
-                      (Tnamed
-                         (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                            [Atype
-                               (Tnamed
-                                  (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
-                                     [Atype "long"]))]));
-                    Atype
-                      (Tnamed
-                         (Ninst
-                            (Nscoped
-                               (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental"))
-                                  (Nid "policy"))
-                               (Nid "status_code_throw"))
-                            [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                             Atype
-                               (Tnamed
-                                  (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                     [Atype
-                                        (Tnamed
-                                           (Ninst
-                                              (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
-                                              [Atype "long"]))]));
-                             Atype "void"]))]));
-           Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-           Atype
-             (Tnamed
-                (Ninst
-                   (Nscoped
-                      (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental"))
-                         (Nid "policy"))
-                      (Nid "status_code_throw"))
-                   [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                    Atype
-                      (Tnamed
-                         (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                            [Atype
-                               (Tnamed
-                                  (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
-                                     [Atype "long"]))]));
-                    Atype "void"]))])
-       (Nfunction function_qualifiers.Nl (Nf "value") [])) as result_value with
-    (fun this:ptr =>
-       \pre{res} this |-> ResultSuccessR ReceiptR (* TODO: EvmcResultR *) res
+cpp.spec (Ninst
+             (Nscoped (Nglobal (Nid "monad"))
+                (Nfunction function_qualifiers.N (Nf "value")
+                   [Tref
+                      (Tconst
+                         (Tnamed
+                            (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+                               [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
+                                Atype
+                                  (Tnamed
+                                     (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                        [Atype
+                                           (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                                Atype
+                                  (Tnamed
+                                     (Ninst
+                                        (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
+                                           (Nid "status_code_throw"))
+                                        [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
+                                         Atype
+                                           (Tnamed
+                                              (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                                 [Atype
+                                                    (Tnamed
+                                                       (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                                         Atype "void"]))])))]))
+             [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")))]) as result_value with
+    (
+      \arg{this} "this" (Vptr this)
+       \pre{res} this |-> ResultSuccessR EvmcResultR (* TODO: EvmcResultR *) res
        \post [Vref (this ,, _field "boost::outcome_v2::value_fixme")] emp).
 
 iAssert (result_value) as "#?"%string;[admit|].
-slauto.
-
-  result_addr ,, o_base CU
-                   (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
-                      [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                       Atype
-                         (Tnamed
-                            (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                               [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                       Atype
-                         (Tnamed
-                            (Ninst (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy")) (Nid "status_code_throw"))
-                               [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                Atype
-                                  (Tnamed
-                                     (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                        [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                                Atype "void"]))])
-                   (Ninst (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "basic_result_final"))
-                      [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                       Atype
-                         (Tnamed
-                            (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                               [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                       Atype
-                         (Tnamed
-                            (Ninst (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy")) (Nid "status_code_throw"))
-                               [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                Atype
-                                  (Tnamed
-                                     (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                        [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                                Atype "void"]))]) ,, o_base CU
-                                                       (Ninst (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "basic_result_final"))
-                                                          [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                           Atype
-                                                             (Tnamed
-                                                                (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                   [Atype
-                                                                      (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                                                           Atype
-                                                             (Tnamed
-                                                                (Ninst
-                                                                   (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
-                                                                      (Nid "status_code_throw"))
-                                                                   [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                    Atype
-                                                                      (Tnamed
-                                                                         (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                            [Atype
-                                                                               (Tnamed
-                                                                                  (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                                                                    Atype "void"]))])
-                                                       (Ninst
-                                                          (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "basic_result_error_observers"))
-                                                          [Atype
-                                                             (Tnamed
-                                                                (Ninst
-                                                                   (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail"))
-                                                                      (Nid "basic_result_value_observers"))
-                                                                   [Atype
-                                                                      (Tnamed
-                                                                         (Ninst
-                                                                            (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail"))
-                                                                               (Nid "basic_result_storage"))
-                                                                            [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                             Atype
-                                                                               (Tnamed
-                                                                                  (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                                     [Atype
-                                                                                        (Tnamed
-                                                                                           (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
-                                                                                              [Atype "long"]))]));
-                                                                             Atype
-                                                                               (Tnamed
-                                                                                  (Ninst
-                                                                                     (Nscoped
-                                                                                        (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental"))
-                                                                                           (Nid "policy"))
-                                                                                        (Nid "status_code_throw"))
-                                                                                     [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                      Atype
-                                                                                        (Tnamed
-                                                                                           (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                                              [Atype
-                                                                                                 (Tnamed
-                                                                                                    (Ninst
-                                                                                                       (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
-                                                                                                       [Atype "long"]))]));
-                                                                                      Atype "void"]))]));
-                                                                    Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                    Atype
-                                                                      (Tnamed
-                                                                         (Ninst
-                                                                            (Nscoped
-                                                                               (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental"))
-                                                                                  (Nid "policy"))
-                                                                               (Nid "status_code_throw"))
-                                                                            [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                             Atype
-                                                                               (Tnamed
-                                                                                  (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                                     [Atype
-                                                                                        (Tnamed
-                                                                                           (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
-                                                                                              [Atype "long"]))]));
-                                                                             Atype "void"]))]));
-                                                           Atype
-                                                             (Tnamed
-                                                                (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                   [Atype
-                                                                      (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                                                           Atype
-                                                             (Tnamed
-                                                                (Ninst
-                                                                   (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
-                                                                      (Nid "status_code_throw"))
-                                                                   [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                    Atype
-                                                                      (Tnamed
-                                                                         (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                            [Atype
-                                                                               (Tnamed
-                                                                                  (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                                                                    Atype "void"]))]) ,, o_base CU
-                                                                                           (Ninst
-                                                                                              (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail"))
-                                                                                                 (Nid "basic_result_error_observers"))
-                                                                                              [Atype
-                                                                                                 (Tnamed
-                                                                                                    (Ninst
-                                                                                                       (Nscoped
-                                                                                                          (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail"))
-                                                                                                          (Nid "basic_result_value_observers"))
-                                                                                                       [Atype
-                                                                                                          (Tnamed
-                                                                                                             (Ninst
-                                                                                                                (Nscoped
-                                                                                                                   (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2"))
-                                                                                                                      (Nid "detail"))
-                                                                                                                   (Nid "basic_result_storage"))
-                                                                                                                [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                                                 Atype
-                                                                                                                   (Tnamed
-                                                                                                                      (Ninst
-                                                                                                                         (Nscoped (Nglobal (Nid "system_error2"))
-                                                                                                                            (Nid "errored_status_code"))
-                                                                                                                         [Atype
-                                                                                                                            (Tnamed
-                                                                                                                               (Ninst
-                                                                                                                                  (Nscoped
-                                                                                                                                     (Nscoped (Nglobal (Nid "system_error2"))
-                                                                                                                                        (Nid "detail"))
-                                                                                                                                     (Nid "erased"))
-                                                                                                                                  [Atype "long"]))]));
-                                                                                                                 Atype
-                                                                                                                   (Tnamed
-                                                                                                                      (Ninst
-                                                                                                                         (Nscoped
-                                                                                                                            (Nscoped
-                                                                                                                               (Nscoped
-                                                                                                                                  (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2"))
-                                                                                                                                  (Nid "experimental"))
-                                                                                                                               (Nid "policy"))
-                                                                                                                            (Nid "status_code_throw"))
-                                                                                                                         [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                                                          Atype
-                                                                                                                            (Tnamed
-                                                                                                                               (Ninst
-                                                                                                                                  (Nscoped (Nglobal (Nid "system_error2"))
-                                                                                                                                     (Nid "errored_status_code"))
-                                                                                                                                  [Atype
-                                                                                                                                     (Tnamed
-                                                                                                                                        (Ninst
-                                                                                                                                           (Nscoped
-                                                                                                                                              (Nscoped (Nglobal (Nid "system_error2"))
-                                                                                                                                                 (Nid "detail"))
-                                                                                                                                              (Nid "erased"))
-                                                                                                                                           [Atype "long"]))]));
-                                                                                                                          Atype "void"]))]));
-                                                                                                        Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                                        Atype
-                                                                                                          (Tnamed
-                                                                                                             (Ninst
-                                                                                                                (Nscoped
-                                                                                                                   (Nscoped
-                                                                                                                      (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2"))
-                                                                                                                         (Nid "experimental"))
-                                                                                                                      (Nid "policy"))
-                                                                                                                   (Nid "status_code_throw"))
-                                                                                                                [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                                                 Atype
-                                                                                                                   (Tnamed
-                                                                                                                      (Ninst
-                                                                                                                         (Nscoped (Nglobal (Nid "system_error2"))
-                                                                                                                            (Nid "errored_status_code"))
-                                                                                                                         [Atype
-                                                                                                                            (Tnamed
-                                                                                                                               (Ninst
-                                                                                                                                  (Nscoped
-                                                                                                                                     (Nscoped (Nglobal (Nid "system_error2"))
-                                                                                                                                        (Nid "detail"))
-                                                                                                                                     (Nid "erased"))
-                                                                                                                                  [Atype "long"]))]));
-                                                                                                                 Atype "void"]))]));
-                                                                                               Atype
-                                                                                                 (Tnamed
-                                                                                                    (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                                                       [Atype
-                                                                                                          (Tnamed
-                                                                                                             (Ninst
-                                                                                                                (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail"))
-                                                                                                                   (Nid "erased"))
-                                                                                                                [Atype "long"]))]));
-                                                                                               Atype
-                                                                                                 (Tnamed
-                                                                                                    (Ninst
-                                                                                                       (Nscoped
-                                                                                                          (Nscoped
-                                                                                                             (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2"))
-                                                                                                                (Nid "experimental"))
-                                                                                                             (Nid "policy"))
-                                                                                                          (Nid "status_code_throw"))
-                                                                                                       [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                                        Atype
-                                                                                                          (Tnamed
-                                                                                                             (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                                                                [Atype
-                                                                                                                   (Tnamed
-                                                                                                                      (Ninst
-                                                                                                                         (Nscoped
-                                                                                                                            (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail"))
-                                                                                                                            (Nid "erased"))
-                                                                                                                         [Atype "long"]))]));
-                                                                                                        Atype "void"]))])
-                                                                                           (Ninst
-                                                                                              (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail"))
-                                                                                                 (Nid "basic_result_value_observers"))
-                                                                                              [Atype
-                                                                                                 (Tnamed
-                                                                                                    (Ninst
-                                                                                                       (Nscoped
-                                                                                                          (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail"))
-                                                                                                          (Nid "basic_result_storage"))
-                                                                                                       [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                                        Atype
-                                                                                                          (Tnamed
-                                                                                                             (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                                                                [Atype
-                                                                                                                   (Tnamed
-                                                                                                                      (Ninst
-                                                                                                                         (Nscoped
-                                                                                                                            (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail"))
-                                                                                                                            (Nid "erased"))
-                                                                                                                         [Atype "long"]))]));
-                                                                                                        Atype
-                                                                                                          (Tnamed
-                                                                                                             (Ninst
-                                                                                                                (Nscoped
-                                                                                                                   (Nscoped
-                                                                                                                      (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2"))
-                                                                                                                         (Nid "experimental"))
-                                                                                                                      (Nid "policy"))
-                                                                                                                   (Nid "status_code_throw"))
-                                                                                                                [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                                                 Atype
-                                                                                                                   (Tnamed
-                                                                                                                      (Ninst
-                                                                                                                         (Nscoped (Nglobal (Nid "system_error2"))
-                                                                                                                            (Nid "errored_status_code"))
-                                                                                                                         [Atype
-                                                                                                                            (Tnamed
-                                                                                                                               (Ninst
-                                                                                                                                  (Nscoped
-                                                                                                                                     (Nscoped (Nglobal (Nid "system_error2"))
-                                                                                                                                        (Nid "detail"))
-                                                                                                                                     (Nid "erased"))
-                                                                                                                                  [Atype "long"]))]));
-                                                                                                                 Atype "void"]))]));
-                                                                                               Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                               Atype
-                                                                                                 (Tnamed
-                                                                                                    (Ninst
-                                                                                                       (Nscoped
-                                                                                                          (Nscoped
-                                                                                                             (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2"))
-                                                                                                                (Nid "experimental"))
-                                                                                                             (Nid "policy"))
-                                                                                                          (Nid "status_code_throw"))
-                                                                                                       [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                                        Atype
-                                                                                                          (Tnamed
-                                                                                                             (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                                                                [Atype
-                                                                                                                   (Tnamed
-                                                                                                                      (Ninst
-                                                                                                                         (Nscoped
-                                                                                                                            (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail"))
-                                                                                                                            (Nid "erased"))
-                                                                                                                         [Atype "long"]))]));
-                                                                                                        Atype "void"]))])
-  |-> ResultSuccessR ReceiptR tres
-
-(* todo: add to its defn and structRs for the 2 ref_to asserts above *)
-Lemma resSuccess {T} (valR: T -> Rep) (res: T):
-  ResultSuccessR valR res -|-  _field "boost::outcome_v2::value_fixme" |-> valR res.
-Proof using. Admitted.
-
-rewrite resSuccess.
-slauto.
-ren_hyp tres TransactionResult.
-iExists tres.
-slauto1.
-go.
-iAssert (  reference_to
-    (Tnamed
-       (Ninst (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "basic_result_value_observers"))
-          [Atype
-             (Tnamed
-                (Ninst (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "basic_result_storage"))
-                   [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                    Atype
-                      (Tnamed
-                         (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                            [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                    Atype
-                      (Tnamed
-                         (Ninst (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy")) (Nid "status_code_throw"))
-                            [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                             Atype
-                               (Tnamed
-                                  (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                     [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                             Atype "void"]))]));
-           Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-           Atype
-             (Tnamed
-                (Ninst (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy")) (Nid "status_code_throw"))
-                   [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                    Atype
-                      (Tnamed
-                         (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                            [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                    Atype "void"]))]))
-    (result_addr ,, o_base CU
-                      (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
-                         [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                          Atype
-                            (Tnamed
-                               (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                  [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                          Atype
-                            (Tnamed
-                               (Ninst (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy")) (Nid "status_code_throw"))
-                                  [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                   Atype
-                                     (Tnamed
-                                        (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                           [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                                   Atype "void"]))])
-                      (Ninst (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "basic_result_final"))
-                         [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                          Atype
-                            (Tnamed
-                               (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                  [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                          Atype
-                            (Tnamed
-                               (Ninst (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy")) (Nid "status_code_throw"))
-                                  [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                   Atype
-                                     (Tnamed
-                                        (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                           [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                                   Atype "void"]))]) ,, o_base CU
-                                                          (Ninst (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "basic_result_final"))
-                                                             [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                              Atype
-                                                                (Tnamed
-                                                                   (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                      [Atype
-                                                                         (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                                                              Atype
-                                                                (Tnamed
-                                                                   (Ninst
-                                                                      (Nscoped
-                                                                         (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
-                                                                         (Nid "status_code_throw"))
-                                                                      [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                       Atype
-                                                                         (Tnamed
-                                                                            (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                               [Atype
-                                                                                  (Tnamed
-                                                                                     (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
-                                                                                        [Atype "long"]))]));
-                                                                       Atype "void"]))])
-                                                          (Ninst
-                                                             (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "basic_result_error_observers"))
-                                                             [Atype
-                                                                (Tnamed
-                                                                   (Ninst
-                                                                      (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail"))
-                                                                         (Nid "basic_result_value_observers"))
-                                                                      [Atype
-                                                                         (Tnamed
-                                                                            (Ninst
-                                                                               (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail"))
-                                                                                  (Nid "basic_result_storage"))
-                                                                               [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                Atype
-                                                                                  (Tnamed
-                                                                                     (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                                        [Atype
-                                                                                           (Tnamed
-                                                                                              (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
-                                                                                                 [Atype "long"]))]));
-                                                                                Atype
-                                                                                  (Tnamed
-                                                                                     (Ninst
-                                                                                        (Nscoped
-                                                                                           (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental"))
-                                                                                              (Nid "policy"))
-                                                                                           (Nid "status_code_throw"))
-                                                                                        [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                         Atype
-                                                                                           (Tnamed
-                                                                                              (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                                                 [Atype
-                                                                                                    (Tnamed
-                                                                                                       (Ninst
-                                                                                                          (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail"))
-                                                                                                             (Nid "erased"))
-                                                                                                          [Atype "long"]))]));
-                                                                                         Atype "void"]))]));
-                                                                       Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                       Atype
-                                                                         (Tnamed
-                                                                            (Ninst
-                                                                               (Nscoped
-                                                                                  (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental"))
-                                                                                     (Nid "policy"))
-                                                                                  (Nid "status_code_throw"))
-                                                                               [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                Atype
-                                                                                  (Tnamed
-                                                                                     (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                                        [Atype
-                                                                                           (Tnamed
-                                                                                              (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
-                                                                                                 [Atype "long"]))]));
-                                                                                Atype "void"]))]));
-                                                              Atype
-                                                                (Tnamed
-                                                                   (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                      [Atype
-                                                                         (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                                                              Atype
-                                                                (Tnamed
-                                                                   (Ninst
-                                                                      (Nscoped
-                                                                         (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
-                                                                         (Nid "status_code_throw"))
-                                                                      [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                       Atype
-                                                                         (Tnamed
-                                                                            (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                               [Atype
-                                                                                  (Tnamed
-                                                                                     (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased"))
-                                                                                        [Atype "long"]))]));
-                                                                       Atype "void"]))]) ,, o_base CU
-                                                                                              (Ninst
-                                                                                                 (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail"))
-                                                                                                    (Nid "basic_result_error_observers"))
-                                                                                                 [Atype
-                                                                                                    (Tnamed
-                                                                                                       (Ninst
-                                                                                                          (Nscoped
-                                                                                                             (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail"))
-                                                                                                             (Nid "basic_result_value_observers"))
-                                                                                                          [Atype
-                                                                                                             (Tnamed
-                                                                                                                (Ninst
-                                                                                                                   (Nscoped
-                                                                                                                      (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2"))
-                                                                                                                         (Nid "detail"))
-                                                                                                                      (Nid "basic_result_storage"))
-                                                                                                                   [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                                                    Atype
-                                                                                                                      (Tnamed
-                                                                                                                         (Ninst
-                                                                                                                            (Nscoped (Nglobal (Nid "system_error2"))
-                                                                                                                               (Nid "errored_status_code"))
-                                                                                                                            [Atype
-                                                                                                                               (Tnamed
-                                                                                                                                  (Ninst
-                                                                                                                                     (Nscoped
-                                                                                                                                        (Nscoped (Nglobal (Nid "system_error2"))
-                                                                                                                                           (Nid "detail"))
-                                                                                                                                        (Nid "erased"))
-                                                                                                                                     [Atype "long"]))]));
-                                                                                                                    Atype
-                                                                                                                      (Tnamed
-                                                                                                                         (Ninst
-                                                                                                                            (Nscoped
-                                                                                                                               (Nscoped
-                                                                                                                                  (Nscoped
-                                                                                                                                     (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2"))
-                                                                                                                                     (Nid "experimental"))
-                                                                                                                                  (Nid "policy"))
-                                                                                                                               (Nid "status_code_throw"))
-                                                                                                                            [Atype
-                                                                                                                               (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                                                             Atype
-                                                                                                                               (Tnamed
-                                                                                                                                  (Ninst
-                                                                                                                                     (Nscoped (Nglobal (Nid "system_error2"))
-                                                                                                                                        (Nid "errored_status_code"))
-                                                                                                                                     [Atype
-                                                                                                                                        (Tnamed
-                                                                                                                                           (Ninst
-                                                                                                                                              (Nscoped
-                                                                                                                                                 (Nscoped (Nglobal (Nid "system_error2"))
-                                                                                                                                                    (Nid "detail"))
-                                                                                                                                                 (Nid "erased"))
-                                                                                                                                              [Atype "long"]))]));
-                                                                                                                             Atype "void"]))]));
-                                                                                                           Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                                           Atype
-                                                                                                             (Tnamed
-                                                                                                                (Ninst
-                                                                                                                   (Nscoped
-                                                                                                                      (Nscoped
-                                                                                                                         (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2"))
-                                                                                                                            (Nid "experimental"))
-                                                                                                                         (Nid "policy"))
-                                                                                                                      (Nid "status_code_throw"))
-                                                                                                                   [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                                                    Atype
-                                                                                                                      (Tnamed
-                                                                                                                         (Ninst
-                                                                                                                            (Nscoped (Nglobal (Nid "system_error2"))
-                                                                                                                               (Nid "errored_status_code"))
-                                                                                                                            [Atype
-                                                                                                                               (Tnamed
-                                                                                                                                  (Ninst
-                                                                                                                                     (Nscoped
-                                                                                                                                        (Nscoped (Nglobal (Nid "system_error2"))
-                                                                                                                                           (Nid "detail"))
-                                                                                                                                        (Nid "erased"))
-                                                                                                                                     [Atype "long"]))]));
-                                                                                                                    Atype "void"]))]));
-                                                                                                  Atype
-                                                                                                    (Tnamed
-                                                                                                       (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                                                          [Atype
-                                                                                                             (Tnamed
-                                                                                                                (Ninst
-                                                                                                                   (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail"))
-                                                                                                                      (Nid "erased"))
-                                                                                                                   [Atype "long"]))]));
-                                                                                                  Atype
-                                                                                                    (Tnamed
-                                                                                                       (Ninst
-                                                                                                          (Nscoped
-                                                                                                             (Nscoped
-                                                                                                                (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2"))
-                                                                                                                   (Nid "experimental"))
-                                                                                                                (Nid "policy"))
-                                                                                                             (Nid "status_code_throw"))
-                                                                                                          [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                                           Atype
-                                                                                                             (Tnamed
-                                                                                                                (Ninst
-                                                                                                                   (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                                                                   [Atype
-                                                                                                                      (Tnamed
-                                                                                                                         (Ninst
-                                                                                                                            (Nscoped
-                                                                                                                               (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail"))
-                                                                                                                               (Nid "erased"))
-                                                                                                                            [Atype "long"]))]));
-                                                                                                           Atype "void"]))])
-                                                                                              (Ninst
-                                                                                                 (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail"))
-                                                                                                    (Nid "basic_result_value_observers"))
-                                                                                                 [Atype
-                                                                                                    (Tnamed
-                                                                                                       (Ninst
-                                                                                                          (Nscoped
-                                                                                                             (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail"))
-                                                                                                             (Nid "basic_result_storage"))
-                                                                                                          [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                                           Atype
-                                                                                                             (Tnamed
-                                                                                                                (Ninst
-                                                                                                                   (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                                                                   [Atype
-                                                                                                                      (Tnamed
-                                                                                                                         (Ninst
-                                                                                                                            (Nscoped
-                                                                                                                               (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail"))
-                                                                                                                               (Nid "erased"))
-                                                                                                                            [Atype "long"]))]));
-                                                                                                           Atype
-                                                                                                             (Tnamed
-                                                                                                                (Ninst
-                                                                                                                   (Nscoped
-                                                                                                                      (Nscoped
-                                                                                                                         (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2"))
-                                                                                                                            (Nid "experimental"))
-                                                                                                                         (Nid "policy"))
-                                                                                                                      (Nid "status_code_throw"))
-                                                                                                                   [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                                                    Atype
-                                                                                                                      (Tnamed
-                                                                                                                         (Ninst
-                                                                                                                            (Nscoped (Nglobal (Nid "system_error2"))
-                                                                                                                               (Nid "errored_status_code"))
-                                                                                                                            [Atype
-                                                                                                                               (Tnamed
-                                                                                                                                  (Ninst
-                                                                                                                                     (Nscoped
-                                                                                                                                        (Nscoped (Nglobal (Nid "system_error2"))
-                                                                                                                                           (Nid "detail"))
-                                                                                                                                        (Nid "erased"))
-                                                                                                                                     [Atype "long"]))]));
-                                                                                                                    Atype "void"]))]));
-                                                                                                  Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                                  Atype
-                                                                                                    (Tnamed
-                                                                                                       (Ninst
-                                                                                                          (Nscoped
-                                                                                                             (Nscoped
-                                                                                                                (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2"))
-                                                                                                                   (Nid "experimental"))
-                                                                                                                (Nid "policy"))
-                                                                                                             (Nid "status_code_throw"))
-                                                                                                          [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                                                                                           Atype
-                                                                                                             (Tnamed
-                                                                                                                (Ninst
-                                                                                                                   (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                                                                                   [Atype
-                                                                                                                      (Tnamed
-                                                                                                                         (Ninst
-                                                                                                                            (Nscoped
-                                                                                                                               (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail"))
-                                                                                                                               (Nid "erased"))
-                                                                                                                            [Atype "long"]))]));
-                                                                                                           Atype "void"]))]))
-        ) as "#?"%string;[admit|].
-go.
-Search TransactionResult.
-go.
-go.
-iExists 1.
-
-eaterUnifyU
-Search Learnable libspecs.optionR.
-libspecs.learnOpt
-Search reference_to.
-go.
-Definition merge : ptr -> WpSpec mpredI val val :=
-    (
-         fun (this:ptr) =>
-  \arg{statep} "" (Vptr statep) 
-  \prepost{assumptionsAndUpdates} statep |-> StateR assumptionsAndUpdates
-  \pre{preBlockState g preTxState} this |-> BlockState.Rauth preBlockState g preTxState
-  \pre [| satisfiesAssumptions assumptionsAndUpdates preTxState |]
-  \post this |-> BlockState.Rauth preBlockState g (applyUpdates assumptionsAndUpdates preTxState)).
-
-
-
-iAssert (merge) as "#?"%string;[admit|].
-slauto.
-
-slauto.
-Search Learnable BlockState.Rfrag.
-go.
-Check H.
-go.
-eagerUnifyU.
-Check t.
-
-slauto.
-unfold libspecs.optionR. go.
-go.
-slauto.
-slauto.
-slauto.
-slauto.
-slauto.
 go.
 
-slauto.
+
 
 Abort.
 

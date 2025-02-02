@@ -1,4 +1,4 @@
-Require Import EVMOpSem.block.
+Require Import monad.EVMOpSem.block.
 Require Import stdpp.gmap.
 
 (* delete and inline? *)
@@ -23,7 +23,9 @@ Definition w256 := N.
 
 Record BlockHeader :={
     base_fee_per_gas: option w256;
-    number: N
+    number: N;
+    beneficiary: evm.address
+              
     }.
 Record TransactionResult :=
   {
@@ -32,7 +34,7 @@ Record TransactionResult :=
     logs: list evm.log_entry;
   }.
 
-Definition stateAfterTransactionAux  (s: StateOfAccounts) (t: Transaction): StateOfAccounts * TransactionResult.
+Definition stateAfterTransactionAux  (hdr: BlockHeader) (s: StateOfAccounts) (txindex: nat) (t: Transaction): StateOfAccounts * TransactionResult.
 Admitted. (* To be provided by an appropriate EVM semantics *)
 
 (* similar to what execute_final does *)
@@ -40,7 +42,7 @@ Definition applyGasRefundsAndRewards (hdr: BlockHeader) (s: StateOfAccounts) (t:
 
 (* txindex can be used to store incarnation numbers *)
 Definition stateAfterTransaction (hdr: BlockHeader) (txindex: nat) (s: StateOfAccounts) (t: Transaction): StateOfAccounts * TransactionResult :=
-  let (si, r) := stateAfterTransactionAux s t in
+  let (si, r) := stateAfterTransactionAux hdr s txindex t in
   (applyGasRefundsAndRewards hdr si r, r).
 
 Fixpoint stateAfterTransactions' (hdr: BlockHeader) (s: StateOfAccounts) (ts: list Transaction) (start:nat) (prevResults: list TransactionResult): StateOfAccounts * list TransactionResult :=
@@ -56,7 +58,7 @@ Definition stateAfterTransactions  (hdr: BlockHeader) (s: StateOfAccounts) (ts: 
       Lemma stateAfterTransactionsC' (hdr: BlockHeader) (s: StateOfAccounts) (c: Transaction) (ts: list Transaction) (start:nat) (prevResults: list TransactionResult):
         stateAfterTransactions' hdr s (ts++[c]) start prevResults
         = let '(sf, prevs) := stateAfterTransactions' hdr s (ts) start prevResults in
-          let '(sff, res) := stateAfterTransaction hdr (length ts) sf c in
+          let '(sff, res) := stateAfterTransaction hdr (length ts+start) sf c in
           (sff, prevs ++ [res]).
       Proof using.
         revert s.
@@ -67,6 +69,8 @@ Definition stateAfterTransactions  (hdr: BlockHeader) (s: StateOfAccounts) (ts: 
         destruct (stateAfterTransaction hdr start s a).
         simpl.
         rewrite IHts.
+        repeat f_equiv.
+        rewrite <- Nat.add_succ_r.
         reflexivity.
       Qed.
       Lemma stateAfterTransactionsC (hdr: BlockHeader) (s: StateOfAccounts) (c: Transaction) (ts: list Transaction):
@@ -75,7 +79,9 @@ Definition stateAfterTransactions  (hdr: BlockHeader) (s: StateOfAccounts) (ts: 
           let '(sff, res) := stateAfterTransaction hdr (length ts) sf c in
           (sff, prevs ++ [res]).
       Proof using.
-        apply stateAfterTransactionsC'.
+        setoid_rewrite stateAfterTransactionsC'.
+        repeat rewrite <- plus_n_O.
+        reflexivity.
       Qed.
 
       Lemma  rect_len g l lt h bs : (g, l) = stateAfterTransactions h bs lt ->
