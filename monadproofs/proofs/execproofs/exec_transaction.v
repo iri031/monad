@@ -274,20 +274,18 @@ Ltac slauto1 := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go; f
 
 Transparent libspecs.optionR.
 slauto1.
-do 5 (iExists _).
-unfold TransactionR. go. eagerUnifyU. slauto.
 Transparent set_original_nonce.
+Existing Instance UNSAFE_read_prim_cancel.
 unfold set_original_nonce in *.
 simpl in *.
-Check H.
 autorewrite with syntactic.
-
 rewrite lookup_empty in H.
-go.
-Check H.
-forward_reason.
-subst.
-slauto.
+forward_reason. subst.
+go. subst. go.
+unfold BheaderR. go.
+#[global] Instance : LearnEq3 (BlockState.Rauth) := ltac:(solve_learnable).
+unfold TransactionR. go. eagerUnifyU. slauto.
+do 3 (iExists _).  eagerUnifyU. slauto.
 cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState"))
        (Nfunction function_qualifiers.N (Nf "can_merge")
           [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))))]))
@@ -300,7 +298,6 @@ cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState"))
   \post{b} [Vbool b] [| if b then  (satisfiesAssumptions assumptionsAndUpdates preTxState) else Logic.True |]).
 
 iAssert (can_merge) as "#?"%string;[admit|].
-#[global] Instance : LearnEq3 (BlockState.Rauth) := ltac:(solve_learnable).
 slauto.
 wp_if.
 {
