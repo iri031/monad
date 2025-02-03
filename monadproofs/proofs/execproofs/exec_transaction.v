@@ -243,7 +243,7 @@ Opaque Zdigits.Z_to_binary.
     \prepost{q basefeepergas} bfeep |-> u256R q basefeepergas
     \arg{i preTxState resultp hdr} "" (Vptr resultp)
     \pre{postTxState result} [| (postTxState, result) = stateAfterTransactionAux hdr preTxState i t |]
-    \pre resultp |-> EvmcResultR result
+    \prepost resultp |-> EvmcResultR result
     \arg{benp} "beneficiary" (Vref benp)
     \prepost{benAddr qben} benp |-> addressR qben benAddr
     \pre [| postTxState = applyUpdates assumptionsAndUpdates preTxState |]
@@ -561,6 +561,99 @@ go.
 
   (* too many temps need to be destructed just before returning *)
 
+  cpp.spec (Nscoped (Nscoped resultn (Nid "value_converting_constructor_tag")) (Nfunction function_qualifiers.N Ndtor []))
+    as tag_dtor with
+      (fun (this:ptr) => \pre this |-> structR ((Nscoped resultn (Nid "value_converting_constructor_tag"))) (cQp.mut 1)
+                          \post emp
+      ).
+  iAssert (tag_dtor) as "#?"%string;[admit|].
+  go.
+  rewrite <- wp_const_const_delete.
+  go.
+  cpp.spec (Nscoped ("monad::Receipt") (Nfunction function_qualifiers.N Ndtor []))
+    as rcpt_dtor with
+      (fun (this:ptr) => \pre{r} this |-> ReceiptR r
+                          \post emp
+      ).
+  iAssert (rcpt_dtor) as "#?"%string;[admit|].
+  go.
+  #[global] Instance : LearnEq1 ReceiptR := ltac:(solve_learnable).
+  go.
+  (* TODO: generalize *)
+  cpp.spec (Nscoped (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+       [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
+        Atype
+          (Tnamed
+             (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+        Atype
+          (Tnamed
+             (Ninst
+                (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
+                   (Nid "status_code_throw"))
+                [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
+                 Atype
+                   (Tnamed
+                      (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                         [Atype
+                            (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                 Atype "void"]))]) (Nfunction function_qualifiers.N Ndtor []))
+    as res_dtor with
+      (fun (this:ptr) =>
+         \pre{r} this |-> ResultSuccessR EvmcResultR r
+           \post emp
+      ).
+  iAssert (res_dtor) as "#?"%string;[admit|].
+  go.
+  setoid_rewrite ResultSucRDef.
+  go.
+  Search EvmcResultR Learnable.
+  #[global] Instance : LearnEq1 EvmcResultR := ltac:(solve_learnable).
+  go.
+  cpp.spec (Nscoped ("monad::State") (Nfunction function_qualifiers.N Ndtor []))
+    as st_dtor with
+      (fun (this:ptr) => \pre{au} this |-> StateR au
+                          \post emp
+      ).
+  iAssert (st_dtor) as "#?"%string;[admit|].
+  go.
+  (* TODO: fix *)
+  cpp.spec (Nscoped (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+       [Atype "void";
+        Atype
+          (Tnamed
+             (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+        Atype
+          (Tnamed
+             (Ninst
+                (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
+                   (Nid "status_code_throw"))
+                [Atype "void";
+                 Atype
+                   (Tnamed
+                      (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                         [Atype
+                            (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                 Atype "void"]))]) (Nfunction function_qualifiers.N Ndtor []))
+    as br_dtor with
+      (fun (this:ptr) => \pre this |-> emp
+                          \post emp
+      ).
+  iAssert (br_dtor) as "#?"%string;[admit|].
+  go.
+  (*
+  _ : blockStatePtr au |-> BlockState.Rauth preBlockState g (applyUpdates _t_1 prevTxGlobalState)
+  _ : _p_ ,, o_field CU (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "value_fixme")) |-> ReceiptR result
+  --------------------------------------∗
+  hdrp ,, o_field CU (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "BlockHeader")) (Nid "base_fee_per_gas"))
+  |-> libspecs.optionR u256t (u256R qh) qh (base_fee_per_gas header) ∗
+  (let
+   '(finalState, result0) := stateAfterTransaction header i prevTxGlobalState _t_ in _p_ |-> ResultSuccessR ReceiptR result0 ∗
+    blockStatePtr au |-> BlockState.Rauth preBlockState g finalState)
+*)    
+    
+  Search ReceiptR Learnable.
 
 Abort.
 

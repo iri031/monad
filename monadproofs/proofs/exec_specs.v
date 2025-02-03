@@ -417,6 +417,35 @@ Section with_Sigma.
             let '(postTxState, actualResult) := stateAfterTransactionAux header preTxState (N.to_nat (tx_index (incarnation au))) t in
             postTxState = applyUpdates assumptionsAndUpdates preTxState /\ result = actualResult |].
 
+  Definition execute_impl2_specg : WpSpec mpredI val val :=
+    \with (speculative: bool) (* making this the first argument helps in proofs *)
+    \arg{chainp :ptr} "chain" (Vref chainp)
+    \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
+    \arg{txp} "tx" (Vref txp)
+    \prepost{qtx t} txp |-> TransactionR qtx t
+    \arg{senderp} "sender" (Vref senderp)
+    \prepost{qs} senderp |-> addressR qs (sender t)
+    \arg{hdrp: ptr} "hdr" (Vref hdrp)
+    \prepost{qh header} hdrp |-> BheaderR qh header
+    \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
+    \arg{statep: ptr} "state" (Vref statep)
+    \pre{au: AssumptionsAndUpdates} statep |-> StateR au
+    \pre [| newStates au = ∅ |] (* this is a weaker asumption than the impl, which also guarantees that original only has the sender's account *)
+    \prepost{(preBlockState: StateOfAccounts) (gl: BlockState.glocs) qb}
+    (blockStatePtr au) |-> BlockState.Rfrag preBlockState qb gl
+    \prepost{preTxState} (if speculative then emp else blockStatePtr au |-> BlockState.Rauth preBlockState gl preTxState)
+    \post{retp}[Vptr retp] Exists assumptionsAndUpdates result,
+      statep |-> StateR assumptionsAndUpdates
+      ** retp |-> ResultSuccessR EvmcResultR result 
+       ** [| blockStatePtr assumptionsAndUpdates = blockStatePtr au |]
+       ** [| incarnation assumptionsAndUpdates = incarnation au |]
+       ** [| let postCond preTxState :=
+               let '(postTxState, actualResult) := stateAfterTransactionAux header preTxState (N.to_nat (tx_index (incarnation au))) t in
+               postTxState = applyUpdates assumptionsAndUpdates preTxState /\ result = actualResult in
+             if speculative then 
+               forall preTxState, satisfiesAssumptions assumptionsAndUpdates preTxState -> postCond preTxState
+             else postCond preTxState                                                                                    
+             |].
  
   Definition IncarnationR (q:Qp) (i: Incarnation): Rep. Proof. Admitted.
 
