@@ -101,8 +101,10 @@ Section with_Sigma.
   Definition BheaderR (q:Qp) (hdr: BlockHeader) : Rep :=
     structR "monad::BlockHeader" q
     ** _field "monad::BlockHeader::base_fee_per_gas" |-> libspecs.optionR u256t (u256R q) q  (base_fee_per_gas hdr)
-    ** _field "monad::BlockHeader::number" |-> ulongR q  (number hdr).
-  
+    ** _field "monad::BlockHeader::number" |-> ulongR q  (number hdr)
+    ** _field "monad::BlockHeader::beneficiary" 
+         |-> addressR 1 (beneficiary hdr).
+         
   Definition BlockR (q: Qp) (c: Block): Rep :=
     _field "::monad::Block::transactions" |-> VectorR (Tnamed "::monad::Transaction") (fun t => TransactionR q t) q (transactions c)
     ** _field "::monad::Block::header" |-> BheaderR q (header c)

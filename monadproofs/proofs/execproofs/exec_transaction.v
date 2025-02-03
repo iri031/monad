@@ -232,6 +232,152 @@ cpp.spec (Ninst
   
   #[global] Instance : LearnEq2 IncarnationR := ltac:(solve_learnable).
 Opaque Zdigits.Z_to_binary.
+   Definition execute_final_spec : WpSpec mpredI val val :=
+    \arg{statep: ptr} "state" (Vref statep)
+    \pre{assumptionsAndUpdates}  statep |-> StateR assumptionsAndUpdates
+    \arg{txp} "tx" (Vref txp)
+    \prepost{qtx t} txp |-> TransactionR qtx t
+    \arg{senderp} "sender" (Vref senderp)
+    \prepost{qs} senderp |-> addressR qs (sender t)
+    \arg{bfeep: ptr} "base_fee_per_gase" (Vref bfeep)
+    \prepost{q basefeepergas} bfeep |-> u256R q basefeepergas
+    \arg{i preTxState resultp hdr} "" (Vptr resultp)
+    \pre{postTxState result} [| (postTxState, result) = stateAfterTransactionAux hdr preTxState i t |]
+    \pre resultp |-> EvmcResultR result
+    \arg{benp} "beneficiary" (Vref benp)
+    \prepost{benAddr qben} benp |-> addressR qben benAddr
+    \pre [| postTxState = applyUpdates assumptionsAndUpdates preTxState |]
+    \post{retp}[Vptr retp] Exists assumptionsAndUpdatesFinal,
+        retp |-> ReceiptR result ** statep |-> StateR assumptionsAndUpdatesFinal
+        ** [| (stateAfterTransaction hdr i preTxState t).1 = applyUpdates assumptionsAndUpdatesFinal preTxState |].
+
+Ltac applyPHyp :=
+  let Hbb := fresh "autogenhyp" in
+  match goal with
+    [ Ha:?T, Hb: _ |- _] =>
+      let Tt := type of T in
+      unify Tt Prop;
+      pose proof Hb as Hbb; apply Ha in Hbb
+  end.
+Lemma ResultSucRDef {T} (R: T-> _) t : ResultSuccessR R t  -|- o_field CU (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "value_fixme")) |-> R t.
+Proof using. Admitted.
+Ltac slauto2 := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go; fail); try (apply False_rect; try contradiction; try congruence; try nia; fail); try autorewrite with syntactic)
+  then slauto2  else idtac.
+Ltac slauto1 := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go; fail); try (apply False_rect; try contradiction; try congruence; try nia; fail))
+  then slauto1  else idtac.
+  (* TODO: generalize over evmc::Result *)
+cpp.spec 
+       (Ninst
+             (Nscoped (Nglobal (Nid "monad"))
+                (Nfunction function_qualifiers.N (Nf "has_error")
+                   [Tref
+                      (Tconst
+                         (Tnamed
+                            (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+                               [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
+                                Atype
+                                  (Tnamed
+                                     (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                        [Atype
+                                           (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                                Atype
+                                  (Tnamed
+                                     (Ninst
+                                        (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
+                                           (Nid "status_code_throw"))
+                                        [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
+                                         Atype
+                                           (Tnamed
+                                              (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                                 [Atype
+                                                    (Tnamed
+                                                       (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                                         Atype "void"]))])))]))
+             [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")))]) as has_error with
+      (\pre emp (* TODO: fix *)
+         \arg{resp} "res" (Vptr resp)
+         \prepost{res} resp |->  ResultSuccessR EvmcResultR (* TODO: EvmcResultR *) res
+         \post [Vbool false] emp
+    ).
+Definition opt_value_or  :=
+specify
+  {|
+    info_name :=
+      Ninst
+        (Nscoped
+           (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
+              [Atype (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")]))])
+           (Nfunction function_qualifiers.Ncl (Nf "value_or") ["int&&"%cpp_type]))
+        [Atype "int"];
+    info_type :=
+      tMethod
+        (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
+           [Atype (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")]))])
+        QC (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")]))
+        ["int&&"%cpp_type]
+  |}
+      ( fun this =>
+          \arg{defp} "" (Vptr defp)
+           \prepost{q (n:N)} defp |-> intR (cQp.mut q) n
+      \pre{q hdr} this |-> libspecs.optionR u256t (u256R q) q (base_fee_per_gas hdr)
+      \post{retp} [Vptr retp] retp |-> u256R 1 (match (base_fee_per_gas hdr) with | Some x => x | None => n end)
+    ).
+
+(*
+constexpr const value_type &&value() const && { return static_cast<value_type &&>(_value); }
+*)
+cpp.spec (Ninst
+             (Nscoped (Nglobal (Nid "monad"))
+                (Nfunction function_qualifiers.N (Nf "value")
+                   [Tref
+                      (Tconst
+                         (Tnamed
+                            (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+                               [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
+                                Atype
+                                  (Tnamed
+                                     (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                        [Atype
+                                           (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                                Atype
+                                  (Tnamed
+                                     (Ninst
+                                        (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
+                                           (Nid "status_code_throw"))
+                                        [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
+                                         Atype
+                                           (Tnamed
+                                              (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                                                 [Atype
+                                                    (Tnamed
+                                                       (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                                         Atype "void"]))])))]))
+             [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")))]) as result_value with
+    (
+      \arg{this} "this" (Vptr this)
+       \prepost{res} this |-> ResultSuccessR EvmcResultR (* TODO: EvmcResultR *) res
+       \post [Vref (this ,, _field "boost::outcome_v2::value_fixme")] emp).
+
+
+Definition exec_final :=
+  specify
+  {|
+    info_name :=
+      Ninst
+        (Nscoped (Nglobal (Nid "monad"))
+           (Nfunction function_qualifiers.N (Nf "execute_final")
+              [Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))));
+               Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))));
+               Tref (Tconst (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")])));
+               Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))))]))
+        [Avalue (Eint 11 (Tenum (Nglobal (Nid "evmc_revision"))))];
+    info_type :=
+      tFunction (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")))
+        [Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))));
+         Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))));
+         Tref (Tconst (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")])));
+         Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))))]
+  |} execute_final_spec.
 
   Lemma prf: denoteModule module
              ** (opt_reconstr TransactionResult resultT)
@@ -266,11 +412,6 @@ slauto.
 Transparent TransactionR.
 unfold TransactionR.
 slauto.
-
-Ltac slauto2 := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go; fail); try (apply False_rect; try contradiction; try congruence; try nia; fail); try autorewrite with syntactic)
-  then slauto2  else idtac.
-Ltac slauto1 := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go; fail); try (apply False_rect; try contradiction; try congruence; try nia; fail))
-  then slauto1  else idtac.
 
 Transparent libspecs.optionR.
 slauto1.
@@ -325,68 +466,11 @@ wp_if.
   go.
 
 
-  (* TODO: generalize over evmc::Result *)
-cpp.spec 
-       (Ninst
-             (Nscoped (Nglobal (Nid "monad"))
-                (Nfunction function_qualifiers.N (Nf "has_error")
-                   [Tref
-                      (Tconst
-                         (Tnamed
-                            (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
-                               [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                Atype
-                                  (Tnamed
-                                     (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                        [Atype
-                                           (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                                Atype
-                                  (Tnamed
-                                     (Ninst
-                                        (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
-                                           (Nid "status_code_throw"))
-                                        [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                         Atype
-                                           (Tnamed
-                                              (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                 [Atype
-                                                    (Tnamed
-                                                       (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                                         Atype "void"]))])))]))
-             [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")))]) as has_error with
-      (\pre emp (* TODO: fix *)
-         \arg{resp} "res" (Vptr resp)
-         \prepost{res} resp |->  ResultSuccessR EvmcResultR (* TODO: EvmcResultR *) res
-         \post [Vbool false] emp
-    ).
   
 iAssert (has_error) as "#?"%string;[admit|].
 slauto.
 
 
-Definition opt_value_or  :=
-specify
-  {|
-    info_name :=
-      Ninst
-        (Nscoped
-           (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
-              [Atype (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")]))])
-           (Nfunction function_qualifiers.Ncl (Nf "value_or") ["int&&"%cpp_type]))
-        [Atype "int"];
-    info_type :=
-      tMethod
-        (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
-           [Atype (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")]))])
-        QC (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")]))
-        ["int&&"%cpp_type]
-  |}
-      ( fun this =>
-          \arg{defp} "" (Vptr defp)
-           \prepost{q (n:N)} defp |-> intR (cQp.mut q) n
-      \pre{q hdr} this |-> libspecs.optionR u256t (u256R q) q (base_fee_per_gas hdr)
-      \post{retp} [Vptr retp] retp |-> u256R 1 (match (base_fee_per_gas hdr) with | Some x => x | None => n end)
-    ).
 
 Existing Instance UNSAFE_read_prim_cancel.
 iAssert (opt_value_or) as "#?"%string;[admit|].
@@ -399,97 +483,54 @@ slauto.
 rewrite <- wp_const_const_delete.
 slauto.
 
-(*
-constexpr const value_type &&value() const && { return static_cast<value_type &&>(_value); }
-*)
-cpp.spec (Ninst
-             (Nscoped (Nglobal (Nid "monad"))
-                (Nfunction function_qualifiers.N (Nf "value")
-                   [Tref
-                      (Tconst
-                         (Tnamed
-                            (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
-                               [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                Atype
-                                  (Tnamed
-                                     (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                        [Atype
-                                           (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                                Atype
-                                  (Tnamed
-                                     (Ninst
-                                        (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
-                                           (Nid "status_code_throw"))
-                                        [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                                         Atype
-                                           (Tnamed
-                                              (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                                                 [Atype
-                                                    (Tnamed
-                                                       (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                                         Atype "void"]))])))]))
-             [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")))]) as result_value with
-    (
-      \arg{this} "this" (Vptr this)
-       \pre{res} this |-> ResultSuccessR EvmcResultR (* TODO: EvmcResultR *) res
-       \post [Vref (this ,, _field "boost::outcome_v2::value_fixme")] emp).
-
 iAssert (result_value) as "#?"%string;[admit|].
 go.
-#[ignore_errors]
-cpp.spec (Ninst
-             (Nscoped (Nglobal (Nid "monad"))
-                (Nfunction function_qualifiers.N (Nf "execute_final")
-                   [Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State")));
-                    Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))));
-                    Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))));
-                    Tref (Tconst (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")])));
-                    Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result"))));
-                    Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))))]))
-             [Avalue (Eint 11 (Tenum (Nglobal (Nid "evmc_revision"))))])
-          as execute_final with (\post emp).
-   Definition execute_final_spec : WpSpec mpredI val val :=
-    \arg{statep: ptr} "state" (Vref statep)
-    \pre{au: AssumptionsAndUpdates} statep |-> StateR au
-    \arg{txp} "tx" (Vref txp)
-    \prepost{qtx t} txp |-> TransactionR qtx t
-    \arg{senderp} "sender" (Vref senderp)
-    \prepost{qs} senderp |-> addressR qs (sender t)
-    \arg{bfeep: ptr} "base_fee_per_gase" (Vref bfeep)
-    \prepost{q basefeepergas} bfeep |-> u256R q basefeepergas
-    \arg{i preTxState resultp hdr} "" (Vptr resultp)
-    \let '(postTxState, result) := stateAfterTransactionAux hdr preTxState i t
-    \pre resultp |-> ResultSuccessR EvmcResultR result
-    \arg{benp} "beneficiary" (Vref benp)
-    \prepost{benAddr qben} benp |-> addressR qben benAddr
-    \pre{assumptionsAndUpdates}  statep |-> StateR assumptionsAndUpdates
-    \pre [| postTxState = applyUpdates assumptionsAndUpdates preTxState |]
-    \post{retp}[Vptr retp] Exists assumptionsAndUpdatesFinal,
-        retp |-> ReceiptR result **
-       [| (stateAfterTransaction hdr i preTxState t).1 = applyUpdates assumptionsAndUpdatesFinal preTxState |].
-
-
-Definition exec_final :=
-  specify
-  {|
-    info_name :=
-      Ninst
-        (Nscoped (Nglobal (Nid "monad"))
-           (Nfunction function_qualifiers.N (Nf "execute_final")
-              [Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))));
-               Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))));
-               Tref (Tconst (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")])));
-               Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))))]))
-        [Avalue (Eint 11 (Tenum (Nglobal (Nid "evmc_revision"))))];
-    info_type :=
-      tFunction (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")))
-        [Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))));
-         Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))));
-         Tref (Tconst (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")])));
-         Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))))]
-  |} execute_final_spec.
 iAssert (exec_final) as "#?"%string;[admit|].
 go.
+unfold TransactionR.
+go.
+progress applyPHyp.
+repeat (iExists _). eagerUnifyC.
+match goal with
+| H:context[stateAfterTransactionAux ?a1 ?b1 ?c1 ?d1] |- context[stateAfterTransactionAux ?a2 ?b2 ?c2 ?d2] => 
+    unify a1 a2; unify b1 b2; unify c1 c2; unify d1 d2;
+    remember (stateAfterTransactionAux a1 b1 c1 d1) as saf; destruct saf as [smid result]
+end.
+
+simpl in *.
+go.
+eagerUnifyU.
+  
+rewrite ResultSucRDef.
+go.
+eagerUnifyC.
+forward_reason.
+subst.
+go.
+rewrite <- wp_const_const_delete.
+go.
+rewrite <- wp_const_const_delete.
+go.
+cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState"))
+            (Nfunction function_qualifiers.N (Nf "merge") [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))))]))
+  as merge with
+  (
+         fun (this:ptr) =>
+  \arg{statep} "" (Vptr statep) 
+  \prepost{assumptionsAndUpdates} statep |-> StateR assumptionsAndUpdates
+  \pre{preBlockState g preTxState} this |-> BlockState.Rauth preBlockState g preTxState
+  \pre [| satisfiesAssumptions assumptionsAndUpdates preTxState |]
+  \post this |-> BlockState.Rauth preBlockState g (applyUpdates assumptionsAndUpdates preTxState)).
+iAssert merge as "#?"%string;[admit|].
+go.
+Check satisfiesAssumptions.
+
+
+
+
+execute_final_spec
+BheaderR
+applyHyp
 iExists state_addr.
 iExists _.
 ren_hyp tx Transaction.

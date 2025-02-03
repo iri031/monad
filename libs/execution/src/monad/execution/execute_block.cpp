@@ -110,11 +110,12 @@ void fork_tasks(
 #define MAX_TRANSACTIONS 800
 boost::fibers::promise<void> promises[MAX_TRANSACTIONS];
 std::optional<Address> senders[MAX_TRANSACTIONS];
-std::optional<Result<Receipt>> results[MAX_TRANSACTIONS];
+std::vector<std::optional<Result<Receipt>>> results(MAX_TRANSACTIONS);
 
 void reset_promises(uint64_t num_transactions){
     for (uint64_t i = 0; i < num_transactions; ++i) {
-        promises[i]=boost::fibers::promise<void>();
+        promises[i] = boost::fibers::promise<void>();
+        results[i] = std::nullopt;
     }
 }
 
@@ -138,7 +139,7 @@ void compute_senders(Block const &block, fiber::PriorityPool &priority_pool){
     
 template <evmc_revision rev>
 void execute_transactions(Block const &block, fiber::PriorityPool &priority_pool, Chain const &chain, BlockHashBuffer const &block_hash_buffer, BlockState &block_state){
-    reset_promises(block.transactions.size()+1);
+    reset_promises(block.transactions.size() + 1);
     promises[0].set_value();
 
     for (uint64_t i = 0; i < block.transactions.size(); ++i) {
@@ -161,9 +162,7 @@ void execute_transactions(Block const &block, fiber::PriorityPool &priority_pool
             });
     }
 
-    //auto const last = static_cast<std::ptrdiff_t>(block.transactions.size());  this old code results in a stricter assumption about the number of transactions
     wait_for_promise(promises[block.transactions.size()]);
-
 }
 template <evmc_revision rev>
 Result<std::vector<Receipt>> finalize_block(Block const &block, BlockState &block_state) {
