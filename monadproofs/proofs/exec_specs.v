@@ -284,6 +284,7 @@ cpp.spec
     \arg{chainp :ptr} "chain" (Vref chainp)
     \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
     \arg{i:nat} "i" (Vnat i)
+    \pre [| N.of_nat i < 2^64 - 1 |]%N (* we do i+1 to make the incarnation *)
     \arg{txp} "tx" (Vref txp)
     \prepost{qtx t} txp |-> TransactionR qtx t
     \arg{senderp} "sender" (Vref senderp)
@@ -344,7 +345,7 @@ Section with_Sigma.
       \post{retp} [Vptr retp] (retp |-> u256R 1 (chainid chain))).
 
   Import evm.
-  Record Incarnation :=
+  Record Indices :=
     {
       block_index: N;
       tx_index: N;
@@ -355,7 +356,7 @@ Section with_Sigma.
       original: gmap evm.address evm.account_state;
       newStates: gmap evm.address (list evm.account_state); (* head is the latest *)
       blockStatePtr: ptr;
-      incarnation: Incarnation
+      indices: Indices
     }.
 
   (* not supposed to be shared, so no fraction *)
@@ -411,10 +412,10 @@ Section with_Sigma.
       statep |-> StateR assumptionsAndUpdates
       ** retp |-> ResultSuccessR EvmcResultR result 
        ** [| blockStatePtr assumptionsAndUpdates = blockStatePtr au |]
-       ** [| incarnation assumptionsAndUpdates = incarnation au |]
+       ** [| indices assumptionsAndUpdates = indices au |]
       ** [| forall preTxState,
             satisfiesAssumptions assumptionsAndUpdates preTxState -> 
-            let '(postTxState, actualResult) := stateAfterTransactionAux header preTxState (N.to_nat (tx_index (incarnation au))) t in
+            let '(postTxState, actualResult) := stateAfterTransactionAux header preTxState (N.to_nat (tx_index (indices au))) t in
             postTxState = applyUpdates assumptionsAndUpdates preTxState /\ result = actualResult |].
 
   Definition execute_impl2_specg : WpSpec mpredI val val :=
@@ -438,16 +439,16 @@ Section with_Sigma.
       statep |-> StateR assumptionsAndUpdates
       ** retp |-> ResultSuccessR EvmcResultR result 
        ** [| blockStatePtr assumptionsAndUpdates = blockStatePtr au |]
-       ** [| incarnation assumptionsAndUpdates = incarnation au |]
+       ** [| indices assumptionsAndUpdates = indices au |]
        ** [| let postCond preTxState :=
-               let '(postTxState, actualResult) := stateAfterTransactionAux header preTxState (N.to_nat (tx_index (incarnation au))) t in
+               let '(postTxState, actualResult) := stateAfterTransactionAux header preTxState (N.to_nat (tx_index (indices au))) t in
                postTxState = applyUpdates assumptionsAndUpdates preTxState /\ result = actualResult in
              if speculative then 
                forall preTxState, satisfiesAssumptions assumptionsAndUpdates preTxState -> postCond preTxState
              else postCond preTxState                                                                                    
              |].
  
-  Definition IncarnationR (q:Qp) (i: Incarnation): Rep. Proof. Admitted.
+  Definition IncarnationR (q:Qp) (i: Indices): Rep. Proof. Admitted.
 
   (* delete *)
   Definition StateConstr : ptr -> WpSpec mpredI val val :=
@@ -455,7 +456,7 @@ Section with_Sigma.
       \arg{bsp} "" (Vref bsp)
       \arg{incp} "" (Vptr incp)
       \pre{q inc} incp |-> IncarnationR q inc 
-      \post this |-> StateR {| blockStatePtr := bsp; incarnation:= inc; original := ∅; newStates:= ∅ |}.
+      \post this |-> StateR {| blockStatePtr := bsp; indices:= inc; original := ∅; newStates:= ∅ |}.
 
   (*
       \pre [| block.block_account_nonce senderAcState = block.tr_nonce t|]
@@ -510,12 +511,14 @@ End Generalized2.
 (* demo:
 - first spec: int x,y; void doubleXintoY()
 - double(int & x, int & y) : arguments in specs 
-- fork_task: skip the lambda struct part a bit
+- fork_task: skip the lambda struct part a bit. pass global vars to the task so that the lambda doesnt have a capture. one example to show both splitting 
 - promise
 - fork thread to show split ownership. do proof.
 
-- struct Point. void double(Point & x)
-- llist::rev: spec, why trust gallina rev: show lemmas
+datastructures:
+- arrays: sum spec, 2 kinds of splitting
+- struct Point. void distance(Point & x). find cartesian geometry class in Coq
+- (bonus, can skip )llist::rev: spec, why trust gallina rev: show lemmas
 Proofs:
 - uint64 gcd(uint64 x, uint64 y)
 - llist::rev

@@ -161,8 +161,8 @@ Definition destr_outcome_overload :=
          as incarnation_constr with
   (fun this:ptr =>
      \arg{bn} "" (Vn bn)
-     \arg{txn} "" (Vn txn)
-     \post this |-> IncarnationR 1 (Build_Incarnation bn txn)  
+       \arg{txindex:nat} ""  (Vint (Z.of_nat txindex + 1))
+     \post this |-> IncarnationR 1 (Build_Indices bn (N.of_nat txindex))  
   ).
 
 Definition destr_incarnation :=
@@ -228,7 +228,7 @@ cpp.spec (Ninst
       \arg{bsp} "" (Vref bsp)
       \arg{incp} "" (Vptr incp)
       \prepost{q inc} incp |-> IncarnationR q inc 
-      \post this |-> StateR {| blockStatePtr := bsp; incarnation:= inc; original := ∅; newStates:= ∅ |}).
+      \post this |-> StateR {| blockStatePtr := bsp; indices:= inc; original := ∅; newStates:= ∅ |}).
   
   #[global] Instance : LearnEq2 IncarnationR := ltac:(solve_learnable).
 Opaque Zdigits.Z_to_binary.
@@ -253,7 +253,7 @@ Opaque Zdigits.Z_to_binary.
        retp |-> ReceiptR result ** statep |-> StateR assumptionsAndUpdatesFinal
        ** [| satisfiesAssumptions assumptionsAndUpdatesFinal preTxState |]
        ** [| blockStatePtr assumptionsAndUpdatesFinal = blockStatePtr assumptionsAndUpdates |]
-       ** [| incarnation assumptionsAndUpdatesFinal = incarnation assumptionsAndUpdates |]
+       ** [| indices assumptionsAndUpdatesFinal = indices assumptionsAndUpdates |]
        ** [| (stateAfterTransaction hdr i preTxState t).1 = applyUpdates assumptionsAndUpdatesFinal preTxState |].
 
 Ltac applyPHyp :=
@@ -324,7 +324,7 @@ specify
       ( fun this =>
           \arg{defp} "" (Vptr defp)
            \prepost{q (n:N)} defp |-> intR (cQp.mut q) n
-      \pre{q hdr} this |-> libspecs.optionR u256t (u256R q) q (base_fee_per_gas hdr)
+      \prepost{q hdr} this |-> libspecs.optionR u256t (u256R q) q (base_fee_per_gas hdr)
       \post{retp} [Vptr retp] retp |-> u256R 1 (match (base_fee_per_gas hdr) with | Some x => x | None => n end)
     ).
 
@@ -396,7 +396,7 @@ Definition exec_final :=
              ** validate_spec
              ** try_op_has_val
              ** destr_outcome_overload
-             ** incarnation_constr
+              ** incarnation_constr
              ** StateConstr
              ** set_original_nonce_spec
              ** execute_impl2
@@ -412,6 +412,7 @@ Proof using MODd.
   go.
   unshelve rewrite <- wp_init_implicit.
   slauto.
+  iExists i. (* TODO: add a REfine 1 hint to avoid needing this *)
 iAssert (reference_to (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))) state_addr) as "#?"%string;[admit|].
 slauto.
 Transparent TransactionR.
@@ -642,18 +643,14 @@ go.
       ).
   iAssert (br_dtor) as "#?"%string;[admit|].
   go.
-  (*
-  _ : blockStatePtr au |-> BlockState.Rauth preBlockState g (applyUpdates _t_1 prevTxGlobalState)
-  _ : _p_ ,, o_field CU (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "value_fixme")) |-> ReceiptR result
-  --------------------------------------∗
-  hdrp ,, o_field CU (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "BlockHeader")) (Nid "base_fee_per_gas"))
-  |-> libspecs.optionR u256t (u256R qh) qh (base_fee_per_gas header) ∗
-  (let
-   '(finalState, result0) := stateAfterTransaction header i prevTxGlobalState _t_ in _p_ |-> ResultSuccessR ReceiptR result0 ∗
-    blockStatePtr au |-> BlockState.Rauth preBlockState g finalState)
-*)    
-    
-  Search ReceiptR Learnable.
+  autorewrite with syntactic in *.
+  iClear "#"%string.
+  revert _H_6.
+  unfold stateAfterTransaction.
+  rewrite <- Heqsaf.
+  go.
+  rewrite ResultSucRDef. go.
+}
 
 Abort.
 
