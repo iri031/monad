@@ -218,7 +218,7 @@ cpp.spec (Ninst
                     Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockHashBuffer"))));
                     Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State")))]))
              [Avalue (Eint 11 (Tenum (Nglobal (Nid "evmc_revision"))))])
-  as execute_impl2 with (execute_impl2_spec).
+  as execute_impl2 with (execute_impl2_specg).
   cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "State"))
           (Nfunction function_qualifiers.N Nctor
              [Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState")));
@@ -384,6 +384,106 @@ Definition exec_final :=
          Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))))]
   |} execute_final_spec.
 
+cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState"))
+       (Nfunction function_qualifiers.N (Nf "can_merge")
+          [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))))]))
+         as can_merge with
+  (
+         fun (this:ptr) =>
+  \arg{statep} "" (Vptr statep) 
+  \prepost{assumptionsAndUpdates} statep |-> StateR assumptionsAndUpdates
+  \prepost{preBlockState g preTxState} this |-> BlockState.Rauth preBlockState g preTxState
+  \post{b} [Vbool b] [| if b then  (satisfiesAssumptions assumptionsAndUpdates preTxState) else Logic.True |]).
+cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState"))
+            (Nfunction function_qualifiers.N (Nf "merge") [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))))]))
+  as merge with
+  (
+         fun (this:ptr) =>
+  \arg{statep} "" (Vptr statep) 
+  \prepost{assumptionsAndUpdates} statep |-> StateR assumptionsAndUpdates
+  \pre{preBlockState g preTxState} this |-> BlockState.Rauth preBlockState g preTxState
+  \pre [| satisfiesAssumptions assumptionsAndUpdates preTxState |]
+  \post this |-> BlockState.Rauth preBlockState g (applyUpdates assumptionsAndUpdates preTxState)).
+(* TODO: generalize *)
+#[ignore_errors]
+cpp.spec ((Ninst
+          (Nscoped resultn
+             (Nfunction function_qualifiers.N Nctor
+                [Trv_ref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt"))));
+                 Tnamed (Nscoped resultn (Nid "value_converting_constructor_tag"))]))
+          [Atype (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")))); Atype "void"]))
+  as result_val_constr with (fun this:ptr =>
+                               \arg{recp} ("recp"%pstring) (Vref recp)
+                               \prepost{r} recp |-> ReceiptR r
+                               \arg{vtag} ("vtag"%pstring) (Vptr vtag)
+                               \post this |-> ResultSuccessR ReceiptR r).
+
+  cpp.spec (Nscoped (Nscoped resultn (Nid "value_converting_constructor_tag")) (Nfunction function_qualifiers.N Nctor []))
+    as tag_constr with
+      (fun (this:ptr) => \post this |-> structR ((Nscoped resultn (Nid "value_converting_constructor_tag"))) (cQp.mut 1)).
+  cpp.spec (Nscoped (Nscoped resultn (Nid "value_converting_constructor_tag")) (Nfunction function_qualifiers.N Ndtor []))
+    as tag_dtor with
+      (fun (this:ptr) => \pre this |-> structR ((Nscoped resultn (Nid "value_converting_constructor_tag"))) (cQp.mut 1)
+                          \post emp
+      ).
+  cpp.spec (Nscoped ("monad::Receipt") (Nfunction function_qualifiers.N Ndtor []))
+    as rcpt_dtor with
+      (fun (this:ptr) => \pre{r} this |-> ReceiptR r
+                          \post emp
+      ).
+  (* TODO: generalize *)
+  cpp.spec (Nscoped (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+       [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
+        Atype
+          (Tnamed
+             (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+        Atype
+          (Tnamed
+             (Ninst
+                (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
+                   (Nid "status_code_throw"))
+                [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
+                 Atype
+                   (Tnamed
+                      (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                         [Atype
+                            (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                 Atype "void"]))]) (Nfunction function_qualifiers.N Ndtor []))
+    as res_dtor with
+      (fun (this:ptr) =>
+         \pre{r} this |-> ResultSuccessR EvmcResultR r
+           \post emp
+      ).
+  cpp.spec (Nscoped ("monad::State") (Nfunction function_qualifiers.N Ndtor []))
+    as st_dtor with
+      (fun (this:ptr) => \pre{au} this |-> StateR au
+                          \post emp
+      ).
+  (* TODO: fix *)
+  cpp.spec (Nscoped (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+       [Atype "void";
+        Atype
+          (Tnamed
+             (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+        Atype
+          (Tnamed
+             (Ninst
+                (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
+                   (Nid "status_code_throw"))
+                [Atype "void";
+                 Atype
+                   (Tnamed
+                      (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                         [Atype
+                            (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                 Atype "void"]))]) (Nfunction function_qualifiers.N Ndtor []))
+    as br_dtor with
+      (fun (this:ptr) => \pre this |-> emp
+                          \post emp
+      ).
+
   Lemma prf: denoteModule module
              ** (opt_reconstr TransactionResult resultT)
              ** wait_for_promise
@@ -401,6 +501,20 @@ Definition exec_final :=
              ** set_original_nonce_spec
              ** execute_impl2
              ** destr_incarnation
+             ** can_merge
+             ** opt_value_or
+             ** has_error
+             ** result_value
+             ** exec_final
+             ** merge
+             ** result_val_constr
+             ** result_val_constr
+             ** tag_constr
+             ** tag_dtor
+             ** rcpt_dtor
+             ** res_dtor
+             ** st_dtor
+             ** br_dtor
              |-- ext1.
 Proof using MODd.
   verify_spec'.
@@ -431,20 +545,10 @@ forward_reason. subst.
 go. subst. go.
 unfold BheaderR. go.
 #[global] Instance : LearnEq3 (BlockState.Rauth) := ltac:(solve_learnable).
-unfold TransactionR. go. eagerUnifyU. slauto.
-do 3 (iExists _).  eagerUnifyU. slauto.
-cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState"))
-       (Nfunction function_qualifiers.N (Nf "can_merge")
-          [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))))]))
-         as can_merge with
-  (
-         fun (this:ptr) =>
-  \arg{statep} "" (Vptr statep) 
-  \prepost{assumptionsAndUpdates} statep |-> StateR assumptionsAndUpdates
-  \prepost{preBlockState g preTxState} this |-> BlockState.Rauth preBlockState g preTxState
-  \post{b} [Vbool b] [| if b then  (satisfiesAssumptions assumptionsAndUpdates preTxState) else Logic.True |]).
-
-iAssert (can_merge) as "#?"%string;[admit|].
+unfold TransactionR. go.
+iExists true.  slauto.
+do 3 (iExists _). iExists preBlockState. (* dummy as we are in the speculative case where this is not used *)
+eagerUnifyU. slauto.
 slauto.
 wp_if.
 {
@@ -470,16 +574,8 @@ wp_if.
                     Atype "void"]))]))
     result_addr) as "#?"%string;[admit|]. (* TODO: add this to ResultSuccessR  and maybe add an observe hint*)
   go.
-
-
-  
-iAssert (has_error) as "#?"%string;[admit|].
 slauto.
-
-
-
 Existing Instance UNSAFE_read_prim_cancel.
-iAssert (opt_value_or) as "#?"%string;[admit|].
 slauto.
 Search (primR) Learnable.
 go.
@@ -489,9 +585,7 @@ slauto.
 rewrite <- wp_const_const_delete.
 slauto.
 
-iAssert (result_value) as "#?"%string;[admit|].
 go.
-iAssert (exec_final) as "#?"%string;[admit|].
 go.
 unfold TransactionR.
 go.
@@ -519,42 +613,13 @@ rewrite <- wp_const_const_delete.
 go.
 rewrite <- wp_const_const_delete.
 go.
-cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState"))
-            (Nfunction function_qualifiers.N (Nf "merge") [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))))]))
-  as merge with
-  (
-         fun (this:ptr) =>
-  \arg{statep} "" (Vptr statep) 
-  \prepost{assumptionsAndUpdates} statep |-> StateR assumptionsAndUpdates
-  \pre{preBlockState g preTxState} this |-> BlockState.Rauth preBlockState g preTxState
-  \pre [| satisfiesAssumptions assumptionsAndUpdates preTxState |]
-  \post this |-> BlockState.Rauth preBlockState g (applyUpdates assumptionsAndUpdates preTxState)).
-iAssert merge as "#?"%string;[admit|].
 go.
 
-(* TODO: generalize *)
-#[ignore_errors]
-cpp.spec ((Ninst
-          (Nscoped resultn
-             (Nfunction function_qualifiers.N Nctor
-                [Trv_ref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt"))));
-                 Tnamed (Nscoped resultn (Nid "value_converting_constructor_tag"))]))
-          [Atype (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")))); Atype "void"]))
-  as result_val_constr with (fun this:ptr =>
-                               \arg{recp} ("recp"%pstring) (Vref recp)
-                               \prepost{r} recp |-> ReceiptR r
-                               \arg{vtag} ("vtag"%pstring) (Vptr vtag)
-                               \post this |-> ResultSuccessR ReceiptR r).
-iAssert (result_val_constr) as "#?"%string;[admit|].
 go.
 iAssert (reference_to (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt"))) _x_1) as  "#?"%string;[admit|].
 go.
   unshelve rewrite <- wp_init_implicit.
   go.
-  cpp.spec (Nscoped (Nscoped resultn (Nid "value_converting_constructor_tag")) (Nfunction function_qualifiers.N Nctor []))
-    as tag_constr with
-      (fun (this:ptr) => \post this |-> structR ((Nscoped resultn (Nid "value_converting_constructor_tag"))) (cQp.mut 1)).
-  iAssert (tag_constr) as "#?"%string;[admit|].
   go.
   setoid_rewrite ResultSucRDef.
   go.
@@ -562,86 +627,17 @@ go.
 
   (* too many temps need to be destructed just before returning *)
 
-  cpp.spec (Nscoped (Nscoped resultn (Nid "value_converting_constructor_tag")) (Nfunction function_qualifiers.N Ndtor []))
-    as tag_dtor with
-      (fun (this:ptr) => \pre this |-> structR ((Nscoped resultn (Nid "value_converting_constructor_tag"))) (cQp.mut 1)
-                          \post emp
-      ).
-  iAssert (tag_dtor) as "#?"%string;[admit|].
   go.
   rewrite <- wp_const_const_delete.
   go.
-  cpp.spec (Nscoped ("monad::Receipt") (Nfunction function_qualifiers.N Ndtor []))
-    as rcpt_dtor with
-      (fun (this:ptr) => \pre{r} this |-> ReceiptR r
-                          \post emp
-      ).
-  iAssert (rcpt_dtor) as "#?"%string;[admit|].
   go.
   #[global] Instance : LearnEq1 ReceiptR := ltac:(solve_learnable).
   go.
-  (* TODO: generalize *)
-  cpp.spec (Nscoped (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
-       [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-        Atype
-          (Tnamed
-             (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-        Atype
-          (Tnamed
-             (Ninst
-                (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
-                   (Nid "status_code_throw"))
-                [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                 Atype
-                   (Tnamed
-                      (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                         [Atype
-                            (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                 Atype "void"]))]) (Nfunction function_qualifiers.N Ndtor []))
-    as res_dtor with
-      (fun (this:ptr) =>
-         \pre{r} this |-> ResultSuccessR EvmcResultR r
-           \post emp
-      ).
-  iAssert (res_dtor) as "#?"%string;[admit|].
   go.
   setoid_rewrite ResultSucRDef.
   go.
   Search EvmcResultR Learnable.
   #[global] Instance : LearnEq1 EvmcResultR := ltac:(solve_learnable).
-  go.
-  cpp.spec (Nscoped ("monad::State") (Nfunction function_qualifiers.N Ndtor []))
-    as st_dtor with
-      (fun (this:ptr) => \pre{au} this |-> StateR au
-                          \post emp
-      ).
-  iAssert (st_dtor) as "#?"%string;[admit|].
-  go.
-  (* TODO: fix *)
-  cpp.spec (Nscoped (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
-       [Atype "void";
-        Atype
-          (Tnamed
-             (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-        Atype
-          (Tnamed
-             (Ninst
-                (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
-                   (Nid "status_code_throw"))
-                [Atype "void";
-                 Atype
-                   (Tnamed
-                      (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                         [Atype
-                            (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                 Atype "void"]))]) (Nfunction function_qualifiers.N Ndtor []))
-    as br_dtor with
-      (fun (this:ptr) => \pre this |-> emp
-                          \post emp
-      ).
-  iAssert (br_dtor) as "#?"%string;[admit|].
   go.
   autorewrite with syntactic in *.
   iClear "#"%string.
@@ -651,7 +647,8 @@ go.
   go.
   rewrite ResultSucRDef. go.
 }
-
+{
+  
 Abort.
 
   End with_Sigma.

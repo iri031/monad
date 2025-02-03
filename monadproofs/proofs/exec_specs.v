@@ -445,7 +445,7 @@ Section with_Sigma.
                postTxState = applyUpdates assumptionsAndUpdates preTxState /\ result = actualResult in
              if speculative then 
                forall preTxState, satisfiesAssumptions assumptionsAndUpdates preTxState -> postCond preTxState
-             else postCond preTxState                                                                                    
+             else satisfiesAssumptions assumptionsAndUpdates preTxState /\ postCond preTxState                                                                                    
              |].
  
   Definition IncarnationR (q:Qp) (i: Indices): Rep. Proof. Admitted.
