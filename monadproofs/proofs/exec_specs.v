@@ -410,30 +410,13 @@ Section with_Sigma.
     \post{retp}[Vptr retp] Exists assumptionsAndUpdates result,
       statep |-> StateR assumptionsAndUpdates
       ** retp |-> ResultSuccessR EvmcResultR result 
+       ** [| blockStatePtr assumptionsAndUpdates = blockStatePtr au |]
+       ** [| incarnation assumptionsAndUpdates = incarnation au |]
       ** [| forall preTxState,
             satisfiesAssumptions assumptionsAndUpdates preTxState -> 
             let '(postTxState, actualResult) := stateAfterTransactionAux header preTxState (N.to_nat (tx_index (incarnation au))) t in
             postTxState = applyUpdates assumptionsAndUpdates preTxState /\ result = actualResult |].
 
-   Definition execute_final_spec : WpSpec mpredI val val :=
-    \arg{statep: ptr} "state" (Vref statep)
-    \pre{au: AssumptionsAndUpdates} statep |-> StateR au
-    \arg{txp} "tx" (Vref txp)
-    \prepost{qtx t} txp |-> TransactionR qtx t
-    \arg{senderp} "sender" (Vref senderp)
-    \prepost{qs} senderp |-> addressR qs (sender t)
-    \arg{bfeep: ptr} "base_fee_per_gase" (Vref bfeep)
-    \prepost{q basefeepergas} bfeep |-> u256R q basefeepergas
-    \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
-    \arg{i preTxState resultp hdr} "" (Vptr resultp)
-    \let '(postTxState, result) := stateAfterTransactionAux hdr preTxState i t
-    \pre resultp |-> ResultSuccessR EvmcResultR result
-    \arg{benp} "beneficiary" (Vref benp)
-    \prepost{benAddr qben} benp |-> addressR qben benAddr
-    \pre{assumptionsAndUpdates}  statep |-> StateR assumptionsAndUpdates
-    \pre [| postTxState = applyUpdates assumptionsAndUpdates preTxState |]
-    \post{retp}[Vptr retp] Exists assumptionsAndUpdatesFinal,
-       [| (stateAfterTransaction hdr i preTxState t).1 = applyUpdates assumptionsAndUpdatesFinal preTxState |].
  
   Definition IncarnationR (q:Qp) (i: Incarnation): Rep. Proof. Admitted.
 

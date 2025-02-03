@@ -247,9 +247,14 @@ Opaque Zdigits.Z_to_binary.
     \arg{benp} "beneficiary" (Vref benp)
     \prepost{benAddr qben} benp |-> addressR qben benAddr
     \pre [| postTxState = applyUpdates assumptionsAndUpdates preTxState |]
+    \prepost{preBlockState g} (blockStatePtr assumptionsAndUpdates) |-> BlockState.Rauth preBlockState g preTxState
+    \pre [| satisfiesAssumptions assumptionsAndUpdates preTxState |]
     \post{retp}[Vptr retp] Exists assumptionsAndUpdatesFinal,
-        retp |-> ReceiptR result ** statep |-> StateR assumptionsAndUpdatesFinal
-        ** [| (stateAfterTransaction hdr i preTxState t).1 = applyUpdates assumptionsAndUpdatesFinal preTxState |].
+       retp |-> ReceiptR result ** statep |-> StateR assumptionsAndUpdatesFinal
+       ** [| satisfiesAssumptions assumptionsAndUpdatesFinal preTxState |]
+       ** [| blockStatePtr assumptionsAndUpdatesFinal = blockStatePtr assumptionsAndUpdates |]
+       ** [| incarnation assumptionsAndUpdatesFinal = incarnation assumptionsAndUpdates |]
+       ** [| (stateAfterTransaction hdr i preTxState t).1 = applyUpdates assumptionsAndUpdatesFinal preTxState |].
 
 Ltac applyPHyp :=
   let Hbb := fresh "autogenhyp" in
@@ -505,7 +510,9 @@ rewrite ResultSucRDef.
 go.
 eagerUnifyC.
 forward_reason.
+ren_hyp au AssumptionsAndUpdates.
 subst.
+eagerUnifyC.
 go.
 rewrite <- wp_const_const_delete.
 go.
@@ -523,36 +530,36 @@ cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState"))
   \post this |-> BlockState.Rauth preBlockState g (applyUpdates assumptionsAndUpdates preTxState)).
 iAssert merge as "#?"%string;[admit|].
 go.
-Check satisfiesAssumptions.
 
-
-
-
-execute_final_spec
-BheaderR
-applyHyp
-iExists state_addr.
-iExists _.
-ren_hyp tx Transaction.
-do 2 (iExists _).
-iExists tx.
-do 5 (iExists _).
-iExists i. iExists prevTxGlobalState.
-iExists _.
-iExists header.
-destruct (stateAfterTransactionAux header prevTxGlobalState i tx).
-simpl.
-work. eagerUnifyC.
+(* TODO: generalize *)
+#[ignore_errors]
+cpp.spec ((Ninst
+          (Nscoped resultn
+             (Nfunction function_qualifiers.N Nctor
+                [Trv_ref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt"))));
+                 Tnamed (Nscoped resultn (Nid "value_converting_constructor_tag"))]))
+          [Atype (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")))); Atype "void"]))
+  as result_val_constr with (fun this:ptr =>
+                               \arg{recp} ("recp"%pstring) (Vref recp)
+                               \prepost{r} recp |-> ReceiptR r
+                               \arg{vtag} ("vtag"%pstring) (Vptr vtag)
+                               \post this |-> ResultSuccessR ReceiptR r).
+iAssert (result_val_constr) as "#?"%string;[admit|].
 go.
-simpl.
+iAssert (reference_to (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt"))) _x_1) as  "#?"%string;[admit|].
 go.
+  unshelve rewrite <- wp_init_implicit.
+  go.
+  cpp.spec (Nscoped (Nscoped resultn (Nid "value_converting_constructor_tag")) (Nfunction function_qualifiers.N Nctor []))
+    as tag_constr with
+      (fun (this:ptr) => \post this |-> structR ((Nscoped resultn (Nid "value_converting_constructor_tag"))) (cQp.mut 1)).
+  iAssert (tag_constr) as "#?"%string;[admit|].
+  go.
+  setoid_rewrite ResultSucRDef.
+  go.
+  repeat (iExists _). eagerUnifyC. go.
 
-do 7 (iExists _). 
-iExists _, _, _, _
-rewrite <- (bi.exist_intro prevTxGlobalState).
-slauto.
-go.
-
+  (* too many temps need to be destructed just before returning *)
 
 
 Abort.
