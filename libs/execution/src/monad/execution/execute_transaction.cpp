@@ -295,7 +295,7 @@ Result<Receipt> execute_impl(
             chain, tx, sender, hdr, block_hash_buffer, state);
 
         //MONAD_ASSERT(block_state.can_merge(state));
-        if (result.has_error()) {
+        if (has_error(result)) {
             return std::move(result.error());
         }
         auto const receipt = execute_final<rev>(
@@ -303,7 +303,7 @@ Result<Receipt> execute_impl(
             tx,
             sender,
             hdr.base_fee_per_gas.value_or(0),
-            result.value(),
+            value(result),
             hdr.beneficiary);
         block_state.merge(state);
 

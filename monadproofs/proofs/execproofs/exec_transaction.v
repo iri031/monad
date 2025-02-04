@@ -673,6 +673,99 @@ Proof using MODd.
     rewrite ResultSucRDef. go.
 }
 {
+  rename result_addr into result_addr_del.
+  rename state_addr into state_addr_del.
+  slauto.
+  iExists i. (* TODO: add a REfine 1 hint to avoid needing this *)
+  run1.
+  wapplyObserve stateObserve.
+  progress eagerUnifyU.
+  slauto.
+  Transparent TransactionR.
+  progress unfold TransactionR.
+  slauto.
+
+  Transparent libspecs.optionR.
+  slauto1.
+  Transparent set_original_nonce.
+  unfold set_original_nonce in *.
+  simpl in *.
+  autorewrite with syntactic.
+(*   rewrite lookup_empty in H. *)
+  forward_reason. subst.
+  go. subst. go.
+  unfold BheaderR. go.
+  unfold TransactionR. go.
+  iExists false.  slauto.
+  do 3 (iExists _). 
+  eagerUnifyU. slauto.
+  slauto.
+    intros.
+    wapplyObserve @resultObserve. eagerUnifyU.
+    slauto.
+    slauto.
+    go.
+    repeat (iExists _).
+    eagerUnifyU.
+    slauto.
+(*    rewrite <- wp_const_const_delete. *)
+    slauto.
+    go.
+    unfold TransactionR.
+    go.
+    progress applyPHyp.
+    repeat (iExists _). eagerUnifyC.
+    match goal with
+    | H:context[stateAfterTransactionAux ?a1 ?b1 ?c1 ?d1] |- context[stateAfterTransactionAux ?a2 ?b2 ?c2 ?d2] => 
+        unify a1 a2; unify b1 b2; unify c1 c2; unify d1 d2;
+        remember (stateAfterTransactionAux a1 b1 c1 d1) as saf; destruct saf as [smid result]
+    end.
+
+    simpl in *.
+    go.
+    eagerUnifyU.
+    
+    rewrite ResultSucRDef.
+    go.
+    eagerUnifyC.
+    forward_reason.
+    ren_hyp au AssumptionsAndUpdates.
+    subst.
+    eagerUnifyC.
+    go.
+    rewrite <- wp_const_const_delete.
+    go.
+    rewrite <- wp_const_const_delete.
+    go.
+
+    wapplyObserve recObserve. eagerUnifyU.
+    (* iAssert (reference_to (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt"))) _x_1) as  "#?"%string;[admit|]. *)
+    go.
+    unshelve rewrite <- wp_init_implicit.
+    go.
+    setoid_rewrite ResultSucRDef.
+    go.
+    repeat (iExists _). eagerUnifyC. go.
+
+    (* too many temps need to be destructed just before returning *)
+
+    go.
+    rewrite <- wp_const_const_delete.
+    go.
+    go.
+    setoid_rewrite ResultSucRDef.
+    go.
+    go.
+    autorewrite with syntactic in *.
+    iClear "#"%string.
+    match goal with
+    | H: _.1 = applyUpdates _ _ |- _ => revert H
+    end.
+    unfold stateAfterTransaction.
+    rewrite <- Heqsaf.
+    go.
+    rewrite ResultSucRDef. go.
+}
   
 Abort.
 
