@@ -483,6 +483,47 @@ cpp.spec ((Ninst
       (fun (this:ptr) => \pre this |-> emp
                           \post emp
       ).
+  Lemma resultObserve (result_addr:ptr) t: 
+    Observe
+(  reference_to
+    (Tnamed
+       (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
+          [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
+           Atype
+             (Tnamed
+                (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                   [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+           Atype
+             (Tnamed
+                (Ninst
+                   (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
+                      (Nid "status_code_throw"))
+                   [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
+                    Atype
+                      (Tnamed
+                         (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
+                            [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
+                    Atype "void"]))]))
+    result_addr) (result_addr |-> ResultSuccessR EvmcResultR t).
+  Proof using. Admitted.
+  Ltac wapplyObserve lemma:=
+    try intros;
+  idtac;
+  [
+    wapply (@observe_elim _ _ _ (lemma)) || wapply (@observe_elim _ _ _ (lemma _))
+    || wapply (@observe_elim _ _ _ (lemma _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _))
+    || wapply (@observe_elim _ _ _ (lemma _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _))
+    || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _))
+    || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _ _))
+    || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _ _ _ _))
+    ||
+    wapply (@observe_2_elim _ _ _ _ (lemma)) || wapply (@observe_2_elim _ _ _ _ (lemma _))
+    || wapply (@observe_2_elim _ _ _ _ (lemma _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _))
+    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _))
+    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _))
+    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _ _))
+    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _ _ _ _))
+  ].
 
   Lemma prf: denoteModule module
              ** (opt_reconstr TransactionResult resultT)
@@ -527,10 +568,16 @@ Proof using MODd.
   unshelve rewrite <- wp_init_implicit.
   slauto.
   iExists i. (* TODO: add a REfine 1 hint to avoid needing this *)
-iAssert (reference_to (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))) state_addr) as "#?"%string;[admit|].
-slauto.
+  go.
+  Lemma stateObserve (state_addr:ptr) t: 
+    Observe (reference_to (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))) state_addr)
+            (state_addr |-> StateR t).
+  Proof using. Admitted.
+  wapplyObserve stateObserve.
+  eagerUnifyU.
+  slauto.
 Transparent TransactionR.
-unfold TransactionR.
+progress unfold TransactionR.
 slauto.
 
 Transparent libspecs.optionR.
@@ -552,28 +599,8 @@ eagerUnifyU. slauto.
 slauto.
 wp_if.
 {
-  slauto.
-  iAssert (  reference_to
-    (Tnamed
-       (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
-          [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-           Atype
-             (Tnamed
-                (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                   [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-           Atype
-             (Tnamed
-                (Ninst
-                   (Nscoped (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "experimental")) (Nid "policy"))
-                      (Nid "status_code_throw"))
-                   [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")));
-                    Atype
-                      (Tnamed
-                         (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
-                            [Atype (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                    Atype "void"]))]))
-    result_addr) as "#?"%string;[admit|]. (* TODO: add this to ResultSuccessR  and maybe add an observe hint*)
-  go.
+intros.
+  wapplyObserve @resultObserve. eagerUnifyU.
 slauto.
 Existing Instance UNSAFE_read_prim_cancel.
 slauto.
@@ -584,8 +611,6 @@ eagerUnifyU.
 slauto.
 rewrite <- wp_const_const_delete.
 slauto.
-
-go.
 go.
 unfold TransactionR.
 go.
@@ -613,13 +638,15 @@ rewrite <- wp_const_const_delete.
 go.
 rewrite <- wp_const_const_delete.
 go.
-go.
 
-go.
-iAssert (reference_to (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt"))) _x_1) as  "#?"%string;[admit|].
+  Lemma recObserve (state_addr:ptr) t: 
+    Observe (reference_to (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt"))) state_addr)
+            (state_addr |-> ReceiptR t).
+  Proof using. Admitted.
+  wapplyObserve recObserve. eagerUnifyU.
+(* iAssert (reference_to (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt"))) _x_1) as  "#?"%string;[admit|]. *)
 go.
   unshelve rewrite <- wp_init_implicit.
-  go.
   go.
   setoid_rewrite ResultSucRDef.
   go.
@@ -630,18 +657,18 @@ go.
   go.
   rewrite <- wp_const_const_delete.
   go.
-  go.
   #[global] Instance : LearnEq1 ReceiptR := ltac:(solve_learnable).
-  go.
   go.
   setoid_rewrite ResultSucRDef.
   go.
-  Search EvmcResultR Learnable.
   #[global] Instance : LearnEq1 EvmcResultR := ltac:(solve_learnable).
   go.
   autorewrite with syntactic in *.
   iClear "#"%string.
-  revert _H_6.
+  Check _H_6.
+  match goal with
+  | H: _.1 = applyUpdates _ _ |- _ => revert H
+  end.
   unfold stateAfterTransaction.
   rewrite <- Heqsaf.
   go.
