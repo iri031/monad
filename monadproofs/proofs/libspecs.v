@@ -223,7 +223,7 @@ cpp.spec "std::optional<evmc::address>::operator=(std::optional<evmc::address>&&
            \post emp
       ).
 
-Definition has_value ty:=
+Definition has_value ty T :=
   specify
     {|
     info_name :=
@@ -234,11 +234,11 @@ Definition has_value ty:=
         "bool" []
     |}
     (λ (this : ptr),
-      \prepost{(T:Type) ty (R:T->Rep) (o: option T) q } this |-> optionR ty R q o
+      \prepost{ty (R:T->Rep) (o: option T) q } this |-> optionR ty R q o
         \post [Vbool  (isSome o)] emp).
 
 
-   Definition value ty :=
+   Definition value ty T :=
      specify
   {|
     info_name :=
@@ -249,7 +249,7 @@ Definition has_value ty:=
         (Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))))) []
   |}
   (λ (this : ptr),
-    \prepost{(T:Type) ty (R:T->Rep) (t: T) q } this |-> optionR ty R q (Some t)
+    \prepost{ ty (R:T->Rep) (t: T) q } this |-> optionR ty R q (Some t)
       \post [Vref (this ,, opt_base_offset ty)] emp).
 
    

@@ -544,8 +544,8 @@ Existing Instance UNSAFE_read_prim_cancel.
              ** destrop
              ** destr_res
              ** destr_u256
-             ** (has_value "evmc::address")
-             ** (value "evmc::address")
+             ** (has_value "evmc::address" evm.address)
+             ** (value "evmc::address" evm.address)
              ** get_chain_id
              ** validate_spec
              ** try_op_has_val
@@ -764,10 +764,6 @@ Proof using MODd.
     go.
     rewrite ResultSucRDef. go.
 }
-
-Fail idtac.
-  Print has_value. (* this has a quantified type. make it a param *)
-  Print evm.address. (* this is in Set. make it in Type. investigate why it is Type in yoichi's semantics *)
-Abort. (* universe inconsistency on Qed *)
+Qed.
 
 End with_Sigma.
