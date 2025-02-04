@@ -698,22 +698,19 @@ Proof using MODd.
   unfold TransactionR. go.
   iExists false.  slauto.
   do 3 (iExists _). 
-  eagerUnifyU. slauto.
-  slauto.
-    intros.
+  eagerUnifyU.
+  run1.
     wapplyObserve @resultObserve. eagerUnifyU.
-    slauto.
     slauto.
     go.
     repeat (iExists _).
     eagerUnifyU.
     slauto.
-(*    rewrite <- wp_const_const_delete. *)
+    rewrite <- wp_const_const_delete. 
     slauto.
     go.
     unfold TransactionR.
     go.
-    progress applyPHyp.
     repeat (iExists _). eagerUnifyC.
     match goal with
     | H:context[stateAfterTransactionAux ?a1 ?b1 ?c1 ?d1] |- context[stateAfterTransactionAux ?a2 ?b2 ?c2 ?d2] => 
@@ -731,6 +728,7 @@ Proof using MODd.
     forward_reason.
     ren_hyp au AssumptionsAndUpdates.
     subst.
+    Forward.rwHyps.
     eagerUnifyC.
     go.
     rewrite <- wp_const_const_delete.
@@ -766,7 +764,10 @@ Proof using MODd.
     go.
     rewrite ResultSucRDef. go.
 }
-  
-Abort.
 
-  End with_Sigma.
+Fail idtac.
+  Print has_value. (* this has a quantified type. make it a param *)
+  Print evm.address. (* this is in Set. make it in Type. investigate why it is Type in yoichi's semantics *)
+Abort. (* universe inconsistency on Qed *)
+
+End with_Sigma.
