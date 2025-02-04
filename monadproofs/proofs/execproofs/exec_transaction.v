@@ -525,6 +525,19 @@ cpp.spec ((Ninst
     || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _ _ _ _))
   ].
 
+  Lemma stateObserve (state_addr:ptr) t: 
+    Observe (reference_to (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))) state_addr)
+            (state_addr |-> StateR t).
+  Proof using. Admitted.
+#[global] Instance : LearnEq3 (BlockState.Rauth) := ltac:(solve_learnable).
+Existing Instance UNSAFE_read_prim_cancel.
+  #[global] Instance : LearnEq1 ReceiptR := ltac:(solve_learnable).
+  #[global] Instance : LearnEq1 EvmcResultR := ltac:(solve_learnable).
+  Lemma recObserve (state_addr:ptr) t: 
+    Observe (reference_to (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt"))) state_addr)
+            (state_addr |-> ReceiptR t).
+  Proof using. Admitted.
+  
   Lemma prf: denoteModule module
              ** (opt_reconstr TransactionResult resultT)
              ** wait_for_promise
@@ -569,10 +582,6 @@ Proof using MODd.
   slauto.
   iExists i. (* TODO: add a REfine 1 hint to avoid needing this *)
   go.
-  Lemma stateObserve (state_addr:ptr) t: 
-    Observe (reference_to (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))) state_addr)
-            (state_addr |-> StateR t).
-  Proof using. Admitted.
   wapplyObserve stateObserve.
   eagerUnifyU.
   slauto.
@@ -583,7 +592,6 @@ slauto.
 Transparent libspecs.optionR.
 slauto1.
 Transparent set_original_nonce.
-Existing Instance UNSAFE_read_prim_cancel.
 unfold set_original_nonce in *.
 simpl in *.
 autorewrite with syntactic.
@@ -591,7 +599,6 @@ rewrite lookup_empty in H.
 forward_reason. subst.
 go. subst. go.
 unfold BheaderR. go.
-#[global] Instance : LearnEq3 (BlockState.Rauth) := ltac:(solve_learnable).
 unfold TransactionR. go.
 iExists true.  slauto.
 do 3 (iExists _). iExists preBlockState. (* dummy as we are in the speculative case where this is not used *)
@@ -602,9 +609,7 @@ wp_if.
 intros.
   wapplyObserve @resultObserve. eagerUnifyU.
 slauto.
-Existing Instance UNSAFE_read_prim_cancel.
 slauto.
-Search (primR) Learnable.
 go.
 repeat (iExists _).
 eagerUnifyU.
@@ -639,13 +644,9 @@ go.
 rewrite <- wp_const_const_delete.
 go.
 
-  Lemma recObserve (state_addr:ptr) t: 
-    Observe (reference_to (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt"))) state_addr)
-            (state_addr |-> ReceiptR t).
-  Proof using. Admitted.
   wapplyObserve recObserve. eagerUnifyU.
 (* iAssert (reference_to (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt"))) _x_1) as  "#?"%string;[admit|]. *)
-go.
+  go.
   unshelve rewrite <- wp_init_implicit.
   go.
   setoid_rewrite ResultSucRDef.
@@ -657,15 +658,12 @@ go.
   go.
   rewrite <- wp_const_const_delete.
   go.
-  #[global] Instance : LearnEq1 ReceiptR := ltac:(solve_learnable).
   go.
   setoid_rewrite ResultSucRDef.
   go.
-  #[global] Instance : LearnEq1 EvmcResultR := ltac:(solve_learnable).
   go.
   autorewrite with syntactic in *.
   iClear "#"%string.
-  Check _H_6.
   match goal with
   | H: _.1 = applyUpdates _ _ |- _ => revert H
   end.
