@@ -35,10 +35,51 @@ Section with_Sigma.
         intros.
         go.
       Qed.
-        
+
+  Lemma uncurry_post_wand (P:mpred) (Qs Q: ptr -> mpred):
+    (P -* Forall x, (Qs x-* Q x))
+      |-- (Forall x, ((P ** Qs x)-* Q x)).
+  Proof. Admitted.
+    Lemma wpl f ρ s Qs Q:
+      (Forall v, Qs v -* Q v) **  (wp f ρ s (Kreturn (λ v : ptr, Qs v))) |--
+        (wp f ρ s (Kcleanup module [] (Kreturn (λ v : ptr, |> Q v)))).
+    Proof using. Admitted.
+
+  Ltac clearPost :=
+    repeat match goal with
+    | H: mpred |- _ => try clear H
+    | H : ptr-> mpred |- _ => try clear H
+    end.
+    
+  Ltac verify_spec2 :=
+    work; (* NOT go as that puts Seq into the continuation as Kseq, making the next rewrite fail *)
+    try rewrite uncurry_post_wand; (* TODO: make it work only the hyp of the form -* POST v *)
+    rewrite <- wpl;
+    eagerUnifyU; (* this does not suffice: see split_spec proof. need to do evar tricks to infer Qs *)
+    work;
+    name_locals;
+    cpp.hints.type.has_type_prop_prep;
+    try clearPost.
+      
+  Ltac verify_spec1 :=
+    iApply (verify_spec_new false false false module with ""%string);
+    [vm_compute; reflexivity|].
+
+  Ltac verify_spec :=
+    iIntrosDestructs;
+    verify_spec1;
+    verify_spec2.
+
+      Ltac runUntilPost :=
+      match goal with
+        |- context[Kreturn ?post] => hideFromWork post
+      end;
+      go;
+      unhideAllFromWork;
+      repeat rewrite <- primR_tptsto_fuzzyR.
   Lemma prf: denoteModule demo.module |-- foo_spec.
   Proof using.
-    verify_spec'.
+    verify_spec.
     do 5 run1.
     - slauto.
     - hideLoc (_global "y"). go.
@@ -46,21 +87,22 @@ Section with_Sigma.
       work.
       unhideAllFromWork.
       iExists yv.
-
-  IPM.perm_left ltac:(fun L n =>
-                        match L with
-                        | HiddenPostCondition => hideFromWorkAs L fullyHiddenPostcond;
-                      iRename n into "post"
-                        end
-                     ).
-      go.
-      unhideAllFromWork.
-      rewrite HiddenPostCondition.unlock.
-      iApply "post".
-   Abort.
-   
+      iFrame.
+      iIntros.
+      runUntilPost.
       
-          
-    (* todo
-- add calendar event.
-- 
+   Abort.
+
+  cpp.spec "foo()" as foo_spec_correct with (
+        \prepost{xv:N} _global "x" |-> primR "unsigned int" 1 xv
+        \pre{yv:N} _global "y" |-> primR.body "unsigned int" 1 yv
+        \post _global "y" |-> primR.body "unsigned int" 1 ((xv+1) `mod` (2^32))%N
+      ).
+
+  Lemma prf: denoteModule demo.module |-- foo_spec_correct.
+  Proof.
+    verify_spec'.
+    slauto.
+  Qed.
+  
+End with_Sigma.
