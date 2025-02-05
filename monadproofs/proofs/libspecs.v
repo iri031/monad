@@ -40,7 +40,6 @@ Context `{Sigma:cpp_logic} {CU: genv} {hh: HasOwn mpredI algebra.frac.fracR}. (*
   Proof using. Admitted.
 
 Context  {MODd : exb.module ⊧ CU}.
-(* Node::Node(Node*,int) *)
   Definition promise_constructor_spec (this:ptr) :WpSpec mpredI val val :=
     \pre{P:mpred} emp
     \post Exists g:gname, this |->  PromiseR g P.
@@ -50,6 +49,12 @@ Context  {MODd : exb.module ⊧ CU}.
     \pre{(P:mpred) (g:gname)} this |-> PromiseProducerR g P
     \pre P
     \post emp).
+  
+  cpp.spec "monad::wait_for_promise(boost::fibers::promise<void>&)" as wait_for_promise with 
+          (
+            \arg{promise} "promise" (Vref promise)
+            \pre{(P:mpred) (g:gname)} promise |-> PromiseConsumerR g P
+            \post P ** promise |-> PromiseUnusableR).
 
   cpp.spec
     "std::vector<monad::Transaction, std::allocator<monad::Transaction>>::size() const"
@@ -70,11 +75,6 @@ Context  {MODd : exb.module ⊧ CU}.
   Definition addressR (q: Qp) (a: evm.address): Rep. Proof. Admitted.
   Definition optionAddressR (q:Qp) (oaddr: option evm.address): Rep := optionR "evmc::address" (fun a => addressR q a) q oaddr.
 
-  cpp.spec "monad::wait_for_promise(boost::fibers::promise<void>&)" as wait_for_promise with 
-          (
-            \arg{promise} "promise" (Vref promise)
-            \pre{(P:mpred) (g:gname)} promise |-> PromiseConsumerR g P
-            \post P ** promise |-> PromiseUnusableR).
 
   (* TODO: rename to vectorbase_split_n *)
   Lemma vectorbase_loopinv {T} ty base q (l: list T) (i:nat) (Heq: i=0):
@@ -234,7 +234,7 @@ Definition has_value ty T :=
         "bool" []
     |}
     (λ (this : ptr),
-      \prepost{ty (R:T->Rep) (o: option T) q } this |-> optionR ty R q o
+      \prepost{(R:T->Rep) (o: option T) q } this |-> optionR ty R q o
         \post [Vbool  (isSome o)] emp).
 
 
@@ -249,7 +249,7 @@ Definition has_value ty T :=
         (Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))))) []
   |}
   (λ (this : ptr),
-    \prepost{ ty (R:T->Rep) (t: T) q } this |-> optionR ty R q (Some t)
+    \prepost{(R:T->Rep) (t: T) q } this |-> optionR ty R q (Some t)
       \post [Vref (this ,, opt_base_offset ty)] emp).
 
    
