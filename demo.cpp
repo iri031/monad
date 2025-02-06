@@ -34,7 +34,7 @@ void gcd(const uint &a, const uint &b, uint &result) {
 
 template<typename LambdaStruct>
 class Thread {
-    LambdaStruct lambda;
+    const LambdaStruct & lambda;
     std::thread worker;
 
 public:
@@ -74,10 +74,20 @@ public:
 
 void parallel_gcd_lcm(const uint &a, const uint &b, uint &gcd_result, uint &lcm_result) {
     Thread t1([&gcd_result, &a, &b]() {
-        gcd_result=gcd(a,b); // pretend this is an expensive operation, e.g. these are 1000 bit numbers
+        gcd(a,b, gcd_result); // pretend this is an expensive operation, e.g. these are 1000 bit numbers
     });
-    uint product=a*b;// pretend this is an expensive operation, 
     t1.fork_start();
+    uint product=a*b;// pretend this is an expensive operation, e.g. these are 1000 bit numbers
+    t1.join();
+    lcm_result=product/gcd_result;
+}
+
+void parallel_gcd_lcm_wrong(const uint &a, const uint &b, uint &gcd_result, uint &lcm_result) {
+    Thread t1([&gcd_result, &a, &b]() {
+        gcd(a,b, gcd_result); // pretend this is an expensive operation, e.g. these are 1000 bit numbers
+    });
+    t1.fork_start();
+    uint product=a*b;// pretend this is an expensive operation, e.g. these are 1000 bit numbers
     lcm_result=product/gcd_result;
     t1.join();
 }

@@ -16,9 +16,10 @@ Section with_Sigma.
   Context  {MODd : exb.module ⊧ CU}.
 
 
+  (*
   cpp.spec (Nscoped 
               "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0" (Ndtor))  as cslamdestr inline.
-
+*)
 Lemma prf: denoteModule module
              ** tvector_spec
              ** reset_promises

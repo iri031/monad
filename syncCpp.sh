@@ -2,6 +2,7 @@ DST=/home/abhishek/work/coq/blue/fm-workspace-snapshot3b/fm-workspace-12-16/fmde
 CPP2V=~/work/coq/blue/fm-workspace-snapshot3b/fm-workspace-12-16/_build/install/default/bin/cpp2v
 #DST=/home/abhishek/work/coq/blue/fm-workspace-snapshot3b/fm-workspace-live/fmdeps/monad/asts
 #CPP2V=~/work/coq/blue/fm-workspace-snapshot3b/fm-workspace-live/_build/install/default/bin/cpp2v
-$CPP2V  ./libs/execution/src/monad/execution/execute_block.cpp --no-elaborate -o $DST/exb.v #--names=$DST/exb_names.v
+
+#$CPP2V  ./libs/execution/src/monad/execution/execute_block.cpp --no-elaborate -o $DST/exb.v #--names=$DST/exb_names.v
 #$CPP2V  ./libs/execution/src/monad/execution/execute_transaction.cpp --no-elaborate -o $DST/ext.v #--names=$DST/ext_names.v
-#$CPP2V  demo.cpp --no-elaborate -o $DST/demo.v
+$CPP2V  demo.cpp --no-elaborate -o $DST/demo.v
