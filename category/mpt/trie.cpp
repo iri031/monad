@@ -110,11 +110,6 @@ bool verify_node_offset_is_valid(
                static_cast<int64_t>(aux.db_history_min_valid_version());
 }
 
-// invoke at the end of each block upsert
-void flush_buffered_writes(UpdateAuxImpl &);
-
-chunk_offset_t write_new_root_node(UpdateAuxImpl &, Node &, uint64_t);
-
 Node::UniquePtr upsert(
     UpdateAuxImpl &aux, uint64_t const version, StateMachine &sm,
     Node::UniquePtr old, UpdateList &&updates, bool const write_root)
@@ -174,9 +169,6 @@ Node::UniquePtr upsert(
         if (aux.is_on_disk() && root) {
             if (write_root) {
                 write_new_root_node(aux, *root, version);
-            }
-            else {
-                flush_buffered_writes(aux);
             }
         }
         return root;
