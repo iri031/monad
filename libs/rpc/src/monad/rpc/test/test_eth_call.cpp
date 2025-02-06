@@ -89,7 +89,6 @@ TEST_F(EthCallFixture, simple_success_call)
         rlp_tx,
         rlp_header,
         rlp_sender,
-        256u,
         dbname,
         state_override);
 
@@ -128,7 +127,6 @@ TEST_F(EthCallFixture, failed_to_read)
         rlp_tx,
         rlp_header,
         rlp_sender,
-        1256u,
         dbname,
         state_override);
     EXPECT_EQ(result.status_code, EVMC_REJECTED);
@@ -164,7 +162,6 @@ TEST_F(EthCallFixture, contract_deployment_success)
         rlp_tx,
         rlp_header,
         rlp_sender,
-        256u,
         dbname,
         state_override);
 
@@ -222,7 +219,6 @@ TEST_F(EthCallFixture, from_contract_account)
         rlp_tx,
         rlp_header,
         rlp_sender,
-        0,
         dbname,
         state_override);
 

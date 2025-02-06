@@ -34,8 +34,7 @@ namespace
     template <evmc_revision rev>
     Result<evmc::Result> eth_call_impl(
         Chain const &chain, Transaction const &txn, BlockHeader const &header,
-        uint64_t const block_number, Address const &sender, TrieDb &tdb,
-        BlockHashBufferFinalized &buffer,
+        Address const &sender, TrieDb &tdb, BlockHashBufferFinalized &buffer,
         monad_state_override_set const &state_overrides)
     {
         Transaction enriched_txn{txn};
@@ -51,10 +50,10 @@ namespace
         BOOST_OUTCOME_TRY(static_validate_transaction<rev>(
             enriched_txn, header.base_fee_per_gas, chain.get_chain_id()));
 
-        tdb.set_block_and_round(block_number, std::nullopt);
+        tdb.set_block_and_round(header.number, std::nullopt);
         BlockState block_state{tdb};
         // avoid conflict with block reward txn
-        Incarnation incarnation{block_number, Incarnation::LAST_TX - 1u};
+        Incarnation incarnation{header.number, Incarnation::LAST_TX - 1u};
         State state{block_state, incarnation};
 
         for (auto const &[addr, state_delta] : state_overrides.override_sets) {
@@ -163,8 +162,8 @@ namespace
 
     Result<evmc::Result> eth_call_impl(
         Chain const &chain, evmc_revision const rev, Transaction const &txn,
-        BlockHeader const &header, uint64_t const block_number,
-        Address const &sender, TrieDb &tdb, BlockHashBufferFinalized &buffer,
+        BlockHeader const &header, Address const &sender, TrieDb &tdb,
+        BlockHashBufferFinalized &buffer,
         monad_state_override_set const &state_overrides)
     {
         SWITCH_EVMC_REVISION(
@@ -172,7 +171,6 @@ namespace
             chain,
             txn,
             header,
-            block_number,
             sender,
             tdb,
             buffer,
@@ -269,8 +267,7 @@ void monad_state_override_set::set_override_state(
 monad_evmc_result eth_call(
     monad_chain_config const chain_config, std::vector<uint8_t> const &rlp_tx,
     std::vector<uint8_t> const &rlp_header,
-    std::vector<uint8_t> const &rlp_sender, uint64_t const block_number,
-    std::string const &triedb_path,
+    std::vector<uint8_t> const &rlp_sender, std::string const &triedb_path,
     monad_state_override_set const &state_overrides)
 {
     byte_string_view rlp_tx_view(rlp_tx.begin(), rlp_tx.end());
@@ -308,7 +305,7 @@ monad_evmc_result eth_call(
 
     monad_evmc_result ret{};
     BlockHashBufferFinalized buffer{};
-    if (!init_block_hash_buffer_from_triedb(db, block_number, buffer)) {
+    if (!init_block_hash_buffer_from_triedb(db, block_header.number, buffer)) {
         ret.status_code = EVMC_REJECTED;
         ret.message = "failure to initialize block hash buffer";
         return ret;
@@ -330,15 +327,7 @@ monad_evmc_result eth_call(
         chain->get_revision(block_header.number, block_header.timestamp);
 
     auto const result = eth_call_impl(
-        *chain,
-        rev,
-        tx,
-        block_header,
-        block_number,
-        sender,
-        tdb,
-        buffer,
-        state_overrides);
+        *chain, rev, tx, block_header, sender, tdb, buffer, state_overrides);
     if (MONAD_UNLIKELY(result.has_error())) {
         ret.status_code = EVMC_REJECTED;
         ret.message = result.error().message().c_str();
