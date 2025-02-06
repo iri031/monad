@@ -391,18 +391,18 @@ Section cp.
 
   Fixpoint isFunctionNamed2 (fname: ident) (n:name): bool :=
     match n with
-    | Nglobal  (Nfunction _ (Nf i) _) => bool_decide (i=fname)
+    | Nglobal  (Nfunction _ i _) => bool_decide (i=fname)
     | Ninst nm _ => isFunctionNamed2 fname nm
-    | Nscoped _ (Nfunction _ (Nf i) _) => bool_decide (i=fname)
+    | Nscoped _ (Nfunction _ i _) => bool_decide (i=fname)
     | _ => false
     end.
 
   Fixpoint containsDep (n:name): bool :=
     match n with
     | Ndependent _ => true
-    | Nglobal  (Nfunction _ (Nf i) _) => false
+    | Nglobal  (Nfunction _ i _) => false
     | Ninst nm _ => containsDep nm
-    | Nscoped nm (Nfunction _ (Nf i) _) => containsDep nm
+    | Nscoped nm (Nfunction _ i _) => containsDep nm
     | _ => false
     end.
   

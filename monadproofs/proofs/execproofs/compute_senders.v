@@ -17,7 +17,7 @@ Section with_Sigma.
 
 
   cpp.spec (Nscoped 
-              "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0" (Nfunction function_qualifiers.N Ndtor []))  as cslamdestr inline.
+              "monad::compute_senders(const monad::Block&, monad::fiber::PriorityPool&)::@0" (Ndtor))  as cslamdestr inline.
 
 Lemma prf: denoteModule module
              ** tvector_spec

@@ -92,9 +92,9 @@ Context  {MODd : exb.module ⊧ CU}.
   Definition all_but_last {T:Type} (l: list T):= take (length l -1)%nat l. 
   Definition fork_task_nameg (taskLamStructTy: core.name) :=
     match fork_task_namei with
-    | Ninst (Nscoped (Nglobal (Nid scopename)) (Nfunction q (Nf base) argTypes)) templateArgs =>
+    | Ninst (Nscoped (Nglobal (Nid scopename)) (Nfunction q (base) argTypes)) templateArgs =>
         let argTypes' := all_but_last argTypes ++  [Tref (Tqualified QC (Tnamed taskLamStructTy))] in
-        Ninst (Nscoped (Nglobal (Nid scopename)) (Nfunction q (Nf base) argTypes')) [Atype (Tnamed taskLamStructTy)]
+        Ninst (Nscoped (Nglobal (Nid scopename)) (Nfunction q (base) argTypes')) [Atype (Tnamed taskLamStructTy)]
     | _ => Nunsupported "no match"
     end.
 
@@ -105,7 +105,7 @@ Context  {MODd : exb.module ⊧ CU}.
     eexists. reflexivity.
   Qed.
 
-  Definition taskOpName : atomic_name := Nfunction function_qualifiers.Nc (Nop OOCall) [].
+  Definition taskOpName : atomic_name := (Nop function_qualifiers.Nc OOCall) [].
   
   Definition taskOpSpec (lamStructName: core.name) (objOwnership: Rep) (taskPre: mpred):=
     specify {| info_name :=  (Nscoped lamStructName taskOpName) ;
@@ -132,7 +132,7 @@ Context  {MODd : exb.module ⊧ CU}.
       info_name :=
         Ninst
           (Nscoped (Nglobal (Nid "monad"))
-             (Nfunction function_qualifiers.N (Nf "fork_task")
+             (Nfunction function_qualifiers.N ("fork_task")
                 [Tref (Tnamed (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "fiber")) (Nid "PriorityPool"))); "unsigned long"%cpp_type;
                  Tref
                    (Tconst
@@ -175,7 +175,7 @@ Definition opt_reconstr baseModelTy basety :=
         (Nscoped
           (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
              [Atype basety])
-          (Nfunction function_qualifiers.N (Nop OOEqual)
+          ((Nop function_qualifiers.N OOEqual)
              [Trv_ref
                       basety])) [Atype basety];
       info_type :=
@@ -217,7 +217,7 @@ cpp.spec "std::optional<evmc::address>::operator=(std::optional<evmc::address>&&
     ).
 
 (* TODO: generalize *)
-  cpp.spec (Nscoped "std::optional<evmc::address>" (Nfunction function_qualifiers.N Ndtor [])) as destrop with
+  cpp.spec (Nscoped "std::optional<evmc::address>" (Ndtor)) as destrop with
       (fun (this:ptr) =>
          \pre{oa} this |-> optionAddressR 1 oa
            \post emp
@@ -228,7 +228,7 @@ Definition has_value ty T :=
     {|
     info_name :=
       Nscoped (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional")) [Atype ty])
-        (Nfunction function_qualifiers.Nc (Nf "has_value") []);
+        (Nfunction function_qualifiers.Nc ("has_value") []);
     info_type :=
       tMethod (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional")) [Atype ty]) QC
         "bool" []
@@ -243,7 +243,7 @@ Definition has_value ty T :=
   {|
     info_name :=
       Nscoped (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional")) [Atype ty])
-        (Nfunction function_qualifiers.Ncl (Nf "value") []);
+        (Nfunction function_qualifiers.Ncl ("value") []);
     info_type :=
       tMethod (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional")) [Atype ty]) QC
         (Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))))) []

@@ -2,14 +2,34 @@
 //#include <utility>
 //#include <iostream>
 
+using uint = unsigned int;
 
-unsigned int x = 0;
-unsigned int y = 0;
+uint x = 0;
+uint y = 0;
 
 void foo() {
     y=x+1;
 }
 
+int a = 0;
+int b = 0;
+void sfoo() {
+    b=a+1;
+}
+
+
+uint gcd(uint a, uint b) {
+    while (b != 0) {
+        uint temp = b;
+        b = a % b;
+        a = temp;
+    }
+    return a;
+}
+
+void gcd(const uint &a, const uint &b, uint &result) {
+    result=gcd(a,b);
+}
 
 
 template<typename LambdaStruct>
@@ -51,6 +71,16 @@ public:
 
     Thread(const LambdaStruct& lambda) : lambda(lambda) {}
 };
+
+void parallel_gcd_lcm(const uint &a, const uint &b, uint &gcd_result, uint &lcm_result) {
+    Thread t1([&gcd_result, &a, &b]() {
+        gcd_result=gcd(a,b); // pretend this is an expensive operation, e.g. these are 1000 bit numbers
+    });
+    uint product=a*b;// pretend this is an expensive operation, 
+    t1.fork_start();
+    lcm_result=product/gcd_result;
+    t1.join();
+}
 
 // int main() {
 //     Thread t([]() {

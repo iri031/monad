@@ -304,7 +304,7 @@ cpp.spec
 
 cpp.spec ((Ninst
              (Nscoped (Nglobal (Nid "monad"))
-                (Nfunction function_qualifiers.N (Nf "execute")
+                (Nfunction function_qualifiers.N ("execute")
                    [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Chain")))); "unsigned long"%cpp_type; Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))));
                     Tref (Tconst (Tnamed (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional")) [Atype (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address")))])));
                     Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockHeader")))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockHashBuffer"))));
@@ -318,7 +318,7 @@ Definition destr_res :=
       info_name :=
         Nscoped
           resultn
-          (Nfunction function_qualifiers.N Ndtor []);
+          (Ndtor);
       info_type :=
         tDtor
           resultn
@@ -338,7 +338,7 @@ Section with_Sigma.
   Context `{Sigma:cpp_logic} {CU: genv} {hh: HasOwn mpredI fracR}.
   Context  {MODd : ext.module ⊧ CU}.
   
-  cpp.spec (Nscoped (Nglobal (Nid "monad")) (Nfunction function_qualifiers.N (Nf "get_chain_id") [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Chain"))))]))
+  cpp.spec (Nscoped (Nglobal (Nid "monad")) (Nfunction function_qualifiers.N ("get_chain_id") [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Chain"))))]))
     as get_chain_id with(
       \arg{chainp} "" (Vref chainp)
       \prepost{chain q} chainp |-> ChainR q chain

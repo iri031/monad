@@ -19,7 +19,7 @@ Section with_Sigma.
   Set Printing Coercions.
   
   cpp.spec (Nscoped 
-              (Nscoped (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::PriorityPool&, const monad::Chain&, const monad::BlockHashBuffer&, monad::BlockState &)" [Avalue (Eint 11 "enum evmc_revision")]) (Nanon 0)) (Nfunction function_qualifiers.N Ndtor []))  as exlamdestr inline.
+              (Nscoped (Ninst "monad::execute_transactions(const monad::Block&, monad::fiber::PriorityPool&, const monad::Chain&, const monad::BlockHashBuffer&, monad::BlockState &)" [Avalue (Eint 11 "enum evmc_revision")]) (Nanon 0)) (Ndtor))  as exlamdestr inline.
       
 Lemma prf: denoteModule module
              ** (opt_reconstr TransactionResult resultT)

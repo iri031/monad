@@ -104,5 +104,32 @@ Section with_Sigma.
     verify_spec'.
     slauto.
   Qed.
+  cpp.spec "sfoo()" as sfoo_spec with (
+        \prepost{xv:Z} _global "a" |-> primR "int" 1 xv
+        \pre{yv:N} _global "b" |-> primR.body "int" 1 yv
+        \post _global "b" |-> primR.body "int" 1 ((xv+1) `mod` (2^32))%Z
+      ).
+
+  Lemma sprf: denoteModule demo.module |-- sfoo_spec.
+  Proof.
+    verify_spec'.
+    slauto.
+    provePure.
+    type.has_type_prop_prep.
+  Abort.
   
+  cpp.spec "sfoo()" as sfoo_spec_correct with (
+        \prepost{xv:Z} _global "a" |-> primR "int" 1 xv
+        \pre [| (- 2 ^ (32 - 1) -1  ≤ xv ≤ 2 ^ (32 - 1) - 2)%Z |]
+        \pre{yv:N} _global "b" |-> primR.body "int" 1 yv
+        \post _global "b" |-> primR.body "int" 1 ((xv+1))%Z
+      ).
+
+  Lemma sprf: denoteModule demo.module |-- sfoo_spec_correct.
+  Proof.
+    verify_spec'.
+    slauto.
+  Qed.
+
+    
 End with_Sigma.

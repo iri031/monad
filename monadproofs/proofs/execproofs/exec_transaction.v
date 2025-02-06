@@ -23,7 +23,7 @@ Section with_Sigma.
   cpp.spec (
           (Ninst
              (Nscoped (Nglobal (Nid "monad"))
-                (Nfunction function_qualifiers.N (Nf "execute_impl")
+                (Nfunction function_qualifiers.N ("execute_impl")
                    [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Chain")))); "unsigned long"%cpp_type;
                     Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))));
                     Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))));
@@ -38,7 +38,7 @@ Section with_Sigma.
 
   cpp.spec  (Ninst
              (Nscoped (Nglobal (Nid "monad"))
-                (Nfunction function_qualifiers.N (Nf "static_validate_transaction")
+                (Nfunction function_qualifiers.N ("static_validate_transaction")
                    [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))));
                     Tref
                       (Tconst
@@ -83,7 +83,7 @@ Definition destr_u256 :=
       info_name :=
         Nscoped
           (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")])
-          (Nfunction function_qualifiers.N Ndtor []);
+          (Ndtor);
       info_type :=
         tDtor
           (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")])
@@ -94,7 +94,7 @@ Definition destr_u256 :=
   cpp.spec 
           (Ninst
              (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2"))
-                (Nfunction function_qualifiers.N (Nf "try_operation_has_value")
+                (Nfunction function_qualifiers.N ("try_operation_has_value")
                    [Tref
                       (Tnamed
                          (Ninst (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "basic_result"))
@@ -144,7 +144,7 @@ Definition destr_outcome_overload :=
       info_name :=
         Nscoped
           (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "has_value_overload"))
-          (Nfunction function_qualifiers.N Ndtor []);
+          (Ndtor);
       info_type :=
         tDtor
           (Nscoped (Nscoped (Nscoped (Nglobal (Nid "boost")) (Nid "outcome_v2")) (Nid "detail")) (Nid "has_value_overload"))
@@ -157,7 +157,7 @@ Definition destr_outcome_overload :=
   Proof using. Admitted.
 
   cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "Incarnation"))
-             (Nfunction function_qualifiers.N Nctor ["unsigned long"%cpp_type; "unsigned long"%cpp_type]))
+             (Nctor ["unsigned long"%cpp_type; "unsigned long"%cpp_type]))
          as incarnation_constr with
   (fun this:ptr =>
      \arg{bn} "" (Vn bn)
@@ -171,7 +171,7 @@ Definition destr_incarnation :=
       info_name :=
         Nscoped
           (Nscoped (Nglobal (Nid "monad")) (Nid "Incarnation"))
-          (Nfunction function_qualifiers.N Ndtor []);
+          (Ndtor);
       info_type :=
         tDtor
           (Nscoped (Nglobal (Nid "monad")) (Nid "Incarnation"))
@@ -195,7 +195,7 @@ Require Import bedrock.prelude.lens.
 
   Search Bvector.Bvector Z.
 cpp.spec ((Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "State"))
-       (Nfunction function_qualifiers.N (Nf "set_original_nonce")
+       (Nfunction function_qualifiers.N ("set_original_nonce")
           [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address")))); "unsigned long"%cpp_type])))
   as set_original_nonce_spec with
     (fun this:ptr =>
@@ -210,7 +210,7 @@ cpp.spec ((Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "State"))
 #[global] Instance : LearnEq1 (StateR) := ltac:(solve_learnable).
 cpp.spec (Ninst
              (Nscoped (Nglobal (Nid "monad"))
-                (Nfunction function_qualifiers.N (Nf "execute_impl2")
+                (Nfunction function_qualifiers.N ("execute_impl2")
                    [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Chain"))));
                     Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))));
                     Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))));
@@ -220,7 +220,7 @@ cpp.spec (Ninst
              [Avalue (Eint 11 (Tenum (Nglobal (Nid "evmc_revision"))))])
   as execute_impl2 with (execute_impl2_specg).
   cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "State"))
-          (Nfunction function_qualifiers.N Nctor
+          (Nctor
              [Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState")));
               Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Incarnation"))]))
     as StateConstr with
@@ -274,7 +274,7 @@ Ltac slauto1 := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go; f
 cpp.spec 
        (Ninst
              (Nscoped (Nglobal (Nid "monad"))
-                (Nfunction function_qualifiers.N (Nf "has_error")
+                (Nfunction function_qualifiers.N ("has_error")
                    [Tref
                       (Tconst
                          (Tnamed
@@ -312,7 +312,7 @@ specify
         (Nscoped
            (Ninst (Nscoped (Nglobal (Nid "std")) (Nid "optional"))
               [Atype (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")]))])
-           (Nfunction function_qualifiers.Ncl (Nf "value_or") ["int&&"%cpp_type]))
+           (Nfunction function_qualifiers.Ncl ("value_or") ["int&&"%cpp_type]))
         [Atype "int"];
     info_type :=
       tMethod
@@ -333,7 +333,7 @@ constexpr const value_type &&value() const && { return static_cast<value_type &&
 *)
 cpp.spec (Ninst
              (Nscoped (Nglobal (Nid "monad"))
-                (Nfunction function_qualifiers.N (Nf "value")
+                (Nfunction function_qualifiers.N ("value")
                    [Tref
                       (Tconst
                          (Tnamed
@@ -370,7 +370,7 @@ Definition exec_final :=
     info_name :=
       Ninst
         (Nscoped (Nglobal (Nid "monad"))
-           (Nfunction function_qualifiers.N (Nf "execute_final")
+           (Nfunction function_qualifiers.N ("execute_final")
               [Tref (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Transaction"))));
                Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))));
                Tref (Tconst (Tnamed (Ninst (Nscoped (Nglobal (Nid "intx")) (Nid "uint")) [Avalue (Eint 256 "unsigned int")])));
@@ -385,7 +385,7 @@ Definition exec_final :=
   |} execute_final_spec.
 
 cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState"))
-       (Nfunction function_qualifiers.N (Nf "can_merge")
+       (Nfunction function_qualifiers.N ("can_merge")
           [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))))]))
          as can_merge with
   (
@@ -395,7 +395,7 @@ cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState"))
   \prepost{preBlockState g preTxState} this |-> BlockState.Rauth preBlockState g preTxState
   \post{b} [Vbool b] [| if b then  (satisfiesAssumptions assumptionsAndUpdates preTxState) else Logic.True |]).
 cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState"))
-            (Nfunction function_qualifiers.N (Nf "merge") [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))))]))
+            (Nfunction function_qualifiers.N ("merge") [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))))]))
   as merge with
   (
          fun (this:ptr) =>
@@ -408,7 +408,7 @@ cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState"))
 #[ignore_errors]
 cpp.spec ((Ninst
           (Nscoped resultn
-             (Nfunction function_qualifiers.N Nctor
+             (Nctor
                 [Trv_ref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt"))));
                  Tnamed (Nscoped resultn (Nid "value_converting_constructor_tag"))]))
           [Atype (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")))); Atype "void"]))
@@ -418,15 +418,15 @@ cpp.spec ((Ninst
                                \arg{vtag} ("vtag"%pstring) (Vptr vtag)
                                \post this |-> ResultSuccessR ReceiptR r).
 
-  cpp.spec (Nscoped (Nscoped resultn (Nid "value_converting_constructor_tag")) (Nfunction function_qualifiers.N Nctor []))
+  cpp.spec (Nscoped (Nscoped resultn (Nid "value_converting_constructor_tag")) (Nctor []))
     as tag_constr with
       (fun (this:ptr) => \post this |-> structR ((Nscoped resultn (Nid "value_converting_constructor_tag"))) (cQp.mut 1)).
-  cpp.spec (Nscoped (Nscoped resultn (Nid "value_converting_constructor_tag")) (Nfunction function_qualifiers.N Ndtor []))
+  cpp.spec (Nscoped (Nscoped resultn (Nid "value_converting_constructor_tag")) (Ndtor))
     as tag_dtor with
       (fun (this:ptr) => \pre this |-> structR ((Nscoped resultn (Nid "value_converting_constructor_tag"))) (cQp.mut 1)
                           \post emp
       ).
-  cpp.spec (Nscoped ("monad::Receipt") (Nfunction function_qualifiers.N Ndtor []))
+  cpp.spec (Nscoped ("monad::Receipt") (Ndtor))
     as rcpt_dtor with
       (fun (this:ptr) => \pre{r} this |-> ReceiptR r
                           \post emp
@@ -449,13 +449,13 @@ cpp.spec ((Ninst
                       (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
                          [Atype
                             (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                 Atype "void"]))]) (Nfunction function_qualifiers.N Ndtor []))
+                 Atype "void"]))]) (Ndtor))
     as res_dtor with
       (fun (this:ptr) =>
          \pre{r} this |-> ResultSuccessR EvmcResultR r
            \post emp
       ).
-  cpp.spec (Nscoped ("monad::State") (Nfunction function_qualifiers.N Ndtor []))
+  cpp.spec (Nscoped ("monad::State") (Ndtor))
     as st_dtor with
       (fun (this:ptr) => \pre{au} this |-> StateR au
                           \post emp
@@ -478,7 +478,7 @@ cpp.spec ((Ninst
                       (Ninst (Nscoped (Nglobal (Nid "system_error2")) (Nid "errored_status_code"))
                          [Atype
                             (Tnamed (Ninst (Nscoped (Nscoped (Nglobal (Nid "system_error2")) (Nid "detail")) (Nid "erased")) [Atype "long"]))]));
-                 Atype "void"]))]) (Nfunction function_qualifiers.N Ndtor []))
+                 Atype "void"]))]) (Ndtor))
     as br_dtor with
       (fun (this:ptr) => \pre this |-> emp
                           \post emp
