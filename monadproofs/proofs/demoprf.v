@@ -5,6 +5,8 @@ Require Import bedrock.auto.invariants.
 Require Import bedrock.auto.cpp.proof.
 Require Import bedrock.auto.cpp.tactics4.
 Require Import monad.proofs.demomisc.
+From AAC_tactics Require Import AAC.
+From AAC_tactics Require Import Instances.
 Import cQp_compat.
 Open Scope cQp_scope.
 Import linearity.
@@ -291,25 +293,143 @@ Section with_Sigma.
       go.
     }
   Qed.
-    
 
-    
-cpp.spec ((Ninst
-          (Nscoped resultn
-             (Nctor
-                [Trv_ref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt"))));
-                 Tnamed (Nscoped resultn (Nid "value_converting_constructor_tag"))]))
-          [Atype (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "Receipt")))); Atype "void"]))
-  as result_val_constr with (fun this:ptr =>
-                               \arg{recp} ("recp"%pstring) (Vref recp)
-                               \prepost{r} recp |-> ReceiptR r
-                               \arg{vtag} ("vtag"%pstring) (Vptr vtag)
-                               \post this |-> ResultSuccessR ReceiptR r).
+  Check gcd_spec. (* jump to defn here to contrast the simpler spec because of passing args by value *)
+
+  Ltac simplPure :=
+    simpl in *; autorewrite with syntactic (* equiv *) iff  in *; try rewrite left_id in *; simpl in *.
+  Search Commutative Z.gcd.
+
+  Import Instances.Z.
+  Lemma trans4 `{Equivalence} a b a' b': R a a' -> R b b' -> R a b -> R a' b'.
+  Proof. now intros -> ->. Qed.
   
+  Tactic Notation "aac_rewriteh" uconstr(L) "in" hyp(H) :=
+    (eapply trans4 in H;[| try aac_rewrite L; try reflexivity | try aac_rewrite L; try reflexivity ]).
+  
+  Lemma proof: denoteModule module |-- gcd_spec.
+  Proof.
+    verify_spec.
+    slauto.
+
+    wp_while  (fun _ => (Exists a' b' : Z,
+                      [| 0 ≤ a' ≤ 2 ^ 32 - 1 |]%Z **
+                      [| 0 ≤ b' ≤ 2 ^ 32 - 1 |]%Z **
+                      a_addr |-> primR Tu32 (cQp.mut 1) (Vint a') **
+                      b_addr |-> primR Tu32 (cQp.mut 1) (Vint b') ** [| Z.gcd a' b' = Z.gcd a b |])).
+    slauto.
+    wp_if.
+    { (* loop condition is true: loop executed body *)
+      slauto.
+      iPureIntro.
+      aac_normalise in H.
+      aac_rewrite Z.gcd_mod; try Arith.arith_solve.
+      aac_normalise.
+      Arith.arith_solve.
+    }
+
+    { (* loop condition is false: loop terminates *)
+      slauto.
+      simplPure.
+      aac_normalise in H.
+      aac_rewriteh Z.gcd_0_r_nonneg in H; subst; try Arith.arith_solve.
+      go.
+    }
+
+Qed.
+  (* TODO: lemma to unroll arrayR for 3 elements *)
+
+  (* parallelization: *)
+  Check Z.gcd_comm.
+  Check Z.gcd_assoc.
+  
+  cpp.spec "gcdl(unsigned int*, unsigned int)" as gcdl_spec with (
+        \arg{numsp:ptr} "nums" (Vptr numsp)
+        \pre{(l: list N) (q:Qp)} (numsp |-> arrayR "unsigned int" (fun i => primR "unsigned int" q (Vn i)) l) 
+        \arg "size" (Vint (lengthZ l))
+        \post [Vint (fold_left N.gcd l 0%N)] emp
+      ).
+
+
+    Lemma arrayR_cell2 i {X} ty (R:X->Rep) xs:
+    (Z.of_nat i < Z.of_nat (length xs))%Z ->
+          exists x, 
+            xs !! i = Some x /\	(** We have an [i]th element *)
+    (arrayR ty R xs -|-
+           arrayR ty R (take i xs) **
+           _sub ty (Z.of_nat i) |-> type_ptrR ty **
+           _sub ty (Z.of_nat i) |-> R  x **
+           _sub ty ((Z.of_nat i) + 1) |-> arrayR ty R (drop (1+i) xs)).
+  Proof using.
+    intros.
+    assert (i<length xs)%nat as Hex by lia.
+    applyToSomeHyp @lookup_lt_is_Some_2.
+    hnf in autogenhyp.
+    forward_reason.
+    subst.
+    eexists; split; eauto.
+    apply arrayR_cell; auto.
+  Qed.
+
+  Lemma gcdl_proof: denoteModule module |-- gcdl_spec.
+  Proof using.
+    verify_spec.
+    slauto.
+    wp_for (fun _ => Exists iv:nat,
+                i_addr |-> uintR (cQp.mut 1) iv **
+                [| iv <= length l |]%nat **
+              result_addr |-> uintR (cQp.mut 1) ((fold_left N.gcd (firstn iv l) 0%N))
+           ).
+    go. iExists 0%nat. go.
+    wp_if.
+    {
+      slauto.
+      rename t into iv.
+      unfold lengthN in *.
+      autorewrite with syntactic in *.
+      eapplyToSomeHyp @arrayR_cell2.
+      forward_reason.
+      rewrite -> autogenhypr.
+      hideRhs.
+      go.
+      unhideAllFromWork.
+      slauto.
+      wapply proof.
+      go.
+      iExists (1+iv)%nat.
+      go.
+      erewrite take_S_r;[|eauto].
+      rewrite fold_left_app.
+      simpl.
+      go.
+      
+      Search fold_left app.
+      ausorewrite with syntactic.
+      
+      2:{ eauto.
+      Search (_ !! _) take.
+      Search take S.
+      
+      
+      hnf in autogenhyp.
+
+      Set Nested Proofs Allowed.
+      misc
+      Search arrayR.
+      go.
+      Search take.
+      na
+      Search arrayR firstn skipn.
+      
+    
 End with_Sigma.
 (*
 - pretty printing of goal: ltac.
 - hide cQp?
 - docker image
 -  rename all Vref to Vptr?
+- replace all Z.gcd by N.gcd. no Vint, only Vn. or only Vint and Z stuff
+- remove all occurrences nat ?
+- S n by 1+n
+- remove type in array offset
  *)

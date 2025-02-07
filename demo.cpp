@@ -93,26 +93,26 @@ void parallel_gcd_lcm_wrong(const uint &a, const uint &b, uint &gcd_result, uint
     t1.join();
 }
 
-void gcdl (uint * nums, uint length, uint &result) {
-    result=1;
+uint gcdl (uint * nums, uint length) {
+    uint result=0;
     for (uint i=0; i<length; i++) {
         result=gcd(result, nums[i]);
     }
-    
+    return result;
 }
 
-void parallel_gcdl(uint * nums, uint length, uint &result) {
+uint parallel_gcdl(uint * nums, uint length) {
     uint mid=length/2;
     uint resultl;
     auto gcdlLambda = [&nums, &mid, &resultl]() {
-        gcdl(nums, mid, resultl);
+        resultl=gcdl(nums, mid);
     };
     Thread t1(gcdlLambda);
     t1.fork_start();
     uint resultr;
-    gcdl(nums+mid, length-mid, resultr);
+    resultr=gcdl(nums+mid, length-mid);
     t1.join();
-    result=gcd(resultl, resultr);
+    return gcd(resultl, resultr);
 }
 
 struct UnoundedUInt {
@@ -164,15 +164,15 @@ struct UnoundedUInt {
             return UnoundedUInt(); // Both operands are effectively 0
         }
 
-        // Allocate space for the sum (including a possible extra carry)
-        uint *sumData = new uint[maxSize + 1];
+        // Allocate space for the sum. will reallocate if overflows.
+        uint *sumData = new uint[maxSize];
 
         unsigned long long carry = 0ULL;
         // Add the words from both numbers up to maxSize
         for (uint i = 0; i < maxSize; i++) {
             // Use 0 if one of the numbers has fewer words
-            unsigned long long x = (i < size) ? data[i] : 0ULL;
-            unsigned long long y = (i < other.size) ? other.data[i] : 0ULL;
+            unsigned long long x = (i < size) ? nth_word(i) : 0ULL;
+            unsigned long long y = (i < other.size) ? other.nth_word(i) : 0ULL;
 
             unsigned long long s = x + y + carry;
             sumData[i] = static_cast<uint>(s & 0xFFFFFFFFULL); // lower 32 bits
@@ -182,7 +182,13 @@ struct UnoundedUInt {
         // Check if there is a carry out after adding all words
         uint newSize = maxSize;
         if (carry != 0) {
-            sumData[newSize] = static_cast<uint>(carry);
+            uint *sumDataNew = new uint[newSize + 1];
+            sumDataNew[newSize] = static_cast<uint>(carry);
+            for (uint i = 0; i < newSize; i++) {
+                sumDataNew[i] = sumData[i];
+            }
+            delete[] sumData;
+            sumData = sumDataNew;
             ++newSize;
         }
 
