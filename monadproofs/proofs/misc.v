@@ -531,3 +531,22 @@ Lemma cancel_at `{xx: cpp_logic} (p:ptr) (R1 R2 : Rep) :
 Proof using.
   apply _at_mono.
 Qed.
+
+  Ltac wapplyObserve lemma:=
+    try intros;
+  idtac;
+  [
+    wapply (@observe_elim _ _ _ (lemma)) || wapply (@observe_elim _ _ _ (lemma _))
+    || wapply (@observe_elim _ _ _ (lemma _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _))
+    || wapply (@observe_elim _ _ _ (lemma _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _))
+    || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _))
+    || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _ _))
+    || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _ _ _ _))
+    ||
+    wapply (@observe_2_elim _ _ _ _ (lemma)) || wapply (@observe_2_elim _ _ _ _ (lemma _))
+    || wapply (@observe_2_elim _ _ _ _ (lemma _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _))
+    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _))
+    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _))
+    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _ _))
+    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _ _ _ _))
+  ].

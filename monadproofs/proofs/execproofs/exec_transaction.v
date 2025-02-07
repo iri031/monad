@@ -506,24 +506,6 @@ cpp.spec ((Ninst
                     Atype "void"]))]))
     result_addr) (result_addr |-> ResultSuccessR EvmcResultR t).
   Proof using. Admitted.
-  Ltac wapplyObserve lemma:=
-    try intros;
-  idtac;
-  [
-    wapply (@observe_elim _ _ _ (lemma)) || wapply (@observe_elim _ _ _ (lemma _))
-    || wapply (@observe_elim _ _ _ (lemma _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _))
-    || wapply (@observe_elim _ _ _ (lemma _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _))
-    || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _))
-    || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _ _))
-    || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _ _ _ _))
-    ||
-    wapply (@observe_2_elim _ _ _ _ (lemma)) || wapply (@observe_2_elim _ _ _ _ (lemma _))
-    || wapply (@observe_2_elim _ _ _ _ (lemma _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _))
-    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _))
-    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _))
-    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _ _))
-    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _ _ _ _))
-  ].
 
   Lemma stateObserve (state_addr:ptr) t: 
     Observe (reference_to (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))) state_addr)

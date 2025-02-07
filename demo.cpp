@@ -73,9 +73,10 @@ public:
 };
 
 void parallel_gcd_lcm(const uint &a, const uint &b, uint &gcd_result, uint &lcm_result) {
-    Thread t1([&gcd_result, &a, &b]() {
-        gcd(a,b, gcd_result); // pretend this is an expensive operation, e.g. these are 1000 bit numbers
-    });
+    auto gcdLambda = [&gcd_result, &a, &b]() {
+           gcd(a, b, gcd_result);
+       };
+    Thread t1(gcdLambda);
     t1.fork_start();
     uint product=a*b;// pretend this is an expensive operation, e.g. these are 1000 bit numbers
     t1.join();
