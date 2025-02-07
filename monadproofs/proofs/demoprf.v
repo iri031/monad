@@ -236,6 +236,7 @@ Section with_Sigma.
     fold cQpc.
     (* TODO: pick a better name for gp. TODO. replace unintR with primR  *)
     iExists (gcdp |-> uintR 1%Qp garbage1 ** ap |-> uintR (qa/2) av ** bp |-> uintR (qb/2) bv).
+    
     iExists (gcdp |-> uintR 1%Qp (Z.gcd av bv) ** ap |-> uintR (qa/2) av ** bp |-> uintR (qb/2) bv).
     go.
     iSplitL "".
@@ -342,13 +343,15 @@ Qed.
   (* parallelization: *)
   Check Z.gcd_comm.
   Check Z.gcd_assoc.
-  
-  cpp.spec "gcdl(unsigned int*, unsigned int)" as gcdl_spec with (
+
+  Definition gcdl_spec_core : WpSpec mpredI val val :=
         \arg{numsp:ptr} "nums" (Vptr numsp)
-        \pre{(l: list N) (q:Qp)} (numsp |-> arrayR "unsigned int" (fun i => primR "unsigned int" q (Vn i)) l) 
+        \prepost{(l: list Z) (q:Qp)} (numsp |-> arrayR "unsigned int" (fun i => primR "unsigned int" q (Vint i)) l) 
         \arg "size" (Vint (lengthZ l))
-        \post [Vint (fold_left N.gcd l 0%N)] emp
-      ).
+        \post [Vint (fold_left Z.gcd l 0)] emp.
+  
+  cpp.spec "gcdl(unsigned int*, unsigned int)" as gcdl_spec with (gcdl_spec_core).
+  cpp.spec "parallel_gcdl(unsigned int*, unsigned int)" as parallel_gcdl_spec with (gcdl_spec_core).
 
 
     Lemma arrayR_cell2 i {X} ty (R:X->Rep) xs:
@@ -372,13 +375,13 @@ Qed.
   Qed.
 
   Lemma gcdl_proof: denoteModule module |-- gcdl_spec.
-  Proof using.
+  Proof using MODd.
     verify_spec.
     slauto.
     wp_for (fun _ => Exists iv:nat,
                 i_addr |-> uintR (cQp.mut 1) iv **
                 [| iv <= length l |]%nat **
-              result_addr |-> uintR (cQp.mut 1) ((fold_left N.gcd (firstn iv l) 0%N))
+              result_addr |-> uintR (cQp.mut 1) ((fold_left Z.gcd (firstn iv l) 0))
            ).
     go. iExists 0%nat. go.
     wp_if.
@@ -402,6 +405,25 @@ Qed.
       rewrite fold_left_app.
       simpl.
       go.
+      rewrite -> autogenhypr.
+      go.
+    }
+    {
+      slauto.
+      unfold lengthN in *.
+      rename t into iv.
+      assert (iv=length l) as Heq by lia.
+      subst.
+      autorewrite with syntactic.
+      go.
+    }
+  Qed.
+
+  
+  Lemma pgcdl_proof: denoteModule module |-- parallel_gcdl_spec.
+  Proof using MODd.
+    
+  
       
       Search fold_left app.
       ausorewrite with syntactic.
