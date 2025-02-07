@@ -73,11 +73,11 @@ static void on_signal(int)
 
 int main(int argc, char *const argv[])
 {
-    unsigned num_sync_reader_threads = 4;
-    unsigned num_async_reader_threads = 2;
+    unsigned num_sync_reader_threads = 0;
+    unsigned num_async_reader_threads = 0;
     size_t num_async_reads_inflight = 100;
-    unsigned num_traverse_threads = 2;
-    unsigned num_triedb_driver_threads = 2;
+    unsigned num_traverse_threads = 0;
+    unsigned num_triedb_driver_threads = 1;
     double prng_bias = 1.66;
     size_t num_nodes_per_version = 1;
     bool enable_compaction = true;
@@ -184,13 +184,13 @@ int main(int argc, char *const argv[])
 
             std::list<monad::hash256> hash_alloc;
             std::list<Update> update_alloc;
-            auto const version_bytes =
-                serialize_as_big_endian<sizeof(uint64_t)>(version);
+            std::list<monad::byte_string> byte_alloc;
             for (size_t k = 0; k < num_nodes_per_version; ++k) {
+                size_t const v = version * num_nodes_per_version + k;
                 ul.push_front(update_alloc.emplace_back(make_update(
-                    hash_alloc.emplace_back(
-                        to_key(version * num_nodes_per_version + k)),
-                    version_bytes)));
+                    hash_alloc.emplace_back(to_key(v)),
+                    byte_alloc.emplace_back(
+                        serialize_as_big_endian<sizeof(uint64_t)>(v)))));
             }
 
             auto u_prefix = Update{
@@ -221,18 +221,15 @@ int main(int argc, char *const argv[])
             auto rnd = monad::thread_local_prng();
             while (!g_done) {
                 auto const version = select_rand_version(ro_db, rnd, prng_bias);
-                auto const version_bytes =
-                    serialize_as_big_endian<sizeof(uint64_t)>(version);
-
                 for (size_t k = 0; k < num_nodes_per_version; ++k) {
+                    auto const v = version * num_nodes_per_version + k;
                     auto const res = ro_db.get(
-                        concat(
-                            NibblesView{prefix},
-                            NibblesView{
-                                to_key(version * num_nodes_per_version + k)}),
+                        concat(NibblesView{prefix}, NibblesView{to_key(v)}),
                         version);
                     if (res.has_value()) {
-                        MONAD_ASSERT(res.value() == version_bytes);
+                        MONAD_ASSERT(
+                            res.value() ==
+                            serialize_as_big_endian<sizeof(uint64_t)>(v));
                         ++nsuccess;
                     }
                     else {
@@ -273,14 +270,14 @@ int main(int argc, char *const argv[])
                 unsigned *nsuccess{nullptr};
                 unsigned *nfailed{nullptr};
                 uint64_t version;
-                monad::byte_string version_bytes;
+                monad::byte_string expected_value;
 
                 void set_value(
                     monad::async::erased_connected_operation *state,
                     monad::async::result<monad::byte_string> res)
                 {
                     if (res) {
-                        MONAD_ASSERT(res.value() == version_bytes);
+                        MONAD_ASSERT(res.value() == expected_value);
                         ++(*nsuccess);
                     }
                     else {
@@ -299,17 +296,13 @@ int main(int argc, char *const argv[])
             auto rnd = monad::thread_local_prng();
             while (!g_done) {
                 auto const version = select_rand_version(ro_db, rnd, prng_bias);
-                auto const version_bytes =
-                    serialize_as_big_endian<sizeof(uint64_t)>(version);
 
                 for (size_t k = 0; k < num_nodes_per_version; ++k) {
+                    auto const v = version * num_nodes_per_version + k;
                     auto *state = new auto(monad::async::connect(
                         monad::mpt::make_get_sender(
                             async_ctx.get(),
-                            concat(
-                                NibblesView{prefix},
-                                NibblesView{to_key(
-                                    version * num_nodes_per_version + k)}),
+                            concat(NibblesView{prefix}, NibblesView{to_key(v)}),
                             version),
                         receiver_t{
                             &completions,
@@ -317,7 +310,7 @@ int main(int argc, char *const argv[])
                             &nsuccess,
                             &nfailed,
                             version,
-                            version_bytes}));
+                            serialize_as_big_endian<sizeof(uint64_t)>(v)}));
                     state->initiate();
                     ++enqueued;
                 }
@@ -377,17 +370,9 @@ int main(int argc, char *const argv[])
 
                     if (node.has_value()) {
                         MONAD_ASSERT(path.nibble_size() == KECCAK256_SIZE * 2);
-                        uint64_t const version =
+                        uint64_t const v =
                             deserialize_from_big_endian<uint64_t>(node.value());
-                        bool found = false;
-                        for (size_t k = 0; k < num_nodes; ++k) {
-                            if (path ==
-                                NibblesView{to_key(version * num_nodes + k)}) {
-                                found = true;
-                                break;
-                            }
-                        }
-                        MONAD_ASSERT(found);
+                        MONAD_ASSERT(path == NibblesView{to_key(v)});
                     }
                     return !g_done;
                 }
@@ -455,21 +440,28 @@ int main(int argc, char *const argv[])
                 size_t const num_nodes_per_version;
                 triedb *db = nullptr;
 
-                unsigned nread = 0;
-                unsigned nreaddata = 0;
                 unsigned nasyncread = 0;
-                unsigned ntraverse = 0;
+                unsigned ntraverse_finished_normally = 0;
+                unsigned ntraverse_finished_early = 0;
                 unsigned nfailed = 0;
 
                 size_t enqueued = 0;
                 size_t completions = 0;
             } shared{num_nodes_per_version};
+
+            struct traverse_state_t
+            {
+                shared_t &shared;
+                uint64_t const version;
+                size_t num_nodes_traversed{0};
+            };
+
             MONAD_ASSERT(
                 0 == triedb_open(dbname_paths.front().c_str(), &shared.db));
 
             while (triedb_latest_block(shared.db) == 0 && !g_done) {
             }
-            // now the first version is written to db
+            // now the first version is written to db and finalized
             MONAD_ASSERT(triedb_latest_block(shared.db) != 0);
 
             auto async_completed = +[](bytes value, int, void *user) {
@@ -478,79 +470,53 @@ int main(int argc, char *const argv[])
                 ++shared->completions;
                 MONAD_ASSERT(0 == triedb_finalize(value));
             };
-            auto traverse_item = +[](void *context,
+            auto traverse_item = +[](enum triedb_async_traverse_callback kind,
+                                     void *context,
                                      bytes path,
                                      size_t path_len,
                                      bytes value,
                                      size_t value_len) {
-                auto *shared = (shared_t *)context;
-                NibblesView path_(0, (unsigned)path_len, path);
-                NibblesView node(0, (unsigned)value_len, value);
-                MONAD_ASSERT(path_.nibble_size() == KECCAK256_SIZE * 2);
-                uint64_t const version =
-                    deserialize_from_big_endian<uint64_t>(node);
-                bool found = false;
-                for (size_t k = 0; k < shared->num_nodes_per_version; ++k) {
-                    if (path_ ==
-                        NibblesView{to_key(
-                            version * shared->num_nodes_per_version + k)}) {
-                        found = true;
-                        break;
-                    }
+                auto *const state =
+                    reinterpret_cast<traverse_state_t *>(context);
+                if (kind == triedb_async_traverse_callback_finished_normally) {
+                    MONAD_ASSERT_PRINTF(
+                        state->num_nodes_traversed ==
+                            (state->version + 1) *
+                                state->shared.num_nodes_per_version,
+                        "num nodes traversed %zu",
+                        state->num_nodes_traversed);
+                    ++state->shared.completions;
+                    ++state->shared.ntraverse_finished_normally;
+                    delete state;
+                    return;
                 }
-                MONAD_ASSERT(found);
+                else if (
+                    kind == triedb_async_traverse_callback_finished_early) {
+                    ++state->shared.completions;
+                    ++state->shared.ntraverse_finished_early;
+                    delete state;
+                    return;
+                }
+                monad::byte_string_view const path_{path, path_len};
+                monad::byte_string_view const value_{value, value_len};
+                MONAD_ASSERT(path_.size() == KECCAK256_SIZE);
+                auto const v =
+                    deserialize_from_big_endian<uint64_t>(NibblesView{value_});
+                MONAD_ASSERT(NibblesView{path_} == NibblesView{to_key(v)});
+                ++state->num_nodes_traversed;
             };
 
             auto rnd = monad::thread_local_prng();
             auto const begin = std::chrono::steady_clock::now();
             while (!g_done) {
-                auto const bits = rnd();
-                if ((bits & 1) == 1) {
-                    auto const version = select_rand_version(
-                        triedb_earliest_block(shared.db),
-                        triedb_latest_block(shared.db),
-                        rnd,
-                        prng_bias);
-                    auto const version_bytes =
-                        serialize_as_big_endian<sizeof(uint64_t)>(version);
-
-                    for (size_t k = 0; k < num_nodes_per_version; ++k) {
-                        auto const key = concat(
-                            NibblesView{prefix},
-                            NibblesView{
-                                to_key(version * num_nodes_per_version + k)});
-                        uint8_t keybuffer[256];
-                        MONAD_ASSERT(extract_bytes_into(keybuffer, key) > 0);
-                        bytes value = nullptr;
-                        int length = triedb_read(
-                            shared.db,
-                            keybuffer,
-                            key.nibble_size(),
-                            &value,
-                            version);
-                        if (length < 0) {
-                            auto const min_version =
-                                triedb_earliest_block(shared.db);
-                            MONAD_ASSERT(version < min_version);
-                            ++shared.nfailed;
-                            continue;
-                        }
-                        MONAD_ASSERT(
-                            version_bytes ==
-                            monad::byte_string(value, size_t(length)));
-                        ++shared.nread;
-                        MONAD_ASSERT(0 == triedb_finalize(value));
-                    }
-                }
-                if ((bits & 2) == 2) {
-                    auto const version = select_rand_version(
-                        triedb_earliest_block(shared.db),
-                        triedb_latest_block(shared.db),
-                        rnd,
-                        prng_bias);
-                    auto const version_bytes =
-                        serialize_as_big_endian<sizeof(uint64_t)>(version);
-
+                // auto const bits = rnd();
+                auto const version = select_rand_version(
+                    triedb_earliest_block(shared.db),
+                    triedb_latest_block(shared.db),
+                    rnd,
+                    prng_bias);
+                // if ((bits & 1) == 1) {
+                if (false) {
                     for (size_t k = 0; k < num_nodes_per_version; ++k) {
                         auto const key = concat(
                             NibblesView{prefix},
@@ -569,67 +535,20 @@ int main(int argc, char *const argv[])
                         ++shared.enqueued;
                     }
                 }
-                if ((bits & 4) == 4) {
-                    auto const version = select_rand_version(
-                        triedb_earliest_block(shared.db),
-                        triedb_latest_block(shared.db),
-                        rnd,
-                        prng_bias);
-                    auto const version_bytes =
-                        serialize_as_big_endian<sizeof(uint64_t)>(version);
+                else {
+                    // allocate a current state on heap, callback finish
+                    // should garbage collects it
+                    auto state =
+                        std::make_unique<traverse_state_t>(shared, version);
 
-                    for (size_t k = 0; k < num_nodes_per_version; ++k) {
-                        auto const key = concat(
-                            NibblesView{prefix},
-                            NibblesView{
-                                to_key(version * num_nodes_per_version + k)});
-                        uint8_t keybuffer[256];
-                        MONAD_ASSERT(extract_bytes_into(keybuffer, key) > 0);
-
-                        triedb_traverse(
-                            shared.db,
-                            keybuffer,
-                            key.nibble_size(),
-                            version,
-                            &shared,
-                            traverse_item);
-                        ++shared.ntraverse;
-                    }
-                }
-                if ((bits & 8) == 8) {
-                    auto const version = select_rand_version(
-                        triedb_earliest_block(shared.db),
-                        triedb_latest_block(shared.db),
-                        rnd,
-                        prng_bias);
-                    auto const version_bytes =
-                        serialize_as_big_endian<sizeof(uint64_t)>(version);
-
-                    for (size_t k = 0; k < num_nodes_per_version; ++k) {
-                        auto const key = concat(
-                            NibblesView{prefix},
-                            NibblesView{
-                                to_key(version * num_nodes_per_version + k)});
-                        uint8_t keybuffer[256];
-                        MONAD_ASSERT(extract_bytes_into(keybuffer, key) > 0);
-                        bytes value = nullptr;
-                        int length = triedb_read_data(
-                            shared.db,
-                            keybuffer,
-                            key.nibble_size(),
-                            &value,
-                            version);
-                        if (length < 0) {
-                            auto const min_version =
-                                triedb_earliest_block(shared.db);
-                            MONAD_ASSERT(version < min_version);
-                            ++shared.nfailed;
-                            continue;
-                        }
-                        MONAD_ASSERT(length == 0);
-                        ++shared.nreaddata;
-                        MONAD_ASSERT(0 == triedb_finalize(value));
-                    }
+                    triedb_async_traverse(
+                        shared.db,
+                        prefix.data(),
+                        (uint8_t)prefix.size() * 2,
+                        version,
+                        state.release(),
+                        traverse_item);
+                    ++shared.enqueued;
                 }
                 triedb_poll(
                     shared.db, false, std::numeric_limits<size_t>::max());
@@ -643,13 +562,14 @@ int main(int argc, char *const argv[])
             std::ostringstream oss;
             oss << "Triedb driver thread (0x" << std::hex
                 << std::this_thread::get_id() << std::dec << ") finished"
-                << ". Did " << shared.nread << " successful reads, "
-                << shared.nreaddata << " successful read datas, "
-                << shared.nasyncread << " async reads, " << shared.ntraverse
-                << " traverses and " << shared.nfailed << " failed operations"
-                << std::endl;
-            auto const totalops = shared.nread + shared.nreaddata +
-                                  shared.nasyncread + shared.ntraverse;
+                << ". Did " << shared.nasyncread << " async reads, "
+                << shared.ntraverse_finished_normally << " finished traverses, "
+                << shared.ntraverse_finished_early
+                << " unfinished traverses and " << shared.nfailed
+                << " failed operations" << std::endl;
+            auto const totalops = shared.nasyncread +
+                                  shared.ntraverse_finished_early +
+                                  shared.ntraverse_finished_normally;
             oss << "   That was "
                 << (1000000.0 * double(totalops) /
                     double(
@@ -668,16 +588,15 @@ int main(int argc, char *const argv[])
                     .dbname_paths = dbname_paths};
                 Db ro_db{ro_config};
                 auto const version = ro_db.get_earliest_block_id() + 1;
-                auto const value =
-                    serialize_as_big_endian<sizeof(uint64_t)>(version);
+                auto const v = version * num_nodes_per_version;
                 auto const res = ro_db.get(
-                    concat(
-                        NibblesView{prefix},
-                        NibblesView{to_key(version * num_nodes_per_version)}),
+                    concat(NibblesView{prefix}, NibblesView{to_key(v)}),
                     version);
                 if (res.has_value()) {
                     ++nsuccess;
-                    MONAD_ASSERT(res.value() == value);
+                    MONAD_ASSERT(
+                        res.value() ==
+                        serialize_as_big_endian<sizeof(uint64_t)>(v));
                 }
                 else {
                     ++nfailed;

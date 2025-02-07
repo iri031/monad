@@ -17,9 +17,6 @@ typedef uint8_t const *bytes;
 int triedb_read(
     triedb *, bytes key, uint8_t key_len_nibbles, bytes *value,
     uint64_t block_id);
-int triedb_read_data(
-    triedb *, bytes key, uint8_t key_len_nibbles, bytes *value,
-    uint64_t block_id);
 // calls (*completed) when read is
 // complete. length is -1 if key not
 // found. If >=0, returns length of
@@ -28,10 +25,22 @@ int triedb_read_data(
 void triedb_async_read(
     triedb *, bytes key, uint8_t key_len_nibbles, uint64_t block_id,
     void (*completed)(bytes value, int length, void *user), void *user);
-// traverse the trie
+
+// traverse the trie.
+enum triedb_async_traverse_callback
+{
+    triedb_async_traverse_callback_value,
+    triedb_async_traverse_callback_finished_normally,
+    triedb_async_traverse_callback_finished_early
+};
+
 typedef void (*callback_func)(
-    void *context, bytes path, size_t path_len, bytes value, size_t value_len);
-void triedb_traverse(
+    enum triedb_async_traverse_callback kind, void *context, bytes path,
+    size_t path_len, bytes value, size_t value_len);
+bool triedb_traverse(
+    triedb *, bytes key, uint8_t key_len_nibbles, uint64_t block_id,
+    void *context, callback_func callback);
+void triedb_async_traverse(
     triedb *, bytes key, uint8_t key_len_nibbles, uint64_t block_id,
     void *context, callback_func callback);
 // pumps async reads, processing no
@@ -39,8 +48,17 @@ void triedb_traverse(
 // how many were processed.
 size_t triedb_poll(triedb *, bool blocking, size_t count);
 int triedb_finalize(bytes value);
+
 uint64_t triedb_earliest_block(triedb *);
 uint64_t triedb_latest_block(triedb *);
+
+// returns MAX if doesn't exist
+uint64_t triedb_latest_finalized_block(triedb *);
+// returns MAX if doesn't exist
+uint64_t triedb_latest_verified_block(triedb *);
+
+// returns MAX if doesn't exist
+uint64_t triedb_earliest_finalized_block(triedb *);
 
 #ifdef __cplusplus
 }

@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -34,7 +35,7 @@ int triedb_open(char const *dbdirpath, triedb **db)
     }
 
     std::vector<std::filesystem::path> paths;
-    if (!std::filesystem::is_directory(dbdirpath)) {
+    if (std::filesystem::is_block_file(dbdirpath)) {
         paths.emplace_back(dbdirpath);
     }
     else {
@@ -79,28 +80,7 @@ int triedb_read(
         // value length doesn't fit in return type
         return -2;
     }
-    size_t const value_len = (size_t)value_view.size();
-    *value = new uint8_t[value_len];
-    memcpy((void *)*value, value_view.data(), value_len);
-    return (int)value_len;
-}
-
-int triedb_read_data(
-    triedb *db, bytes key, uint8_t key_len_nibbles, bytes *value,
-    uint64_t block_id)
-{
-    auto result = db->db_.get_data(
-        monad::mpt::NibblesView{0, key_len_nibbles, key}, block_id);
-    if (!result.has_value()) {
-        return -1;
-    }
-
-    auto const &value_view = result.value();
-    if ((value_view.size() >> std::numeric_limits<int>::digits) != 0) {
-        // value length doesn't fit in return type
-        return -2;
-    }
-    size_t const value_len = (size_t)value_view.size();
+    auto const value_len = value_view.size();
     *value = new uint8_t[value_len];
     memcpy((void *)*value, value_view.data(), value_len);
     return (int)value_len;
@@ -153,16 +133,8 @@ void triedb_async_read(
     state->initiate();
 }
 
-void triedb_traverse(
-    triedb *db, bytes key, uint8_t key_len_nibbles, uint64_t block_id,
-    void *context, callback_func callback)
+namespace detail
 {
-    auto prefix = monad::mpt::NibblesView{0, key_len_nibbles, key};
-    auto cursor = db->db_.find(prefix, block_id);
-    if (!cursor.has_value()) {
-        return;
-    }
-
     class Traverse final : public monad::mpt::TraverseMachine
     {
         void *context_;
@@ -203,6 +175,7 @@ void triedb_traverse(
                 // path_data is key, node.value().data() is
                 // rlp(value)
                 callback_(
+                    triedb_async_traverse_callback_value,
                     context_,
                     path_data,
                     path_bytes,
@@ -210,6 +183,7 @@ void triedb_traverse(
                     node.value().size());
 
                 delete[] path_data;
+                return false;
             }
 
             return true;
@@ -234,10 +208,118 @@ void triedb_traverse(
         {
             return std::make_unique<Traverse>(*this);
         }
+    };
+}
 
-    } machine(context, callback, cursor.value().node->path_nibble_view());
+bool triedb_traverse(
+    triedb *db, bytes key, uint8_t key_len_nibbles, uint64_t block_id,
+    void *context, callback_func callback)
+{
+    auto prefix = monad::mpt::NibblesView{0, key_len_nibbles, key};
+    auto cursor = db->db_.find(prefix, block_id);
+    if (!cursor.has_value()) {
+        callback(
+            triedb_async_traverse_callback_finished_early,
+            context,
+            nullptr,
+            0,
+            nullptr,
+            0);
+        return false;
+    }
 
-    db->db_.traverse(cursor.value(), machine, block_id);
+    detail::Traverse machine(context, callback, monad::mpt::NibblesView{});
+
+    bool const completed = db->db_.traverse(cursor.value(), machine, block_id);
+
+    callback(
+        completed ? triedb_async_traverse_callback_finished_normally
+                  : triedb_async_traverse_callback_finished_early,
+        context,
+        nullptr,
+        0,
+        nullptr,
+        0);
+    return completed;
+}
+
+void triedb_async_traverse(
+    triedb *db, bytes key, uint8_t key_len_nibbles, uint64_t block_id,
+    void *context, callback_func callback)
+{
+    struct TraverseReceiver
+    {
+        void *context;
+        callback_func callback;
+
+        void set_value(
+            monad::async::erased_connected_operation *state,
+            monad::async::result<bool> res)
+        {
+            MONAD_ASSERT_PRINTF(
+                res,
+                "triedb_async_traverse: Traversing failed with %s",
+                res.assume_error().message().c_str());
+            callback(
+                res.assume_value()
+                    ? triedb_async_traverse_callback_finished_normally
+                    : triedb_async_traverse_callback_finished_early,
+                context,
+                nullptr,
+                0,
+                nullptr,
+                0);
+            delete state; // deletes this
+        }
+    };
+
+    struct GetNodeReceiver
+    {
+        monad::mpt::detail::TraverseSender traverse_sender;
+        TraverseReceiver traverse_receiver;
+
+        GetNodeReceiver(
+            void *context, callback_func callback,
+            monad::mpt::detail::TraverseSender traverse_sender_)
+            : traverse_sender(std::move(traverse_sender_))
+            , traverse_receiver(context, callback)
+        {
+        }
+
+        void set_value(
+            monad::async::erased_connected_operation *state,
+            monad::async::result<monad::mpt::Node::UniquePtr> res)
+        {
+            if (!res) {
+                traverse_receiver.callback(
+                    triedb_async_traverse_callback_finished_early,
+                    traverse_receiver.context,
+                    nullptr,
+                    0,
+                    nullptr,
+                    0);
+            }
+            else {
+                traverse_sender.traverse_root = std::move(res).assume_value();
+                (new auto(monad::async::connect(
+                     std::move(traverse_sender), std::move(traverse_receiver))))
+                    ->initiate();
+            }
+            delete state; // deletes this
+        }
+    };
+
+    auto prefix = monad::mpt::NibblesView{0, key_len_nibbles, key};
+    auto machine = std::make_unique<detail::Traverse>(
+        context, callback, monad::mpt::NibblesView{});
+    (new auto(monad::async::connect(
+         monad::mpt::make_get_node_sender(db->ctx_.get(), prefix, block_id),
+         GetNodeReceiver(
+             context,
+             callback,
+             monad::mpt::make_traverse_sender(
+                 db->ctx_.get(), {}, std::move(machine), block_id)))))
+        ->initiate();
 }
 
 size_t triedb_poll(triedb *db, bool blocking, size_t count)
@@ -247,8 +329,26 @@ size_t triedb_poll(triedb *db, bool blocking, size_t count)
 
 int triedb_finalize(bytes value)
 {
-    delete[] value;
+    delete value;
     return 0;
+}
+
+uint64_t triedb_latest_finalized_block(triedb *db)
+{
+    uint64_t latest_block_id = db->db_.get_latest_finalized_block_id();
+    return latest_block_id;
+}
+
+uint64_t triedb_latest_verified_block(triedb *db)
+{
+    uint64_t latest_block_id = db->db_.get_latest_verified_block_id();
+    return latest_block_id;
+}
+
+uint64_t triedb_earliest_finalized_block(triedb *db)
+{
+    uint64_t earliest_block_id = db->db_.get_earliest_block_id();
+    return earliest_block_id;
 }
 
 uint64_t triedb_earliest_block(triedb *db)
