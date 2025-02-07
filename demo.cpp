@@ -34,7 +34,7 @@ void gcd(const uint &a, const uint &b, uint &result) {
 
 template<typename LambdaStruct>
 class Thread {
-    const LambdaStruct & lambda;
+    const LambdaStruct lambda;
     std::thread worker;
 
 public:
@@ -69,7 +69,7 @@ public:
         return *this;
     }
 
-    Thread(const LambdaStruct& lambda) : lambda(lambda) {}
+    Thread(const LambdaStruct &lambda) : lambda(lambda) {}
 };
 
 void parallel_gcd_lcm(const uint &a, const uint &b, uint &gcd_result, uint &lcm_result) {

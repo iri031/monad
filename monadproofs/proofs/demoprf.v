@@ -7,6 +7,7 @@ Require Import bedrock.auto.cpp.tactics4.
 Require Import monad.proofs.demomisc.
 Import cQp_compat.
 Open Scope cQp_scope.
+Import linearity.
 Import Verbose.
 Section with_Sigma.
   Context `{Sigma:cpp_logic} {CU: genv}.
@@ -84,7 +85,7 @@ Section with_Sigma.
   
   Definition ThreadConstructor (lamStructName: core.name) (this:ptr): WpSpec mpredI val val :=
     \arg{lambdap:ptr} "lambda" (Vref lambdap)
-    \pre{lamStructObjOwnership} lambdap |-> lamStructObjOwnership (* ownerhsip of fields othe lambda struct *)
+    \prepost{lamStructObjOwnership} lambdap |-> lamStructObjOwnership (* ownerhsip of fields othe lambda struct *)
     \pre{taskPre taskPost}
       specify {| info_name :=  (Nscoped lamStructName taskOpName);
                 info_type := tMethod lamStructName QC "void" [] |}
@@ -114,11 +115,15 @@ Section with_Sigma.
         \prepost{(qa:Qp) (av:N)} ap |-> primR "unsigned int" qa av
         \arg{bp} "b" (Vref bp)
         \prepost{(qb:Qp) (bv:N)} bp |-> primR "unsigned int" qb bv
-        \arg{gp} "gcd_result" (Vref gp)
-        \pre{garbage1:N} gp |-> primR "unsigned int" 1 garbage1
-        \arg{lp} "lcm_result" (Vref lp)
-        \pre{garbage2:N} lp |-> primR "unsigned int" 1 garbage2
-        \post emp
+        \arg{gcdp} "gcd_result" (Vref gcdp)
+        \pre{garbage1:N} gcdp |-> primR "unsigned int" 1 garbage1
+        \arg{lcmp} "lcm_result" (Vref lcmp)
+        \pre{garbage2:N} lcmp |-> primR "unsigned int" 1 garbage2
+        \pre[| 0<bv \/ 0<av |]%N
+        \post gcdp |-> primR "unsigned int" 1 (Z.gcd av bv)
+              ** (if decide (av*bv < 2^32)%N then
+                  lcmp |-> primR "unsigned int" 1 (Z.lcm av bv)
+                  else Exists garbage3, lcmp |-> primR "unsigned int" 1 garbage3)
       ).
 
   cpp.spec "gcd(unsigned int, unsigned int)" as gcd_spec with (
@@ -214,9 +219,12 @@ Section with_Sigma.
   Qed.
   #[global] Instance obss (pp:ptr) ty P Q: Observe (reference_to (Tnamed (Ninst "Thread" [Atype (Tnamed ty)])) pp) (pp |-> ThreadR ty P Q).
   Proof. Admitted.
+  cpp.spec (Nscoped 
+              "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0" Ndtor)  as lamdestr
+                                                                                                                          inline.
   
   Lemma par: denoteModule module ** (thread_class_specs "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0") ** gcd2_spec |-- pgl.
-  Proof using.
+  Proof using MODd.
     unfold thread_class_specs.
     verify_spec'.
     slauto.
@@ -225,8 +233,8 @@ Section with_Sigma.
     
     fold cQpc.
     (* TODO: pick a better name for gp. TODO. replace unintR with primR  *)
-    iExists (gp |-> uintR 1%Qp garbage1 ** ap |-> uintR (qa/2) av ** bp |-> uintR (qb/2) bv).
-    iExists (gp |-> uintR 1%Qp (Z.gcd av bv) ** ap |-> uintR (qa/2) av ** bp |-> uintR (qb/2) bv).
+    iExists (gcdp |-> uintR 1%Qp garbage1 ** ap |-> uintR (qa/2) av ** bp |-> uintR (qb/2) bv).
+    iExists (gcdp |-> uintR 1%Qp (Z.gcd av bv) ** ap |-> uintR (qa/2) av ** bp |-> uintR (qb/2) bv).
     go.
     iSplitL "".
     { verify_spec'.
@@ -246,74 +254,44 @@ Section with_Sigma.
     Search 0%Z (Z.gcd _ _)%Z.
     pose proof (Z.gcd_nonneg av bv).
     pose proof (Z.gcd_eq_0 av bv).
-    assert (0< av \/ 0< bv)%N as Heq.
-    admit.
     provePure.
-    destruct Heq; try lia.
+    nia.
+    work.
+    run1.
+    run1.
+    run1.
+    step.
+    step.
+    step.
+    step.
+    step.
+    step.
+    step.
+    step.
+    step.
+    do 3 step.
     go.
-    (* TODO: generalize *)
-  cpp.spec (Nscoped 
-              "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0" Ndtor)  as lamdestr
-                                                                                                                          inline.
-  go.
-     (fun (this:ptr) => \pre ThreadR
-    go.
+    case_decide.
+    {
+      Arith.remove_useless_mod_a.
+      icancel (cancel_at lcmp).
+      f_equiv.
+      unfold Z.lcm.
+      rewrite Z.lcm_equiv1.
+      rewrite Z.abs_eq.
+      rewrite Z.quot_div_nonneg.
+      reflexivity.
+      nia.
+      nia.
+      apply Z_div_nonneg_nonneg; try nia.
+      nia.
+      go.
+    }
+    {
+      go.
+    }
+  Qed.
     
-    lia.
-    go.
-    Search Z.gcd iff.
-    pose proof (Z.gcd_nonneg).
-    
-    step.
-    step.
-    step.
-    Qeq.
-    apply Qpeq; unfold toQ; unfold makeQp; simpl.
-    f_equiv.
-    Search Qp_to_Qc.
-   Search Qcanon.this.
-  repeat rewrite Qred_correct.
-
-    solveQpeq.
-    f_equiv.
-    rewrite Qred_correct.
-    go.
-    Set  Printing All.
-    go.
-    Search (/2)%Qp.
-    Search cQp.scale cQp.mut.
-    reflexivity.
-    go.
-    Search CFractional (1/2)%Qp.
-    Seach 
-  Search cQp.mut primR.
-    do 5  run1.
-    step.
-    step.
-    go.
-    reference_to "Thread<parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0>" t1_addr
-   reference_to "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0" t1_addr                                                                                                                        
-    do 4 run1.
-    Set Nested Proofs Allowed.
-    go.
-    obs_elim
-    slauto.
-    run1.
-    run1.
-    run1.
-    run1.
-    
-    observe_elim_cancel
-    slauto.
-    go.
-    Search primR Learnable.
-    go.
-    slauto.
-    go.
-    go.
-    iModIntro.
-    fwd removeLater.
-
 
     
 cpp.spec ((Ninst
