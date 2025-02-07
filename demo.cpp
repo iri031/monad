@@ -93,6 +93,109 @@ void parallel_gcd_lcm_wrong(const uint &a, const uint &b, uint &gcd_result, uint
     t1.join();
 }
 
+void gcdl (uint * nums, uint length, uint &result) {
+    result=1;
+    for (uint i=0; i<length; i++) {
+        result=gcd(result, nums[i]);
+    }
+    
+}
+
+void parallel_gcdl(uint * nums, uint length, uint &result) {
+    uint mid=length/2;
+    uint resultl;
+    auto gcdlLambda = [&nums, &mid, &resultl]() {
+        gcdl(nums, mid, resultl);
+    };
+    Thread t1(gcdlLambda);
+    t1.fork_start();
+    uint resultr;
+    gcdl(nums+mid, length-mid, resultr);
+    t1.join();
+    result=gcd(resultl, resultr);
+}
+
+struct UnoundedUInt {
+    uint size;// size of the data array
+    uint * data;// data[0] is the least significant 32 bit of the number, data[1] is the next most significant 32 bit, etc.
+
+    UnoundedUInt() {
+        size=0;
+        data = nullptr;
+    }
+
+    UnoundedUInt(uint value) {
+        size=1;
+        data = new uint[1];
+        data[0] = value;
+    }
+
+    // todo: implement
+    UnoundedUInt(const UnoundedUInt& other){
+        size = other.size;
+        data = new uint[size];
+        for (uint i = 0; i < size; i++) {
+            data[i] = other.data[i];
+        }
+    }
+
+    uint nth_word(uint n) const {
+        if (size==0)
+            return 0;
+        else
+            return data[n];
+    }
+
+    uint get_size() const {
+        return size;
+    }
+
+    static uint max(uint a, uint b) {
+        return a > b ? a : b;
+    }
+
+    UnoundedUInt operator+(const UnoundedUInt &other) const
+    {
+        // Find the larger of the two sizes
+        uint maxSize = max(size, other.size);
+
+        // Special case: if both are zero, return zero
+        if (maxSize == 0) {
+            return UnoundedUInt(); // Both operands are effectively 0
+        }
+
+        // Allocate space for the sum (including a possible extra carry)
+        uint *sumData = new uint[maxSize + 1];
+
+        unsigned long long carry = 0ULL;
+        // Add the words from both numbers up to maxSize
+        for (uint i = 0; i < maxSize; i++) {
+            // Use 0 if one of the numbers has fewer words
+            unsigned long long x = (i < size) ? data[i] : 0ULL;
+            unsigned long long y = (i < other.size) ? other.data[i] : 0ULL;
+
+            unsigned long long s = x + y + carry;
+            sumData[i] = static_cast<uint>(s & 0xFFFFFFFFULL); // lower 32 bits
+            carry = s >> 32;                                   // upper 32 bits become carry
+        }
+
+        // Check if there is a carry out after adding all words
+        uint newSize = maxSize;
+        if (carry != 0) {
+            sumData[newSize] = static_cast<uint>(carry);
+            ++newSize;
+        }
+
+        // Construct the result
+        UnoundedUInt result;
+        result.size = newSize;
+        result.data = sumData; 
+        return result;
+    }
+
+    //todo: implement
+    UnoundedUInt& operator=(const UnoundedUInt& other) = delete;
+};
 // int main() {
 //     Thread t([]() {
 //         std::cout << "Hello, World!" << std::endl;
