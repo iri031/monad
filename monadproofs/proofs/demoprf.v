@@ -344,7 +344,18 @@ Section with_Sigma.
       go.
     }
 
-Qed.
+  Qed.
+
+  Lemma gcd2_proof: denoteModule module |-- gcd2_spec.
+  Proof.
+    verify_spec'.
+    wapply proof. go.
+  Qed.
+
+  Lemma pos (p:ptr) (v:Z) : p |-> uintR 1 v |-- [| 0 <=v |] ** p |-> uintR 1 v.
+  Proof using.
+    go.
+  Qed.
   (* TODO: lemma to unroll arrayR for 3 elements *)
 
   (* parallelization: *)
@@ -571,6 +582,7 @@ Qed.
     aac_reflexivity.
   Qed.
   rewrite <- fold_split; auto; try exact _. hnf. Search 0 Z.gcd.
+  Abort.
     aac_normalise.
     
     hnf in lid.
