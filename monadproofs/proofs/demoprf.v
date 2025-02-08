@@ -579,6 +579,24 @@ Section with_Sigma.
     rewrite Z.gcd_0_l.
     rewrite Z.abs_eq; auto.
   Qed.
+  Lemma obsUintArrayR (p:ptr) q (l: list Z): Observe [| forall (a : Z), In a l → 0 ≤ a|] (p|->arrayR "unsigned int" (fun i => primR "unsigned int" q (Vint i)) l) .
+  Proof using.
+    apply observe_intro; [exact _ |].
+    revert p.
+    induction l; auto.
+    simpl. intros. rewrite arrayR_cons.
+    hideRhs.
+    go.
+    rewrite -> IHl at 1.
+    go.
+    unhideAllFromWork.
+    go.
+    iPureIntro.
+    intros? Hin.
+    destruct Hin; auto.
+    subst.
+    type.has_type_prop.
+  Qed.
 
   Lemma pgcdl_proof: denoteModule module
                        ** (thread_class_specs "parallel_gcdl(unsigned int*, unsigned int)::@0")
@@ -586,7 +604,9 @@ Section with_Sigma.
   Proof using MODd.
     unfold thread_class_specs.
     verify_spec'.
-    wapply gcdl_proof.
+    wapply gcdl_proof. work.
+    wapplyObserve  obsUintArrayR.
+    eagerUnifyU. work.
     slauto.
     aggregateRepPieces gcdlLambda_addr.
     go.
@@ -694,8 +714,8 @@ Section with_Sigma.
   f_equal.
   symmetry.
   apply fold_split_gcd.
-  (*   ∀ a : Z, In a l → 0 ≤ a *)
-Abort 
+  auto.
+Qed.
     
 End with_Sigma.
 (*
