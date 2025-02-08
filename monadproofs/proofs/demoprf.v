@@ -144,20 +144,50 @@ Section with_Sigma.
   Print as3elide.
 
   Example ptrRep (q:Qp) (mloc: ptr) : Rep := primR "int*" q (Vptr mloc).
-  
+
+  (* open demo.cpp *)
   cpp.spec "fooptr()" as ptrspec with
       (\pre _global "ptr" |-> anyR "int *"1
        \post _global "ptr" |-> primR "int *" 1 (Vptr (_global "a")) 
       ).
 
-  Lemma foopptr: denoteModule module |--
-  
-  
+  Lemma foopptr: denoteModule module |-- ptrspec.
+  Proof using.
+    verify_spec'.
+    slauto.
+  Qed.
+  (** "all" theorem statements in Coq have type Prop *)
   Example stm (L R : mpred): Prop := L |-- R.
+
   Lemma moreThanLogicalImpl :
     _global "x" |-> primR "int" (1/3) 0 |-- _global "x" |-> primR "int" (1/2) 0.
   Abort. (* not provable *)
   
+  Print ptrspec.
+
+  cpp.spec "gcd(unsigned int, unsigned int)" as gcd_spec with (
+        \arg{a:Z} "a" (Vint a)
+        \arg{b:Z} "b" (Vint b)
+        \post [Vint (Z.gcd a b)] emp
+      ).
+
+  cpp.spec "gcd(const unsigned int&, const unsigned int&, unsigned int&)" as gcd2_spec with (
+        \arg{ap} "a" (Vref ap)
+        \prepost{(qa:Qp) (av:N)} ap |-> primR "unsigned int" qa av
+        \arg{bp} "b" (Vref bp)
+        \prepost{(qb:Qp) (bv:N)} bp |-> primR "unsigned int" qb bv
+        \arg{gp} "gcd_result" (Vref gp)
+        \pre{garbage1:N} gp |-> primR "unsigned int" 1 garbage1
+        \post gp |-> primR "unsigned int" 1 (Z.gcd av bv)
+      ).
+
+  
+  (** main innovation of iris separation logic (test of time award):
+- richest formal languange to describe ownerships and how it can be spit into multiple threads
+   - enforce protocls: exactly specify how/whether a thread can modify a datastructure.
+      - one thread can only increment a counter, another can only decrement
+simplest for:
+*)
   
 
 (** *Demo: read-read concurrency using fractional permissions *)
@@ -207,21 +237,6 @@ Section with_Sigma.
                   else Exists garbage3, lcmp |-> primR "unsigned int" 1 garbage3)
       ).
 
-  cpp.spec "gcd(unsigned int, unsigned int)" as gcd_spec with (
-        \arg{a:Z} "a" (Vint a)
-        \arg{b:Z} "b" (Vint b)
-        \post [Vint (Z.gcd a b)] emp
-      ).
-
-  cpp.spec "gcd(const unsigned int&, const unsigned int&, unsigned int&)" as gcd2_spec with (
-        \arg{ap} "a" (Vref ap)
-        \prepost{(qa:Qp) (av:N)} ap |-> primR "unsigned int" qa av
-        \arg{bp} "b" (Vref bp)
-        \prepost{(qb:Qp) (bv:N)} bp |-> primR "unsigned int" qb bv
-        \arg{gp} "gcd_result" (Vref gp)
-        \pre{garbage1:N} gp |-> primR "unsigned int" 1 garbage1
-        \post gp |-> primR "unsigned int" 1 (Z.gcd av bv)
-      ).
 
   Definition thread_constructor (lamStructTyName: core.name) :=
   specify
