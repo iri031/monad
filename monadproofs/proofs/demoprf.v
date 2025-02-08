@@ -442,6 +442,143 @@ Section with_Sigma.
       Set Printing Coercions.
       Search Z.div Nat.div.
   Set Default Goal Selector "!".
+  Lemma fold_id {A:Type} (f: A->A->A) (c: Commutative (=) f) (asoc: Associative (=) f)
+    (start id: A) (lid: LeftId (=) id f) (l: list A):
+    fold_left f l start = f (fold_left f l id) start.
+  Proof using.
+    hnf in lid. revert start.
+    induction l; auto;[].
+    simpl. rewrite lid.
+    intros.
+    simpl.
+    rewrite IHl.
+    symmetry.
+    rewrite IHl.
+    aac_reflexivity.
+  Qed.
+  
+  Lemma fold_split {A:Type} (f: A->A->A) (c: Commutative (=) f) (asoc: Associative (=) f)
+    (id: A) (lid: LeftId (=) id f) (l: list A) (lSplitSize: nat):
+    fold_left f l id =
+      f (fold_left f (firstn lSplitSize l) id) (fold_left f (skipn lSplitSize l) id).
+  Proof using.
+    rewrite <- (take_drop lSplitSize) at 1.
+    rewrite fold_left_app.
+    rewrite fold_id.
+    aac_reflexivity.
+  Qed.
+
+  Import stdpp.list.
+  Import stdpp.decidable.
+
+  Definition liftf {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (fpres: forall a b, P a -> P b -> P (f a b))
+    (a: dsig P) (b: dsig P) : dsig P :=
+    (dexist (f (`a) (`b)) (fpres _ _ (proj2_dsig a) (proj2_dsig b))).
+
+  #[global] Instance liftfComm {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (fpres: forall a b, P a -> P b -> P (f a b))
+    (c: Commutative (=) f) : Commutative (=) (liftf f P fpres).
+  Proof using.
+    hnf.
+    intros x y. destruct x, y. simpl in *.
+    unfold liftf.
+    simpl.
+    Search dsig.
+    apply dsig_eq.
+    simpl.
+    auto.
+  Qed.
+  
+  #[global] Instance liftfAssoc {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (fpres: forall a b, P a -> P b -> P (f a b))
+    (c: Associative (=) f) : Associative (=) (liftf f P fpres).
+  Proof using.
+    hnf.
+    intros x y z. destruct x, y, z. simpl in *.
+    unfold liftf.
+    simpl.
+    apply dsig_eq.
+    simpl.
+    auto.
+  Qed.
+
+    Lemma fold_left_proj1dsig {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (fpres: forall a b, P a -> P b -> P (f a b)) l start:
+      proj1_sig (fold_left (liftf f P fpres) l start) = fold_left f (map proj1_sig l) (`start).
+    Proof using.
+      revert start.
+      induction l; auto.
+      intros.  simpl.
+      rewrite IHl.
+      simpl.
+      reflexivity.
+    Qed.
+  
+  Lemma fold_split_condid1 {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (c: Commutative (=) f) (asoc: Associative (=) f)
+    (id: A) (lid: forall a, P a -> f id a = a) (ld: list (dsig P)) (lSplitSize: nat) (pid: P id)
+    (fpres: forall a b, P a -> P b -> P (f a b)):
+    let l:= map proj1_sig ld in
+    fold_left f l id=
+      f (fold_left f (firstn lSplitSize l) id) (fold_left f (skipn lSplitSize l) id).
+  Proof using.
+    pose proof (fun lid => @fold_split _  (liftf f P fpres) _ _ (dexist id pid) lid ld lSplitSize) as Hh.
+    lapply Hh.
+    2:{ hnf. intros x. destruct x. unfold liftf. simpl.
+        apply dsig_eq. simpl. apply lid.
+        apply bool_decide_unpack in i. assumption. }
+    intros Hx.
+    clear Hh.
+    simpl.
+    apply (f_equal proj1_sig) in Hx.
+    simpl in Hx.
+
+    repeat rewrite fold_left_proj1dsig in Hx.
+    simpl.
+    unfold dexist in Hx. simpl in Hx.
+    repeat rewrite map_take in Hx.
+    repeat rewrite map_drop in Hx.
+    rewrite Hx.
+    f_equal.
+    f_equal.
+    rewrite skipn_map.
+    reflexivity.
+  Qed.
+    Fixpoint pairProofDsig {A} (l: list A) (P:A->Prop) {hdec: forall a, Decision (P a)} (pl: forall a, In a l -> P a) : list (dsig P).
+      destruct l; simpl in *.
+      - exact [].
+      -  pose proof (pl a ltac:(left;apply eq_refl)) as pll.
+         apply cons.
+         + exists a. apply bool_decide_pack. assumption.
+         +  apply pairProofDsig with (l:=l). intros. apply pl. right. assumption.
+    Defined.
+    Lemma pairProofDsigMapFst {A} (l: list A) (P:A->Prop) {hdec: forall a, Decision (P a)} (pl: forall a, In a l -> P a):
+      map proj1_sig (pairProofDsig l P pl) = l.
+    Proof using.
+      induction l; auto.
+      -  simpl. auto. f_equal.
+         rewrite IHl.
+         reflexivity.
+    Qed.
+  
+  Lemma fold_split_condid {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (c: Commutative (=) f) (asoc: Associative (=) f)
+    (id: A) (lid: forall a, P a -> f id a = a) (l: list A) (pl: forall a, In a l -> P a) (lSplitSize: nat) (pid: P id)
+    (fpres: forall a b, P a -> P b -> P (f a b)):
+    fold_left f l id=
+      f (fold_left f (firstn lSplitSize l) id) (fold_left f (skipn lSplitSize l) id).
+  Proof using.
+    pose proof (fold_split_condid1 f P c asoc id lid (pairProofDsig l P pl)) as Hx.
+    simpl in Hx.
+    repeat rewrite pairProofDsigMapFst in Hx.
+    apply Hx; auto.
+  Qed.
+
+  Open Scope Z_scope.
+  Lemma fold_split_gcd  (l: list Z) (pl: forall a, In a l -> 0 <= a) (lSplitSize: nat):
+    fold_left Z.gcd l 0=
+      Z.gcd (fold_left Z.gcd (firstn lSplitSize l) 0) (fold_left Z.gcd (skipn lSplitSize l) 0).
+  Proof using.
+    apply fold_split_condid with (P:= fun z => 0<=z); auto; try exact _; try lia;
+      intros; try apply Z.gcd_nonneg.
+    rewrite Z.gcd_0_l.
+    rewrite Z.abs_eq; auto.
+  Qed.
 
   Lemma pgcdl_proof: denoteModule module
                        ** (thread_class_specs "parallel_gcdl(unsigned int*, unsigned int)::@0")
@@ -555,160 +692,10 @@ Section with_Sigma.
   f_equiv.
   f_equal.
   f_equal.
-  Search fold_left (?A->?A->?A).
-  Lemma fold_id {A:Type} (f: A->A->A) (c: Commutative (=) f) (asoc: Associative (=) f)
-    (start id: A) (lid: LeftId (=) id f) (l: list A):
-    fold_left f l start = f (fold_left f l id) start.
-  Proof using.
-    hnf in lid. revert start.
-    induction l; auto;[].
-    simpl. rewrite lid.
-    intros.
-    simpl.
-    rewrite IHl.
-    symmetry.
-    rewrite IHl.
-    aac_reflexivity.
-  Qed.
-  
-  Lemma fold_split {A:Type} (f: A->A->A) (c: Commutative (=) f) (asoc: Associative (=) f)
-    (id: A) (lid: LeftId (=) id f) (l: list A) (lSplitSize: nat):
-    fold_left f l id =
-      f (fold_left f (firstn lSplitSize l) id) (fold_left f (skipn lSplitSize l) id).
-  Proof using.
-    rewrite <- (take_drop lSplitSize) at 1.
-    rewrite fold_left_app.
-    rewrite fold_id.
-    aac_reflexivity.
-  Qed.
-  
-  Lemma fold_split_condid {A:Type} (f: A->A->A) (P:A->Prop) (c: Commutative (=) f) (asoc: Associative (=) f)
-    (id: A) (lid: forall a, P a -> f id a = a) (l: list A) (lSplitSize: nat) (lp: forall a, a \in l -> P a):
-    fold_left f l id =
-      f (fold_left f (firstn lSplitSize l) id) (fold_left f (skipn lSplitSize l) id).
-  Proof using.
-    rewrite <- (take_drop lSplitSize) at 1.
-    rewrite fold_left_app.
-    rewrite fold_id.
-    aac_reflexivity.
-  Qed.
-  rewrite <- fold_split; auto; try exact _. hnf. Search 0 Z.gcd.
-  Abort.
-    aac_normalise.
-    
-    hnf in lid.
-    rewrite <- lid at 1.
-    hnf in c.
-    rewrite c.
-    aac_reflexivity.
-    induction lSplitSize; simpl.
-    - autorewrite with syntactic. rewrite lid. reflexivity.
-    - simpl.
-      rewrite take_S_r with (x:= ).
-    simpl.
-  Commutative.
-  
-  eagerUnifyU.
-  go.
-  Search arrayR.
-  hideLhs.
-  rewrite -> arrayR_split with (i:=((length l)/2)%nat) (xs:=l) by lia.
-  rewrite 
-  Search array
-    
-  rewrite <- (primR_anyR mid_addr).
-  rewrite primr_split.
-  unhideAllFromWork.
-  simpl.
-  go.
-  
-  Search anyR.
-    
-    hideP pp.
-    rewrite Nat2Z.inj_sub.
-    hideLhs.
-    rewrite -> modulo.useless_trim with (bits:=32%N) (a:=(Z.of_nat (length l) - Z.of_nat (length l) `div` 2)).
-    2:{
-      nia.
-      Arith.arith_solve.
-    Search trim.
-    
-    
-    Search length drop.
-  _ : numsp .[ "unsigned int" ! Z.of_nat (length l `div` 2) ]
-      |-> arrayR "unsigned int" (λ i : Z, uintR (cQp.mut q) i) (drop (length l `div` 2) l)
-    
-    do 6 run1.
-  #[global] Instance : forall ty , LearnEq2 (ThreadR ty) := ltac:(solve_learnable).
-    step.
-    step.
-    step.
-    fold cQpc.
-    rewrite (primr_split ap).
-    rewrite (primr_split bp).
-    go.
-    Compute (Z.gcd 0 0).
-    Search 0%Z (Z.gcd _ _)%Z.
-    pose proof (Z.gcd_nonneg av bv).
-    pose proof (Z.gcd_eq_0 av bv).
-    provePure.
-    nia.
-    work.
-    run1.
-    run1.
-    run1.
-    step.
-    step.
-    step.
-    step.
-    step.
-    step.
-    step.
-    step.
-    step.
-    do 3 step.
-    go.
-    case_decide.
-    {
-      Arith.remove_useless_mod_a.
-      icancel (cancel_at lcmp).
-      f_equiv.
-      unfold Z.lcm.
-      rewrite Z.lcm_equiv1.
-      rewrite Z.abs_eq.
-      rewrite Z.quot_div_nonneg.
-      reflexivity.
-      nia.
-      nia.
-      apply Z_div_nonneg_nonneg; try nia.
-      nia.
-      go.
-    }
-    {
-      go.
-    }
-    
-    
-  "parallel_gcdl(unsigned int*, unsigned int)::@0>::Thread(const 
-      
-      Search fold_left app.
-      ausorewrite with syntactic.
-      
-      2:{ eauto.
-      Search (_ !! _) take.
-      Search take S.
-      
-      
-      hnf in autogenhyp.
-
-      Set Nested Proofs Allowed.
-      misc
-      Search arrayR.
-      go.
-      Search take.
-      na
-      Search arrayR firstn skipn.
-      
+  symmetry.
+  apply fold_split_gcd.
+  (*   ∀ a : Z, In a l → 0 ≤ a *)
+Abort 
     
 End with_Sigma.
 (*
