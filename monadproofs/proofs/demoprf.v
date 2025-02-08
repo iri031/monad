@@ -581,6 +581,17 @@ Section with_Sigma.
     rewrite fold_id.
     aac_reflexivity.
   Qed.
+  
+  Lemma fold_split_condid {A:Type} (f: A->A->A) (P:A->Prop) (c: Commutative (=) f) (asoc: Associative (=) f)
+    (id: A) (lid: forall a, P a -> f id a = a) (l: list A) (lSplitSize: nat) (lp: forall a, a \in l -> P a):
+    fold_left f l id =
+      f (fold_left f (firstn lSplitSize l) id) (fold_left f (skipn lSplitSize l) id).
+  Proof using.
+    rewrite <- (take_drop lSplitSize) at 1.
+    rewrite fold_left_app.
+    rewrite fold_id.
+    aac_reflexivity.
+  Qed.
   rewrite <- fold_split; auto; try exact _. hnf. Search 0 Z.gcd.
   Abort.
     aac_normalise.
