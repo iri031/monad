@@ -236,13 +236,20 @@ Section with_Sigma.
     fold cQpc.
     (* TODO: pick a better name for gp. TODO. replace unintR with primR  *)
     iExists (gcdp |-> uintR 1%Qp garbage1 ** ap |-> uintR (qa/2) av ** bp |-> uintR (qb/2) bv).
-    
-    iExists (gcdp |-> uintR 1%Qp (Z.gcd av bv) ** ap |-> uintR (qa/2) av ** bp |-> uintR (qb/2) bv).
+    evar (post:mpred).
+    iExists post.
+    hideFromWork post.
     go.
     iSplitL "".
     { verify_spec'.
       go.
+      unhideAllFromWork.
+      unfold post.
+      iClear "#".
+      iStopProof. reflexivity.
     }
+    unhideAllFromWork.
+    unfold post.
     iIntrosDestructs.
     do 6 run1.
   #[global] Instance : forall ty , LearnEq2 (ThreadR ty) := ltac:(solve_learnable).
@@ -419,11 +426,247 @@ Qed.
     }
   Qed.
 
-  
-  Lemma pgcdl_proof: denoteModule module |-- parallel_gcdl_spec.
+      Compute (Z.quot (-5) 4).
+      Compute (Z.div (-5) 4).
+      Set Printing Coercions.
+      Search Z.div Nat.div.
+  Set Default Goal Selector "!".
+
+  Lemma pgcdl_proof: denoteModule module
+                       ** (thread_class_specs "parallel_gcdl(unsigned int*, unsigned int)::@0")
+                       |-- parallel_gcdl_spec.
   Proof using MODd.
-    
+    unfold thread_class_specs.
+    verify_spec'.
+    wapply gcdl_proof.
+    slauto.
+    aggregateRepPieces gcdlLambda_addr.
+    go.
+    hideP ps.
+    Opaque Nat.div.
+    assert ( (length l `div` 2 <= length l)%nat) as Hle.
+    {
+      rewrite <- Nat.div2_div.
+      apply Nat.le_div2_diag_l.
+    }
+    assert ( (length l `div` 2 <= length l)) as Hlez.
+    {
+      rewrite <- (Nat2Z.inj_div _ 2).
+      lia.
+    }
+    rewrite -> arrayR_split with (i:=((length l)/2)%nat) (xs:=l) by lia.
+    slauto.
+    rewrite (primr_split nums_addr).
+    rewrite (primr_split mid_addr).
+    go.
+    repeat IPM.perm_left ltac:(fun L n=>
+                          match L with
+                          | numsp |-> _ => iRevert n
+                          | resultl_addr |-> _ => iRevert n
+                          end
+                              ) .
+    IPM.perm_left ltac:(fun L n=>
+                          match L with
+                          | nums_addr |-> _ => iRevert n
+                          end).
+    IPM.perm_left ltac:(fun L n=>
+                          match L with
+                          | mid_addr |-> _ => iRevert n
+                          end).
+    repeat rewrite bi.wand_curry.
+    match goal with
+      [ |-environments.envs_entails _ (?R -* _)] =>
+        iIntrosDestructs;
+        iExists R
+    end.
+    evar (post:mpred).
+    iExists post.
+    hideFromWork post.
+    go.
+
+    iSplitL "".
+    { verify_spec'.
+      slauto.
+      unfold lengthN. go.
+      autorewrite with syntactic.
+      rewrite Z.quot_div_nonneg; try lia.
+      go.
+      rewrite Nat2Z.inj_div.
+      go.
+      iExists _. eagerUnifyU.
+      go.
+      unhideAllFromWork.
+      unfold post.
+      iClear "#".
+      iStopProof. reflexivity.
+    }
+    unhideAllFromWork.
+    unfold post.
+    iIntrosDestructs.
+    slauto.
+    unfold lengthN.
+    autorewrite with syntactic.
+    Search (valid_ptr (_ .[_ ! _])).
+    rewrite Z.quot_div_nonneg; try lia.
+    rewrite Nat2Z.inj_div. (* add to syntacctic? *)
+    slauto.
+    unfold lengthN.
+    Hint Rewrite @length_drop: syntactic.
+    autorewrite with syntactic.
+    rewrite -> Nat2Z.inj_sub by lia.
+    Arith.remove_useless_mod_a.
+    rewrite Nat2Z.inj_div.
+    simpl.
+    go.
+    iExists _. eagerUnifyU.
+    slauto.
+    wapply proof. go.
+  cpp.spec (Nscoped 
+              "parallel_gcdl(unsigned int*, unsigned int)::@0" Ndtor)  as lam2destr  inline.
+  go.
+
+  Set Nested Proofs Allowed.
+  Lemma primR2_anyR : ∀ t (q:Qp) (v:val) (p:ptr),
+      p|-> primR t (q/2) v ** p|->primR t (q/2) v  |-- p|->anyR t q.
+  Proof using. Admitted.
+  Definition primR2_anyRC := [CANCEL] primR2_anyR.
+  Hint Resolve primR2_anyRC: br_opacity.
+  go.
+  Hint Resolve array_combine_C: br_opacity.
+  go.
+  hideLhs.
+  rewrite <- arrayR_combine.
+  unhideAllFromWork.
+  simpl. work.
+  rewrite Nat2Z.inj_div. go.
+  iClear "#".
+  iStopProof.
+  f_equiv.
+  f_equal.
+  f_equal.
+  Search fold_left (?A->?A->?A).
+  Lemma fold_id {A:Type} (f: A->A->A) (c: Commutative (=) f) (asoc: Associative (=) f)
+    (start id: A) (lid: LeftId (=) id f) (l: list A):
+    fold_left f l start = f (fold_left f l id) start.
+  Proof using.
+    hnf in lid. revert start.
+    induction l; auto;[].
+    simpl. rewrite lid.
+    intros.
+    simpl.
+    rewrite IHl.
+    symmetry.
+    rewrite IHl.
+    aac_reflexivity.
+  Qed.
   
+  Lemma fold_split {A:Type} (f: A->A->A) (c: Commutative (=) f) (asoc: Associative (=) f)
+    (id: A) (lid: LeftId (=) id f) (l: list A) (lSplitSize: nat):
+    fold_left f l id =
+      f (fold_left f (firstn lSplitSize l) id) (fold_left f (skipn lSplitSize l) id).
+  Proof using.
+    rewrite <- (take_drop lSplitSize) at 1.
+    rewrite fold_left_app.
+    rewrite fold_id.
+    aac_reflexivity.
+  Qed.
+  rewrite <- fold_split; auto; try exact _. hnf. Search 0 Z.gcd.
+    aac_normalise.
+    
+    hnf in lid.
+    rewrite <- lid at 1.
+    hnf in c.
+    rewrite c.
+    aac_reflexivity.
+    induction lSplitSize; simpl.
+    - autorewrite with syntactic. rewrite lid. reflexivity.
+    - simpl.
+      rewrite take_S_r with (x:= ).
+    simpl.
+  Commutative.
+  
+  eagerUnifyU.
+  go.
+  Search arrayR.
+  hideLhs.
+  rewrite -> arrayR_split with (i:=((length l)/2)%nat) (xs:=l) by lia.
+  rewrite 
+  Search array
+    
+  rewrite <- (primR_anyR mid_addr).
+  rewrite primr_split.
+  unhideAllFromWork.
+  simpl.
+  go.
+  
+  Search anyR.
+    
+    hideP pp.
+    rewrite Nat2Z.inj_sub.
+    hideLhs.
+    rewrite -> modulo.useless_trim with (bits:=32%N) (a:=(Z.of_nat (length l) - Z.of_nat (length l) `div` 2)).
+    2:{
+      nia.
+      Arith.arith_solve.
+    Search trim.
+    
+    
+    Search length drop.
+  _ : numsp .[ "unsigned int" ! Z.of_nat (length l `div` 2) ]
+      |-> arrayR "unsigned int" (λ i : Z, uintR (cQp.mut q) i) (drop (length l `div` 2) l)
+    
+    do 6 run1.
+  #[global] Instance : forall ty , LearnEq2 (ThreadR ty) := ltac:(solve_learnable).
+    step.
+    step.
+    step.
+    fold cQpc.
+    rewrite (primr_split ap).
+    rewrite (primr_split bp).
+    go.
+    Compute (Z.gcd 0 0).
+    Search 0%Z (Z.gcd _ _)%Z.
+    pose proof (Z.gcd_nonneg av bv).
+    pose proof (Z.gcd_eq_0 av bv).
+    provePure.
+    nia.
+    work.
+    run1.
+    run1.
+    run1.
+    step.
+    step.
+    step.
+    step.
+    step.
+    step.
+    step.
+    step.
+    step.
+    do 3 step.
+    go.
+    case_decide.
+    {
+      Arith.remove_useless_mod_a.
+      icancel (cancel_at lcmp).
+      f_equiv.
+      unfold Z.lcm.
+      rewrite Z.lcm_equiv1.
+      rewrite Z.abs_eq.
+      rewrite Z.quot_div_nonneg.
+      reflexivity.
+      nia.
+      nia.
+      apply Z_div_nonneg_nonneg; try nia.
+      nia.
+      go.
+    }
+    {
+      go.
+    }
+    
+    
+  "parallel_gcdl(unsigned int*, unsigned int)::@0>::Thread(const 
       
       Search fold_left app.
       ausorewrite with syntactic.
