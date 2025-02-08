@@ -17,6 +17,12 @@ void sfoo() {
     b=a+1;
 }
 
+int *ptr;
+
+void fooptr () {
+    ptr = &a;
+}
+
 
 uint gcd(uint a, uint b) {
     while (b != 0) {

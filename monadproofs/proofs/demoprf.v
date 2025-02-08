@@ -17,62 +17,82 @@ Section with_Sigma.
   Definition cQpc := cQp.mk false.
   Coercion cQpc : Qp >-> cQp.t.
 
-  cpp.spec "foo()" as foo_spec with (
-        \prepost{xv:N} _global "x" |-> primR "unsigned int" 1  xv
-        \pre{yv:N} _global "y" |-> primR "unsigned int" 1 yv
-        \post _global "y" |-> primR "unsigned int" 1 (xv+1)%N
-      ).
+  (* questions policy slide *)
 
+  Disable Notation intR.
+
+
+  
+  (* open foo in demo.cpp *)
+  Open Scope Z_scope.
+  cpp.spec "foo()" as foo_spec with (
+        \prepost{xv:Z} _global "x" |-> primR "unsigned int" 1  xv
+        \pre{yv:Z} _global "y" |-> anyR "unsigned int" 1 (* possibly uninitialized *)
+        \post _global "y" |-> primR "unsigned int" 1 (xv+1)
+      ).
+  (* what is wrong with the spec above? *)
+
+  Remove Hints plogic.learnable_primR : br_opacity.
+
+  (* small stepping through the proof *)
   Lemma prf: denoteModule demo.module |-- foo_spec.
   Proof using.
-    iIntrosDestructs.
     verify_spec.
-    do 5 run1.
-    - slauto.
-    - hideLoc (_global "y"). go.
-      rewrite <- primR_anyR_ex.
-      work.
-      unhideAllFromWork.
-      iExists yv.
-      iFrame.
-      iIntros.
-      runUntilPost.
-      
-   Abort.
+    (* meaning of goal view*)
+    do 4 run1.
+    (* eval first operand (argument) of + *)
+    step.
+    iExists xv.
+    work; [iExists (cQpc 1); work|].
+    step. (* evalualte the second operand of +, which is the constant 1 *)
+    step. (* evaluate the binary operator + *)
+    step.
+    unfold trim. 
+    step. (* + evaluated, now process the write to y. not the pre and post of write *)
+    (* - pre + post *)
+    do 10 step.
+    (* highlight cancels *)
+    work.
+  Abort.
+
+  Hint Resolve plogic.learnable_primR : br_opacity.
 
   cpp.spec "foo()" as foo_spec_correct with (
         \prepost{xv:N} _global "x" |-> primR "unsigned int" 1 xv
-        \pre{yv:N} _global "y" |-> primR.body "unsigned int" 1 yv
-        \post _global "y" |-> primR.body "unsigned int" 1 ((xv+1) `mod` (2^32))%N
+        \pre{yv:N} _global "y" |-> primR "unsigned int" 1 yv
+        \post _global "y" |-> primR "unsigned int" 1 ((xv+1) `mod` (2^32))%N
       ).
 
   Lemma prf: denoteModule demo.module |-- foo_spec_correct.
   Proof.
-    verify_spec'.
+    verify_spec.
     slauto.
   Qed.
 
-
-  
   cpp.spec "sfoo()" as sfoo_spec with (
         \prepost{xv:Z} _global "a" |-> primR "int" 1 xv
-        \pre{yv:N} _global "b" |-> primR.body "int" 1 yv
-        \post _global "b" |-> primR.body "int" 1 ((xv+1))%Z
+        \pre{yv:N} _global "b" |-> primR "int" 1 yv
+        \post _global "b" |-> primR "int" 1 ((xv+1))%Z
       ).
+
+  (* what is wrong with the spec above? *)
 
   Lemma sprf: denoteModule demo.module |-- sfoo_spec.
   Proof.
     verify_spec'.
-    slauto.
-    provePure.
-    type.has_type_prop_prep.
+    do 5 run1;[slauto|].
+    do 2 step.
+    rewrite <- has_int_type.
+    simpl.
+    unfold bitsize.bound.
+    simpl.
   Abort.
   
   cpp.spec "sfoo()" as sfoo_spec_correct with (
         \prepost{xv:Z} _global "a" |-> primR "int" 1 xv
-        \pre [| (- 2 ^ (32 - 1) -1  ≤ xv ≤ 2 ^ (32 - 1) - 2)%Z |]
-        \pre{yv:N} _global "b" |-> primR.body "int" 1 yv
-        \post _global "b" |-> primR.body "int" 1 ((xv+1))%Z
+        \pre [| (- 2 ^ (32 - 1) -1  ≤ xv ≤ 2 ^ (32 - 1) - 2) |]
+        \pre{yv:Z} _global "b" |-> primR "int" 1 yv
+        \post _global "b" |-> primR "int" 1 ((xv+1))
       ).
 
   Lemma sprf: denoteModule demo.module |-- sfoo_spec_correct.
@@ -81,8 +101,67 @@ Section with_Sigma.
     slauto.
   Qed.
 
+  (** *Under the hood: *)
 
-  (* TODO: add lambdap and lambdStructObjOwnership arguments *)
+  (** Pre and post conditions of specs are elements of type [mpred]: *)
+  
+  Definition pureProp (bv: Z): Prop := (bv = 0).
+  Lemma proof: pureProp 0.
+  Proof. reflexivity. Qed.
+
+  (* `mpred` (memory predicates): they can implicitly
+             talk about the current state of memory and ownership of locations *)
+  Example assertion1 (bv:Z): mpred := _global "b" |-> primR "int" 1 bv.
+
+  Example embed (P:Prop) : mpred := [| P |].
+  Example pureAssertion (bv:Z) : mpred := [| bv=0|].
+
+  (** postcond of a function that guarantees to set variable b to a prime number:
+     note the nondeterminism *)
+  Example as2 :mpred := Exists (bv:Z), _global "b" |-> primR "int" 1 bv ** [| Znumtheory.prime bv |].
+
+  Example conjP (P Q: Prop) := P /\ Q.
+  Example conjmpred (P Q: mpred) := P ** Q.
+  
+  (** |-> : points_t *)
+  (** left of |-> must be a memory location, of type [ptr] *)
+  Example memLoc: ptr := _global "b".
+
+  (** right of |-> must be a "memory representation", of type [Rep].
+      Reps:
+      - connect what is stored in memory to some "mathematical" Coq object
+      - specify the amount of ownership
+
+     The cpp2v logic axiomatizes representations of primitives: int/char/long/int*/...
+   *)
+  
+  Example intRep (q:Qp) (x:Z) : Rep := primR "int" q x.
+  Check primR.
+  Print val.
+  Example as3 (bv:Z): mpred := _global "b" |-> primR "int" 1 (Vint bv).
+  Example as3elide (bv:Z): mpred := _global "b" |-> primR "int" 1 bv.
+  Set Printing Coercions.
+  Print as3elide.
+
+  Example ptrRep (q:Qp) (mloc: ptr) : Rep := primR "int*" q (Vptr mloc).
+  
+  cpp.spec "fooptr()" as ptrspec with
+      (\pre _global "ptr" |-> anyR "int *"1
+       \post _global "ptr" |-> primR "int *" 1 (Vptr (_global "a")) 
+      ).
+
+  Lemma foopptr: denoteModule module |--
+  
+  
+  Example stm (L R : mpred): Prop := L |-- R.
+  Lemma moreThanLogicalImpl :
+    _global "x" |-> primR "int" (1/3) 0 |-- _global "x" |-> primR "int" (1/2) 0.
+  Abort. (* not provable *)
+  
+  
+
+(** *Demo: read-read concurrency using fractional permissions *)
+  
   Definition ThreadR (lamStructName: core.name) (P Q : mpred) : Rep. Proof using. Admitted.
   
   Definition ThreadConstructor (lamStructName: core.name) (this:ptr): WpSpec mpredI val val :=
@@ -716,15 +795,22 @@ Section with_Sigma.
   apply fold_split_gcd.
   auto.
 Qed.
+  Lemma doubleSpending: _global "x" |-> primR "int" 1 0 ** _global "x" |-> primR "int" 1 0|-- [| False |].
+  Proof using. Abort.
+  
+  Lemma okSpending: _global "x" |-> primR "int" (1/2) 0 ** _global "x" |-> primR "int" (1/2) 0|--  _global "x" |-> primR "int" 1 0.
+  Proof using. Abort.
     
 End with_Sigma.
 (*
 - pretty printing of goal: ltac.
+- emacs plugin to autocenter
 - hide cQp?
-- docker image
--  rename all Vref to Vptr?
+- rename all Vref to Vptr?
 - replace all Z.gcd by N.gcd. no Vint, only Vn. or only Vint and Z stuff
 - remove all occurrences nat ?
 - S n by 1+n
 - remove type in array offset
+- In to ∈
+- docker image
  *)
