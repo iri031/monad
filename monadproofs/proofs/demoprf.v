@@ -25,6 +25,13 @@ Section with_Sigma.
 
   Disable Notation intR.
 
+  Lemma primR2_anyR : ∀ t (q:Qp) (v:val) (p:ptr),
+      p|-> primR t (q/2) v ** p|->primR t (q/2) v  |-- p|->anyR t q.
+  Proof using. Admitted.
+  Definition primR2_anyRC := [CANCEL] primR2_anyR.
+  Hint Resolve primR2_anyRC: br_opacity.
+  Hint Resolve array_combine_C: br_opacity.
+  Hint Rewrite @length_drop: syntactic.
 
   
   (* open foo in demo.cpp *)
@@ -532,6 +539,8 @@ Section with_Sigma.
       Set Printing Coercions.
       Set Default Goal Selector "!".
 
+  cpp.spec (Nscoped 
+              "parallel_gcdl(unsigned int*, unsigned int)::@0" Ndtor)  as lam2destr  inline.
 
 
   Lemma pgcdl_proof: denoteModule module
@@ -605,12 +614,10 @@ Section with_Sigma.
     slauto.
     unfold lengthN.
     autorewrite with syntactic.
-    Search (valid_ptr (_ .[_ ! _])).
     rewrite Z.quot_div_nonneg; try lia.
     rewrite Nat2Z.inj_div. (* add to syntacctic? *)
     slauto.
     unfold lengthN.
-    Hint Rewrite @length_drop: syntactic.
     autorewrite with syntactic.
     rewrite -> Nat2Z.inj_sub by lia.
     Arith.remove_useless_mod_a.
@@ -620,17 +627,6 @@ Section with_Sigma.
     iExists _. eagerUnifyU.
     slauto.
     wapply gcd_proof. go.
-  go.
-
-  cpp.spec (Nscoped 
-              "parallel_gcdl(unsigned int*, unsigned int)::@0" Ndtor)  as lam2destr  inline.
-  Lemma primR2_anyR : ∀ t (q:Qp) (v:val) (p:ptr),
-      p|-> primR t (q/2) v ** p|->primR t (q/2) v  |-- p|->anyR t q.
-  Proof using. Admitted.
-  Definition primR2_anyRC := [CANCEL] primR2_anyR.
-  Hint Resolve primR2_anyRC: br_opacity.
-  go.
-  Hint Resolve array_combine_C: br_opacity.
   go.
   hideLhs.
   rewrite <- arrayR_combine.
