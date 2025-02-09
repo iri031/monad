@@ -134,7 +134,22 @@ Section with_Sigma.
 
   Example conjP (P Q: Prop) := P /\ Q.
   Example conjmpred (P Q: mpred) := P ** Q.
-  
+
+  (** -> is logical implication, aka => in math textbooks *)
+  Lemma propDupl (P:Prop) : P -> P /\ P. Proof. tauto. Qed.
+
+  (** - analogous property doesnt hold in `mpred`.
+      - ownership is like bitcoin: cannot doublespend*)
+  Lemma doesNotHold1 (xv:Z):
+    let own:= _global "x" |-> primR "int" 1 xv in
+    own |-- own ** own.
+  Abort.
+
+  (* knowledge can be freely duplicated, resources cannot *)
+  Lemma propEmbedDupl (n:Z) :
+    let o : mpred :=   [| isPrime n |] in o |-- o ** o.
+  Proof. go. Qed.
+          
   (** |-> : points_t *)
   (** left of |-> must be a memory location, of type [ptr] *)
   Example memLoc: ptr := _global "b".
@@ -320,7 +335,30 @@ Section with_Sigma.
     go.
     (* missing spec of Thread Constructor *)
   Abort.
-  
+
+      Set Nested Proofs Allowed.
+      Ltac erefl :=
+        unhideAllFromWork;
+        match goal with
+          H := _ |- _ => subst H
+        end;
+        iClear "#";
+        iStopProof; reflexivity.
+      Ltac unhideAllFromWork :=  tactics.unhideAllFromWork;
+                                 try match goal with
+                                   H := _ |- _ => subst H
+                                 end.
+      #[global] Instance : forall ty , LearnEq2 (ThreadR ty) := ltac:(solve_learnable).
+
+      Ltac instWithPEvar name :=
+      match goal with
+      | |- environments.envs_entails _ (@bi_exist _ ?T _) =>
+          evar (name:T);
+          iExists name;
+          let hname := fresh name "P" in
+          hideFromWorkAs name hname
+      end.
+
   Lemma par: denoteModule module
                ** (thread_class_specs "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0")
                ** gcd2_spec
@@ -329,62 +367,46 @@ Section with_Sigma.
     unfold thread_class_specs.
     verify_spec'.
     slauto.
-    aggregateRepPieces gcdLambda_addr.
-    go.
-    
     fold cQpc.
-    (* TODO: pick a better name for gp. TODO. replace unintR with primR  *)
-    iExists (gcdrp |-> anyR "unsigned int" 1 ** ap |-> uintR (qa/2) av ** bp |-> uintR (qb/2) bv).
-    evar (post:mpred).
-    iExists post.
-    hideFromWork post.
-    go.
-    iSplitL "".
+    aggregateRepPieces gcdLambda_addr. (*TODO shorten gcdLambda *)
+    iExists (gcdrp |-> anyR "unsigned int" 1 ** ap |-> uintR (qa/2) av ** bp |-> uintR (qb/2) bv). (* taskPre *)
+    instWithPEvar taskPost. (* taskPost: infer it automatically, optimally *)
+    slauto; iSplitL "".
+    (* 2 goals:
+       - prove that the lambda function satisfies the spec with pre:=taskPre and post:=taskPost (TBD)
+       - continue with the code after the Thread constructor, with the \post of the constructor 
+     *)
     { verify_spec'.
       go.
-      unhideAllFromWork.
-      unfold post.
-      iClear "#".
-      iStopProof. reflexivity.
+      erefl.
     }
     unhideAllFromWork.
-    unfold post.
     iIntrosDestructs.
-    do 6 run1.
-  #[global] Instance : forall ty , LearnEq2 (ThreadR ty) := ltac:(solve_learnable).
-    step.
-    step.
-    step.
+    do 5 run1.
+    step. (* needs 1) ownership of thead object 2) prev. chosen \pre. the latter is not returned  *)
+    do 2 step.
     fold cQpc.
     rewrite (primr_split ap).
     rewrite (primr_split bp).
-    go.
-    Compute (Z.gcd 0 0).
-    Search 0%Z (Z.gcd _ _)%Z.
-    pose proof (Z.gcd_nonneg av bv).
+    run1. (* evaluating operands for *. lost ownership gcdrsp, 1/2 of a,b. 1/2 suffices for a,b *)
+    
+    do 7 run1. (* call to join() *)
+    run1. (* got back ownership of gcdrp, now it holds the result of gcd. also other halfs. need to return full *)
+    do 4 run1.
+    do 3 step;[slauto|]. (* next: / *)
+    step.
+    Search (Z.gcd _ _ = 0 )%Z.
     pose proof (Z.gcd_eq_0 av bv).
-    provePure.
-    nia.
-    work.
-    run1.
-    run1.
-    run1.
+    pose proof (Z.gcd_nonneg av bv).
     step.
-    step.
-    step.
-    step.
-    step.
-    step.
-    step.
-    step.
-    step.
-    do 3 step.
+    provePure. { nia. }. step.
     go.
     case_decide.
+    2:{ go. }
     {
-      Arith.remove_useless_mod_a.
-      icancel (cancel_at lcmrp).
-      f_equiv.
+      Arith.remove_useless_mod_a. (* * is mod 2^32 *)
+      icancel (cancel_at lcmrp);[| go].
+      do 2 f_equiv.
       unfold Z.lcm.
       rewrite Z.lcm_equiv1.
       rewrite Z.abs_eq.
@@ -394,10 +416,6 @@ Section with_Sigma.
       nia.
       apply Z_div_nonneg_nonneg; try nia.
       nia.
-      go.
-    }
-    {
-      go.
     }
   Qed.
 
@@ -545,6 +563,7 @@ Section with_Sigma.
     rewrite (primr_split nums_addr).
     rewrite (primr_split mid_addr).
     go.
+    (* todo: replace the last many lines by a oneliner: ideally, obtain the list automatically *)
     repeat IPM.perm_left ltac:(fun L n=>
                           match L with
                           | numsp |-> _ => iRevert n
@@ -565,9 +584,7 @@ Section with_Sigma.
         iIntrosDestructs;
         iExists R
     end.
-    evar (post:mpred).
-    iExists post.
-    hideFromWork post.
+    instWithPEvar taskPost.
     go.
 
     iSplitL "".
@@ -581,13 +598,9 @@ Section with_Sigma.
       go.
       iExists _. eagerUnifyU.
       go.
-      unhideAllFromWork.
-      unfold post.
-      iClear "#".
-      iStopProof. reflexivity.
+      erefl.
     }
     unhideAllFromWork.
-    unfold post.
     iIntrosDestructs.
     slauto.
     unfold lengthN.
@@ -607,11 +620,10 @@ Section with_Sigma.
     iExists _. eagerUnifyU.
     slauto.
     wapply gcd_proof. go.
-  cpp.spec (Nscoped 
-              "parallel_gcdl(unsigned int*, unsigned int)::@0" Ndtor)  as lam2destr  inline.
   go.
 
-  Set Nested Proofs Allowed.
+  cpp.spec (Nscoped 
+              "parallel_gcdl(unsigned int*, unsigned int)::@0" Ndtor)  as lam2destr  inline.
   Lemma primR2_anyR : ∀ t (q:Qp) (v:val) (p:ptr),
       p|-> primR t (q/2) v ** p|->primR t (q/2) v  |-- p|->anyR t q.
   Proof using. Admitted.
@@ -639,18 +651,26 @@ Qed.
   
   Lemma okSpending: _global "x" |-> primR "int" (1/2) 0 ** _global "x" |-> primR "int" (1/2) 0|--  _global "x" |-> primR "int" 1 0.
   Proof using. Abort.
+      Lemma duplTypePtr (ap:ptr): type_ptr "unsigned int" ap |-- type_ptr "unsigned int" ap ** type_ptr "unsigned int" ap.
+      Proof using. go. Qed.
+      Lemma duplSpec (ap:ptr): gcd_spec |-- gcd_spec ** gcd_spec.
+      Proof using. go. Qed.
     
 End with_Sigma.
 (*
-- pretty printing of goal: ltac.
-- emacs plugin to autocenter
 - check arg names
 - hide cQp?
+- auto splitting in parallel_gcd_lcm proof
 - rename all Vref to Vptr?
 - replace all Z.gcd by N.gcd. no Vint, only Vn. or only Vint and Z stuff
 - remove all occurrences nat ?
 - S n by 1+n
+- pretty printing of goal: ltac.
 - remove type in array offset
 - In to ∈
 - docker image
+
+done:
+- emacs plugin to autocenter
+
  *)
