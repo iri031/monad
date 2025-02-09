@@ -3,7 +3,9 @@ Require Import bedrock.auto.cpp.proof.
 
 Require Import stdpp.gmap.
 Require Import bedrock.auto.cpp.tactics4.
-
+From AAC_tactics Require Import AAC.
+From AAC_tactics Require Import Instances.
+Import Instances.Z.
 Import cQp_compat.
 Import linearity.
 Hint Rewrite @firstn_all: syntactic.
@@ -45,49 +47,76 @@ Import cancelable_invariants.
 Definition storedAtGhostLoc  `{Sigma:cpp_logic} {CU: genv} (q: Q) (g: gname) (n: nat) : mpred.
   Admitted.
 
+Ltac simplPure :=
+  simpl in *; autorewrite with syntactic (* equiv *) iff  in *; try rewrite left_id in *; simpl in *.
+
+Lemma trans4 `{Equivalence} a b a' b': R a a' -> R b b' -> R a b -> R a' b'.
+Proof. now intros -> ->. Qed.
+
+Tactic Notation "aac_rewriteh" uconstr(L) "in" hyp(H) :=
+  (eapply trans4 in H;[| try aac_rewrite L; try reflexivity | try aac_rewrite L; try reflexivity ]).
 
 Ltac slauto := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go; fail); try (apply False_rect; try contradiction; try congruence; try nia; fail); try autorewrite with syntactic equiv iff slbwd in *; try rewrite left_id)
   then slauto  else idtac.
   
-  Lemma pureAsWand (mpred:bi) (P:Prop) (C:mpred) E: P -> environments.envs_entails E ([|P|] -* C) ->  environments.envs_entails E C.
-  Proof using.
-    intros p.
-    repeat rewrite to_entails.
-    intros Hp.
-    go.
-    rewrite Hp.
-    go.
-  Qed.
-  Lemma genWand  (mpred:bi) {T} (ival:T)  W (C:mpred) E :
-    environments.envs_entails E ((Exists ival, W ival) -* C) ->  environments.envs_entails E (W ival-* C).
-  Proof using.
-    repeat rewrite to_entails.
-    intros Hp.
-    go.
-    rewrite Hp.
-    go.
-    iExists _. iStopProof. reflexivity.
-  Qed.
-  
-  Ltac genOver ival :=
-    repeat match goal with
-      | H:context[ival] |- _ => apply (@pureAsWand _ _ _ _ H); clear H
+Lemma pureAsWand (mpred:bi) (P:Prop) (C:mpred) E: P -> environments.envs_entails E ([|P|] -* C) ->  environments.envs_entails E C.
+Proof using.
+  intros p.
+  repeat rewrite to_entails.
+  intros Hp.
+  go.
+  rewrite Hp.
+  go.
+Qed.
+Lemma genWand  (mpred:bi) {T} (ival:T)  W (C:mpred) E :
+  environments.envs_entails E ((Exists ival, W ival) -* C) ->  environments.envs_entails E (W ival-* C).
+Proof using.
+  repeat rewrite to_entails.
+  intros Hp.
+  go.
+  rewrite Hp.
+  go.
+  iExists _. iStopProof. reflexivity.
+Qed.
+
+Ltac genOver ival :=
+  repeat match goal with
+    | H:context[ival] |- _ => apply (@pureAsWand _ _ _ _ H); clear H
     end;
-    repeat IPM.perm_left ltac:(fun L n =>
-                     match L with
-                     | context[ival] => iRevert n
-                     end
-                              );
-    repeat rewrite bi.wand_curry;
-    pattern ival;
-    lazymatch goal with
-    | |- (fun x => environments.envs_entails _ (@?P x -* _)) _ =>
-        apply (@genWand mpredI nat ival P)
-    end; clear ival; simpl;
-    lazymatch goal with
-      |- environments.envs_entails _ (?P -* _) => hideFromWork P
-    end;
-    iIntros "?"%string.
+  repeat IPM.perm_left ltac:(fun L n =>
+                               match L with
+                               | context[ival] => iRevert n
+                               end
+                            );
+  repeat rewrite bi.wand_curry;
+  pattern ival;
+  lazymatch goal with
+  | |- (fun x => environments.envs_entails _ (@?P x -* _)) _ =>
+      apply (@genWand mpredI nat ival P)
+  end; clear ival; simpl;
+  lazymatch goal with
+    |- environments.envs_entails _ (?P -* _) => hideFromWork P
+  end;
+  iIntros "?"%string.
+
+Ltac wapplyObserve lemma:=
+    try intros;
+  idtac;
+  [
+    wapply (@observe_elim _ _ _ (lemma)) || wapply (@observe_elim _ _ _ (lemma _))
+    || wapply (@observe_elim _ _ _ (lemma _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _))
+    || wapply (@observe_elim _ _ _ (lemma _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _))
+    || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _))
+    || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _ _))
+    || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _ _ _ _))
+    ||
+    wapply (@observe_2_elim _ _ _ _ (lemma)) || wapply (@observe_2_elim _ _ _ _ (lemma _))
+    || wapply (@observe_2_elim _ _ _ _ (lemma _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _))
+    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _))
+    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _))
+    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _ _))
+    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _ _ _ _))
+  ].
 
 Section cp.
   Context `{Sigma:cpp_logic} {CU: genv} {hh: HasOwn mpredI algebra.frac.fracR}. (* some standard assumptions about the c++ logic *)
@@ -502,6 +531,195 @@ Section cp.
     rewrite _offsetR_sub_0; try assumption.
     iSplit; work.
   Qed.
+
+  Lemma primr_split (p:ptr) ty (q:Qp) v :
+    p|-> primR ty (cQp.mut q) v -|- (p |-> primR ty (cQp.mut q/2) v) ** p |-> primR ty (cQp.mut q/2) v.
+  Proof using.
+    rewrite -> cfractional_split_half with (R := fun q => primR ty q v).
+    2:{ exact _. }
+    rewrite _at_sep.
+    f_equiv; f_equiv; f_equiv;
+    simpl;
+      rewrite cQp.scale_mut;
+      f_equiv;
+    destruct q; simpl in *;
+      solveQpeq;
+      solveQeq.
+  Qed.
+
+    Lemma arrayR_cell2 i {X} ty (R:X->Rep) xs:
+    (Z.of_nat i < Z.of_nat (length xs))%Z ->
+          exists x, 
+            xs !! i = Some x /\	(** We have an [i]th element *)
+    (arrayR ty R xs -|-
+           arrayR ty R (take i xs) **
+           _sub ty (Z.of_nat i) |-> type_ptrR ty **
+           _sub ty (Z.of_nat i) |-> R  x **
+           _sub ty ((Z.of_nat i) + 1) |-> arrayR ty R (drop (1+i) xs)).
+  Proof using.
+    intros.
+    assert (i<length xs)%nat as Hex by lia.
+    applyToSomeHyp @lookup_lt_is_Some_2.
+    hnf in autogenhyp.
+    forward_reason.
+    subst.
+    eexists; split; eauto.
+    apply arrayR_cell; auto.
+  Qed.
+      
+  Lemma fold_id {A:Type} (f: A->A->A) (c: Commutative (=) f) (asoc: Associative (=) f)
+    (start id: A) (lid: LeftId (=) id f) (l: list A):
+    fold_left f l start = f (fold_left f l id) start.
+  Proof using.
+    hnf in lid. revert start.
+    induction l; auto;[].
+    simpl. rewrite lid.
+    intros.
+    simpl.
+    rewrite IHl.
+    symmetry.
+    rewrite IHl.
+    aac_reflexivity.
+  Qed.
+  
+  Lemma fold_split {A:Type} (f: A->A->A) (c: Commutative (=) f) (asoc: Associative (=) f)
+    (id: A) (lid: LeftId (=) id f) (l: list A) (lSplitSize: nat):
+    fold_left f l id =
+      f (fold_left f (firstn lSplitSize l) id) (fold_left f (skipn lSplitSize l) id).
+  Proof using.
+    rewrite <- (take_drop lSplitSize) at 1.
+    rewrite fold_left_app.
+    rewrite fold_id.
+    aac_reflexivity.
+  Qed.
+
+
+  Definition liftf {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (fpres: forall a b, P a -> P b -> P (f a b))
+    (a: dsig P) (b: dsig P) : dsig P :=
+    (dexist (f (`a) (`b)) (fpres _ _ (proj2_dsig a) (proj2_dsig b))).
+
+  #[global] Instance liftfComm {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (fpres: forall a b, P a -> P b -> P (f a b))
+    (c: Commutative (=) f) : Commutative (=) (liftf f P fpres).
+  Proof using.
+    hnf.
+    intros x y. destruct x, y. simpl in *.
+    unfold liftf.
+    simpl.
+    Search dsig.
+    apply dsig_eq.
+    simpl.
+    auto.
+  Qed.
+  
+  #[global] Instance liftfAssoc {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (fpres: forall a b, P a -> P b -> P (f a b))
+    (c: Associative (=) f) : Associative (=) (liftf f P fpres).
+  Proof using.
+    hnf.
+    intros x y z. destruct x, y, z. simpl in *.
+    unfold liftf.
+    simpl.
+    apply dsig_eq.
+    simpl.
+    auto.
+  Qed.
+
+    Lemma fold_left_proj1dsig {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (fpres: forall a b, P a -> P b -> P (f a b)) l start:
+      proj1_sig (fold_left (liftf f P fpres) l start) = fold_left f (map proj1_sig l) (`start).
+    Proof using.
+      revert start.
+      induction l; auto.
+      intros.  simpl.
+      rewrite IHl.
+      simpl.
+      reflexivity.
+    Qed.
+  
+  Lemma fold_split_condid1 {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (c: Commutative (=) f) (asoc: Associative (=) f)
+    (id: A) (lid: forall a, P a -> f id a = a) (ld: list (dsig P)) (lSplitSize: nat) (pid: P id)
+    (fpres: forall a b, P a -> P b -> P (f a b)):
+    let l:= map proj1_sig ld in
+    fold_left f l id=
+      f (fold_left f (firstn lSplitSize l) id) (fold_left f (skipn lSplitSize l) id).
+  Proof using.
+    pose proof (fun lid => @fold_split _  (liftf f P fpres) _ _ (dexist id pid) lid ld lSplitSize) as Hh.
+    lapply Hh.
+    2:{ hnf. intros x. destruct x. unfold liftf. simpl.
+        apply dsig_eq. simpl. apply lid.
+        apply bool_decide_unpack in i. assumption. }
+    intros Hx.
+    clear Hh.
+    simpl.
+    apply (f_equal proj1_sig) in Hx.
+    simpl in Hx.
+
+    repeat rewrite fold_left_proj1dsig in Hx.
+    simpl.
+    unfold dexist in Hx. simpl in Hx.
+    repeat rewrite map_take in Hx.
+    repeat rewrite map_drop in Hx.
+    rewrite Hx.
+    f_equal.
+    f_equal.
+    rewrite skipn_map.
+    reflexivity.
+  Qed.
+    Fixpoint pairProofDsig {A} (l: list A) (P:A->Prop) {hdec: forall a, Decision (P a)} (pl: forall a, In a l -> P a) : list (dsig P).
+      destruct l; simpl in *.
+      - exact [].
+      -  pose proof (pl a ltac:(left;apply eq_refl)) as pll.
+         apply cons.
+         + exists a. apply bool_decide_pack. assumption.
+         +  apply pairProofDsig with (l:=l). intros. apply pl. right. assumption.
+    Defined.
+    Lemma pairProofDsigMapFst {A} (l: list A) (P:A->Prop) {hdec: forall a, Decision (P a)} (pl: forall a, In a l -> P a):
+      map proj1_sig (pairProofDsig l P pl) = l.
+    Proof using.
+      induction l; auto.
+      -  simpl. auto. f_equal.
+         rewrite IHl.
+         reflexivity.
+    Qed.
+  
+  Lemma fold_split_condid {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (c: Commutative (=) f) (asoc: Associative (=) f)
+    (id: A) (lid: forall a, P a -> f id a = a) (l: list A) (pl: forall a, In a l -> P a) (lSplitSize: nat) (pid: P id)
+    (fpres: forall a b, P a -> P b -> P (f a b)):
+    fold_left f l id=
+      f (fold_left f (firstn lSplitSize l) id) (fold_left f (skipn lSplitSize l) id).
+  Proof using.
+    pose proof (fold_split_condid1 f P c asoc id lid (pairProofDsig l P pl)) as Hx.
+    simpl in Hx.
+    repeat rewrite pairProofDsigMapFst in Hx.
+    apply Hx; auto.
+  Qed.
+
+  Open Scope Z_scope.
+  Lemma fold_split_gcd  (l: list Z) (pl: forall a, In a l -> 0 <= a) (lSplitSize: nat):
+    fold_left Z.gcd l 0=
+      Z.gcd (fold_left Z.gcd (firstn lSplitSize l) 0) (fold_left Z.gcd (skipn lSplitSize l) 0).
+  Proof using.
+    apply fold_split_condid with (P:= fun z => 0<=z); auto; try exact _; try lia;
+      intros; try apply Z.gcd_nonneg.
+    rewrite Z.gcd_0_l.
+    rewrite Z.abs_eq; auto.
+  Qed.
+  Lemma obsUintArrayR (p:ptr) q (l: list Z): Observe [| forall (a : Z), In a l → 0 ≤ a|] (p|->arrayR "unsigned int" (fun i => primR "unsigned int" q (Vint i)) l) .
+  Proof using.
+    apply observe_intro; [exact _ |].
+    revert p.
+    induction l; auto.
+    simpl. intros. rewrite arrayR_cons.
+    hideRhs.
+    go.
+    rewrite -> IHl at 1.
+    go.
+    unhideAllFromWork.
+    go.
+    iPureIntro.
+    intros? Hin.
+    destruct Hin; auto.
+    subst.
+    type.has_type_prop.
+  Qed.
   
 End cp.
 Opaque parrayR.
@@ -532,21 +750,3 @@ Proof using.
   apply _at_mono.
 Qed.
 
-  Ltac wapplyObserve lemma:=
-    try intros;
-  idtac;
-  [
-    wapply (@observe_elim _ _ _ (lemma)) || wapply (@observe_elim _ _ _ (lemma _))
-    || wapply (@observe_elim _ _ _ (lemma _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _))
-    || wapply (@observe_elim _ _ _ (lemma _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _))
-    || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _))
-    || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _ _))
-    || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _ _ _)) || wapply (@observe_elim _ _ _ (lemma _ _ _ _ _ _ _ _ _ _ _))
-    ||
-    wapply (@observe_2_elim _ _ _ _ (lemma)) || wapply (@observe_2_elim _ _ _ _ (lemma _))
-    || wapply (@observe_2_elim _ _ _ _ (lemma _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _))
-    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _))
-    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _))
-    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _ _))
-    || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _ _ _)) || wapply (@observe_2_elim _ _ _ _ (lemma _ _ _ _ _ _ _ _ _ _ _))
-  ].

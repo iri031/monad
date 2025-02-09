@@ -7,8 +7,12 @@ Require Import bedrock.auto.cpp.tactics4.
 Require Import monad.proofs.demomisc.
 From AAC_tactics Require Import AAC.
 From AAC_tactics Require Import Instances.
+Import Instances.Z.
+Import stdpp.list.
+Import stdpp.decidable.
 Import cQp_compat.
 Open Scope cQp_scope.
+Open Scope Z_scope.
 Import linearity.
 Import Verbose.
 Section with_Sigma.
@@ -193,11 +197,14 @@ Section with_Sigma.
 
   (** \prepost  in sequential code, ..., but in concurrent code ...*)
 
+  Lemma primr_split_half (p:ptr) ty (q:Qp) v :
+    p|-> primR ty q v -|- (p |-> primR ty (q/2) v) ** p |-> primR ty (q/2) v.
+  Proof using. apply primr_split. Qed.
   
   (** parallel_gcd_lcm in demo.cpp *)
   (** diagram *)
   
-
+  
 (** *Demo: read-read concurrency using fractional permissions *)
   
   Definition ThreadR (lamStructName: core.name) (P Q : mpred) : Rep. Proof using. Admitted.
@@ -227,23 +234,6 @@ Section with_Sigma.
   Definition join (lamStructName: core.name) (this:ptr): WpSpec mpredI val val :=
     \prepost{P Q} this |-> ThreadR lamStructName P Q
     \post Q.
-
-  cpp.spec "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)" as pgl with
-      (
-        \arg{ap} "a" (Vref ap)
-        \prepost{(qa:Qp) (av:N)} ap |-> primR "unsigned int" qa av
-        \arg{bp} "b" (Vref bp)
-        \prepost{(qb:Qp) (bv:N)} bp |-> primR "unsigned int" qb bv
-        \arg{gcdrp} "gcd_result" (Vref gcdrp)
-        \pre gcdrp |-> anyR "unsigned int" 1
-        \arg{lcmrp} "lcm_result" (Vref lcmrp)
-        \pre lcmrp |-> anyR "unsigned int" 1
-        \pre[| 0<bv \/ 0<av |]%N
-        \post gcdrp |-> primR "unsigned int" 1 (Z.gcd av bv)
-              ** (if decide (av*bv < 2^32)%N then
-                  lcmrp |-> primR "unsigned int" 1 (Z.lcm av bv)
-                  else Exists garbage3, lcmrp |-> primR "unsigned int" 1 garbage3)
-      ).
 
   Definition thread_constructor (lamStructTyName: core.name) :=
   specify
@@ -289,11 +279,6 @@ Section with_Sigma.
   
   cpp.spec "Thread<parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0>::fork_start()"
            as ff with (fork_start "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0").
-  Lemma par: denoteModule module |-- pgl.
-  Proof using.
-    verify_spec'.
-    go.
-  Abort.
 
   Definition thread_class_specs lamStructName :=
     thread_constructor lamStructName **
@@ -305,28 +290,41 @@ Section with_Sigma.
   #[global] Instance : forall ty P Q, Observe (reference_toR (Tnamed ty)) (ThreadR ty P Q).
   Proof. Admitted.
 
-  Lemma primr_split (p:ptr) ty (q:Qp) v :
-    p|-> primR ty (cQpc q) v -|- (p |-> primR ty (cQpc q/2) v) ** p |-> primR ty (cQpc q/2) v.
-  Proof using.
-    unfold cQpc.
-    rewrite -> cfractional_split_half with (R := fun q => primR ty q v).
-    2:{ exact _. }
-    rewrite _at_sep.
-    f_equiv; f_equiv; f_equiv;
-    simpl;
-      rewrite cQp.scale_mut;
-      f_equiv;
-    destruct q; simpl in *;
-      solveQpeq;
-      solveQeq.
-  Qed.
   #[global] Instance obss (pp:ptr) ty P Q: Observe (reference_to (Tnamed (Ninst "Thread" [Atype (Tnamed ty)])) pp) (pp |-> ThreadR ty P Q).
   Proof. Admitted.
   cpp.spec (Nscoped 
               "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0" Ndtor)  as lamdestr
                                                                                                                           inline.
+
+  cpp.spec "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)" as par_gcd_lcm_spec with
+      (
+        \arg{ap} "a" (Vref ap)
+        \prepost{(qa:Qp) (av:N)} ap |-> primR "unsigned int" qa av
+        \arg{bp} "b" (Vref bp)
+        \prepost{(qb:Qp) (bv:N)} bp |-> primR "unsigned int" qb bv
+        \arg{gcdrp} "gcd_result" (Vref gcdrp)
+        \pre gcdrp |-> anyR "unsigned int" 1
+        \arg{lcmrp} "lcm_result" (Vref lcmrp)
+        \pre lcmrp |-> anyR "unsigned int" 1
+        \pre[| 0<bv \/ 0<av |]%N
+        \post gcdrp |-> primR "unsigned int" 1 (Z.gcd av bv)
+              ** (if decide (av*bv < 2^32)%N then
+                  lcmrp |-> primR "unsigned int" 1 (Z.lcm av bv)
+                  else Exists garbage3, lcmrp |-> primR "unsigned int" 1 garbage3)
+      ).
+
+  Lemma par: denoteModule module
+             |-- par_gcd_lcm_spec.
+  Proof using MODd.
+    verify_spec.
+    go.
+    (* missing spec of Thread Constructor *)
+  Abort.
   
-  Lemma par: denoteModule module ** (thread_class_specs "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0") ** gcd2_spec |-- pgl.
+  Lemma par: denoteModule module
+               ** (thread_class_specs "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0")
+               ** gcd2_spec
+             |-- par_gcd_lcm_spec.
   Proof using MODd.
     unfold thread_class_specs.
     verify_spec'.
@@ -409,18 +407,6 @@ Section with_Sigma.
       - one thread can only increment a counter, another can only decrement
 *)
 
-
-  Ltac simplPure :=
-    simpl in *; autorewrite with syntactic (* equiv *) iff  in *; try rewrite left_id in *; simpl in *.
-  Search Commutative Z.gcd.
-
-  Import Instances.Z.
-  Lemma trans4 `{Equivalence} a b a' b': R a a' -> R b b' -> R a b -> R a' b'.
-  Proof. now intros -> ->. Qed.
-  
-  Tactic Notation "aac_rewriteh" uconstr(L) "in" hyp(H) :=
-    (eapply trans4 in H;[| try aac_rewrite L; try reflexivity | try aac_rewrite L; try reflexivity ]).
-  
   Lemma gcd_proof: denoteModule module |-- gcd_spec.
   Proof.
     verify_spec.
@@ -461,6 +447,7 @@ Section with_Sigma.
   Proof using.
     go.
   Qed.
+  
   (* TODO: lemma to unroll arrayR for 3 elements *)
 
   (* parallelization: *)
@@ -476,26 +463,6 @@ Section with_Sigma.
   cpp.spec "gcdl(unsigned int*, unsigned int)" as gcdl_spec with (gcdl_spec_core).
   cpp.spec "parallel_gcdl(unsigned int*, unsigned int)" as parallel_gcdl_spec with (gcdl_spec_core).
 
-
-    Lemma arrayR_cell2 i {X} ty (R:X->Rep) xs:
-    (Z.of_nat i < Z.of_nat (length xs))%Z ->
-          exists x, 
-            xs !! i = Some x /\	(** We have an [i]th element *)
-    (arrayR ty R xs -|-
-           arrayR ty R (take i xs) **
-           _sub ty (Z.of_nat i) |-> type_ptrR ty **
-           _sub ty (Z.of_nat i) |-> R  x **
-           _sub ty ((Z.of_nat i) + 1) |-> arrayR ty R (drop (1+i) xs)).
-  Proof using.
-    intros.
-    assert (i<length xs)%nat as Hex by lia.
-    applyToSomeHyp @lookup_lt_is_Some_2.
-    hnf in autogenhyp.
-    forward_reason.
-    subst.
-    eexists; split; eauto.
-    apply arrayR_cell; auto.
-  Qed.
 
   Lemma gcdl_proof: denoteModule module |-- gcdl_spec.
   Proof using MODd.
@@ -545,163 +512,9 @@ Section with_Sigma.
       Compute (Z.quot (-5) 4).
       Compute (Z.div (-5) 4).
       Set Printing Coercions.
-      Search Z.div Nat.div.
-  Set Default Goal Selector "!".
-  Lemma fold_id {A:Type} (f: A->A->A) (c: Commutative (=) f) (asoc: Associative (=) f)
-    (start id: A) (lid: LeftId (=) id f) (l: list A):
-    fold_left f l start = f (fold_left f l id) start.
-  Proof using.
-    hnf in lid. revert start.
-    induction l; auto;[].
-    simpl. rewrite lid.
-    intros.
-    simpl.
-    rewrite IHl.
-    symmetry.
-    rewrite IHl.
-    aac_reflexivity.
-  Qed.
-  
-  Lemma fold_split {A:Type} (f: A->A->A) (c: Commutative (=) f) (asoc: Associative (=) f)
-    (id: A) (lid: LeftId (=) id f) (l: list A) (lSplitSize: nat):
-    fold_left f l id =
-      f (fold_left f (firstn lSplitSize l) id) (fold_left f (skipn lSplitSize l) id).
-  Proof using.
-    rewrite <- (take_drop lSplitSize) at 1.
-    rewrite fold_left_app.
-    rewrite fold_id.
-    aac_reflexivity.
-  Qed.
+      Set Default Goal Selector "!".
 
-  Import stdpp.list.
-  Import stdpp.decidable.
 
-  Definition liftf {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (fpres: forall a b, P a -> P b -> P (f a b))
-    (a: dsig P) (b: dsig P) : dsig P :=
-    (dexist (f (`a) (`b)) (fpres _ _ (proj2_dsig a) (proj2_dsig b))).
-
-  #[global] Instance liftfComm {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (fpres: forall a b, P a -> P b -> P (f a b))
-    (c: Commutative (=) f) : Commutative (=) (liftf f P fpres).
-  Proof using.
-    hnf.
-    intros x y. destruct x, y. simpl in *.
-    unfold liftf.
-    simpl.
-    Search dsig.
-    apply dsig_eq.
-    simpl.
-    auto.
-  Qed.
-  
-  #[global] Instance liftfAssoc {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (fpres: forall a b, P a -> P b -> P (f a b))
-    (c: Associative (=) f) : Associative (=) (liftf f P fpres).
-  Proof using.
-    hnf.
-    intros x y z. destruct x, y, z. simpl in *.
-    unfold liftf.
-    simpl.
-    apply dsig_eq.
-    simpl.
-    auto.
-  Qed.
-
-    Lemma fold_left_proj1dsig {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (fpres: forall a b, P a -> P b -> P (f a b)) l start:
-      proj1_sig (fold_left (liftf f P fpres) l start) = fold_left f (map proj1_sig l) (`start).
-    Proof using.
-      revert start.
-      induction l; auto.
-      intros.  simpl.
-      rewrite IHl.
-      simpl.
-      reflexivity.
-    Qed.
-  
-  Lemma fold_split_condid1 {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (c: Commutative (=) f) (asoc: Associative (=) f)
-    (id: A) (lid: forall a, P a -> f id a = a) (ld: list (dsig P)) (lSplitSize: nat) (pid: P id)
-    (fpres: forall a b, P a -> P b -> P (f a b)):
-    let l:= map proj1_sig ld in
-    fold_left f l id=
-      f (fold_left f (firstn lSplitSize l) id) (fold_left f (skipn lSplitSize l) id).
-  Proof using.
-    pose proof (fun lid => @fold_split _  (liftf f P fpres) _ _ (dexist id pid) lid ld lSplitSize) as Hh.
-    lapply Hh.
-    2:{ hnf. intros x. destruct x. unfold liftf. simpl.
-        apply dsig_eq. simpl. apply lid.
-        apply bool_decide_unpack in i. assumption. }
-    intros Hx.
-    clear Hh.
-    simpl.
-    apply (f_equal proj1_sig) in Hx.
-    simpl in Hx.
-
-    repeat rewrite fold_left_proj1dsig in Hx.
-    simpl.
-    unfold dexist in Hx. simpl in Hx.
-    repeat rewrite map_take in Hx.
-    repeat rewrite map_drop in Hx.
-    rewrite Hx.
-    f_equal.
-    f_equal.
-    rewrite skipn_map.
-    reflexivity.
-  Qed.
-    Fixpoint pairProofDsig {A} (l: list A) (P:A->Prop) {hdec: forall a, Decision (P a)} (pl: forall a, In a l -> P a) : list (dsig P).
-      destruct l; simpl in *.
-      - exact [].
-      -  pose proof (pl a ltac:(left;apply eq_refl)) as pll.
-         apply cons.
-         + exists a. apply bool_decide_pack. assumption.
-         +  apply pairProofDsig with (l:=l). intros. apply pl. right. assumption.
-    Defined.
-    Lemma pairProofDsigMapFst {A} (l: list A) (P:A->Prop) {hdec: forall a, Decision (P a)} (pl: forall a, In a l -> P a):
-      map proj1_sig (pairProofDsig l P pl) = l.
-    Proof using.
-      induction l; auto.
-      -  simpl. auto. f_equal.
-         rewrite IHl.
-         reflexivity.
-    Qed.
-  
-  Lemma fold_split_condid {A:Type} (f: A->A->A) (P:A->Prop) {hdec: forall a, Decision (P a)} (c: Commutative (=) f) (asoc: Associative (=) f)
-    (id: A) (lid: forall a, P a -> f id a = a) (l: list A) (pl: forall a, In a l -> P a) (lSplitSize: nat) (pid: P id)
-    (fpres: forall a b, P a -> P b -> P (f a b)):
-    fold_left f l id=
-      f (fold_left f (firstn lSplitSize l) id) (fold_left f (skipn lSplitSize l) id).
-  Proof using.
-    pose proof (fold_split_condid1 f P c asoc id lid (pairProofDsig l P pl)) as Hx.
-    simpl in Hx.
-    repeat rewrite pairProofDsigMapFst in Hx.
-    apply Hx; auto.
-  Qed.
-
-  Open Scope Z_scope.
-  Lemma fold_split_gcd  (l: list Z) (pl: forall a, In a l -> 0 <= a) (lSplitSize: nat):
-    fold_left Z.gcd l 0=
-      Z.gcd (fold_left Z.gcd (firstn lSplitSize l) 0) (fold_left Z.gcd (skipn lSplitSize l) 0).
-  Proof using.
-    apply fold_split_condid with (P:= fun z => 0<=z); auto; try exact _; try lia;
-      intros; try apply Z.gcd_nonneg.
-    rewrite Z.gcd_0_l.
-    rewrite Z.abs_eq; auto.
-  Qed.
-  Lemma obsUintArrayR (p:ptr) q (l: list Z): Observe [| forall (a : Z), In a l → 0 ≤ a|] (p|->arrayR "unsigned int" (fun i => primR "unsigned int" q (Vint i)) l) .
-  Proof using.
-    apply observe_intro; [exact _ |].
-    revert p.
-    induction l; auto.
-    simpl. intros. rewrite arrayR_cons.
-    hideRhs.
-    go.
-    rewrite -> IHl at 1.
-    go.
-    unhideAllFromWork.
-    go.
-    iPureIntro.
-    intros? Hin.
-    destruct Hin; auto.
-    subst.
-    type.has_type_prop.
-  Qed.
 
   Lemma pgcdl_proof: denoteModule module
                        ** (thread_class_specs "parallel_gcdl(unsigned int*, unsigned int)::@0")
@@ -831,6 +644,7 @@ End with_Sigma.
 (*
 - pretty printing of goal: ltac.
 - emacs plugin to autocenter
+- check arg names
 - hide cQp?
 - rename all Vref to Vptr?
 - replace all Z.gcd by N.gcd. no Vint, only Vn. or only Vint and Z stuff
