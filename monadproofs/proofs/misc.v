@@ -56,9 +56,13 @@ Proof. now intros -> ->. Qed.
 Tactic Notation "aac_rewriteh" uconstr(L) "in" hyp(H) :=
   (eapply trans4 in H;[| try aac_rewrite L; try reflexivity | try aac_rewrite L; try reflexivity ]).
 
-Ltac slauto := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go; fail); try (apply False_rect; try contradiction; try congruence; try nia; fail); try autorewrite with syntactic equiv iff slbwd in *; try rewrite left_id; try (erewrite take_S_r;[| eauto;fail]))
-  then slauto  else idtac.
-  
+Ltac slautot rw := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go; fail); try (apply False_rect; try contradiction; try congruence; try nia; fail); rw; try (erewrite take_S_r;[| eauto;fail]))
+  then slautot rw  else idtac.
+
+Ltac slauto := slautot idtac. (* try rewrite left_id; *)
+Ltac slauto1 := slautot ltac:(autorewrite with syntactic); try iPureIntro.
+Ltac slauto2 := slautot ltac:(autorewrite with syntactic equiv iff slbwd; try rewrite left_id); try iPureIntro.
+
 Lemma pureAsWand (mpred:bi) (P:Prop) (C:mpred) E: P -> environments.envs_entails E ([|P|] -* C) ->  environments.envs_entails E C.
 Proof using.
   intros p.
@@ -721,6 +725,13 @@ Section cp.
     subst.
     type.has_type_prop.
   Qed.
+  Lemma spurious {T:Type} {ing: Inhabited T} (P: mpred) :
+  P |-- Exists a:T, P.
+  Proof using.
+    work.
+    iExists (@inhabitant T _).
+    work.
+  Qed.
   
 End cp.
 Opaque parrayR.
@@ -752,3 +763,24 @@ Proof using.
 Qed.
 
 Hint Resolve primR_split_C : br_opacity.
+
+
+
+#[global] Hint Rewrite @inj_iff using (typeclasses eauto): iff.
+#[global] Hint Rewrite negb_if: syntactic.
+#[global] Hint Rewrite bool_decide_eq_true_2 using (auto; fail): syntactic.
+#[global] Hint Rewrite bool_decide_eq_false_2 using (auto; fail): syntactic.
+#[global] Hint Rewrite @elem_of_cons: iff.
+#[global] Hint Rewrite N.sub_diag : syntactic.
+#[global] Hint Rewrite seqN_lengthN @lengthN_nil @seqN_S_start: syntactic.
+#[global] Hint Rewrite orb_true_r: syntactic.
+#[global] Hint Rewrite N_nat_Z: syntactic.
+#[global] Hint Rewrite @left_id using (exact _): equiv.
+#[global] Hint Rewrite @right_id using (exact _): equiv.
+#[global] Hint Rewrite @elem_of_list_difference: iff.
+
+Require Import bedrock.prelude.propset.
+
+#[global] Hint Rewrite @propset_singleton_equiv: equiv.
+
+#[global] Hint Rewrite <- @spurious using exact _: slbwd.

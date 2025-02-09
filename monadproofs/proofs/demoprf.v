@@ -20,7 +20,7 @@ Ltac aac_norm :=
   repeat match goal with
     | H: _ |- _ => aac_normalise in H
   end.
-Ltac slauto := misc.slauto;  try iPureIntro.
+Ltac slauto := misc.slauto1.
 Ltac arith := (try aac_norm); Arith.arith_solve.
 
 Section with_Sigma.
@@ -471,16 +471,19 @@ Section with_Sigma.
     ren b_addr bv'. (* context is now generalized to be the loopinv: av --> av', but H *)
     wp_if; intros.
     { (* loop cond true: exec body:  *)
-      do 10 run1. do 2 step.
-      rename addr into temp_addr.
-      (* reached end of loop body, asked to: 1) return ownership of temp 2) reistablish loopinv *)
+      do 10 run1. rename addr into temp_addr.
+      (* reached end of loop body, asked to: 1) return FULL ownership of temp 2) reistablish loopinv *)
+      (* av'0 := bv', bv'0:= av' `mod` bv' *)
       slauto.
+      Check Z.gcd_mod.
       aac_rewrite Z.gcd_mod; arith.
     }
 
-    { (* loop condition is false: loop terminates *)
+    { (* loop condition is false =>  bv'=0  and loop terminates*)
       slauto.
+      (* C++ computes av' as return value but postcondition requires... *)
       simplPure.
+      Check Z.gcd_0_r_nonneg.
       aac_rewriteh Z.gcd_0_r_nonneg in H; subst; try arith.
       go.
     }
@@ -513,6 +516,7 @@ Section with_Sigma.
   cpp.spec "parallel_gcdl(unsigned int*, unsigned int)" as parallel_gcdl_spec with (gcdl_spec_core).
 
 
+      Hint Rewrite @fold_left_app: syntactic.
   Lemma gcdl_proof: denoteModule module |-- gcdl_spec.
   Proof using MODd.
     verify_spec.
@@ -526,7 +530,7 @@ Section with_Sigma.
     {
       slauto.
       rename t into iv.
-      autorewrite with syntactic in *.
+      Search arrayR CancelX.
       eapplyToSomeHyp @arrayR_cell2.
       forward_reason.
       rewrite -> autogenhypr.
@@ -537,17 +541,7 @@ Section with_Sigma.
       wapply gcd_proof. work. (* gcd_spec is now in context *)
       go. (* loop body finished, reistablish loopinv *)
       iExists (1+iv)%nat.
-      Hint Rewrite @fold_left_app: syntactic.
-Ltac slauto1 := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go; fail); try (apply False_rect; try contradiction; try congruence; try nia; fail); try autorewrite with syntactic in *; try rewrite left_id; try (erewrite take_S_r;[| eauto;fail]))
-  then slauto1  else idtac.
-      slauto1.
       slauto.
-      autorewrite with syntactic.
-      
-      Hint Rewrite @take_S_r using eauto: syntactic.
-      autorewrite with syntactic.
-      
-      autorewrite with syntactic.
       simpl.
       go.
       rewrite -> autogenhypr.
@@ -597,7 +591,7 @@ Ltac slauto1 := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go; f
       lia.
     }
     rewrite -> arrayR_split with (i:=((length l)/2)%nat) (xs:=l) by lia.
-    slauto.
+    Time slauto.
     rewrite (primr_split nums_addr).
     rewrite (primr_split mid_addr).
     go.
