@@ -191,7 +191,6 @@ progress   IPM.perm_left ltac:(fun L n =>
       replace (Z.of_nat ival + 1)%Z with (Z.of_nat (S ival)); try lia.
       setoid_rewrite Nat.add_succ_r.
       slauto.
-      erewrite take_S_r; eauto.
       rewrite parrayR_app. (* todo: rewrite with a snoc lemma  to cut down the script below *)
       go.
       autorewrite with syntactic.

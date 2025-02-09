@@ -20,7 +20,7 @@ Ltac aac_norm :=
   repeat match goal with
     | H: _ |- _ => aac_normalise in H
   end.
-Ltac slauto := misc.slauto; try iPureIntro.
+Ltac slauto := misc.slauto;  try iPureIntro.
 Ltac arith := (try aac_norm); Arith.arith_solve.
 
 Section with_Sigma.
@@ -537,12 +537,16 @@ Section with_Sigma.
       wapply gcd_proof. work. (* gcd_spec is now in context *)
       go. (* loop body finished, reistablish loopinv *)
       iExists (1+iv)%nat.
-      go.
+      Hint Rewrite @fold_left_app: syntactic.
+Ltac slauto1 := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go; fail); try (apply False_rect; try contradiction; try congruence; try nia; fail); try autorewrite with syntactic in *; try rewrite left_id; try (erewrite take_S_r;[| eauto;fail]))
+  then slauto1  else idtac.
+      slauto1.
+      slauto.
       autorewrite with syntactic.
+      
       Hint Rewrite @take_S_r using eauto: syntactic.
       autorewrite with syntactic.
-      erewrite take_S_r;[| eauto].
-      Hint Rewrite fold_left_app: syntactic.
+      
       autorewrite with syntactic.
       simpl.
       go.

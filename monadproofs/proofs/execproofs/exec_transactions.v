@@ -203,7 +203,6 @@ Proof using MODd.
       slauto.
       replace (1+ival)%Z with (ival+1)%Z  by lia.
       go.
-      erewrite -> take_S_r with (n:=ival);[| eauto].
       rewrite stateAfterTransactionsC.
       rewrite <- Heqsabc.
       simpl.
