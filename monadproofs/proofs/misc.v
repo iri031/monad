@@ -546,6 +546,7 @@ Section cp.
       solveQpeq;
       solveQeq.
   Qed.
+  Definition primR_split_C := [CANCEL] primr_split.
 
     Lemma arrayR_cell2 i {X} ty (R:X->Rep) xs:
     (Z.of_nat i < Z.of_nat (length xs))%Z ->
@@ -750,3 +751,4 @@ Proof using.
   apply _at_mono.
 Qed.
 
+Hint Resolve primR_split_C : br_opacity.
