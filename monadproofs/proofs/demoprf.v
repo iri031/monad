@@ -30,6 +30,11 @@ Section with_Sigma.
         \pre{yv:Z} _global "y" |-> anyR "unsigned int" 1 (* possibly uninitialized *)
         \post _global "y" |-> primR "unsigned int" 1 (xv+1)
       ).
+
+  Example anyy : _global "y" |-> uninitR "unsigned int" 1
+                   \\// (Exists xv:Z, _global "y" |-> primR "unsigned int" 1 xv)
+                   |--  _global "y" |-> anyR "unsigned int" 1.
+  Proof using. rewrite bi.or_alt. go. destruct t; go. Qed.
   (* what is wrong with the spec above? *)
 
   Remove Hints plogic.learnable_primR : br_opacity.
@@ -104,11 +109,14 @@ Section with_Sigma.
   (** *Under the hood: *)
 
   (** Pre and post conditions of specs are elements of type [mpred]: *)
-  
-  Definition pureProp (bv: Z): Prop := (bv = 0).
-  Lemma proof: pureProp 0.
-  Proof. reflexivity. Qed.
 
+  Require Import stdpp.decidable.
+  Import Znumtheory.
+  Example isPrime (bv: Z): Prop := prime bv.
+  #[global] Instance primeDec z: Decision (prime z) := ltac:(apply prime_dec).
+  Lemma proof: isPrime 3.
+  Proof.  apply prime_3. Qed.
+  
   (* `mpred` (memory predicates): they can implicitly
              talk about the current state of memory and ownership of locations *)
   Example assertion1 (bv:Z): mpred := _global "b" |-> primR "int" 1 bv.
@@ -165,29 +173,29 @@ Section with_Sigma.
   
   Print ptrspec.
 
+  (* now ownership received/returned *)
   cpp.spec "gcd(unsigned int, unsigned int)" as gcd_spec with (
-        \arg{a:Z} "a" (Vint a)
-        \arg{b:Z} "b" (Vint b)
-        \post [Vint (Z.gcd a b)] emp
+        \arg{av:Z} "a" (Vint av) (* forall av, ... *)
+        \arg{bv:Z} "b" (Vint bv)
+        \post [Vint (Z.gcd av bv)] emp
       ).
 
+  (** in monad, codebase, we pass most args (usually bulky objects) by reference ... *)
   cpp.spec "gcd(const unsigned int&, const unsigned int&, unsigned int&)" as gcd2_spec with (
-        \arg{ap} "a" (Vref ap)
+        \arg{ap:ptr} "a" (Vref ap)
         \prepost{(qa:Qp) (av:N)} ap |-> primR "unsigned int" qa av
-        \arg{bp} "b" (Vref bp)
+        \arg{bp:ptr} "b" (Vref bp)
         \prepost{(qb:Qp) (bv:N)} bp |-> primR "unsigned int" qb bv
-        \arg{gp} "gcd_result" (Vref gp)
-        \pre{garbage1:N} gp |-> primR "unsigned int" 1 garbage1
-        \post gp |-> primR "unsigned int" 1 (Z.gcd av bv)
+        \arg{resultp:ptr} "gcd_result" (Vref resultp)
+        \pre resultp |-> anyR "unsigned int" 1
+        \post resultp |-> primR "unsigned int" 1 (Z.gcd av bv)
       ).
+
+  (** \prepost  in sequential code, ..., but in concurrent code ...*)
 
   
-  (** main innovation of iris separation logic (test of time award):
-- richest formal languange to describe ownerships and how it can be spit into multiple threads
-   - enforce protocls: exactly specify how/whether a thread can modify a datastructure.
-      - one thread can only increment a counter, another can only decrement
-simplest for:
-*)
+  (** parallel_gcd_lcm in demo.cpp *)
+  (** diagram *)
   
 
 (** *Demo: read-read concurrency using fractional permissions *)
@@ -200,10 +208,10 @@ simplest for:
     \pre{taskPre taskPost}
       specify {| info_name :=  (Nscoped lamStructName taskOpName);
                 info_type := tMethod lamStructName QC "void" [] |}
-      (fun (this:ptr) =>
-         \prepost this |-> lamStructObjOwnership
-         \pre taskPre
-         \post taskPost)
+           (fun (this:ptr) =>
+              \prepost this |-> lamStructObjOwnership
+                \pre taskPre
+                \post taskPost)
     
     \post this |-> ThreadR lamStructName taskPre taskPost.
 
@@ -226,17 +234,16 @@ simplest for:
         \prepost{(qa:Qp) (av:N)} ap |-> primR "unsigned int" qa av
         \arg{bp} "b" (Vref bp)
         \prepost{(qb:Qp) (bv:N)} bp |-> primR "unsigned int" qb bv
-        \arg{gcdp} "gcd_result" (Vref gcdp)
-        \pre{garbage1:N} gcdp |-> primR "unsigned int" 1 garbage1
-        \arg{lcmp} "lcm_result" (Vref lcmp)
-        \pre{garbage2:N} lcmp |-> primR "unsigned int" 1 garbage2
+        \arg{gcdrp} "gcd_result" (Vref gcdrp)
+        \pre gcdrp |-> anyR "unsigned int" 1
+        \arg{lcmrp} "lcm_result" (Vref lcmrp)
+        \pre lcmrp |-> anyR "unsigned int" 1
         \pre[| 0<bv \/ 0<av |]%N
-        \post gcdp |-> primR "unsigned int" 1 (Z.gcd av bv)
+        \post gcdrp |-> primR "unsigned int" 1 (Z.gcd av bv)
               ** (if decide (av*bv < 2^32)%N then
-                  lcmp |-> primR "unsigned int" 1 (Z.lcm av bv)
-                  else Exists garbage3, lcmp |-> primR "unsigned int" 1 garbage3)
+                  lcmrp |-> primR "unsigned int" 1 (Z.lcm av bv)
+                  else Exists garbage3, lcmrp |-> primR "unsigned int" 1 garbage3)
       ).
-
 
   Definition thread_constructor (lamStructTyName: core.name) :=
   specify
@@ -329,7 +336,7 @@ simplest for:
     
     fold cQpc.
     (* TODO: pick a better name for gp. TODO. replace unintR with primR  *)
-    iExists (gcdp |-> uintR 1%Qp garbage1 ** ap |-> uintR (qa/2) av ** bp |-> uintR (qb/2) bv).
+    iExists (gcdrp |-> anyR "unsigned int" 1 ** ap |-> uintR (qa/2) av ** bp |-> uintR (qb/2) bv).
     evar (post:mpred).
     iExists post.
     hideFromWork post.
@@ -378,7 +385,7 @@ simplest for:
     case_decide.
     {
       Arith.remove_useless_mod_a.
-      icancel (cancel_at lcmp).
+      icancel (cancel_at lcmrp).
       f_equiv.
       unfold Z.lcm.
       rewrite Z.lcm_equiv1.
@@ -396,7 +403,12 @@ simplest for:
     }
   Qed.
 
-  Check gcd_spec. (* jump to defn here to contrast the simpler spec because of passing args by value *)
+    (** main innovation of iris separation logic (test of time award):
+- richest formal languange to describe ownerships and how it can be spit into multiple threads
+   - enforce protocls: exactly specify how/whether a thread can modify a datastructure.
+      - one thread can only increment a counter, another can only decrement
+*)
+
 
   Ltac simplPure :=
     simpl in *; autorewrite with syntactic (* equiv *) iff  in *; try rewrite left_id in *; simpl in *.
@@ -409,16 +421,15 @@ simplest for:
   Tactic Notation "aac_rewriteh" uconstr(L) "in" hyp(H) :=
     (eapply trans4 in H;[| try aac_rewrite L; try reflexivity | try aac_rewrite L; try reflexivity ]).
   
-  Lemma proof: denoteModule module |-- gcd_spec.
+  Lemma gcd_proof: denoteModule module |-- gcd_spec.
   Proof.
     verify_spec.
     slauto.
-
-    wp_while  (fun _ => (Exists a' b' : Z,
-                      [| 0 ≤ a' ≤ 2 ^ 32 - 1 |]%Z **
-                      [| 0 ≤ b' ≤ 2 ^ 32 - 1 |]%Z **
-                      a_addr |-> primR Tu32 (cQp.mut 1) (Vint a') **
-                      b_addr |-> primR Tu32 (cQp.mut 1) (Vint b') ** [| Z.gcd a' b' = Z.gcd a b |])).
+    wp_while  (fun _ => (Exists av' bv' : Z,
+                      [| 0 ≤ av' ≤ 2 ^ 32 - 1 |] **
+                      [| 0 ≤ bv' ≤ 2 ^ 32 - 1 |] **
+                      a_addr |-> primR Tu32 (cQp.mut 1) (Vint av') **
+                      b_addr |-> primR Tu32 (cQp.mut 1) (Vint bv') ** [| Z.gcd av' bv' = Z.gcd av bv |])).
     slauto.
     wp_if.
     { (* loop condition is true: loop executed body *)
@@ -443,7 +454,7 @@ simplest for:
   Lemma gcd2_proof: denoteModule module |-- gcd2_spec.
   Proof.
     verify_spec'.
-    wapply proof. go.
+    wapply gcd_proof. go.
   Qed.
 
   Lemma pos (p:ptr) (v:Z) : p |-> uintR 1 v |-- [| 0 <=v |] ** p |-> uintR 1 v.
@@ -509,7 +520,7 @@ simplest for:
       go.
       unhideAllFromWork.
       slauto.
-      wapply proof.
+      wapply gcd_proof.
       go.
       iExists (1+iv)%nat.
       go.
@@ -782,7 +793,7 @@ simplest for:
     go.
     iExists _. eagerUnifyU.
     slauto.
-    wapply proof. go.
+    wapply gcd_proof. go.
   cpp.spec (Nscoped 
               "parallel_gcdl(unsigned int*, unsigned int)::@0" Ndtor)  as lam2destr  inline.
   go.
