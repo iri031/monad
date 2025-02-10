@@ -70,15 +70,17 @@ Section with_Sigma.
 
   Remove Hints plogic.learnable_primR : br_opacity.
 
+  Set Printing Width 110.
   (* small stepping through the proof *)
   Lemma prf: denoteModule demo.module |-- foo_spec.
   Proof using.
     verify_spec.
-    (* meaning of goal view*)
+    (* meaning of goal view. [g395,506] [g603,851; c127,141] [g894,1018] *)  
     do 4 run1.
-    (* eval first operand (argument) of + *)
-    step.
-    iExists xv.
+    (* eval first operand (argument) of + : [g657,685;c135,136] *)
+    step. (* [g592,601;g622,633;g662,663], [g608,620; g659,661], [g496,547;g622,663] [g545,547;g592,601;g662,663] [g608,620; g659,661] *)
+                                                                                 
+    iExists xv. (*  *)
     work; [iExists (cQpc 1); work|].
     step. (* evalualte the second operand of +, which is the constant 1 *)
     step. (* evaluate the binary operator + *)
@@ -116,12 +118,7 @@ Section with_Sigma.
   Lemma sprf: denoteModule demo.module |-- sfoo_spec.
   Proof.
     verify_spec'.
-    do 5 run1;[slauto|].
-    do 2 step.
-    rewrite <- has_int_type.
-    simpl.
-    unfold bitsize.bound.
-    simpl.
+    slauto.
   Abort.
   
   cpp.spec "sfoo()" as sfoo_spec_correct with (
@@ -708,5 +705,5 @@ End with_Sigma.
 
 done:
 - emacs plugin to autocenter
-
+[1,10]
  *)
