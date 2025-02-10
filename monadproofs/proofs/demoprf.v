@@ -22,6 +22,13 @@ Ltac aac_norm :=
   end.
 Ltac slauto := misc.slauto1.
 Ltac arith := (try aac_norm); Arith.arith_solve.
+Ltac ren addr v :=
+  IPM.perm_left
+    ltac:(fun L n =>
+            match L with
+              addr |-> primR _ _ (Vint ?x) => rename x into v
+            end
+         ).
 
 Section with_Sigma.
   Context `{Sigma:cpp_logic} {CU: genv}.
@@ -445,18 +452,19 @@ Section with_Sigma.
     }
   Qed.
 
-    (** main innovation of iris separation logic (test of time award):
-- richest formal languange to describe ownerships and how it can be spit into multiple threads
-   - enforce protocls: exactly specify how/whether a thread can modify a datastructure.
+  (** Summary so far:
+
+- saw how forking a thread requires partitioning resources into the 2 threads
+- fractional permissions allow splitting ownership into pieces for concurrent reading
+   - simplest way to split ownership
+- the main strength of iris SL is the richness of the ways in which we can express how ownership can be split into multiple threads
+- main innovation of iris separation logic (test of time award):
+    - enforce protocls: exactly specify how/whether a thread can modify a datastructure.
       - one thread can only increment a counter, another can only decrement
+
+another source of complexity in proofs: loops
 *)
 
-    Ltac ren addr v :=
-    IPM.perm_left ltac:(fun L n =>
-                          match L with
-                            addr |-> primR _ _ (Vint ?x) => rename x into v
-                          end
-                       ).
   Lemma gcd_proof: denoteModule module |-- gcd_spec.
   Proof.
     verify_spec.
@@ -508,7 +516,7 @@ Section with_Sigma.
 
   Definition gcdl_spec_core : WpSpec mpredI val val :=
         \arg{numsp:ptr} "nums" (Vptr numsp)
-        \prepost{(l: list Z) (q:Qp)} (numsp |-> arrayR uint (fun i => primR uint q (Vint i)) l) 
+        \prepost{(l: list Z) (q:Qp)} (numsp |-> arrayR uint (fun i:Z => primR uint q i) l) 
         \arg "size" (Vint (length l))
         \post [Vint (fold_left Z.gcd l 0)] emp.
   
@@ -557,11 +565,67 @@ Section with_Sigma.
     }
   Qed.
 
+  (** *Out of order execution
+shh
+*)
+
+  
       Compute (Z.quot (-5) 4).
       Compute (Z.div (-5) 4).
       Set Printing Coercions.
       Set Default Goal Selector "!".
+    Ltac nat2ZNLdup :=
+      match goal with
+      | H : (?l <= ?r)%nat |- _ =>
+          let tac :=
+            let Hf := fresh H "_nat2Z" in 
+            pose proof (@inj_le _ _ H) as Hf;
+            repeat rewrite Nat2Z.inj_div  in Hf;
+            repeat rewrite Nat2Z.inj_mul  in Hf in
 
+          match l with
+          | context[Nat.div]  => tac 
+          | context[Nat.mul]  => tac
+          | _ => match r with 
+                 | context[Nat.div]  => tac 
+                 | context[Nat.mul]  => tac
+                 end
+          end
+      end.
+
+    Ltac revertAdr adr :=
+    IPM.perm_left ltac:(fun L n=>
+                          match L with
+                          | adr |-> _ => iRevert n
+                          end
+                       ) .
+    Ltac revertAdrs l :=
+      match l with
+      | ?h::?tl => revertAdr h; revertAdrs constr:(tl)
+      | [] => idtac
+      end.
+    Ltac intantiateWand :=
+    match goal with
+      [ |-environments.envs_entails _ (?R -* _)] =>
+        iIntrosDestructs;
+        iExists R
+    end.
+    Hint Rewrite Nat2Z.inj_div : syntactic.
+    Hint Rewrite Z.quot_div_nonneg using lia : syntactic.
+  Lemma arrayR_combinep {T} ty (R: T->Rep) i xs (p:ptr):
+    p |-> arrayR ty R (take i xs) **
+       p .[ ty ! i ] |-> arrayR ty R (drop i xs)
+    |-- p |-> arrayR ty R xs.
+  Proof using.
+    go.
+    hideLhs.
+    rewrite <- arrayR_combine.
+    unhideAllFromWork.
+    go.
+  Qed.
+    Definition arrayR_combineC := [CANCEL] @arrayR_combinep. (* this hint will apply once we state everything in Z terms *)
+    Hint Resolve arrayR_combineC : br_opacity.
+    
   cpp.spec (Nscoped 
               "parallel_gcdl(unsigned int*, unsigned int)::@0" Ndtor)  as lam2destr  inline.
 
@@ -573,6 +637,7 @@ Section with_Sigma.
     unfold thread_class_specs.
     verify_spec'.
     wapply gcdl_proof. work.
+    wapply gcd_proof. work.
     wapplyObserve  obsUintArrayR.
     eagerUnifyU. work.
     slauto.
@@ -580,90 +645,44 @@ Section with_Sigma.
     go.
     hideP ps.
     Opaque Nat.div.
-    assert ( (length l `div` 2 <= length l)%nat) as Hle.
+    assert ( (length l/ 2 <= length l)%nat) as Hle.
     {
       rewrite <- Nat.div2_div.
       apply Nat.le_div2_diag_l.
     }
-    assert ( (length l `div` 2 <= length l)) as Hlez.
-    {
-      rewrite <- (Nat2Z.inj_div _ 2).
-      lia.
-    }
-    rewrite -> arrayR_split with (i:=((length l)/2)%nat) (xs:=l) by lia.
-    Time slauto.
+    nat2ZNLdup.
     rewrite (primr_split nums_addr).
     rewrite (primr_split mid_addr).
-    go.
+    simpl in *.
+    closed.norm closed.numeric_types.
+    rewrite -> arrayR_split with (i:=((length l)/2)%nat) (xs:=l) by lia.
+    slauto.
     (* todo: replace the last many lines by a oneliner: ideally, obtain the list automatically *)
-    repeat IPM.perm_left ltac:(fun L n=>
-                          match L with
-                          | numsp |-> _ => iRevert n
-                          | resultl_addr |-> _ => iRevert n
-                          end
-                              ) .
-    IPM.perm_left ltac:(fun L n=>
-                          match L with
-                          | nums_addr |-> _ => iRevert n
-                          end).
-    IPM.perm_left ltac:(fun L n=>
-                          match L with
-                          | mid_addr |-> _ => iRevert n
-                          end).
+    revertAdrs constr:([numsp; resultl_addr; nums_addr; mid_addr]).
     repeat rewrite bi.wand_curry.
-    match goal with
-      [ |-environments.envs_entails _ (?R -* _)] =>
-        iIntrosDestructs;
-        iExists R
-    end.
+    intantiateWand.
     instWithPEvar taskPost.
     go.
 
     iSplitL "".
     { verify_spec'.
       slauto.
-      unfold lengthN. go.
-      autorewrite with syntactic.
-      rewrite Z.quot_div_nonneg; try lia.
-      go.
-      rewrite Nat2Z.inj_div.
-      go.
-      iExists _. eagerUnifyU.
+      iExists _. eagerUnifyU. (* Hint already there*)
       go.
       erefl.
     }
     unhideAllFromWork.
-    iIntrosDestructs.
+    Hint Rewrite Nat2Z.inj_sub using lia: syntactic.
     slauto.
-    unfold lengthN.
-    autorewrite with syntactic.
-    rewrite Z.quot_div_nonneg; try lia.
-    rewrite Nat2Z.inj_div. (* add to syntacctic? *)
+    iExists _. eagerUnifyU. 
     slauto.
-    unfold lengthN.
-    autorewrite with syntactic.
-    rewrite -> Nat2Z.inj_sub by lia.
-    Arith.remove_useless_mod_a.
-    rewrite Nat2Z.inj_div.
-    simpl.
-    go.
-    iExists _. eagerUnifyU.
+    wapply arrayR_combinep. eagerUnifyU.
     slauto.
-    wapply gcd_proof. go.
-  go.
-  hideLhs.
-  rewrite <- arrayR_combine.
-  unhideAllFromWork.
-  simpl. work.
-  rewrite Nat2Z.inj_div. go.
-  iClear "#".
-  iStopProof.
-  f_equiv.
-  f_equal.
-  f_equal.
-  symmetry.
-  apply fold_split_gcd.
-  auto.
+    icancel (cancel_at p);[| go].
+    do 2 f_equiv.
+    symmetry.
+    apply fold_split_gcd.
+    auto.
 Qed.
   Lemma doubleSpending: _global "x" |-> primR "int" 1 0 ** _global "x" |-> primR "int" 1 0|-- [| False |].
   Proof using. Abort.
