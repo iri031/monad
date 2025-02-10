@@ -43,10 +43,23 @@ Section with_Sigma.
 
   Disable Notation intR.
   Disable Notation uintR.
-
+  Open Scope Z_scope.
+  Notation uint := "unsigned int"%cpp_type.
+Set Nested Proofs Allowed.
+Lemma cqpp2 q: (cQp.scale (1 / 2) (cQp.mut q)) = (cQp.mut (q / 2)).
+Proof using.    
+      rewrite cQp.scale_mut;
+      f_equiv;
+      destruct q; simpl in *.
+    f_equal.
+      solveQpeq;
+        solveQeq.
+Qed.
+    
+  
   Lemma primR2_anyR : ∀ t (q:Qp) (v:val) (p:ptr),
       p|-> primR t (q/2) v ** p|->primR t (q/2) v  |-- p|->anyR t q.
-  Proof using. Admitted.
+  Proof. Admitted.
   Definition primR2_anyRC := [CANCEL] primR2_anyR.
   Hint Resolve primR2_anyRC: br_opacity.
   Hint Resolve array_combine_C: br_opacity.
@@ -54,34 +67,34 @@ Section with_Sigma.
 
   
   (* open foo in demo.cpp *)
-  Open Scope Z_scope.
-  Notation uint := "unsigned int"%cpp_type.
   cpp.spec "foo()" as foo_spec with (
-        \prepost{xv:Z} _global "x" |-> primR uint 1  xv
-        \pre{yv:Z} _global "y" |-> anyR uint 1 (* possibly uninitialized *)
+        \pre{xv:Z} _global "x" |-> primR uint 1  xv (* forall xv .. *)
+        \pre _global "y" |-> anyR uint 1
         \post _global "y" |-> primR uint 1 (xv+1)
+              ** _global "x" |-> primR uint 1  xv
       ).
+  (* what is wrong with the spec above? *)
 
   Example anyy : _global "y" |-> uninitR uint 1
                    \\// (Exists xv:Z, _global "y" |-> primR uint 1 xv)
-                   |--  _global "y" |-> anyR uint 1.
-  Proof using. rewrite bi.or_alt. go. destruct t; go. Qed.
-  (* what is wrong with the spec above? *)
+                 |--  _global "y" |-> anyR uint 1.
+  
+  Proof. rewrite bi.or_alt. go. destruct t; go. Qed.
 
   Remove Hints plogic.learnable_primR : br_opacity.
 
   Set Printing Width 110.
   (* small stepping through the proof *)
   Lemma prf: denoteModule demo.module |-- foo_spec.
-  Proof using.
-    verify_spec.
-    (* meaning of goal view. [g395,506] [g603,851; c127,141] [g894,1018] *)  
-    do 4 run1.
+  Proof with (fold cQpc).
+    verify_spec...
+    (* meaning of goal view. [g395,492] [g589,837; c127,141] [g880,970] *)  
+    do 4 run1...
     (* eval first operand (argument) of + : [g657,685;c135,136] *)
-    step. (* [g592,601;g622,633;g662,663], [g608,620; g659,661], [g496,547;g622,663] [g545,547;g592,601;g662,663] [g608,620; g659,661] *)
+    step... (* [g592,601;g622,633;g662,663], [g608,620; g659,661], [g496,547;g622,663] [g545,547;g592,601;g662,663] [g608,620; g659,661] *)
                                                                                  
     iExists xv. (*  *)
-    work; [iExists (cQpc 1); work|].
+    work; [iExists (1:cQp.t); work|].
     step. (* evalualte the second operand of +, which is the constant 1 *)
     step. (* evaluate the binary operator + *)
     step.
@@ -208,7 +221,7 @@ Section with_Sigma.
       ).
 
   Lemma foopptr: denoteModule module |-- ptrspec.
-  Proof using.
+  Proof.
     verify_spec'.
     slauto.
   Qed.
@@ -226,7 +239,8 @@ Section with_Sigma.
     \post emp.
   
   Example specstart2 : WpSpec mpredI val val :=
-    \pre _global "x" |-> primR "int" (1/3) 0 ** _global "y" |-> primR "int" (1/3) 0 (* less readable *)
+    \pre _global "x" |-> primR "int" (1/3) 0
+         ** _global "y" |-> primR "int" (1/3) 0
       \post emp.
 
   (* now ownership received/returned *)
@@ -238,11 +252,11 @@ Section with_Sigma.
 
   (** in monad, codebase, we pass most args (usually bulky objects) by reference ... *)
   cpp.spec "gcd(const unsigned int&, const unsigned int&, unsigned int&)" as gcd2_spec with (
-        \arg{ap:ptr} "a" (Vref ap)
+        \arg{ap:ptr} "a" (Vptr ap)
         \prepost{(qa:Qp) (av:Z)} ap |-> primR uint qa av
-        \arg{bp:ptr} "b" (Vref bp)
+        \arg{bp:ptr} "b" (Vptr bp)
         \prepost{(qb:Qp) (bv:Z)} bp |-> primR uint qb bv
-        \arg{resultp:ptr} "gcd_result" (Vref resultp)
+        \arg{resultp:ptr} "gcd_result" (Vptr resultp)
         \pre resultp |-> anyR uint 1
         \post resultp |-> primR uint 1 (Z.gcd av bv)
       ).
@@ -251,7 +265,7 @@ Section with_Sigma.
 
   Lemma primr_split_half (p:ptr) ty (q:Qp) v :
     p|-> primR ty q v -|- (p |-> primR ty (q/2) v) ** p |-> primR ty (q/2) v.
-  Proof using. apply primr_split. Qed.
+  Proof. apply primr_split. Qed.
   
   (** parallel_gcd_lcm in demo.cpp *)
   (** diagram *)
@@ -259,12 +273,12 @@ Section with_Sigma.
   
 (** *Demo: read-read concurrency using fractional permissions *)
   
-  Definition ThreadR (lamStructName: core.name) (P Q : mpred) : Rep. Proof using. Admitted.
-  Definition ThreadStartedR (lamStructName: core.name) (Q : mpred) : Rep. Proof using. Admitted.
-  Definition ThreadDoneR (lamStructName: core.name) : Rep. Proof using. Admitted.
+  Definition ThreadR (lamStructName: core.name) (P Q : mpred) : Rep. Proof. Admitted.
+  Definition ThreadStartedR (lamStructName: core.name) (Q : mpred) : Rep. Proof. Admitted.
+  Definition ThreadDoneR (lamStructName: core.name) : Rep. Proof. Admitted.
   
   Definition ThreadConstructor (lamStructName: core.name) (this:ptr): WpSpec mpredI val val :=
-    \arg{lambdap:ptr} "lambda" (Vref lambdap)
+    \arg{lambdap:ptr} "lambda" (Vptr lambdap)
     \prepost{lamStructObjOwnership} lambdap |-> lamStructObjOwnership (* ownerhsip of fields othe lambda struct *)
     \pre{taskPre taskPost}
       specify {| info_name :=  (Nscoped lamStructName taskOpName);
@@ -362,13 +376,13 @@ Section with_Sigma.
 
   cpp.spec "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)" as par_gcd_lcm_spec with
       (
-        \arg{ap} "a" (Vref ap)
+        \arg{ap} "a" (Vptr ap)
         \prepost{(qa:Qp) (av:Z)} ap |-> primR uint qa av
-        \arg{bp} "b" (Vref bp)
+        \arg{bp} "b" (Vptr bp)
         \prepost{(qb:Qp) (bv:Z)} bp |-> primR uint qb bv
-        \arg{gcdrp} "gcd_result" (Vref gcdrp)
+        \arg{gcdrp} "gcd_result" (Vptr gcdrp)
         \pre gcdrp |-> anyR uint 1
-        \arg{lcmrp} "lcm_result" (Vref lcmrp)
+        \arg{lcmrp} "lcm_result" (Vptr lcmrp)
         \pre lcmrp |-> anyR uint 1
         \pre[| 0<bv \/ 0<av |] (* why is this needed? *)
         \post gcdrp |-> primR uint 1 (Z.gcd av bv)
@@ -518,7 +532,7 @@ another source of complexity in proofs: loops
   Qed.
 
   Lemma pos (p:ptr) (v:Z) : p |-> primR uint 1 v |-- [| 0 <=v |] ** p |-> primR uint 1 v.
-  Proof using.
+  Proof.
     go.
   Qed.
   
@@ -547,7 +561,7 @@ another source of complexity in proofs: loops
               ** p |-> primR uint (cQp.mut q) n1
               ** p .[ uint ! 1 ] |-> primR uint (cQp.mut q) n2
               ** p .[ uint ! 2 ] |-> primR uint (cQp.mut q) n3).
-  Proof using.
+  Proof.
     repeat rewrite arrayR_cons.
     repeat rewrite arrayR_nil.
     iSplit; go;
@@ -615,7 +629,7 @@ another source of complexity in proofs: loops
     fold_left f l id =
       f (fold_left f (firstn lSplitSize l) id)
         (fold_left f (skipn  lSplitSize l) id).
-  Proof using.
+  Proof.
     rewrite <- (take_drop lSplitSize) at 1.
     rewrite fold_left_app.
     rewrite fold_id.
@@ -683,17 +697,32 @@ another source of complexity in proofs: loops
     apply fold_split_gcd.
     Check fold_split.
     auto.
-Qed.
+  Qed.
+  
+  (* what if both threads needed to read but not write all of the array *)
+  Lemma fractionalSplitArrayR (numsp:ptr) (l: list Z) (q:Qp):
+    numsp |-> arrayR uint (fun i:Z => primR uint q i) l |--
+      numsp |-> arrayR uint (fun i:Z => primR uint (q/2) i) l
+      ** numsp |-> arrayR uint (fun i:Z => primR uint (q/2) i) l.
+  Proof.
+    rewrite -> cfractional_split_half with (R := fun q => arrayR uint (fun i:Z => primR uint q i) l);
+      [| exact _].
+    rewrite _at_sep.
+    f_equiv; f_equiv; f_equiv;
+      simpl; rewrite cqpp2; auto.
+  Qed.
 
+  
+    
   Lemma doubleSpending: _global "x" |-> primR "int" 1 0 ** _global "x" |-> primR "int" 1 0|-- [| False |].
-  Proof using. Abort.
+  Proof. Abort.
   
   Lemma okSpending: _global "x" |-> primR "int" (1/2) 0 ** _global "x" |-> primR "int" (1/2) 0|--  _global "x" |-> primR "int" 1 0.
-  Proof using. Abort.
+  Proof. Abort.
       Lemma duplTypePtr (ap:ptr): type_ptr uint ap |-- type_ptr uint ap ** type_ptr uint ap.
-      Proof using. go. Qed.
+      Proof. go. Qed.
       Lemma duplSpec (ap:ptr): gcd_spec |-- gcd_spec ** gcd_spec.
-      Proof using. go. Qed.
+      Proof. go. Qed.
                                           
   Example nestedArrayR (rows: list (list Z)) (p:ptr) (q:Qp): mpred :=
 p|->arrayR "int*"
@@ -709,7 +738,6 @@ End with_Sigma.
 - check arg names
 - hide cQp?
 - auto splitting in parallel_gcd_lcm proof
-- rename all Vref to Vptr?
 - replace all Z.gcd by N.gcd. no Vint, only Vn. or only Vint and Z stuff
 - remove all occurrences nat ?
 - S n by 1+n
@@ -720,5 +748,5 @@ End with_Sigma.
 
 done:
 - emacs plugin to autocenter
-[1,10]
+- rename all Vptr to Vptr?
  *)
