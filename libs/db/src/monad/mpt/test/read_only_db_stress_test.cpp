@@ -196,7 +196,7 @@ int main(int argc, char *const argv[])
             auto u_prefix = Update{
                 .key = prefix,
                 .value = monad::byte_string_view{},
-                .incarnation = false,
+                .incarnation = true,
                 .next = std::move(ul)};
             UpdateList ul_prefix;
             ul_prefix.push_front(u_prefix);
@@ -481,10 +481,10 @@ int main(int argc, char *const argv[])
                 if (kind == triedb_async_traverse_callback_finished_normally) {
                     MONAD_ASSERT_PRINTF(
                         state->num_nodes_traversed ==
-                            (state->version + 1) *
-                                state->shared.num_nodes_per_version,
-                        "num nodes traversed %zu",
-                        state->num_nodes_traversed);
+                            state->shared.num_nodes_per_version,
+                        "num nodes traversed %zu at version %lu",
+                        state->num_nodes_traversed,
+                        state->version);
                     ++state->shared.completions;
                     ++state->shared.ntraverse_finished_normally;
                     delete state;
