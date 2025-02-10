@@ -19,7 +19,11 @@ Ltac aac_norm :=
   aac_normalise;
   repeat match goal with
     | H: _ |- _ => aac_normalise in H
-  end.
+    end.
+    Hint Rewrite Nat2Z.inj_div : syntactic.
+    Hint Rewrite Nat2Z.inj_sub using lia: syntactic.
+    Hint Rewrite Z.quot_div_nonneg using lia : syntactic.
+
 Ltac slauto := misc.slauto1.
 Ltac arith := (try aac_norm); Arith.arith_solve.
 Ltac ren addr v :=
@@ -514,17 +518,49 @@ another source of complexity in proofs: loops
   Check Z.gcd_comm.
   Check Z.gcd_assoc.
 
+  (** *Parallelizing a sequence of operations
+- e.g. sequence of operations monad transactions.
+- Commutativivity enables much greater degree of parallelization [SLIDE]
+- gcd of a list of numbers.
+- arrayR
+*)
+
   Definition gcdl_spec_core : WpSpec mpredI val val :=
         \arg{numsp:ptr} "nums" (Vptr numsp)
-        \prepost{(l: list Z) (q:Qp)} (numsp |-> arrayR uint (fun i:Z => primR uint q i) l) 
+        \prepost{(l: list Z) (q:Qp)} numsp |-> arrayR uint (fun i:Z => primR uint q i) l
         \arg "size" (Vint (length l))
         \post [Vint (fold_left Z.gcd l 0)] emp.
+
+  Example arrayR3 (p:ptr) (n1 n2 n3: Z) (q: Qp):
+    p |-> arrayR uint (fun i:Z => primR uint q i) [n1;n2;n3]
+      -|- ( valid_ptr (p .[ uint ! 3 ])
+              ** p |-> primR uint (cQp.mut q) n1
+              ** p .[ uint ! 1 ] |-> primR uint (cQp.mut q) n2
+              ** p .[ uint ! 2 ] |-> primR uint (cQp.mut q) n3).
+  Proof using.
+    repeat rewrite arrayR_cons.
+    repeat rewrite arrayR_nil.
+    iSplit; go;
+    repeat rewrite o_sub_sub;
+    closed.norm closed.numeric_types; go.
+  Abort.
+
+  Example fold_left_gcd (n1 n2 n3: Z) :
+    fold_left Z.gcd [n1;n2;n3] 0 =  Z.gcd (Z.gcd (Z.gcd 0 n1) n2) n3.
+  Proof. reflexivity. Abort.
+  
+  Check Z.gcd_0_r_nonneg.
   
   cpp.spec "gcdl(unsigned int*, unsigned int)" as gcdl_spec with (gcdl_spec_core).
   cpp.spec "parallel_gcdl(unsigned int*, unsigned int)" as parallel_gcdl_spec with (gcdl_spec_core).
 
 
-      Hint Rewrite @fold_left_app: syntactic.
+  Hint Rewrite @fold_left_app: syntactic.
+
+    Disable Notation take.
+    Disable Notation drop.
+    Disable Notation "`div`" (all).
+  
   Lemma gcdl_proof: denoteModule module |-- gcdl_spec.
   Proof using MODd.
     verify_spec.
@@ -538,7 +574,6 @@ another source of complexity in proofs: loops
     {
       slauto.
       rename t into iv.
-      Search arrayR CancelX.
       eapplyToSomeHyp @arrayR_cell2.
       forward_reason.
       rewrite -> autogenhypr.
@@ -564,68 +599,23 @@ another source of complexity in proofs: loops
       go.
     }
   Qed.
-
-  (** *Out of order execution
-shh
-*)
-
+  
+  Lemma fold_split {A:Type} (f: A->A->A) (c: Commutative (=) f) (asoc: Associative (=) f)
+    (id: A) (lid: LeftId (=) id f) (l: list A) (lSplitSize: nat):
+    fold_left f l id =
+      f (fold_left f (firstn lSplitSize l) id)
+        (fold_left f (skipn  lSplitSize l) id).
+  Proof using.
+    rewrite <- (take_drop lSplitSize) at 1.
+    rewrite fold_left_app.
+    rewrite fold_id.
+    aac_reflexivity.
+  Qed.
   
       Compute (Z.quot (-5) 4).
       Compute (Z.div (-5) 4).
       Set Printing Coercions.
       Set Default Goal Selector "!".
-    Ltac nat2ZNLdup :=
-      match goal with
-      | H : (?l <= ?r)%nat |- _ =>
-          let tac :=
-            let Hf := fresh H "_nat2Z" in 
-            pose proof (@inj_le _ _ H) as Hf;
-            repeat rewrite Nat2Z.inj_div  in Hf;
-            repeat rewrite Nat2Z.inj_mul  in Hf in
-
-          match l with
-          | context[Nat.div]  => tac 
-          | context[Nat.mul]  => tac
-          | _ => match r with 
-                 | context[Nat.div]  => tac 
-                 | context[Nat.mul]  => tac
-                 end
-          end
-      end.
-
-    Ltac revertAdr adr :=
-    IPM.perm_left ltac:(fun L n=>
-                          match L with
-                          | adr |-> _ => iRevert n
-                          end
-                       ) .
-    Ltac revertAdrs l :=
-      match l with
-      | ?h::?tl => revertAdr h; revertAdrs constr:(tl)
-      | [] => idtac
-      end.
-    Ltac intantiateWand :=
-    match goal with
-      [ |-environments.envs_entails _ (?R -* _)] =>
-        iIntrosDestructs;
-        iExists R
-    end.
-    Hint Rewrite Nat2Z.inj_div : syntactic.
-    Hint Rewrite Z.quot_div_nonneg using lia : syntactic.
-  Lemma arrayR_combinep {T} ty (R: T->Rep) i xs (p:ptr):
-    p |-> arrayR ty R (take i xs) **
-       p .[ ty ! i ] |-> arrayR ty R (drop i xs)
-    |-- p |-> arrayR ty R xs.
-  Proof using.
-    go.
-    hideLhs.
-    rewrite <- arrayR_combine.
-    unhideAllFromWork.
-    go.
-  Qed.
-    Definition arrayR_combineC := [CANCEL] @arrayR_combinep. (* this hint will apply once we state everything in Z terms *)
-    Hint Resolve arrayR_combineC : br_opacity.
-    
   cpp.spec (Nscoped 
               "parallel_gcdl(unsigned int*, unsigned int)::@0" Ndtor)  as lam2destr  inline.
 
@@ -640,7 +630,7 @@ shh
     wapply gcd_proof. work.
     wapplyObserve  obsUintArrayR.
     eagerUnifyU. work.
-    slauto.
+    progress slauto.
     aggregateRepPieces gcdlLambda_addr.
     go.
     hideP ps.
@@ -656,8 +646,8 @@ shh
     simpl in *.
     closed.norm closed.numeric_types.
     rewrite -> arrayR_split with (i:=((length l)/2)%nat) (xs:=l) by lia.
-    slauto.
-    (* todo: replace the last many lines by a oneliner: ideally, obtain the list automatically *)
+    go. (* array ownership spit into 2 pieces *)
+    progress slauto.
     revertAdrs constr:([numsp; resultl_addr; nums_addr; mid_addr]).
     repeat rewrite bi.wand_curry.
     intantiateWand.
@@ -672,18 +662,19 @@ shh
       erefl.
     }
     unhideAllFromWork.
-    Hint Rewrite Nat2Z.inj_sub using lia: syntactic.
     slauto.
     iExists _. eagerUnifyU. 
     slauto.
     wapply arrayR_combinep. eagerUnifyU.
-    slauto.
+    slauto. (* c++ semantics computes ... postcond requires *)
     icancel (cancel_at p);[| go].
     do 2 f_equiv.
     symmetry.
     apply fold_split_gcd.
+    Check fold_split.
     auto.
 Qed.
+
   Lemma doubleSpending: _global "x" |-> primR "int" 1 0 ** _global "x" |-> primR "int" 1 0|-- [| False |].
   Proof using. Abort.
   
@@ -693,9 +684,18 @@ Qed.
       Proof using. go. Qed.
       Lemma duplSpec (ap:ptr): gcd_spec |-- gcd_spec ** gcd_spec.
       Proof using. go. Qed.
+                                          
+  Example nestedArrayR (rows: list (list Z)) (p:ptr) (q:Qp): mpred :=
+p|->arrayR "int*"
+      (fun mrow: list Z => Exists rowBase:ptr, primR "int*" q (Vptr rowBase)
+                            ** pureR (rowBase |-> arrayR "int" (fun i:Z => primR uint q i) mrow))
+      rows.
     
 End with_Sigma.
 (*
+- slides
+- execute_block spec: narrative and prettify
+- remaining goal pprinter
 - check arg names
 - hide cQp?
 - fork_start -> start

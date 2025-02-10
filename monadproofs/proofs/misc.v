@@ -38,6 +38,43 @@ Ltac aggregateRepPieces base :=
       iExists R
   end.
 
+Ltac nat2ZNLdup :=
+  match goal with
+  | H : (?l <= ?r)%nat |- _ =>
+      let tac :=
+        let Hf := fresh H "_nat2Z" in 
+        pose proof (@inj_le _ _ H) as Hf;
+        repeat rewrite Nat2Z.inj_div  in Hf;
+                                         repeat rewrite Nat2Z.inj_mul  in Hf in
+
+                                             match l with
+                                             | context[Nat.div]  => tac 
+                                             | context[Nat.mul]  => tac
+                                             | _ => match r with 
+                                                    | context[Nat.div]  => tac 
+                                                    | context[Nat.mul]  => tac
+                                                    end
+                                             end
+  end.
+
+Ltac revertAdr adr :=
+  IPM.perm_left ltac:(fun L n=>
+                        match L with
+                        | adr |-> _ => iRevert n
+                        end
+                     ) .
+Ltac revertAdrs l :=
+  match l with
+  | ?h::?tl => revertAdr h; revertAdrs constr:(tl)
+  | [] => idtac
+  end.
+Ltac intantiateWand :=
+  match goal with
+    [ |-environments.envs_entails _ (?R -* _)] =>
+      iIntrosDestructs;
+      iExists R
+  end.
+
 #[local] Open Scope Z_scope.
 
 (*
@@ -60,8 +97,8 @@ Ltac slautot rw := go; try name_locals; tryif progress(try (ego; eagerUnifyU; go
   then slautot rw  else idtac.
 
 Ltac slauto := slautot idtac. (* try rewrite left_id; *)
-Ltac slauto1 := slautot ltac:(autorewrite with syntactic); try iPureIntro.
-Ltac slauto2 := slautot ltac:(autorewrite with syntactic equiv iff slbwd; try rewrite left_id); try iPureIntro.
+Ltac slauto1 := (slautot ltac:(autorewrite with syntactic)); try iPureIntro.
+Ltac slauto2 := (slautot ltac:(autorewrite with syntactic equiv iff slbwd; try rewrite left_id)); try iPureIntro.
 
 Lemma pureAsWand (mpred:bi) (P:Prop) (C:mpred) E: P -> environments.envs_entails E ([|P|] -* C) ->  environments.envs_entails E C.
 Proof using.
@@ -733,6 +770,19 @@ Section cp.
     work.
   Qed.
   
+  Lemma arrayR_combinep {T} ty (R: T->Rep) i xs (p:ptr):
+    p |-> arrayR ty R (take i xs) **
+      p .[ ty ! i ] |-> arrayR ty R (drop i xs)
+           |-- p |-> arrayR ty R xs.
+  Proof using.
+    go.
+    hideLhs.
+    rewrite <- arrayR_combine.
+    unhideAllFromWork.
+    go.
+  Qed.
+  Definition arrayR_combineC := [CANCEL] @arrayR_combinep. (* this hint will apply once we state everything in Z terms *)
+  
 End cp.
 Opaque parrayR.
 Lemma cancelLstar {PROP:bi} {T} l (va vb : T -> PROP):
@@ -784,3 +834,5 @@ Require Import bedrock.prelude.propset.
 #[global] Hint Rewrite @propset_singleton_equiv: equiv.
 
 #[global] Hint Rewrite <- @spurious using exact _: slbwd.
+
+#[global] Hint Resolve arrayR_combineC : br_opacity.
