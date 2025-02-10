@@ -260,6 +260,8 @@ Section with_Sigma.
 (** *Demo: read-read concurrency using fractional permissions *)
   
   Definition ThreadR (lamStructName: core.name) (P Q : mpred) : Rep. Proof using. Admitted.
+  Definition ThreadStartedR (lamStructName: core.name) (Q : mpred) : Rep. Proof using. Admitted.
+  Definition ThreadDoneR (lamStructName: core.name) : Rep. Proof using. Admitted.
   
   Definition ThreadConstructor (lamStructName: core.name) (this:ptr): WpSpec mpredI val val :=
     \arg{lambdap:ptr} "lambda" (Vref lambdap)
@@ -275,17 +277,17 @@ Section with_Sigma.
     \post this |-> ThreadR lamStructName taskPre taskPost.
 
   Definition ThreadDtor (lamStructName: core.name) (this:ptr): WpSpec mpredI val val :=
-    \pre{taskPre taskPost} this |-> ThreadR lamStructName taskPre taskPost
+    \pre this |-> ThreadDoneR lamStructName
     \post emp.
   
-  Definition fork_start (lamStructName: core.name) (this:ptr): WpSpec mpredI val val :=
-    \prepost{P Q} this |-> ThreadR lamStructName P Q
+  Definition start (lamStructName: core.name) (this:ptr): WpSpec mpredI val val :=
+    \pre{P Q} this |-> ThreadR lamStructName P Q
     \pre P
-    \post emp.
+    \post this |-> ThreadStartedR lamStructName Q.
 
   Definition join (lamStructName: core.name) (this:ptr): WpSpec mpredI val val :=
-    \prepost{P Q} this |-> ThreadR lamStructName P Q
-    \post Q.
+    \pre{Q} this |-> ThreadStartedR lamStructName Q
+    \post Q ** this |-> ThreadDoneR lamStructName.
 
   Definition thread_constructor (lamStructTyName: core.name) :=
   specify
@@ -309,15 +311,15 @@ Section with_Sigma.
     (ThreadDtor lamStructTyName).
   
   (*TODO: rename to just start? *)
-  Definition thread_fork_start (lamStructTyName: core.name) :=
+  Definition thread_start (lamStructTyName: core.name) :=
   specify
     {|
       info_name :=
-        Nscoped (Ninst "Thread" [Atype (Tnamed lamStructTyName)]) (Nfunction function_qualifiers.N "fork_start" []);
+        Nscoped (Ninst "Thread" [Atype (Tnamed lamStructTyName)]) (Nfunction function_qualifiers.N "start" []);
       info_type :=
         tMethod (Ninst "Thread" [Atype (Tnamed lamStructTyName)]) QM "void" []
     |}
-    (fork_start lamStructTyName).
+    (start lamStructTyName).
 
   Definition thread_fork_join (lamStructTyName: core.name) :=
   specify
@@ -331,16 +333,29 @@ Section with_Sigma.
   
   Definition thread_class_specs lamStructName :=
     thread_constructor lamStructName **
-    thread_fork_start lamStructName **
+    thread_start lamStructName **
     thread_fork_join lamStructName **
     thread_destructor lamStructName.
    
   Existing Instance UNSAFE_read_prim_cancel.
-  #[global] Instance : forall ty P Q, Observe (reference_toR (Tnamed ty)) (ThreadR ty P Q).
+  #[global] Instance : forall ty P Q, Observe (reference_toR (Tnamed (Ninst "Thread" [Atype (Tnamed ty)]))) (ThreadR ty P Q).
+  Proof. Admitted.
+  #[global] Instance : forall ty Q, Observe (reference_toR (Tnamed (Ninst "Thread" [Atype (Tnamed ty)]))) (ThreadStartedR ty Q).
+  Proof. Admitted.
+  #[global] Instance : forall ty, Observe (reference_toR (Tnamed (Ninst "Thread" [Atype (Tnamed ty)]))) (ThreadDoneR ty).
+  Proof. Admitted.
+  #[global] Instance : forall ty , LearnEq2 (ThreadR ty) := ltac:(solve_learnable).
+  #[global] Instance : forall ty , LearnEq1 (ThreadStartedR ty) := ltac:(solve_learnable).
+
+  (* TODO: delete?*)
+  #[global] Instance obss (pp:ptr) ty P Q: Observe (reference_to (Tnamed (Ninst "Thread" [Atype (Tnamed ty)])) pp)
+                                             (pp |-> ThreadR ty P Q). 
   Proof. Admitted.
 
-  #[global] Instance obss (pp:ptr) ty P Q: Observe (reference_to (Tnamed (Ninst "Thread" [Atype (Tnamed ty)])) pp) (pp |-> ThreadR ty P Q).
+  #[global] Instance obsss (pp:ptr) ty Q: Observe (reference_to (Tnamed (Ninst "Thread" [Atype (Tnamed ty)])) pp)
+                                             (pp |-> ThreadStartedR ty Q). 
   Proof. Admitted.
+  
   cpp.spec (Nscoped 
               "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0" Ndtor)  as lamdestr
                                                                                                                           inline.
@@ -417,7 +432,7 @@ Section with_Sigma.
     }
     unhideAllFromWork.
     iIntrosDestructs.
-    do 5 run1. (* call to  [fork_start]. *)
+    do 5 run1. (* call to  [start]. *)
     Remove Hints primR_split_C: br_opacity.
     step. (* needs 1) ownership of thead object 2) prev. chosen \pre. the latter is not returned  *)
     do 2 step.
@@ -430,7 +445,8 @@ Section with_Sigma.
     
     do 7 run1. (* call to join() *)
     run1. (* got back ownership of gcdrp, now it holds the result of gcd. also other halfs. need to return full *)
-    do 3 run1. do 2 (step;[slauto|]). step. do 1 (step;[slauto|]). (* next: / *)
+    do 3 run1. fold cQpc.
+    do 2 (step;[slauto|]). step. do 1 (step;[slauto|]). (* next: / *)
     step.
     Search (Z.gcd _ _ = 0 )%Z.
     pose proof (Z.gcd_eq_0 av bv).
@@ -692,7 +708,6 @@ End with_Sigma.
 - remaining goal pprinter
 - check arg names
 - hide cQp?
-- fork_start -> start
 - auto splitting in parallel_gcd_lcm proof
 - rename all Vref to Vptr?
 - replace all Z.gcd by N.gcd. no Vint, only Vn. or only Vint and Z stuff

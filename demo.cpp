@@ -44,7 +44,7 @@ class Thread {
     std::thread worker;
 
 public:
-    void fork_start() {
+    void start() {
         worker = std::thread([this]() {
             lambda();
         });
@@ -83,7 +83,7 @@ void parallel_gcd_lcm(const uint &a, const uint &b, uint &gcd_result, uint &lcm_
            gcd(a, b, gcd_result);
        };
     Thread t1(gcdLambda);
-    t1.fork_start();
+    t1.start();
     uint product=a*b;// pretend this is an expensive operation, e.g. these are 1000 bit numbers
     t1.join();
     lcm_result=product/gcd_result;
@@ -93,7 +93,7 @@ void parallel_gcd_lcm_wrong(const uint &a, const uint &b, uint &gcd_result, uint
     Thread t1([&gcd_result, &a, &b]() {
         gcd(a,b, gcd_result); // pretend this is an expensive operation, e.g. these are 1000 bit numbers
     });
-    t1.fork_start();
+    t1.start();
     uint product=a*b;// pretend this is an expensive operation, e.g. these are 1000 bit numbers
     lcm_result=product/gcd_result;
     t1.join();
@@ -114,7 +114,7 @@ uint parallel_gcdl(uint * nums, uint length) {
         resultl=gcdl(nums, mid);
     };
     Thread t1(gcdlLambda);
-    t1.fork_start();
+    t1.start();
     uint resultr;
     resultr=gcdl(nums+mid, length-mid);
     t1.join();
@@ -213,7 +213,7 @@ struct UnoundedUInt {
 //         std::cout << "Hello, World!" << std::endl;
 //     });
 //     std::cout << "Starting thread" << std::endl;
-//     t.fork_start();
+//     t.start();
 //     std::cout << "Joining thread" << std::endl;
 //     t.join();
 //     std::cout << "Thread joined" << std::endl;
