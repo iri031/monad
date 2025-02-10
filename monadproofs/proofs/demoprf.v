@@ -332,9 +332,6 @@ Section with_Sigma.
     |}
     (join lamStructTyName).
   
-  cpp.spec "Thread<parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0>::fork_start()"
-           as ff with (fork_start "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0").
-
   Definition thread_class_specs lamStructName :=
     thread_constructor lamStructName **
     thread_fork_start lamStructName **
@@ -399,7 +396,7 @@ Section with_Sigma.
           hideFromWorkAs name hname
       end.
 
-                                Lemma par: denoteModule module
+  Lemma par: denoteModule module
                ** (thread_class_specs "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0")
                ** gcd2_spec
              |-- par_gcd_lcm_spec.
