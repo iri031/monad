@@ -88,6 +88,26 @@ void parallel_gcd_lcm(const uint &a, const uint &b, uint &gcd_result, uint &lcm_
     t1.join();
     lcm_result=product/gcd_result;
 }
+/*
+Just Before `t1.start()`:
+┌───────────────────────────────────────────────────────────────┐
+│  Main Thread owns:                                            │
+│  gcd_result |-> anyR "unsigned int" 1                         │
+│  lcm_result |-> anyR "unsigned int" 1                         │
+│  a |-> primR "unsigned int" qa av                             │
+│  b |-> primR "unsigned int" qb bv                             │
+└───────────────────────────────────────────────────────────────┘
+
+Just after t1.start:
+┌───────────────────────────────────────────┬───────────────────────────────────────────┐
+│  Child Thread (t1)                        │  Main Thread (parent)                     │
+│  ──────────────────────────────────────   │  ──────────────────────────────────────   │
+│  gcd_result |-> anyR "unsigned int" 1     │  lcm_result |-> anyR "unsigned int" 1     │
+│  a |-> primR "unsigned int" (qa/2) av     │  a |-> primR "unsigned int" (qa/2) av     │
+│  b |-> primR "unsigned int" (qb/2) bv     │  b |-> primR "unsigned int" (qb/2) bv     │
+└───────────────────────────────────────────┴───────────────────────────────────────────┘
+
+ */
 
 void parallel_gcd_lcm_wrong(const uint &a, const uint &b, uint &gcd_result, uint &lcm_result) {
     Thread t1([&gcd_result, &a, &b]() {

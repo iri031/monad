@@ -16,7 +16,11 @@ Open Scope Z_scope.
 Import linearity.
 Import Verbose.
 Ltac slauto := misc.slauto1.
+Disable Notation take.
+Disable Notation drop.
+Disable Notation "`div`" (all).
 
+(** *Questions/comment timing recommendation *)
 Section with_Sigma.
   Context `{Sigma:cpp_logic} {CU: genv}.
   Context  {MODd : demo.module ⊧ CU}.
@@ -47,26 +51,24 @@ Set Nested Proofs Allowed.
 
   Remove Hints plogic.learnable_primR : br_opacity.
 
-  Set Printing Width 110.
+  Set Printing Width 30.
   (* small stepping through the proof *)
   Lemma prf: denoteModule demo.module |-- foo_spec.
   Proof with (fold cQpc).
     verify_spec...
-    (* meaning of goal view. [g395,492] [g589,837; c127,141] [g880,970] *)  
+    (* meaning of goal view. *)  
     do 4 run1...
-    (* eval first operand (argument) of + : [g657,685;c135,136] *)
+    (* eval first operand (argument) of + : [g639,667;c135,136] *)
     step... (* [g592,601;g622,633;g662,663], [g608,620; g659,661], [g496,547;g622,663] [g545,547;g592,601;g662,663] [g608,620; g659,661] *)
                                                                                  
-    iExists xv. (*  *)
-    work; [iExists (1:cQp.t); work|].
-    step. (* evalualte the second operand of +, which is the constant 1 *)
-    step. (* evaluate the binary operator + *)
-    step.
-    unfold trim. 
-    step. (* + evaluated, now process the write to y. not the pre and post of write *)
-    (* - pre + post *)
-    do 10 step.
-    (* highlight cancels *)
+    iExists xv; (*  *)
+    work; [iExists (1:cQp.t); work|]. (* evalualte the second operand of +, which is the constant 1 *)
+    do 2 step... (* evaluate the binary operator + *)
+    step;
+    unfold trim;
+    step... (* + evaluated, now write to y, - pre + post *)
+    do 10 step... (* y now has the result of the write *)
+    (* code finished, whaterver is left must imply postcondition [g881,925;g593,637] *)
     work.
   Abort.
 
@@ -85,9 +87,9 @@ Set Nested Proofs Allowed.
   Qed.
 
   cpp.spec "sfoo()" as sfoo_spec with (
-        \prepost{xv:Z} _global "a" |-> primR "int" 1 xv
-        \pre{yv:N} _global "b" |-> primR "int" 1 yv
-        \post _global "b" |-> primR "int" 1 ((xv+1))%Z
+    \prepost{xv:Z} _global "a" |-> primR "int" 1 xv
+    \pre{yv:N} _global "b" |-> primR "int" 1 yv
+    \post _global "b" |-> primR "int" 1 ((xv+1))%Z
       ).
 
   (* what is wrong with the spec above? *)
@@ -99,10 +101,10 @@ Set Nested Proofs Allowed.
   Abort.
   
   cpp.spec "sfoo()" as sfoo_spec_correct with (
-        \prepost{xv:Z} _global "a" |-> primR "int" 1 xv
-        \pre [| (- 2 ^ (32 - 1) -1  ≤ xv ≤ 2 ^ (32 - 1) - 2) |]
-        \pre{yv:Z} _global "b" |-> primR "int" 1 yv
-        \post _global "b" |-> primR "int" 1 ((xv+1))
+    \prepost{xv:Z} _global "a" |-> primR "int" 1 xv
+    \pre [| (- 2 ^ (32 - 1) -1  ≤ xv ≤ 2 ^ (32 - 1) - 2) |]
+    \pre{yv:Z} _global "b" |-> primR "int" 1 yv
+    \post _global "b" |-> primR "int" 1 ((xv+1))
       ).
 
   Lemma sprf: denoteModule demo.module |-- sfoo_spec_correct.
@@ -131,7 +133,9 @@ Set Nested Proofs Allowed.
 
   (** postcond of a function that guarantees to set variable b to a prime number:
      note the nondeterminism *)
-  Example as2 :mpred := Exists (bv:Z), _global "b" |-> primR "int" 1 bv ** [| Znumtheory.prime bv |].
+  Example as2 :mpred := Exists (bv:Z),
+      _global "b" |-> primR "int" 1 bv
+      ** [| Znumtheory.prime bv |].
 
   Example conjP (P Q: Prop) := P /\ Q.
   Example conjmpred (P Q: mpred) := P ** Q.
@@ -161,7 +165,8 @@ Set Nested Proofs Allowed.
       - defines how some "mathematical" Coq object is laid out in memory
       - specify the amount of ownership
 
-     The cpp2v logic axiomatizes representations of primitives: int/char/long/int*/...
+     The cpp2v logic axiomatizes representations of primitives:
+             int/char/long/int*/...
    *)
   
   Example intRep (q:Qp) (x:Z) : Rep := primR "int" q x.
@@ -169,7 +174,7 @@ Set Nested Proofs Allowed.
   Example UnboundedR (q:Qp) (x:Z) : Rep. Abort.
   
   Check primR.
-  Print val. (* primitive values in C++. vs struct objects/arrays ...: not directly passed *)
+  Print val. (* primitive values in C++. vs struct objects/arrays *)
   Example as3 (bv:Z): mpred := _global "b" |-> primR "int" 1 (Vint bv).
   Example as3elide (bv:Z): mpred := _global "b" |-> primR "int" 1 bv.
   Set Printing Coercions.
@@ -193,7 +198,8 @@ Set Nested Proofs Allowed.
   Example stm (L R : mpred): Prop := L |-- R.
 
   Lemma moreThanLogicalImpl :
-    _global "x" |-> primR "int" (1/3) 0 |-- _global "x" |-> primR "int" (1/2) 0.
+    _global "x" |-> primR "int" (1/3) 0 |--
+    _global "x" |-> primR "int" (1/2) 0.
   Abort. (* not provable *)
   
   Print ptrspec.
@@ -205,30 +211,32 @@ Set Nested Proofs Allowed.
   Example specstart2 : WpSpec mpredI val val :=
     \pre _global "x" |-> primR "int" (1/3) 0
          ** _global "y" |-> primR "int" (1/3) 0
-      \post emp.
+    \post emp.
 
   (* now ownership received/returned *)
   cpp.spec "gcd(unsigned int, unsigned int)" as gcd_spec with (
-        \arg{av:Z} "a" (Vint av) (* forall av, ... *)
-        \arg{bv:Z} "b" (Vint bv)
-        \post [Vint (Z.gcd av bv)] emp
+     \arg{av:Z} "a" (Vint av) (* forall av, ... *)
+     \arg{bv:Z} "b" (Vint bv)
+     \post [Vint (Z.gcd av bv)] emp
       ).
 
-  (** in monad, codebase, we pass most args (usually bulky objects) by reference ... *)
-  cpp.spec "gcd(const unsigned int&, const unsigned int&, unsigned int&)" as gcd2_spec with (
-        \arg{ap:ptr} "a" (Vptr ap)
-        \prepost{(qa:Qp) (av:Z)} ap |-> primR uint qa av
-        \arg{bp:ptr} "b" (Vptr bp)
-        \prepost{(qb:Qp) (bv:Z)} bp |-> primR uint qb bv
-        \arg{resultp:ptr} "gcd_result" (Vptr resultp)
-        \pre resultp |-> anyR uint 1
-        \post resultp |-> primR uint 1 (Z.gcd av bv)
+  (**  we pass most args by reference ... *)
+  cpp.spec "gcd(const unsigned int&, const unsigned int&, unsigned int&)"
+    as gcd2_spec with (
+    \arg{ap:ptr} "a" (Vptr ap)
+    \prepost{(qa:Qp) (av:Z)} ap |-> primR uint qa av
+    \arg{bp:ptr} "b" (Vptr bp)
+    \prepost{(qb:Qp) (bv:Z)} bp |-> primR uint qb bv
+    \arg{resultp:ptr} "gcd_result" (Vptr resultp)
+    \pre resultp |-> anyR uint 1
+    \post resultp |-> primR uint 1 (Z.gcd av bv)
       ).
 
   (** \prepost  in sequential code, ..., but in concurrent code ...*)
 
   Lemma primr_split_half (p:ptr) ty (q:Qp) v :
-    p|-> primR ty q v -|- (p |-> primR ty (q/2) v) ** p |-> primR ty (q/2) v.
+    p|-> primR ty q v -|-
+      (p |-> primR ty (q/2) v) ** p |-> primR ty (q/2) v.
   Proof. apply primr_split. Qed.
   
   (** parallel_gcd_lcm in demo.cpp *)
@@ -257,10 +265,14 @@ Set Nested Proofs Allowed.
   Definition ThreadR (lamStructName: core.name) (P Q : mpred) : Rep. Proof. Admitted.
   Definition ThreadStartedR (lamStructName: core.name) (Q : mpred) : Rep. Proof. Admitted.
   Definition ThreadDoneR (lamStructName: core.name) : Rep. Proof. Admitted.
+
+
+
+
   
   Definition ThreadConstructor (lamStructName: core.name) (this:ptr): WpSpec mpredI val val :=
     \arg{lambdap:ptr} "lambda" (Vptr lambdap)
-    \prepost{lamStructObjOwnership} lambdap |-> lamStructObjOwnership (* ownerhsip of fields othe lambda struct *)
+    \prepost{lamStructObjOwnership} lambdap |-> lamStructObjOwnership
     \pre{taskPre taskPost}
       specify {| info_name :=  (Nscoped lamStructName taskOpName);
                 info_type := tMethod lamStructName QC "void" [] |}
@@ -271,18 +283,22 @@ Set Nested Proofs Allowed.
     
     \post this |-> ThreadR lamStructName taskPre taskPost.
 
-  Definition ThreadDtor (lamStructName: core.name) (this:ptr): WpSpec mpredI val val :=
+  Definition start (lamStructName: core.name) (this:ptr)
+       :WpSpec mpredI val val :=
+    \pre{taskPre taskPost} this |-> ThreadR lamStructName taskPre taskPost
+    \pre taskPre
+    \post this |-> ThreadStartedR lamStructName taskPost.
+
+  Definition join (lamStructName: core.name) (this:ptr)
+       : WpSpec mpredI val val :=
+    \pre{taskPost} this |-> ThreadStartedR lamStructName taskPost
+    \post taskPost ** this |-> ThreadDoneR lamStructName.
+
+    Definition ThreadDtor (lamStructName: core.name) (this:ptr)
+       : WpSpec mpredI val val :=
     \pre this |-> ThreadDoneR lamStructName
     \post emp.
   
-  Definition start (lamStructName: core.name) (this:ptr): WpSpec mpredI val val :=
-    \pre{P Q} this |-> ThreadR lamStructName P Q
-    \pre P
-    \post this |-> ThreadStartedR lamStructName Q.
-
-  Definition join (lamStructName: core.name) (this:ptr): WpSpec mpredI val val :=
-    \pre{Q} this |-> ThreadStartedR lamStructName Q
-    \post Q ** this |-> ThreadDoneR lamStructName.
 
   Definition thread_constructor (lamStructTyName: core.name) :=
   specify
@@ -355,22 +371,22 @@ Set Nested Proofs Allowed.
               "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0" Ndtor)  as lamdestr
                                                                                                                           inline.
 
-  cpp.spec "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)" as par_gcd_lcm_spec with
-      (
-        \arg{ap} "a" (Vptr ap)
-        \prepost{(qa:Qp) (av:Z)} ap |-> primR uint qa av
-        \arg{bp} "b" (Vptr bp)
-        \prepost{(qb:Qp) (bv:Z)} bp |-> primR uint qb bv
-        \arg{gcdrp} "gcd_result" (Vptr gcdrp)
-        \pre gcdrp |-> anyR uint 1
-        \arg{lcmrp} "lcm_result" (Vptr lcmrp)
-        \pre lcmrp |-> anyR uint 1
-        \pre[| 0<bv \/ 0<av |] (* why is this needed? *)
-        \post gcdrp |-> primR uint 1 (Z.gcd av bv)
-              ** (if decide (av*bv < 2^32) then
-                  lcmrp |-> primR uint 1 (Z.lcm av bv)
-                  else Exists garbage3, lcmrp |-> primR uint 1 garbage3)
-      ).                              (*lcmrp |-> primR uint 1 ((av*bv) % 2^32) *)
+  cpp.spec "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)"
+   as par_gcd_lcm_spec with (
+   \arg{ap} "a" (Vptr ap)
+   \prepost{(qa:Qp) (av:Z)} ap |-> primR uint qa av
+   \arg{bp} "b" (Vptr bp)
+   \prepost{(qb:Qp) (bv:Z)} bp |-> primR uint qb bv
+   \arg{gcd_resultp} "gcd_result" (Vptr gcd_resultp)
+   \pre gcd_resultp |-> anyR uint 1
+   \arg{lcm_resultp} "lcm_result" (Vptr lcm_resultp)
+   \pre lcm_resultp |-> anyR uint 1
+   \pre[| 0<bv \/ 0<av |] (* why is this needed? *)
+   \post gcd_resultp |-> primR uint 1 (Z.gcd av bv) ** lcm_resultp |->
+         (if decide (av*bv < 2^32)
+          then primR uint 1 (Z.lcm av bv)
+          else Exists garbage, primR uint 1 garbage)
+      ).                    (* primR uint 1 ((av*bv) % 2^32) *)
 
   Lemma par: denoteModule module
              |-- par_gcd_lcm_spec.
@@ -380,25 +396,24 @@ Set Nested Proofs Allowed.
     (* missing spec of Thread Constructor *)
   Abort.
 
-      Set Nested Proofs Allowed.
+  Set Nested Proofs Allowed.
 
   Lemma par: denoteModule module
                ** (thread_class_specs "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0")
                ** gcd2_spec
              |-- par_gcd_lcm_spec.
-  Proof using MODd.
+  Proof using MODd with (fold cQpc).
     unfold thread_class_specs.
     verify_spec'.
-    slauto. (* call to [ThreadConstructor] just happened *)
+    slauto... (* call to [ThreadConstructor] just happened *)
     fold cQpc.
     aggregateRepPieces gcdLambda_addr. (*TODO shorten gcdLambda *)
-    iExists (gcdrp |-> anyR uint 1 ** ap |-> primR uint (qa/2) av ** bp |-> primR uint (qb/2) bv). (* taskPre. look at code *)
+    iExists (     gcd_resultp |-> anyR uint 1
+               ** ap |-> primR uint (qa/2) av
+               ** bp |-> primR uint (qb/2) bv).
     instWithPEvar taskPost. (* taskPost: infer it automatically, optimally *)
     slauto; iSplitL "".
-    (* 2 goals:
-       - prove that the lambda function satisfies the spec with pre:=taskPre and post:=taskPost (TBD)
-       - continue with the code after the Thread constructor, with the \post of the constructor 
-     *)
+    (* remaining precond of [ThreadConstructor] *)
     { verify_spec'.
       go. (* any postcond choice must be implied by currently available context => it is the strongest postcond *)
       erefl.
@@ -406,31 +421,29 @@ Set Nested Proofs Allowed.
     }
     unhideAllFromWork.
     iIntrosDestructs.
-    subst taskPost.
-    do 5 run1. (* call to  [start]. *)
+    subst taskPost. (* now we have the postcond of Thread constructor *)
+    do 5 run1... (* call to  [start]. *)
     Remove Hints primR_split_C: br_opacity.
-    step. (* needs 1) ownership of thead object 2) prev. chosen \pre. the latter is not returned  *)
-    do 2 step.
-    fold cQpc.
-    rewrite (primr_split ap).
-    rewrite (primr_split bp).
-    fold cQpc.
-    run1. (* evaluating operands for *. lost ownership gcdrsp, 1/2 of a,b. 1/2 suffices for a,b *)
+    step. (* preconditions of [start]*)
+    do 2 step... (* TODO: fold gcdLambda.. *)
+    rewrite (primr_split ap);
+    rewrite (primr_split bp)...
+    run1. (* got only TheadStartedR back,lost ownership gcd_resultp, 1/2 of a,b. 1/2 suffices for a,b. next: operands of * *)
     Hint Resolve primR_split_C: br_opacity.
     
-    do 7 run1. (* call to join() *)
-    run1. (* got back ownership of gcdrp, now it holds the result of gcd. also other halfs. need to return full *)
-    do 4 run1...
-    do 1 (step;[slauto|]). step. step;[slauto|] . (* next: / *)
+    do 7 run1... (* call to join() *)
+    run1... (* back: gcd_resultp ownership, updated value. other halfs:imp!. *)
+    do 4 run1;
+    do 1 (step;[slauto|]); step; step;[slauto|] . (* next: / *)
     step.
-    pose proof (Z.gcd_eq_0 av bv).
-    pose proof (Z.gcd_nonneg av bv).
-    go.
+    pose proof (Z.gcd_eq_0 av bv);
+    pose proof (Z.gcd_nonneg av bv);
+    go. (* code finished, remaining postcond:  *)
     case_decide.
     2:{ (* overflow case*) go. }
     {
        (* uint *: % 2^32 *)
-      icancel (cancel_at lcmrp);[| go]. 
+      icancel (cancel_at lcm_resultp);[| go]. 
       do 2 f_equiv. (* L is what c++ semantics computed, R is what the postcondition requires *)
       Arith.remove_useless_mod_a.
       unfold Z.lcm.
@@ -442,7 +455,7 @@ Set Nested Proofs Allowed.
 
   (** Summary so far:
 
-- saw how forking a thread requires partitioning resources into the 2 threads
+- starting a thread requires partitioning resources
 - fractional permissions allow splitting ownership into pieces for concurrent reading
    - simplest way to split ownership
 - the main strength of iris SL is the richness of the ways in which we can express how ownership can be split into multiple threads
@@ -470,7 +483,7 @@ another source of complexity in proofs: loops
       do 10 run1. rename addr into temp_addr.
       (* reached end of loop body, asked to: 1) return FULL ownership of temp 2) reistablish loopinv *)
       (* av'0 := bv', bv'0:= av' `mod` bv' *)
-      slauto.
+      slauto. (* gcd of new values of a b = gcd of original a b *)
       Check Z.gcd_mod.
       aac_rewrite Z.gcd_mod; arith.
     }
@@ -478,8 +491,8 @@ another source of complexity in proofs: loops
     { (* loop condition is false =>  bv'=0  and loop terminates*)
       slauto.
       (* C++ computes av' as return value but postcondition requires... *)
-      simplPure.
       Check Z.gcd_0_r_nonneg.
+      (* H comes from the loopinv *)
       aac_rewriteh Z.gcd_0_r_nonneg in H; subst; try arith.
       go.
     }
@@ -490,11 +503,6 @@ another source of complexity in proofs: loops
     verify_spec'.
     wapply gcd_proof. go.
   Qed.
-
-  Lemma pos (p:ptr) (v:Z) : p |-> primR uint 1 v |-- [| 0 <=v |] ** p |-> primR uint 1 v.
-  Proof.
-    go.
-  Qed.
   
   (* TODO: lemma to unroll arrayR for 3 elements *)
 
@@ -504,16 +512,32 @@ another source of complexity in proofs: loops
 
   (** *Parallelizing a sequence of operations
 - e.g. sequence of operations monad transactions.
-- Commutativivity enables much greater degree of parallelization [SLIDE]
-- gcd of a list of numbers.
-- arrayR
+- Commutativivity enables ||:
+
+o commutative, with i as its left identity (forall x, i o x = x)
+
+fold_left o [a1;a2;a3;a4;a5;a6] i =
+((((((i o a1) o a2) o a3) o a4) o a5) o a6)
+
+
+(((i o a1) o a2 ) o a3 )        (((i o a4) o a5 ) o a6 )
+                    \               /
+                     \             /
+                      \           /
+                   left_result   right_result
+                          \       /
+                           \     /
+                            \   /
+                        (left_result o right_result)
+
+also, arrays
 *)
 
   Definition gcdl_spec_core : WpSpec mpredI val val :=
-        \arg{numsp:ptr} "nums" (Vptr numsp)
-        \prepost{(l: list Z) (q:Qp)} numsp |-> arrayR uint (fun i:Z => primR uint q i) l
-        \arg "size" (Vint (length l))
-        \post [Vint (fold_left Z.gcd l 0)] emp.
+      \arg{numsp:ptr} "nums" (Vptr numsp)
+      \prepost{(l: list Z) (q:Qp)} numsp |-> arrayR uint (fun i:Z => primR uint q i) l
+      \arg "size" (Vint (length l))
+      \post [Vint (fold_left Z.gcd l 0)] emp.
 
   Example arrayR3 (p:ptr) (n1 n2 n3: Z) (q: Qp):
     p |-> arrayR uint (fun i:Z => primR uint q i) [n1;n2;n3]
@@ -540,10 +564,6 @@ another source of complexity in proofs: loops
 
 
   Hint Rewrite @fold_left_app: syntactic.
-
-    Disable Notation take.
-    Disable Notation drop.
-    Disable Notation "`div`" (all).
   
   Lemma gcdl_proof: denoteModule module |-- gcdl_spec.
   Proof using MODd.
@@ -629,7 +649,7 @@ another source of complexity in proofs: loops
     rewrite (primr_split mid_addr).
     simpl in *.
     closed.norm closed.numeric_types.
-    rewrite -> arrayR_split with (i:=((length l)/2)%nat) (xs:=l) by lia.
+    rewrite -> arrayR_split with (i:=((length l)/2)%nat) (xs:=l) by lia;
     go. (* array ownership spit into 2 pieces *)
     progress slauto.
     revertAdrs constr:([numsp; resultl_addr; nums_addr; mid_addr]).
@@ -641,7 +661,7 @@ another source of complexity in proofs: loops
     iSplitL "".
     { verify_spec'.
       slauto.
-      iExists _. eagerUnifyU. (* Hint already there*)
+      iExists _. eagerUnifyU.
       go.
       erefl.
     }
@@ -672,6 +692,15 @@ another source of complexity in proofs: loops
       simpl; rewrite cqpp2; auto.
   Qed.
 
+  (** *Structs
+     we often use multi-word numbers: EVMword is 256 bits *)
+  
+  Lemma unint32 (p:ptr) (v:Z) : p |-> primR uint 1 v |-- [| 0 <=v < 2^32 |] ** p |-> primR uint 1 v.
+  Proof.
+    go.
+  Qed.
+  (*class UnboundUint *)
+  
 Require Import Coq.NArith.BinNat.
 Require Import Coq.Lists.List.
 Require Import Coq.Wellfounded.Wellfounded.
@@ -715,6 +744,7 @@ Definition UnboundUintR (q:Qp) (n:N) : Rep :=
   _field "size" |-> primR uint q (length pieces32)
   ** Exists arrBase, _field "data" |-> primR uint q (Vptr arrBase)
      ** pureR (arrBase |-> arrayR uint (fun i:N => primR uint q i)  pieces32).
+(** note the logical abstraction *)
 
 Example unfoldUnboundUintR (p:ptr) q n:
 let pieces32 := split_in_32 n in   
@@ -723,6 +753,7 @@ let pieces32 := split_in_32 n in
        ** Exists arrBase, p |-> _field "data" |-> primR uint q (Vptr arrBase)
                            ** arrBase |-> arrayR uint (fun i:N => primR uint q i)  pieces32.
 Proof. simpl.  unfold UnboundUintR. iSplit; go. Qed.
+
 
   Lemma doubleSpending: _global "x" |-> primR "int" 1 0 ** _global "x" |-> primR "int" 1 0|-- [| False |].
   Proof. Abort.
