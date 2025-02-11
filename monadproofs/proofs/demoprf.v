@@ -15,55 +15,19 @@ Open Scope cQp_scope.
 Open Scope Z_scope.
 Import linearity.
 Import Verbose.
-Ltac aac_norm :=
-  aac_normalise;
-  repeat match goal with
-    | H: _ |- _ => aac_normalise in H
-    end.
-    Hint Rewrite Nat2Z.inj_div : syntactic.
-    Hint Rewrite Nat2Z.inj_sub using lia: syntactic.
-    Hint Rewrite Z.quot_div_nonneg using lia : syntactic.
-
 Ltac slauto := misc.slauto1.
-Ltac arith := (try aac_norm); Arith.arith_solve.
-Ltac ren addr v :=
-  IPM.perm_left
-    ltac:(fun L n =>
-            match L with
-              addr |-> primR _ _ (Vint ?x) => rename x into v
-            end
-         ).
 
 Section with_Sigma.
   Context `{Sigma:cpp_logic} {CU: genv}.
   Context  {MODd : demo.module ⊧ CU}.
   Definition cQpc := cQp.mk false.
   Coercion cQpc : Qp >-> cQp.t.
-  (* questions policy slide *)
 
   Disable Notation intR.
   Disable Notation uintR.
   Open Scope Z_scope.
   Notation uint := "unsigned int"%cpp_type.
 Set Nested Proofs Allowed.
-Lemma cqpp2 q: (cQp.scale (1 / 2) (cQp.mut q)) = (cQp.mut (q / 2)).
-Proof using.    
-      rewrite cQp.scale_mut;
-      f_equiv;
-      destruct q; simpl in *.
-    f_equal.
-      solveQpeq;
-        solveQeq.
-Qed.
-    
-  
-  Lemma primR2_anyR : ∀ t (q:Qp) (v:val) (p:ptr),
-      p|-> primR t (q/2) v ** p|->primR t (q/2) v  |-- p|->anyR t q.
-  Proof. Admitted.
-  Definition primR2_anyRC := [CANCEL] primR2_anyR.
-  Hint Resolve primR2_anyRC: br_opacity.
-  Hint Resolve array_combine_C: br_opacity.
-  Hint Rewrite @length_drop: syntactic.
 
   
   (* open foo in demo.cpp *)
@@ -271,7 +235,24 @@ Qed.
   (** diagram *)
   
   
-(** *Demo: read-read concurrency using fractional permissions *)
+  (** *Demo: read-read concurrency using fractional permissions *)
+
+  (*
+  Step 1: Initial Resource Ownership
+  ┌──────────────────────────┐
+  │       Parent owns P      │
+  └──────────────────────────┘
+           |
+           | Split resources:  P = Pₖ ** C
+           v
+  ┌──────────────┬──────────────┐
+  │ Pₖ (Parent)  │  C (Child)   │
+  └──────────────┴──────────────┘
+           |                |
+     Parent Thread       Child Thread (new)
+         runs with Pₖ        runs with C
+
+*)  
   
   Definition ThreadR (lamStructName: core.name) (P Q : mpred) : Rep. Proof. Admitted.
   Definition ThreadStartedR (lamStructName: core.name) (Q : mpred) : Rep. Proof. Admitted.
@@ -400,27 +381,6 @@ Qed.
   Abort.
 
       Set Nested Proofs Allowed.
-      Ltac erefl :=
-        unhideAllFromWork;
-        match goal with
-          H := _ |- _ => subst H
-        end;
-        iClear "#";
-        iStopProof; reflexivity.
-      Ltac unhideAllFromWork :=  tactics.unhideAllFromWork;
-                                 try match goal with
-                                   H := _ |- _ => subst H
-                                 end.
-      #[global] Instance : forall ty , LearnEq2 (ThreadR ty) := ltac:(solve_learnable).
-
-      Ltac instWithPEvar name :=
-      match goal with
-      | |- environments.envs_entails _ (@bi_exist _ ?T _) =>
-          evar (name:T);
-          iExists name;
-          let hname := fresh name "P" in
-          hideFromWorkAs name hname
-      end.
 
   Lemma par: denoteModule module
                ** (thread_class_specs "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0")
@@ -446,6 +406,7 @@ Qed.
     }
     unhideAllFromWork.
     iIntrosDestructs.
+    subst taskPost.
     do 5 run1. (* call to  [start]. *)
     Remove Hints primR_split_C: br_opacity.
     step. (* needs 1) ownership of thead object 2) prev. chosen \pre. the latter is not returned  *)
@@ -459,10 +420,9 @@ Qed.
     
     do 7 run1. (* call to join() *)
     run1. (* got back ownership of gcdrp, now it holds the result of gcd. also other halfs. need to return full *)
-    do 3 run1. fold cQpc.
-    do 2 (step;[slauto|]). step. do 1 (step;[slauto|]). (* next: / *)
+    do 4 run1...
+    do 1 (step;[slauto|]). step. step;[slauto|] . (* next: / *)
     step.
-    Search (Z.gcd _ _ = 0 )%Z.
     pose proof (Z.gcd_eq_0 av bv).
     pose proof (Z.gcd_nonneg av bv).
     go.
@@ -685,18 +645,18 @@ another source of complexity in proofs: loops
       go.
       erefl.
     }
-    unhideAllFromWork.
+    unhideAllFromWork. subst taskPost.
     slauto.
     iExists _. eagerUnifyU. 
     slauto.
-    wapply arrayR_combinep. eagerUnifyU.
+    wapply @arrayR_combinep. eagerUnifyU.
     slauto. (* c++ semantics computes ... postcond requires *)
     icancel (cancel_at p);[| go].
     do 2 f_equiv.
     symmetry.
     apply fold_split_gcd.
-    Check fold_split.
     auto.
+    Check fold_split.
   Qed.
   
   (* what if both threads needed to read but not write all of the array *)
@@ -712,8 +672,58 @@ another source of complexity in proofs: loops
       simpl; rewrite cqpp2; auto.
   Qed.
 
-  
-    
+Require Import Coq.NArith.BinNat.
+Require Import Coq.Lists.List.
+Require Import Coq.Wellfounded.Wellfounded.
+Require Import Coq.Program.Wf.
+Import ListNotations.
+Require Import FunInd.
+
+Open Scope N_scope.
+Search N.size.
+Require Import Recdef.
+Function split_in_32 (n : N) {measure (fun n => N.to_nat (N.log2 n))} : list N :=
+  match n with
+  | 0%N => []
+  | 1%N => [1]
+  | _ =>
+    let chunk := n `mod` (2^32) in
+    let n'   := n / (2^32) in
+    chunk :: split_in_32 n'
+  end.
+Proof.
+  {
+    intros. subst.
+    rewrite <- N.shiftr_div_pow2.
+    repeat rewrite N.log2_shiftr.
+    simpl.
+    lia.
+  }
+  {
+    intros. subst.
+    rewrite <- N.shiftr_div_pow2.
+    repeat rewrite N.log2_shiftr.
+    simpl.
+    lia.
+  }
+Defined.
+
+Eval vm_compute in (split_in_32 (2^65 + 2^32 + 45)).
+
+Definition UnboundUintR (q:Qp) (n:N) : Rep :=
+  let pieces32 := split_in_32 n in 
+  _field "size" |-> primR uint q (length pieces32)
+  ** Exists arrBase, _field "data" |-> primR uint q (Vptr arrBase)
+     ** pureR (arrBase |-> arrayR uint (fun i:N => primR uint q i)  pieces32).
+
+Example unfoldUnboundUintR (p:ptr) q n:
+let pieces32 := split_in_32 n in   
+  p |-> UnboundUintR q n -|-
+       p |-> _field "size" |-> primR uint q (length pieces32)
+       ** Exists arrBase, p |-> _field "data" |-> primR uint q (Vptr arrBase)
+                           ** arrBase |-> arrayR uint (fun i:N => primR uint q i)  pieces32.
+Proof. simpl.  unfold UnboundUintR. iSplit; go. Qed.
+
   Lemma doubleSpending: _global "x" |-> primR "int" 1 0 ** _global "x" |-> primR "int" 1 0|-- [| False |].
   Proof. Abort.
   

@@ -782,6 +782,11 @@ Section cp.
     go.
   Qed.
   Definition arrayR_combineC := [CANCEL] @arrayR_combinep. (* this hint will apply once we state everything in Z terms *)
+    
+  Lemma primR2_anyR : ∀ t (q:Qp) (v:val) (p:ptr),
+      p|-> primR t (q/2) v ** p|->primR t (q/2) v  |-- p|->anyR t q.
+  Proof. intros. setoid_rewrite <- primr_split.  go.  Admitted.
+Definition primR2_anyRC := [CANCEL] primR2_anyR.
   
 End cp.
 Opaque parrayR.
@@ -836,3 +841,57 @@ Require Import bedrock.prelude.propset.
 #[global] Hint Rewrite <- @spurious using exact _: slbwd.
 
 #[global] Hint Resolve arrayR_combineC : br_opacity.
+
+#[global] Hint Resolve primR2_anyRC: br_opacity.
+#[global] Hint Resolve array_combine_C: br_opacity.
+#[global] Hint Rewrite @length_drop: syntactic.
+
+Ltac erefl :=
+  unhideAllFromWork;
+  match goal with
+    H := _ |- _ => subst H
+  end;
+  iClear "#";
+  iStopProof; reflexivity.
+
+Ltac unhideAllFromWork :=  tactics.unhideAllFromWork;
+                           try match goal with
+                               H := _ |- _ => subst H
+                             end.
+
+Ltac instWithPEvar name :=
+  match goal with
+  | |- environments.envs_entails _ (@bi_exist _ ?T _) =>
+      evar (name:T);
+      iExists name;
+      let hname := fresh name "P" in
+      hideFromWorkAs name hname
+  end.
+
+Lemma cqpp2 q: (cQp.scale (1 / 2) (cQp.mut q)) = (cQp.mut (q / 2)).
+Proof using.    
+      rewrite cQp.scale_mut;
+      f_equiv;
+      destruct q; simpl in *.
+    f_equal.
+      solveQpeq;
+        solveQeq.
+Qed.
+
+Ltac aac_norm :=
+  aac_normalise;
+  repeat match goal with
+    | H: _ |- _ => aac_normalise in H
+    end.
+    Hint Rewrite Nat2Z.inj_div : syntactic.
+    Hint Rewrite Nat2Z.inj_sub using lia: syntactic.
+    Hint Rewrite Z.quot_div_nonneg using lia : syntactic.
+
+Ltac arith := (try aac_norm); Arith.arith_solve.
+Ltac ren addr v :=
+  IPM.perm_left
+    ltac:(fun L n =>
+            match L with
+              addr |-> primR _ _ (Vint ?x) => rename x into v
+            end
+         ).

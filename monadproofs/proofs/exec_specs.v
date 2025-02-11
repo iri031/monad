@@ -153,18 +153,17 @@ Section with_Sigma.
 
   
   Definition execute_block_simpler : WpSpec mpredI val val :=
-    \arg{chainp :ptr} "chain" (Vref chainp)
+    \arg{chainp :ptr} "chain" (Vptr chainp)
     \prepost{(qchain:Qp) (chain: Chain)} chainp |-> ChainR qchain chain
-(*     \arg "rev" (valOfRev Shanghai) *)
-    \arg{blockp: ptr} "block" (Vref blockp)
+    \arg{blockp: ptr} "block" (Vptr blockp)
     \prepost{qb (block: Block)} blockp |-> BlockR qb block
-    \arg{block_statep: ptr} "block_state" (Vref block_statep)
+    \arg{block_statep: ptr} "block_state" (Vptr block_statep)
     \pre{(preBlockState: StateOfAccounts) g qf}
        block_statep |-> BlockState.Rauth preBlockState g preBlockState
     \prepost block_statep |-> BlockState.Rfrag preBlockState qf g
-    \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vref block_hash_bufferp)
+    \arg{block_hash_bufferp: ptr} "block_hash_buffer" (Vptr block_hash_bufferp)
     \prepost{buf qbuf} block_hash_bufferp |-> BlockHashBufferR qbuf buf
-    \arg{priority_poolp: ptr} "priority_pool" (Vref priority_poolp)
+    \arg{priority_poolp: ptr} "priority_pool" (Vptr priority_poolp)
     \prepost{priority_pool: PriorityPool} priority_poolp |-> PriorityPoolR 1 priority_pool (* TODO: write a spec of priority_pool.submit() *)
     \post{retp}[Vptr retp]
       let (actual_final_state, receipts) := stateAfterBlock block preBlockState in
