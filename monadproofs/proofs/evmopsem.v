@@ -55,6 +55,7 @@ Fixpoint stateAfterTransactions' (hdr: BlockHeader) (s: StateOfAccounts) (ts: li
     
 Definition stateAfterTransactions  (hdr: BlockHeader) (s: StateOfAccounts) (ts: list Transaction): StateOfAccounts * list TransactionResult := stateAfterTransactions' hdr s ts 0 [].
 
+
       Lemma stateAfterTransactionsC' (hdr: BlockHeader) (s: StateOfAccounts) (c: Transaction) (ts: list Transaction) (start:nat) (prevResults: list TransactionResult):
         stateAfterTransactions' hdr s (ts++[c]) start prevResults
         = let '(sf, prevs) := stateAfterTransactions' hdr s (ts) start prevResults in

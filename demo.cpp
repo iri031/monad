@@ -79,12 +79,11 @@ public:
 };
 
 void parallel_gcd_lcm(const uint &a, const uint &b, uint &gcd_result, uint &lcm_result) {
-    auto gcdLambda = [&gcd_result, &a, &b]() {
+    Thread t1([&gcd_result, &a, &b]() {
            gcd(a, b, gcd_result);
-       };
-    Thread t1(gcdLambda);
+       });
     t1.start();
-    uint product=a*b;// pretend this is an expensive operation, e.g. these are 1000 bit numbers
+    uint product=a*b;// pretend this is expensive, e.g. 1000 bit numbers
     t1.join();
     lcm_result=product/gcd_result;
 }
@@ -141,7 +140,7 @@ uint parallel_gcdl(uint * nums, uint length) {
     return gcd(resultl, resultr);
 }
 
-struct UnoundedUInt {
+struct UnoundedUInt {//unbounded.
     uint size;// size of the data array
     uint * data;// data[0] is the least significant 32 bit of the number, data[1] is the next most significant 32 bit, etc.
 
