@@ -51,14 +51,14 @@ Set Nested Proofs Allowed.
 
   Remove Hints plogic.learnable_primR : br_opacity.
 
-  Set Printing Width 30.
+  Set Printing Width 100.
   (* small stepping through the proof *)
   Lemma prf: denoteModule demo.module |-- foo_spec.
   Proof with (fold cQpc).
     verify_spec...
-    (* meaning of goal view. *)  
+    (* meaning of goal view.[g289,363] *)  
     do 4 run1...
-    (* eval first operand (argument) of + : [g639,667;c135,136] *)
+    (* eval first operand (argument) of + : [g486,509;c135,136] *)
     step... (* [g592,601;g622,633;g662,663], [g608,620; g659,661], [g496,547;g622,663] [g545,547;g592,601;g662,663] [g608,620; g659,661] *)
                                                                                  
     iExists xv; (*  *)
@@ -406,7 +406,6 @@ Set Nested Proofs Allowed.
     unfold thread_class_specs.
     verify_spec'.
     slauto... (* call to [ThreadConstructor] just happened *)
-    fold cQpc.
     aggregateRepPieces gcdLambda_addr. (*TODO shorten gcdLambda *)
     iExists (     gcd_resultp |-> anyR uint 1
                ** ap |-> primR uint (qa/2) av
@@ -467,14 +466,16 @@ another source of complexity in proofs: loops
 *)
 
   Lemma gcd_proof: denoteModule module |-- gcd_spec.
-  Proof.
+  Proof with (fold cQpc).
     verify_spec.
-    slauto.
-    wp_while  (fun _ => (Exists av' bv' : Z,
-                      [| 0 ≤ av' ≤ 2 ^ 32 - 1 |] **
-                      [| 0 ≤ bv' ≤ 2 ^ 32 - 1 |] **
-                      a_addr |-> primR Tu32 (cQp.mut 1) (Vint av') **
-                      b_addr |-> primR Tu32 (cQp.mut 1) (Vint bv') ** [| Z.gcd av' bv' = Z.gcd av bv |])).
+    slauto...
+    wp_while  (fun _ =>
+             (Exists av' bv' : Z,
+                 [| 0 ≤ av' ≤ 2 ^ 32 - 1 |]
+                 **[| 0 ≤ bv' ≤ 2 ^ 32 - 1 |]
+                 ** a_addr |-> primR Tu32 1 (Vint av')
+                 ** b_addr |-> primR Tu32 1 (Vint bv')
+                 ** [| Z.gcd av' bv' = Z.gcd av bv |]))...
     slauto.
     ren a_addr av'.
     ren b_addr bv'. (* context is now generalized to be the loopinv: av --> av', but H *)
@@ -542,9 +543,9 @@ also, arrays
   Example arrayR3 (p:ptr) (n1 n2 n3: Z) (q: Qp):
     p |-> arrayR uint (fun i:Z => primR uint q i) [n1;n2;n3]
       -|- ( valid_ptr (p .[ uint ! 3 ])
-              ** p |-> primR uint (cQp.mut q) n1
-              ** p .[ uint ! 1 ] |-> primR uint (cQp.mut q) n2
-              ** p .[ uint ! 2 ] |-> primR uint (cQp.mut q) n3).
+              ** p |-> primR uint q n1
+              ** p .[ uint ! 1 ] |-> primR uint q n2
+              ** p .[ uint ! 2 ] |-> primR uint q n3).
   Proof.
     repeat rewrite arrayR_cons.
     repeat rewrite arrayR_nil.
@@ -566,7 +567,7 @@ also, arrays
   Hint Rewrite @fold_left_app: syntactic.
   
   Lemma gcdl_proof: denoteModule module |-- gcdl_spec.
-  Proof using MODd.
+  Proof using MODd with (fold cQpc).
     verify_spec.
     slauto.
     wp_for (fun _ => Exists iv:nat,
@@ -627,7 +628,7 @@ also, arrays
   Lemma pgcdl_proof: denoteModule module
                        ** (thread_class_specs "parallel_gcdl(unsigned int*, unsigned int)::@0")
                        |-- parallel_gcdl_spec.
-  Proof using MODd.
+  Proof using MODd with (fold cQpc).
     unfold thread_class_specs.
     verify_spec'.
     wapply gcdl_proof. work.
