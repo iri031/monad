@@ -5,9 +5,10 @@
 using uint = unsigned int;
 
 uint x = 0;
-uint y = 0;
+uint y;
 
 void foo() {
+    y=0;
     y=x+1;
 }
 

@@ -21,6 +21,19 @@ Disable Notation drop.
 Disable Notation "`div`" (all).
 
 (** *Questions/comment timing recommendation *)
+
+(** ** why formal verification:
+- highest level of assurance:
+PLDI 2011: Finding and Understanding Bugs in C Compilers
+
+“Using randomized differential testing,
+we found hundreds of previously unknown bugs
+in widely used C compilers.
+CompCert is the only compiler we have tested for
+which Csmith cannot find wrong-code errors”
+
+first step: write specs
+ *)
 Section with_Sigma.
   Context `{Sigma:cpp_logic} {CU: genv}.
   Context  {MODd : demo.module ⊧ CU}.
@@ -36,11 +49,13 @@ Set Nested Proofs Allowed.
   
   (* open foo in /home/abhishek/work/coq/monad/demo.cpp *)
   cpp.spec "foo()" as foo_spec with (
-        \pre{xv:Z} _global "x" |-> primR uint (1/2)  xv (* forall xv .. *)
+        \pre{xv:Z} _global "x" |-> primR uint (1/2) xv (* forall xv .. *)
         \pre _global "y" |-> anyR uint 1
         \post _global "y" |-> primR uint 1 (xv+1)
-              ** _global "x" |-> primR uint 1  xv
-      ).
+              ** _global "x" |-> primR uint (1/2)  xv
+    ).
+  (* fractions in primR ∈ (0,1], writing requires 1*)
+  
   (* what is wrong with the spec above? *)
 
   Example anyy : _global "y" |-> uninitR uint 1
@@ -52,14 +67,20 @@ Set Nested Proofs Allowed.
   Remove Hints plogic.learnable_primR : br_opacity.
 
   Set Printing Width 100.
-  (* small stepping through the proof *)
+  (* The game of proof: gory details *)
   Lemma prf: denoteModule demo.module |-- foo_spec.
   Proof with (fold cQpc).
     verify_spec...
-    (* meaning of goal view: start with this state/ownership [g289,363] [g433,595; c127,141] [g613,692] [g433,595; c127,141]*)  
-    do 4 run1...
-    (* eval first operand (argument) of + : [g477,500;c135,136] *)
-    step... (* [g431,436; g438,447; g448,480; c135,136] [g431,436; g438,447; g448,480; c135,136; g354,391] *)
+    (* meaning of goal view: [g289,367] [g437,696; c123,146]
+[g713,796] [g437,696; c123,146]*)
+    (* now symbolically execute code one AST node at a time *)
+    do 4 run1; step... (* writing to y: demands full(1) ownership [g435,468;c129,131] [g435,468; g318,352;c129,131] *)
+    (* cancel highlighted. 1BTC *)
+    iFrame. (* y gone from wallet *)
+    iIntros. (* write done: receive postcond of write. uniswap *)
+    do 3 run1.
+    (* eval f operand (argument) of + : [g524,549;c140,141] *)
+    step... (* cant read uninit location [g479 487 527 399 391]*)
                                                                                  
     iExists xv; (* instantiate v with xv, q with 1 *)
     work; [iExists (1/2:cQp.t); work|]. (* [g]  evalualte the second operand of +, which is the constant 1 *)
@@ -74,8 +95,12 @@ Set Nested Proofs Allowed.
   Abort.
 
   (* summarize: rule of the game
+how we lose:
+- at end : ppostcond mismatch (above )
+- during symbolic code exec: wallet is too weak/underfunded to meet \pre of a c++ command/expression
+   *)
 
- *)
+  
   Hint Resolve plogic.learnable_primR : br_opacity.
 
   cpp.spec "foo()" as foo_spec_correct with (
@@ -796,7 +821,9 @@ After next:
 
 Overall goal:
 - write specs in Coq.
-  tools to either prove the spec, or give you counterexample
+  + precise documentation
+  + tools to either prove the spec, or give you counterexample
+  + when bug happens, can focus on unprover parts
 
  *)
 
@@ -819,12 +846,12 @@ p|->arrayR "int*"
 End with_Sigma.
 (*
 - add y= 0 to the beginning of foo.
-- make fast the proof of parall_gcd: getting to the 2 breakpoints there
 - add c++ offsets to the Thread constructor spec, gcd specs
-- add join in the ascii art
+- add 
 - remove all occurrences nat: define length, take, split, arrayR_split in terms of nat
 - execute_block spec: narrative and prettify
 - remaining goal pprinter
+- make fast the proof of parall_gcd: getting to the 2 breakpoints there
 - check arg names
 - S n by 1+n
 - pretty printing of goal: ltac.
@@ -833,6 +860,7 @@ End with_Sigma.
 - docker image
 
 done:
+- add join in the ascii art
 - make x ownership fractional in the corrected foo spec
 - inline gcdLambda in the non-array proof
 - disable c++ mode, at least the greeen arguments
