@@ -22,6 +22,8 @@ Disable Notation "`div`" (all).
 
 (** ** Questions/comment timing recommendation *)
 
+(** turn on zoom recording *)
+
 (** ** why formal verification:
 - highest level of assurance:
 PLDI 2011: Finding and Understanding Bugs in C Compilers
@@ -42,18 +44,18 @@ Section with_Sigma.
 Set Nested Proofs Allowed.
 
   
-  (* open foo in /home/abhishek/work/coq/monad/demo.cpp *)
+  (* /home/abhishek/work/coq/monad/demo.cpp *)
   cpp.spec "foo()" as foo_spec with (
         \pre{xv:Z} _global "x" |-> primR uint (1/2) xv (* forall xv .. *)
         \pre _global "y" |-> anyR uint 1
         \post _global "y" |-> primR uint 1 (xv+1)
               ** _global "x" |-> primR uint (1/2)  xv
     ).
-  (* fractions in primR ∈ (0,1], writing requires 1*)
+  (* fractions ∈ (0,1], write needs 1, read any*)
   
   (* what is wrong with the spec above? *)
 
-  Example anyy : _global "y" |-> uninitR uint 1
+  Example anyR_if : _global "y" |-> uninitR uint 1
                    \\// (Exists xv:Z, _global "y" |-> primR uint 1 xv)
                  |--  _global "y" |-> anyR uint 1.
   
@@ -66,38 +68,48 @@ Set Nested Proofs Allowed.
   Lemma prf: denoteModule demo.module |-- foo_spec.
   Proof with (fold cQpc).
     verify_spec...
+    (* ignore numbers here, focus on the bluish highlight *)
     (* meaning of goal view: [g289,367] [g437,696; c123,146]
 [g713,796] [g437,696; c123,146]*)
     (* now symbolically execute code one AST node at a time *)
     do 4 run1; step... (* writing to y: demands full(1) ownership [g435,468;c129,131] [g435,468; g318,352;c129,131] *)
     (* cancel highlighted. 1BTC *)
-    iFrame. (* y gone from wallet *)
-    iIntros. (* write done: receive postcond of write. uniswap *)
+    iFrame... (* y gone from wallet [g278,398]*)
+    iIntros... (*[g361,397] write done: receive postcond of write. uniswap *)
     do 3 run1.
     (* eval f operand (argument) of + : [g524,549;c140,141] *)
     step... (* cant read uninit location [g399,401; g479,480; g527,528; g719,720] [g392,395; g487,488; g526,527]*)
                                                                                  
     iExists xv; (* instantiate v with xv, q with 1 *)
-    work; [iExists (1/2:cQp.t); work|]... (* [g]  evalualte the second operand of +, which is the constant 1 *)
-    do 2 step... (* evaluate the binary operator + *)
+    work; [iExists (1/2:cQp.t); work|]... (* free transaction [g544,555; c142,143]  2nd op of + *)
+    do 2 step... (* free! [g512,516; c141,142] *)
     step;
     unfold trim;
-      step...
-    iFrame. (* [g479,512;c138,140] [g403,439; g479,512;c138,140] *)
-    Search anyR primR.
-    rewrite -> (primR_anyR _ _ 0). (* [g403,437; g477,510;c138,140] *)
-    iFrame.
-    iIntros. (* write finished  [g439,454] *)
-    do 10 step... (* [g658,698; g481,522] *)
-    iFrame.
+      step.
+    iFrame... (* [g479,512;c138,140] [g403,439; g479,512;c138,140] *)
+    Check anyR_if.
+    rewrite -> (primR_anyR _ _ 0)... (* cancel [g403,437; g477,510;c138,140] *)
+    iFrame...
+    iIntros... (* write finished  [g439,454] *)
+    do 10 step... (* code finished. post.  cancel y [g658,698; g481,522] *)
+    iFrame...
   Abort. (* bug in spec *)
 
   (* summarize: rule of the game
 how we lose:
-- at end : ppostcond mismatch
+- at end : postcond mismatch
 - during symbolic code exec: wallet is too weak/underfunded to meet \pre of a c++ command/expression
    *)
+  cpp.spec "foo()" as foo_spec2 with (
+        \pre{xv:Z} _global "x" |-> primR uint (1/2) xv (* forall xv .. *)
+        \post _global "x" |-> primR uint (1/2)  xv
+    ).
 
+  Lemma prf: denoteModule module |-- foo_spec2.
+  Proof using.
+    verify_spec'.
+    go.
+  Abort. (* game over even before executing the code fully *)
   
   Hint Resolve plogic.learnable_primR : br_opacity.
 
@@ -143,7 +155,7 @@ how we lose:
 
   (** *Under the hood: *)
 
-  (** Pre and post conditions of specs are elements of type [mpred]: *)
+  (** Pre and post conditions of specs are elements of type [mpred] *)
 
   Require Import stdpp.decidable.
   Import Znumtheory.
@@ -152,7 +164,9 @@ how we lose:
   Proof.  apply prime_3. Qed.
   
   (* `mpred` (memory predicates): they can implicitly
-             talk about the current state of memory and ownership of locations *)
+             talk about the current state of memory and ownership of memory locations.
+        memory --> "state of the world"
+   *)
   Example assertion1 (bv:Z): mpred := _global "b" |-> primR "int" 1 bv.
 
   Example embed (P:Prop) : mpred := [| P |].
@@ -843,6 +857,9 @@ p|->arrayR "int*"
     
 End with_Sigma.
 (*
+
+- map C-q to gpts new highlighter that centers c++ findow
+- remap c=q to a new function that would advance green region to the next ... if a comment end is encountered before the next hightlight region
 - add c++ offsets to the Thread constructor spec, gcd specs
 - add 
 - remove all occurrences nat: define length, take, split, arrayR_split in terms of nat
