@@ -20,17 +20,12 @@ Disable Notation take.
 Disable Notation drop.
 Disable Notation "`div`" (all).
 
-(** *Questions/comment timing recommendation *)
+(** ** Questions/comment timing recommendation *)
 
 (** ** why formal verification:
 - highest level of assurance:
 PLDI 2011: Finding and Understanding Bugs in C Compilers
-
-“Using randomized differential testing,
-we found hundreds of previously unknown bugs
-in widely used C compilers.
-CompCert is the only compiler we have tested for
-which Csmith cannot find wrong-code errors”
+CompCert C compiler
 
 first step: write specs
  *)
@@ -80,23 +75,26 @@ Set Nested Proofs Allowed.
     iIntros. (* write done: receive postcond of write. uniswap *)
     do 3 run1.
     (* eval f operand (argument) of + : [g524,549;c140,141] *)
-    step... (* cant read uninit location [g479 487 527 399 391]*)
+    step... (* cant read uninit location [g399,401; g479,480; g527,528; g719,720] [g392,395; g487,488; g526,527]*)
                                                                                  
     iExists xv; (* instantiate v with xv, q with 1 *)
-    work; [iExists (1/2:cQp.t); work|]. (* [g]  evalualte the second operand of +, which is the constant 1 *)
+    work; [iExists (1/2:cQp.t); work|]... (* [g]  evalualte the second operand of +, which is the constant 1 *)
     do 2 step... (* evaluate the binary operator + *)
     step;
     unfold trim;
-      step... (* + evaluated,  y, - pre + post *)
-    iFrame. (* lost y *)
-    do 10 step... (* y now has the result of the write *)
-    (* code finished, whaterver is left must imply postcondition [g881,925;g593,637] *)
-    work.
-  Abort.
+      step...
+    iFrame. (* [g479,512;c138,140] [g403,439; g479,512;c138,140] *)
+    Search anyR primR.
+    rewrite -> (primR_anyR _ _ 0). (* [g403,437; g477,510;c138,140] *)
+    iFrame.
+    iIntros. (* write finished  [g439,454] *)
+    do 10 step... (* [g658,698; g481,522] *)
+    iFrame.
+  Abort. (* bug in spec *)
 
   (* summarize: rule of the game
 how we lose:
-- at end : ppostcond mismatch (above )
+- at end : ppostcond mismatch
 - during symbolic code exec: wallet is too weak/underfunded to meet \pre of a c++ command/expression
    *)
 
@@ -832,10 +830,10 @@ Overall goal:
   
   Lemma okSpending: _global "x" |-> primR "int" (1/2) 0 ** _global "x" |-> primR "int" (1/2) 0|--  _global "x" |-> primR "int" 1 0.
   Proof. Abort.
-      Lemma duplTypePtr (ap:ptr): type_ptr uint ap |-- type_ptr uint ap ** type_ptr uint ap.
-      Proof. go. Qed.
-      Lemma duplSpec (ap:ptr): gcd_spec |-- gcd_spec ** gcd_spec.
-      Proof. go. Qed.
+  Lemma duplTypePtr (ap:ptr): type_ptr uint ap |-- type_ptr uint ap ** type_ptr uint ap.
+  Proof. go. Qed.
+  Lemma duplSpec (ap:ptr): gcd_spec |-- gcd_spec ** gcd_spec.
+  Proof. go. Qed.
                                           
   Example nestedArrayR (rows: list (list Z)) (p:ptr) (q:Qp): mpred :=
 p|->arrayR "int*"
@@ -845,7 +843,6 @@ p|->arrayR "int*"
     
 End with_Sigma.
 (*
-- add y= 0 to the beginning of foo.
 - add c++ offsets to the Thread constructor spec, gcd specs
 - add 
 - remove all occurrences nat: define length, take, split, arrayR_split in terms of nat
@@ -859,15 +856,5 @@ End with_Sigma.
 - In to ∈
 - docker image
 
-done:
-- add join in the ascii art
-- make x ownership fractional in the corrected foo spec
-- inline gcdLambda in the non-array proof
-- disable c++ mode, at least the greeen arguments
-- emacs plugin to autocenter
-- rename all Vptr to Vptr?
-- hide cQp?
-- slides
-- auto splitting in parallel_gcd_lcm proof
  *)
 

@@ -141,23 +141,33 @@ uint parallel_gcdl(uint * nums, uint length) {
     return gcd(resultl, resultr);
 }
 
-struct UnoundedUInt {//unbounded.
+// to be verified. there may be bugs here
+struct UnboundedUint {
     uint size;// size of the data array
     uint * data;// data[0] is the least significant 32 bit of the number, data[1] is the next most significant 32 bit, etc.
 
-    UnoundedUInt() {
+    UnboundedUint() {
         size=0;
         data = nullptr;
     }
 
-    UnoundedUInt(uint value) {
-        size=1;
-        data = new uint[1];
-        data[0] = value;
+    UnboundedUint(uint value) {
+      if (value>0)
+	{
+	  size=1;
+	  data = new uint[1];
+	  data[0] = value;
+	}
+      else
+	{
+	  size=0;
+	  data = nullptr;
+	}
+      
     }
 
     // todo: implement
-    UnoundedUInt(const UnoundedUInt& other){
+    UnboundedUint(const UnboundedUint& other){
         size = other.size;
         data = new uint[size];
         for (uint i = 0; i < size; i++) {
@@ -180,14 +190,15 @@ struct UnoundedUInt {//unbounded.
         return a > b ? a : b;
     }
 
-    UnoundedUInt operator+(const UnoundedUInt &other) const
+  // written by GPT, unverified
+    UnboundedUint operator+(const UnboundedUint &other) const
     {
         // Find the larger of the two sizes
         uint maxSize = max(size, other.size);
 
         // Special case: if both are zero, return zero
         if (maxSize == 0) {
-            return UnoundedUInt(); // Both operands are effectively 0
+            return UnboundedUint(); // Both operands are effectively 0
         }
 
         // Allocate space for the sum. will reallocate if overflows.
@@ -219,14 +230,14 @@ struct UnoundedUInt {//unbounded.
         }
 
         // Construct the result
-        UnoundedUInt result;
+        UnboundedUint result;
         result.size = newSize;
         result.data = sumData; 
         return result;
     }
 
     //todo: implement
-    UnoundedUInt& operator=(const UnoundedUInt& other) = delete;
+    UnboundedUint& operator=(const UnboundedUint& other) = delete;
 };
 // int main() {
 //     Thread t([]() {
