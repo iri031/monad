@@ -213,6 +213,7 @@ how we lose:
   Example intRep (q:Qp) (x:Z) : Rep := primR "int" q x.
 
   Example UnboundedIntR (q:Qp) (x:Z) : Rep. Abort.
+  (* [g1,1; c3701,3779] *)
   
   Check primR.
   Print val. (* primitive values in C++. vs struct objects/arrays *)
@@ -223,12 +224,13 @@ how we lose:
   Unset Printing Coercions.
 
   Example ptrRep (q:Qp) (mloc: ptr) : Rep := primR "int*" q (Vptr mloc).
+  (* [g1,1; c198,206] *)
 
-  (* open demo.cpp *)
   cpp.spec "fooptr()" as ptrspec with
       (\pre _global "ptr" |-> anyR "int *" 1
        \post _global "ptr" |-> primR "int *" 1 (Vptr (_global "a")) 
       ).
+  (* [g1,1; c209,241] *)
 
   Lemma foopptr: denoteModule module |-- ptrspec.
   Proof.
@@ -244,17 +246,17 @@ how we lose:
   Abort. (* not provable *)
   
   Print ptrspec.
-  Example specstart : WpSpec mpredI val val :=
+  Example specstar : WpSpec mpredI val val :=
     \pre _global "x" |-> primR "int" (1/3) 0
     \pre _global "y" |-> primR "int" (1/3) 0
     \post emp.
   
-  Example specstart2 : WpSpec mpredI val val :=
+  Example specstarEquiv : WpSpec mpredI val val :=
     \pre _global "x" |-> primR "int" (1/3) 0
          ** _global "y" |-> primR "int" (1/3) 0
     \post emp.
 
-  (* functions that take argument *)
+  (** ** functions that take arguments *)
   
   (* now ownership received/returned *)
   cpp.spec "gcd(unsigned int, unsigned int)" as gcd_spec with (
@@ -274,6 +276,7 @@ how we lose:
     \pre resultp |-> anyR uint 1
     \post resultp |-> primR uint 1 (Z.gcd av bv)
       ).
+  (* [g1,1; c375,385] *)
 
   (** \prepost  in sequential code, ..., but in concurrent code ...*)
 
@@ -328,7 +331,7 @@ Parent: Child.join
          (if decide (av*bv < 2^32)
           then primR uint 1 (Z.lcm av bv)
           else Exists garbage, primR uint 1 garbage)
-      ).
+      ). (* [c1290,1312] *)
   
   Definition ThreadR (lamStructName: core.name) (P Q : mpred) : Rep. Proof. Admitted.
   Definition ThreadStartedR (lamStructName: core.name) (Q : mpred) : Rep. Proof. Admitted.
@@ -346,13 +349,13 @@ Parent: Child.join
                 \pre taskPre
                 \post taskPost)
     
-    \post this |-> ThreadR lamStructName taskPre taskPost.
+    \post this |-> ThreadR lamStructName taskPre taskPost. (* [c1231,1285] *)
 
   Definition start (lamStructName: core.name) (this:ptr)
        :WpSpec mpredI val val :=
     \pre{taskPre taskPost} this |-> ThreadR lamStructName taskPre taskPost
     \pre taskPre (* NOT a prepost *)
-    \post this |-> ThreadStartedR lamStructName taskPost.
+    \post this |-> ThreadStartedR lamStructName taskPost. (* [c570,582] *)
 
   Definition join (lamStructName: core.name) (this:ptr)
        : WpSpec mpredI val val :=
@@ -432,9 +435,6 @@ Parent: Child.join
                                              (pp |-> ThreadStartedR ty Q). 
   Proof. Admitted.
   
-  cpp.spec (Nscoped 
-              "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0" Ndtor)  as lamdestr
-                                                                                                                          inline.
 
 
   Lemma par: denoteModule module
@@ -447,47 +447,50 @@ Parent: Child.join
 
   Set Nested Proofs Allowed.
 
+  cpp.spec (Nscoped 
+              "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0" Ndtor)  as lamdestr inline.
+  
   Lemma par: denoteModule module
                ** (thread_class_specs "parallel_gcd_lcm(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0")
-               ** gcd2_spec (* TODO: remove, already proven *)
+               ** gcd2_spec (* proven later in this file *)
              |-- par_gcd_lcm_spec.
   Proof using MODd with (fold cQpc).
     unfold thread_class_specs.
     verify_spec'.
-    slauto...
-    rename a into lam.
-    (* call to [ThreadConstructor] just happened *)
+    slauto.
+    rename a into lam...
+    (* call to [ThreadConstructor] just happened  [c1384,1463]*)
     aggregateRepPieces lam.
     iExists (     gcd_resultp |-> anyR uint 1
                ** ap |-> primR uint (qa/2) av
-               ** bp |-> primR uint (qb/2) bv).
-    instWithPEvar taskPost. (* taskPost: infer it automatically, optimally *)
-    slauto; iSplitL "".
-    (* remaining precond of [ThreadConstructor] *)
+               ** bp |-> primR uint (qb/2) bv)...
+    instWithPEvar taskPost... (* taskPost: infer it automatically, optimally *)
+    slauto; iSplitL ""...
+    (* scroll up: remaining precond of [ThreadConstructor] *)
     { verify_spec'.
-      go. (* any postcond choice must be implied by currently available context => it is the strongest postcond *)
+      go... (* any postcond choice must be implied by currently available context => it is the strongest postcond *)
       erefl.
       (* inferring both \pre and \post: no optimality guarantee *)
     }
     unhideAllFromWork.
     iIntrosDestructs.
-    subst taskPost. (* now we have the postcond of Thread constructor *)
+    subst taskPost... (* now we have the postcond of Thread constructor *)
     
-    do 11 run1... (* call to  [start]. *)
+    do 11 run1... (* [g2350,2357; c1469,1479]. *)
     Remove Hints primR_split_C: br_opacity.
-    step. (* preconditions of [start]*)
+    step... (* preconditions of [start]*)
     do 2 step... (* lost gcd_resultp. *)
     rewrite (primr_split ap);
     rewrite (primr_split bp)...
-    run1. (* got only TheadStartedR back,lost ownership gcd_resultp, 1/2 of a,b. 1/2 suffices for a,b. next: operands of * *)
+    run1... (* got only TheadStartedR back,lost ownership gcd_resultp, 1/2 of a,b. 1/2 suffices for a,b. next: operands of * *)
     Hint Resolve primR_split_C: br_opacity.
 
     name_locals.
-    do 7 run1... (* call to join() *)
+    do 7 run1... (* call to [join] [g2408,2415; c1558,1567] *)
     run1... (* back: gcd_resultp ownership, updated value. other halfs:imp!. *)
     do 4 run1;
-    do 1 (step;[slauto|]); step; step;[slauto|] . (* next: / *)
-    step.
+    do 1 (step;[slauto|]); step; step;[slauto|]... (*/ [g2257,2261; c1591,1592] *)
+    step...
     pose proof (Z.gcd_eq_0 av bv);
     pose proof (Z.gcd_nonneg av bv);
     go. (* code finished, remaining postcond:  *)
