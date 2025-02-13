@@ -153,7 +153,6 @@ Context  {MODd : exb.module ⊧ CU}.
   Lemma learnVUnsafe e t (r:e->Rep): LearnEq2 (VectorR t r).
   Proof. solve_learnable. Qed.
   #[global] Instance learnVUnsafe2 e t: LearnEq3 (@VectorR e t) := ltac:(solve_learnable).
-  #[global] Instance learnArrUnsafe e t: LearnEq2 (@arrayR _ _ _ e _ t) := ltac:(solve_learnable).
   #[global] Instance learnpArrUnsafe e t: LearnEq2 (@parrayR _ _ _ _ e t) := ltac:(solve_learnable).
   #[global] Instance learnVectorRbase: LearnEq4 VectorRbase:= ltac:(solve_learnable).
   #[global] Instance learnPpool : LearnEq2 PriorityPoolR := ltac:(solve_learnable).

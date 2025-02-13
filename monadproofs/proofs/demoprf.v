@@ -21,6 +21,8 @@ the cursor can be in the green region, in which case, Coq will rewind.
 C-c M-i (press CTRL, then c, release CTRL, press Meta/Alt, press i, release all): recompile dependencies of current file (only those that changed or whose deps changed) and then reload coq for this file and check this file until cursor.
 If you change demo.cpp, you must press this key binding so that the dune build system will regenerate the AST of monad/proofs/demo.cpp into monad/proofs/demo.v, compile demo.v to demo.vo and then Coq in this file.
 
+M-i: jump to defnition. for this to work, the green region should at least cover all the `Require Import` lines. Ideally, the end of the green region should be just above the cursor. There are some known cases where jump to defn doesnt work, but ask on #formal-verification anyway if it is not working for you
+
 *)
 
 
@@ -28,7 +30,6 @@ Require Import monad.asts.demo. (* monad/proofs/demo.v, the AST of monad/proofs/
 (https://github.com/bluerock-io/BRiCk/blob/master/rocq-bluerock-cpp2v/README.md) *)
 
 Require Import monad.proofs.misc. (* monad/proofs/misc.v *)
-Require Import monad.proofs.libspecs.
 Require Import bedrock.auto.invariants.
 Require Import bedrock.auto.cpp.proof.
 Require Import bedrock.auto.cpp.tactics4.
@@ -364,6 +365,7 @@ Parent: Child.join
   Definition ThreadR (lamStructName: core.name) (P Q : mpred) : Rep. Proof. Admitted.
   Definition ThreadStartedR (lamStructName: core.name) (Q : mpred) : Rep. Proof. Admitted.
   Definition ThreadDoneR (lamStructName: core.name) : Rep. Proof. Admitted.
+  Definition taskOpName : atomic_name := (Nop function_qualifiers.Nc OOCall) [].
 
   
   Definition ThreadConstructor (lamStructName: core.name) (this:ptr): WpSpec mpredI val val :=
@@ -998,9 +1000,6 @@ let pieces32 := split_in_32 n in
                            ** arrBase |-> arrayR uint (fun i:N => primR uint q i)  pieces32.
 Proof. simpl.  unfold UnboundUintR. iSplit; go. Qed.
 
-
-Require Import monad.proofs.exec_specs.
-Print execute_block_simpler.
 
 (** Next tutorial sessions
 

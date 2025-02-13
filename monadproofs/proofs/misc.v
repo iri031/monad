@@ -786,7 +786,9 @@ Section cp.
   Lemma primR2_anyR : ∀ t (q:Qp) (v:val) (p:ptr),
       p|-> primR t (q/2) v ** p|->primR t (q/2) v  |-- p|->anyR t q.
   Proof. intros. setoid_rewrite <- primr_split.  go.  Admitted.
-Definition primR2_anyRC := [CANCEL] primR2_anyR.
+  Definition primR2_anyRC := [CANCEL] primR2_anyR.
+  
+  #[global] Instance learnArrUnsafe e t: LearnEq2 (@arrayR _ _ _ e _ t) := ltac:(solve_learnable).
   
 End cp.
 Opaque parrayR.
