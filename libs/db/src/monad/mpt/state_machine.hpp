@@ -11,6 +11,11 @@ struct Compute;
 
 struct StateMachine
 {
+protected:
+    uint8_t depth{0};
+    bool compact_enabled{true};
+
+public:
     virtual ~StateMachine() = default;
     virtual std::unique_ptr<StateMachine> clone() const = 0;
     virtual void down(unsigned char nibble) = 0;
@@ -22,6 +27,21 @@ struct StateMachine
     virtual bool auto_expire() const
     {
         return false;
+    }
+
+    void toggle_compact(bool enable)
+    {
+        compact_enabled = enable;
+    }
+
+    bool need_compact() const
+    {
+        return compact_enabled && compact() && !auto_expire();
+    }
+
+    uint8_t get_depth() const noexcept
+    {
+        return depth;
     }
 };
 

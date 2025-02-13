@@ -47,7 +47,6 @@ struct MachineBase : public mpt::StateMachine
         BlockHash
     };
 
-    uint8_t depth{0};
     TrieType trie_section{TrieType::Undefined};
     TableType table{TableType::Prefix};
 

@@ -152,7 +152,9 @@ TEST(update_aux_test, root_offsets_fast_slow)
             aux_writer.node_writer_fast->sender().offset().add_to_offset(50);
         aux_writer.append_root_offset(start_offset);
         aux_writer.advance_db_offsets_to(
-            end_offset, aux_writer.node_writer_slow->sender().offset());
+            end_offset,
+            aux_writer.node_writer_slow->sender().offset(),
+            aux_writer.node_writer_expire->sender().offset());
     }
     {
         // verify set_io() succeeds

@@ -62,7 +62,6 @@ namespace monad::test
     private:
         static constexpr auto cache_depth = prefix_len + 6;
         static constexpr auto max_depth = prefix_len + 64 + 64;
-        size_t depth{0};
 
     public:
         virtual std::unique_ptr<StateMachine> clone() const override
@@ -116,7 +115,6 @@ namespace monad::test
     private:
         static constexpr auto cache_depth = prefix_len + 6;
         static constexpr auto max_depth = prefix_len + 65;
-        size_t depth{0};
 
     public:
         virtual std::unique_ptr<StateMachine> clone() const override
@@ -173,9 +171,6 @@ namespace monad::test
     template <class Compute, StateMachineConfig config = StateMachineConfig{}>
     class StateMachineAlways final : public StateMachine
     {
-    private:
-        size_t depth{0};
-
     public:
         StateMachineAlways() = default;
 

@@ -39,7 +39,9 @@ private:
 
         // reset fast offset to close to the end of last chunk
         state()->aux.advance_db_offsets_to(
-            fast_offset_rewind_to, state()->aux.get_start_of_wip_slow_offset());
+            fast_offset_rewind_to,
+            state()->aux.get_start_of_wip_slow_offset(),
+            state()->aux.get_start_of_wip_expire_offset());
         state()->aux.append_root_offset(INVALID_OFFSET);
         state()->aux.rewind_to_match_offsets();
 
@@ -78,7 +80,7 @@ public:
         auto const chunks_before = state()->fast_list_ids().size();
         // write node
         auto const node_offset =
-            async_write_node_set_spare(state()->aux, *node, true);
+            async_write_node_set_spare(state()->aux, *node, chunk_list::fast);
         if (node->get_disk_size() > remaining_bytes_in_chunk) {
             // Node will be written to the start of next chunk
             auto &new_node_writer = state()->aux.node_writer_fast;
@@ -136,8 +138,10 @@ TEST_F(NodeWriterTest, replace_fast_writer_at_chunk_boundary)
         replace_node_writer(state()->aux, state()->aux.node_writer_fast);
     EXPECT_EQ(new_node_writer->sender().offset().offset, 0);
     EXPECT_NE(new_writer_offset.id, new_node_writer->sender().offset().id);
-    EXPECT_TRUE(state()
-                    ->aux.db_metadata()
-                    ->at(new_node_writer->sender().offset().id)
-                    ->in_fast_list);
+    EXPECT_EQ(
+        state()
+            ->aux.db_metadata()
+            ->at(new_node_writer->sender().offset().id)
+            ->which_list(),
+        chunk_list::fast);
 }

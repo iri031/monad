@@ -535,7 +535,7 @@ Node::UniquePtr create_node_from_children_if_any(
                 std::tie(child.min_offset_fast, child.min_offset_slow) =
                     calc_min_offsets(
                         *child.ptr, aux.physical_to_virtual(child.offset));
-                if (sm.compact()) {
+                if (sm.need_compact()) {
                     MONAD_DEBUG_ASSERT(
                         child.min_offset_fast >= aux.compact_offset_fast);
                     MONAD_DEBUG_ASSERT(
@@ -939,7 +939,7 @@ void dispatch_updates_impl_(
         else if (bit & old->mask) {
             auto &child = children[j];
             child.copy_old_child(old, i);
-            if (aux.is_on_disk() && sm.compact() &&
+            if (aux.is_on_disk() && sm.need_compact() &&
                 (child.min_offset_fast < aux.compact_offset_fast ||
                  child.min_offset_slow < aux.compact_offset_slow)) {
                 bool const copy_node_for_fast =
@@ -1086,7 +1086,7 @@ void mismatch_handler_(
             sm.up(path_suffix.nibble_size() + 1);
             if (auto const [min_offset_fast, min_offset_slow] =
                     calc_min_offsets(*child.ptr);
-                aux.is_on_disk() && sm.compact() &&
+                aux.is_on_disk() && sm.need_compact() &&
                 (min_offset_fast < aux.compact_offset_fast ||
                  min_offset_slow < aux.compact_offset_slow)) {
                 bool const copy_node_for_fast =

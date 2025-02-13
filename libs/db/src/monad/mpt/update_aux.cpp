@@ -1144,6 +1144,7 @@ Node::UniquePtr UpdateAuxImpl::do_update(
     MONAD_ASSERT(is_on_disk());
     set_can_write_to_fast(can_write_to_fast);
 
+    sm.toggle_compact(compaction);
     if (compaction) {
         if (enable_dynamic_history_length_) {
             // WARNING: this step may remove historical versions and free disk
@@ -1192,6 +1193,7 @@ Node::UniquePtr UpdateAuxImpl::do_update(
         std::move(prev_root),
         std::move(root_updates),
         write_root);
+    MONAD_ASSERT(sm.get_depth() == 0);
 
     auto const duration = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - upsert_begin);
