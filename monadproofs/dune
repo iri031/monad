@@ -4,3 +4,13 @@
  (theories
   Lens Lens.Elpi Equations Equations.Prop Equations.Type
   bedrock iris stdpp elpi ExtLib Ltac2 AAC_tactics))
+
+(subdir asts
+ (rule
+  (targets demo.v)
+  (alias test_ast)
+  (deps (:input demo.cpp))
+  (action
+   (run cpp2v -v %{input}  --no-elaborate -o demo.v -- )))
+ (alias (name srcs) (deps demo.cpp))
+)

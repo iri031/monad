@@ -1,5 +1,33 @@
-Require Import monad.asts.demo.
-Require Import monad.proofs.misc.
+(**
+basic emacs tutorial:
+you can your mouse to click on the menu bar above. most of the key bindings are also available via the menu bar
+
+C-x s (press CTRL, then press x, then release CTRL then press s): save current file
+C-x C-s (press CTRL, then press x, then press s then releas all): save all files
+C-s: search
+C-x/C-c/C-v: cut/copy/paste
+C-x c: exit
+C-c o: split the frame horizontally and below, open the file whose pathname the cursor is inside, e.g.
+        /home/abhishek/work/coq/monad/demo.cpp 
+
+if the cursor is inside full pathname of a file, e.g. demomisc.v
+
+Coq specifc key bindings:
+C-rightarrow : check the file until the cursor. the checked part is always highlighted in green. if the cursor
+is below the current green region, the green region will slowly grow till the cursor.
+if the cursor is in the proof script, at the end, the goal at that point will be shown in the RHS window.
+the cursor can be in the green region, in which case, Coq will rewind.
+
+C-c M-i (press CTRL, then c, release CTRL, press Meta/Alt, press i, release all): recompile dependencies of current file (only those that changed or whose deps changed) and then reload coq for this file and check this file until cursor.
+If you change demo.cpp, you must press this key binding so that the dune build system will regenerate the AST of monad/proofs/demo.cpp into monad/proofs/demo.v, compile demo.v to demo.vo and then Coq in this file.
+
+*)
+
+
+Require Import monad.asts.demo. (* monad/proofs/demo.v, the AST of monad/proofs/demo.cpp, produced by the cpp2v tool
+(https://github.com/bluerock-io/BRiCk/blob/master/rocq-bluerock-cpp2v/README.md) *)
+
+Require Import monad.proofs.misc. (* monad/proofs/misc.v *)
 Require Import monad.proofs.libspecs.
 Require Import bedrock.auto.invariants.
 Require Import bedrock.auto.cpp.proof.
@@ -460,7 +488,7 @@ Parent: Child.join
     slauto.
     rename a into lam...
     (* call to [ThreadConstructor] just happened  [c1384,1463]*)
-    aggregateRepPieces lam.
+    aggregateRepPieces lam. go.
     iExists (     gcd_resultp |-> anyR uint 1
                ** ap |-> primR uint (qa/2) av
                ** bp |-> primR uint (qb/2) bv)...
@@ -518,6 +546,154 @@ Parent: Child.join
 
 *)
 
+  
+(** * Exercises *)
+
+  (** ** Exercise 1: explain the bug parallel_gcd_lcm_wrong and how it breaks the proofs.
+Details:  in demo.cpp (in same directory as this file), we have another function, parallel_gcd_lcm_wrong.
+This functions is also included below as a comment for your convenience.
+the only change is that t1.join() is moved down.
+Explain why we cannot prove even a weaker spec for it. Below, in `Lemma parwrong`,  we try to prove the weaker spec.
+Look at the goal state just before `Abort.` and explain where the proof is stuck.
+Does this bug parallel_gcd_lcm_wrong have undefined behaviour? if so, which one?
+
+void parallel_gcd_lcm_wrong(const uint &a, const uint &b, uint &gcd_result, uint &lcm_result) {
+    Thread t1([&gcd_result, &a, &b]() {
+        gcd(a,b, gcd_result);
+    });
+    t1.start();
+    uint product=a*b;
+    lcm_result=product/gcd_result;
+    t1.join();
+}
+   *)
+  cpp.spec "parallel_gcd_lcm_wrong(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)"
+   as par_gcd_lcm_wrong_spec with (
+   \arg{ap} "a" (Vptr ap)
+   \prepost{(qa:Qp) (av:Z)} ap |-> primR uint qa av
+   \arg{bp} "b" (Vptr bp)
+   \prepost{(qb:Qp) (bv:Z)} bp |-> primR uint qb bv
+   \arg{gcd_resultp} "gcd_result" (Vptr gcd_resultp)
+   \prepost gcd_resultp |-> anyR uint 1
+   \arg{lcm_resultp} "lcm_result" (Vptr lcm_resultp)
+   \prepost lcm_resultp |-> anyR uint 1
+   \pre[| 0<bv \/ 0<av |]
+   \post emp
+      ).
+
+  cpp.spec (Nscoped 
+              "parallel_gcd_lcm_wrong(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0" Ndtor)  as lamdestr2 inline.
+  
+  Lemma par_wrong: denoteModule module
+               ** (thread_class_specs "parallel_gcd_lcm_wrong(const unsigned int&, const unsigned int&, unsigned int&, unsigned int&)::@0")
+               ** gcd2_spec (* proven later in this file *)
+             |-- par_gcd_lcm_wrong_spec.
+  Proof using MODd with (fold cQpc).
+    unfold thread_class_specs.
+    verify_spec'.
+    slauto.
+    rename a into lam...
+    (* call to [ThreadConstructor] just happened  [c1384,1463]*)
+    aggregateRepPieces lam. go.
+    iExists (     gcd_resultp |-> anyR uint 1
+               ** ap |-> primR uint (qa/2) av
+               ** bp |-> primR uint (qb/2) bv)...
+    instWithPEvar taskPost... (* taskPost: infer it automatically, optimally *)
+    slauto; iSplitL ""...
+    (* scroll up: remaining precond of [ThreadConstructor] *)
+    { verify_spec'.
+      go... (* any postcond choice must be implied by currently available context => it is the strongest postcond *)
+      erefl.
+      (* inferring both \pre and \post: no optimality guarantee *)
+    }
+    unhideAllFromWork.
+    iIntrosDestructs.
+    subst taskPost... (* now we have the postcond of Thread constructor *)
+    slauto.
+  Abort.
+
+
+  (** ** Exercise2 prove the spec of parallel_gcd_lcm2, which passes most args by value
+Details: The spec is already written bewlow, and  the proof (`Lemma  par_gcd_lcm2_proof`)
+is already done, except for 1 hole, marked below.
+This hole represents the resources that will be given to the child thread when it starts.
+If you fill this hole correctly, the rest of the proof will go through without any change.
+Hint: in this case, the arguments `a` and `b` are captured in the lambda by value, not by reference.
+So, the lambda (struct) has its own copy of `a` and `b` and does not
+actually read those variables from  parallel_gcd_lcm2.
+As beflore, gcd_result is captured by reference, and the lambda directly writes to the gcd_result in parallel_gcd_lcm2
+
+
+uint parallel_gcd_lcm2(uint a, uint b, uint &gcd_result) {
+    Thread t1([&gcd_result, a, b]() {
+          gcd_result=gcd(a,b);
+       });
+    t1.start();
+    uint product=a*b;// pretend this is expensive, e.g. 1000 bit numbers
+    t1.join();
+    return product/gcd_result;
+}
+
+   *)
+
+  cpp.spec "parallel_gcd_lcm2(unsigned int, unsigned int, unsigned int&)"
+   as par_gcd_lcm2_spec with (
+   \arg{av} "a" (Vint av)
+   \arg{bv} "b" (Vint bv)
+   \arg{gcd_resultp} "gcd_result" (Vptr gcd_resultp)
+   \pre gcd_resultp |-> anyR uint 1
+   \pre[| 0<bv \/ 0<av |] (* why is this needed? *)
+   \post [Vint (if decide (av*bv < 2^32) then (Z.lcm av bv) else (((av * bv) `mod` 2^32) `quot` Z.gcd av bv))] 
+           gcd_resultp |-> primR uint 1 (Z.gcd av bv)).
+
+  cpp.spec (Nscoped 
+              "parallel_gcd_lcm2(unsigned int, unsigned int, unsigned int&)::@0" Ndtor)  as lamdestr3 inline.
+
+  Lemma par_gcd_lcm2_proof: denoteModule module
+               ** (thread_class_specs "parallel_gcd_lcm2(unsigned int, unsigned int, unsigned int&)::@0")
+               ** gcd_spec (* proven later in this file *)
+               |-- par_gcd_lcm2_spec.
+  Proof using MODd.
+    unfold thread_class_specs.
+    verify_spec'.
+    slauto.
+    rename a into lam...
+    (* call to [ThreadConstructor] just happened  [c1384,1463]*)
+    aggregateRepPieces lam. go.
+    (* For exercise 2, replace emp in the line below with the approppriate instantiation of taskPre, which denotes the resources that will be given to the child thread(t1). Once you fill it in correctly, the rest of the proof will go through without any change. You can also look at the proof state just after the "go..." 8 lines below to figure out the resources neede by the lambda function and then come back here to update taskPre*)
+    iExists (gcd_resultp |-> anyR uint 1). 
+    
+    instWithPEvar taskPost... (* taskPost: infer it automatically, optimally *)
+    slauto; iSplitL ""...
+    (* prove the spec of the lambda function, with \pre as the taskPre chosen above ** the ownership of the fields of the lambdd struct (captured variables) *)
+    { verify_spec'.
+      go... (* any postcond choice must be implied by currently available context => it is the strongest postcond *)
+      erefl.
+    }
+    unhideAllFromWork.
+    iIntrosDestructs.
+    subst taskPost... (* now we have the postcond of Thread constructor *)
+
+    slauto.
+    pose proof (Z.gcd_eq_0 av bv);
+      pose proof (Z.gcd_nonneg av bv).
+    slauto.
+    case_decide.
+    2:{ (* overflow case*) go. }
+    {
+      icancel (cancel_at p);[| go]. 
+      do 2 f_equiv. (* L is what c++ semantics computed, R is what the postcondition requires *)
+      Arith.remove_useless_mod_a.
+      unfold Z.lcm.
+      rewrite -> Z.lcm_equiv1 by arith.
+      rewrite -> Z.abs_eq by (apply Z_div_nonneg_nonneg; try arith).
+      rewrite Z.quot_div_nonneg; arith.
+    }
+
+   Qed.
+    
+(** End exerciss *)
+  
   (** another source of complexity in proofs: loops
 *)
   Lemma gcd_proof: denoteModule module |-- gcd_spec.
@@ -858,24 +1034,9 @@ p|->arrayR "int*"
       (fun mrow: list Z => Exists rowBase:ptr, primR "int*" q (Vptr rowBase)
                             ** pureR (rowBase |-> arrayR "int" (fun i:Z => primR uint q i) mrow))
       rows.
-    
+
+
+  
+  
 End with_Sigma.
-(*
-
-- map C-q to gpts new highlighter that centers c++ findow
-- remap c=q to a new function that would advance green region to the next ... if a comment end is encountered before the next hightlight region
-- add c++ offsets to the Thread constructor spec, gcd specs
-- add 
-- remove all occurrences nat: define length, take, split, arrayR_split in terms of nat
-- execute_block spec: narrative and prettify
-- remaining goal pprinter
-- make fast the proof of parall_gcd: getting to the 2 breakpoints there
-- check arg names
-- S n by 1+n
-- pretty printing of goal: ltac.
-- remove type in array offset
-- In to ∈
-- docker image
-
- *)
 
