@@ -24,6 +24,10 @@ void fooptr () {
     ptr = &a;
 }
 
+/*
+ pre |-- loopinv 
+ loopinv ** [| loopcond |] {loopbody} loopinv
+ loopinv ** [| ~loopcondition |] => postcondition (a'=gcd av ab) */
 
 uint gcd(uint a, uint b) {
     while (b != 0) {

@@ -76,7 +76,7 @@ Set Nested Proofs Allowed.
     (* cancel highlighted. 1BTC *)
     iFrame... (* y gone from wallet [g278,398]*)
     iIntros... (*[g361,397] write done: receive postcond of write. uniswap *)
-    do 3 run1.
+    do 3 run1...
     (* eval f operand (argument) of + : [g524,549;c140,141] *)
     step... (* cant read uninit location [g399,401; g479,480; g527,528; g719,720] [g392,395; g487,488; g526,527]*)
                                                                                  
@@ -127,7 +127,7 @@ how we lose:
 
   cpp.spec "sfoo()" as sfoo_spec with (
     \pre{xv:Z} _global "a" |-> primR "int" 1 xv
-    \pre{yv:N} _global "b" |-> primR "int" 1 yv
+    \pre{yv:Z} _global "b" |-> primR "int" 1 yv
     \post _global "b" |-> primR "int" 1 ((xv+1))%Z ** _global "a" |-> primR "int" 1 xv
       ).
 
@@ -213,7 +213,7 @@ how we lose:
   Example intRep (q:Qp) (x:Z) : Rep := primR "int" q x.
 
   Example UnboundedIntR (q:Qp) (x:Z) : Rep. Abort.
-  (* [g1,1; c3701,3779] *)
+  (* [c3701,3779] *)
   
   Check primR.
   Print val. (* primitive values in C++. vs struct objects/arrays *)
@@ -224,13 +224,13 @@ how we lose:
   Unset Printing Coercions.
 
   Example ptrRep (q:Qp) (mloc: ptr) : Rep := primR "int*" q (Vptr mloc).
-  (* [g1,1; c198,206] *)
+  (* [c198,206] *)
 
   cpp.spec "fooptr()" as ptrspec with
       (\pre _global "ptr" |-> anyR "int *" 1
        \post _global "ptr" |-> primR "int *" 1 (Vptr (_global "a")) 
       ).
-  (* [g1,1; c209,241] *)
+  (* [c209,241] *)
 
   Lemma foopptr: denoteModule module |-- ptrspec.
   Proof.
@@ -524,13 +524,15 @@ Parent: Child.join
   Proof with (fold cQpc).
     verify_spec.
     slauto...
+    rename av into av_init.
+    rename bv into bv_init.
     wp_while  (fun _ =>
              (Exists av' bv' : Z,
                  [| 0 ≤ av' ≤ 2 ^ 32 - 1 |]
                  **[| 0 ≤ bv' ≤ 2 ^ 32 - 1 |]
                  ** a_addr |-> primR Tu32 1 (Vint av')
                  ** b_addr |-> primR Tu32 1 (Vint bv')
-                 ** [| Z.gcd av' bv' = Z.gcd av bv |]))...
+                 ** [| Z.gcd av' bv' = Z.gcd av_init bv_init |]))...
     slauto.
     ren a_addr av'.
     ren b_addr bv'. (* context is now generalized to be the loopinv: av --> av', but H *)
@@ -540,17 +542,16 @@ Parent: Child.join
       (* reached end of loop body, asked to: 1) return FULL ownership of temp 2) reistablish loopinv *)
       (* av'0 := bv', bv'0:= av' `mod` bv' *)
       slauto. (* gcd of new values of a b = gcd of original a b *)
-      Check Z.gcd_mod.
+      Search Z.gcd (_ `mod` _)%Z.
       aac_rewrite Z.gcd_mod; arith.
     }
 
     { (* loop condition is false =>  bv'=0  and loop terminates*)
-      slauto.
+      slauto...
       (* C++ computes av' as return value but postcondition requires... *)
       Check Z.gcd_0_r_nonneg.
       (* H comes from the loopinv *)
-      aac_rewriteh Z.gcd_0_r_nonneg in H; subst; try arith.
-      go.
+      aac_rewriteh Z.gcd_0_r_nonneg in H;[| assumption]. subst. go.
     }
   Qed.
 
