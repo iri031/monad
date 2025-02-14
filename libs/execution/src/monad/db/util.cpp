@@ -590,7 +590,7 @@ bool OnDiskMachine::cache() const
 
 bool OnDiskMachine::compact() const
 {
-    return depth >= prefix_len();
+    return depth >= prefix_len() && !auto_expire();
 }
 
 bool OnDiskMachine::auto_expire() const

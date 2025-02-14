@@ -88,6 +88,18 @@ struct async_write_node_result
     erased_connected_operation *io_state;
 };
 
+bool verify_node_offset_is_valid(
+    UpdateAuxImpl &aux, StateMachine &sm, chunk_offset_t const node_offset)
+{
+    if (!sm.auto_expire()) {
+        return true;
+    }
+    auto const chunk_type = aux.db_metadata()->at(node_offset.id)->which_list();
+    return (chunk_type == chunk_list::expire) &&
+           (aux.physical_to_virtual(node_offset) >=
+            aux.get_min_virtual_expire_offset_metadata());
+}
+
 // invoke at the end of each block upsert
 void flush_buffered_writes(UpdateAuxImpl &);
 chunk_offset_t write_new_root_node(UpdateAuxImpl &, Node &, uint64_t);
@@ -514,9 +526,12 @@ Node::UniquePtr create_node_from_children_if_any(
                 // won't duplicate write of unchanged old child
                 MONAD_DEBUG_ASSERT(child.branch < 16);
                 MONAD_DEBUG_ASSERT(child.ptr);
-                // TODO: if expire, write to expire list
+                sm.down(child.branch);
                 child.offset = async_write_node_set_spare(
-                    aux, *child.ptr, chunk_list::fast);
+                    aux,
+                    *child.ptr,
+                    sm.auto_expire() ? chunk_list::expire : chunk_list::fast);
+                sm.up(1);
                 std::tie(child.min_offset_fast, child.min_offset_slow) =
                     calc_min_offsets(
                         *child.ptr, aux.physical_to_virtual(child.offset));
@@ -542,6 +557,18 @@ void create_node_compute_data_possibly_async(
     UpdateAuxImpl &aux, StateMachine &sm, UpdateTNode &parent, ChildData &entry,
     tnode_unique_ptr tnode, bool const might_on_disk)
 {
+    // erase outdated node
+    for (auto &child : tnode->children) {
+        if (child.is_valid() && child.offset != INVALID_OFFSET) {
+            sm.down(child.branch);
+            if (sm.auto_expire() &&
+                !verify_node_offset_is_valid(aux, sm, child.offset)) {
+                tnode->mask &= static_cast<uint16_t>(~(1u << child.branch));
+                child.erase();
+            }
+            sm.up(1);
+        }
+    }
     if (might_on_disk && tnode->number_of_children() == 1) {
         auto &child = tnode->children[bitmask_index(
             tnode->orig_mask,
@@ -742,6 +769,13 @@ void upsert_(
     Node::UniquePtr old, chunk_offset_t const old_offset, UpdateList &&updates,
     unsigned prefix_index, unsigned old_prefix_index)
 {
+    if (sm.auto_expire() && old_offset != INVALID_OFFSET) {
+        MONAD_DEBUG_ASSERT( // sanity check, old_offset always valid
+            aux.db_metadata()->at(old_offset.id)->which_list() ==
+                chunk_list::expire &&
+            aux.physical_to_virtual(old_offset) >=
+                aux.get_min_virtual_expire_offset_metadata());
+    }
     if (!old) {
         update_receiver receiver(
             &aux,
@@ -851,7 +885,7 @@ void dispatch_updates_impl_(
     NibblesView const path, std::optional<byte_string_view> const opt_leaf_data,
     int64_t const version)
 {
-    Node *old = old_ptr.get();
+    Node *const old = old_ptr.get();
     uint16_t const orig_mask = old->mask | requests.mask;
     auto const number_of_children =
         static_cast<unsigned>(std::popcount(orig_mask));
@@ -873,18 +907,21 @@ void dispatch_updates_impl_(
         if (bit & requests.mask) {
             children[j] = ChildData{.branch = static_cast<uint8_t>(i)};
             sm.down(children[j].branch);
-            if (bit & old->mask) {
+            // old branch exists and is valid
+            if ((bit & old->mask) &&
+                verify_node_offset_is_valid(
+                    aux, sm, old->fnext(old->to_child_index(i)))) {
+                auto const child_idx = old->to_child_index(i);
                 upsert_(
                     aux,
                     sm,
                     *tnode,
                     children[j],
-                    old->move_next(old->to_child_index(i)),
-                    old->fnext(old->to_child_index(i)),
+                    old->move_next(child_idx),
+                    old->fnext(child_idx),
                     std::move(requests)[i],
                     prefix_index + 1,
                     INVALID_PATH_INDEX);
-                sm.up(1);
             }
             else {
                 create_new_trie_(
@@ -895,8 +932,8 @@ void dispatch_updates_impl_(
                     std::move(requests)[i],
                     prefix_index + 1);
                 --tnode->npending;
-                sm.up(1);
             }
+            sm.up(1);
             ++j;
         }
         else if (bit & old->mask) {

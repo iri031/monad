@@ -399,7 +399,7 @@ bool ChildData::is_valid() const
 
 void ChildData::erase()
 {
-    MONAD_ASSERT(!ptr);
+    ptr = nullptr;
     branch = INVALID_BRANCH;
 }
 

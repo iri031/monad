@@ -294,7 +294,7 @@ Node::UniquePtr copy_trie_to_dest(
             MONAD_ASSERT(aux.db_history_max_version() >= dest_version);
         }
         if (aux.is_on_disk()) {
-            MONAD_ASSERT(root->value_len == sizeof(uint32_t) * 2);
+            MONAD_ASSERT(root->value_len == ROOT_VALUE_SIZE);
         }
         return std::move(root);
     };

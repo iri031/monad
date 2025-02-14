@@ -175,15 +175,14 @@ class UpdateAuxImpl
 
     void advance_compact_offsets(Node &prev_root, uint64_t version);
 
-    void free_compacted_chunks();
+    void free_compacted_chunks_before_count(
+        uint32_t fast_count, uint32_t slow_count, uint32_t expire_count);
 
     void erase_version(uint64_t const version);
 
     void update_disk_growth_data();
 
     /******** Compaction ********/
-    uint32_t chunks_to_remove_before_count_fast_{0};
-    uint32_t chunks_to_remove_before_count_slow_{0};
     // speed control var
     compact_virtual_chunk_offset_t last_block_end_offset_fast_{
         MIN_COMPACT_VIRTUAL_OFFSET};
@@ -701,6 +700,11 @@ public:
     uint64_t get_latest_voted_round() const noexcept;
     uint64_t get_latest_voted_version() const noexcept;
 
+    virtual_chunk_offset_t
+    get_min_virtual_expire_offset_metadata() const noexcept;
+    void
+        set_min_virtual_expire_offset_metadata(virtual_chunk_offset_t) noexcept;
+
     // WARNING: These are destructive, they discard immediately any extraneous
     // data.
     void rewind_to_match_offsets();
@@ -791,7 +795,6 @@ public:
         return get_root_offset_at_version(version) != INVALID_OFFSET;
     }
 
-    // TODO Vicky: better name around this
     chunk_offset_t get_start_of_wip_fast_offset() const noexcept
     {
         MONAD_ASSERT(this->is_on_disk());
@@ -832,7 +835,7 @@ public:
 };
 
 static_assert(
-    sizeof(UpdateAuxImpl) == 184 + sizeof(detail::TrieUpdateCollectedStats));
+    sizeof(UpdateAuxImpl) == 176 + sizeof(detail::TrieUpdateCollectedStats));
 static_assert(alignof(UpdateAuxImpl) == 8);
 
 template <lockable_or_void LockType = void>
@@ -1103,8 +1106,7 @@ calc_min_offsets(
         if (node_virtual_offset.which_list() == chunk_list::fast) {
             fast_ret = truncated_offset;
         }
-        else {
-            MONAD_ASSERT(node_virtual_offset.which_list() == chunk_list::slow);
+        else if (node_virtual_offset.which_list() == chunk_list::slow) {
             slow_ret = truncated_offset;
         }
     }
