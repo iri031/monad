@@ -178,12 +178,15 @@ AsyncIOContext::AsyncIOContext(OnDiskDbConfig const &options)
 class Db::ROOnDiskBlocking final : public Db::Impl
 {
     UpdateAux<> aux_;
+    std::unique_ptr<StateMachine> machine_;
     chunk_offset_t last_loaded_root_offset_;
     Node::UniquePtr root_;
 
 public:
-    explicit ROOnDiskBlocking(AsyncIOContext &io_ctx)
+    explicit ROOnDiskBlocking(
+        AsyncIOContext &io_ctx, std::unique_ptr<StateMachine> machine)
         : aux_(&io_ctx.io)
+        , machine_(std::move(machine))
         , last_loaded_root_offset_{aux_.get_root_offset_at_version(
               aux_.db_history_max_version())}
         , root_{
@@ -229,7 +232,8 @@ public:
         if (!aux().version_is_valid_ondisk(version)) {
             return {NodeCursor{}, find_result::version_no_longer_exist};
         }
-        auto const res = find_blocking(aux(), root, key, version);
+        auto const res =
+            find_blocking(aux(), root, key, version, *machine_->clone());
         // verify version still valid in history after success
         return aux().version_is_valid_ondisk(version)
                    ? res
@@ -342,7 +346,7 @@ public:
         NodeCursor const &root, NibblesView const &key,
         uint64_t const version = 0) override
     {
-        return find_blocking(aux(), root, key, version);
+        return find_blocking(aux(), root, key, version, *machine_.clone());
     }
 
     virtual size_t prefetch_fiber_blocking() override
@@ -410,6 +414,7 @@ struct OnDiskWithWorkerThreadImpl
         Node::UniquePtr dest_root;
         NibblesView dest;
         uint64_t dest_version;
+        std::reference_wrapper<StateMachine> machine;
         bool blocked_by_write;
     };
 
@@ -449,6 +454,7 @@ struct OnDiskWithWorkerThreadImpl
         OwningNodeCursor start;
         NibblesView key;
         uint64_t version;
+        std::reference_wrapper<StateMachine> machine;
     };
 
     using Comms = std::variant<
@@ -524,7 +530,8 @@ struct OnDiskWithWorkerThreadImpl
                                 *req->promise,
                                 req->start,
                                 req->key,
-                                req->version);
+                                req->version,
+                                *req->machine.get().clone());
                         }
                         else {
                             MONAD_ASSERT(req->key.empty());
@@ -613,7 +620,8 @@ struct OnDiskWithWorkerThreadImpl
                             inflights,
                             *req->promise,
                             req->start,
-                            req->key);
+                            req->key,
+                            *req->machine->clone());
                     }
                     else if (auto *req = std::get_if<2>(&request);
                              req != nullptr) {
@@ -690,6 +698,7 @@ struct OnDiskWithWorkerThreadImpl
                             std::move(req->dest_root),
                             req->dest,
                             req->dest_version,
+                            req->machine,
                             req->blocked_by_write);
                         req->promise->set_value(std::move(root));
                     }
@@ -861,7 +870,10 @@ public:
     {
         threadsafe_boost_fibers_promise<find_cursor_result_type> promise;
         fiber_find_request_t req{
-            .promise = &promise, .start = start, .key = key};
+            .promise = &promise,
+            .start = start,
+            .key = key,
+            .machine = &machine_};
         auto fut = promise.get_future();
         comms_.enqueue(req);
         // promise is racily emptied after this point
@@ -900,16 +912,15 @@ public:
         }
         threadsafe_boost_fibers_promise<Node::UniquePtr> promise;
         auto fut = promise.get_future();
-        comms_.enqueue(
-            FiberUpsertRequest{
-                .promise = &promise,
-                .prev_root = std::move(root_),
-                .sm = machine_,
-                .updates = std::move(updates),
-                .version = version,
-                .enable_compaction = enable_compaction && compaction_,
-                .can_write_to_fast = can_write_to_fast,
-                .write_root = write_root});
+        comms_.enqueue(FiberUpsertRequest{
+            .promise = &promise,
+            .prev_root = std::move(root_),
+            .sm = machine_,
+            .updates = std::move(updates),
+            .version = version,
+            .enable_compaction = enable_compaction && compaction_,
+            .can_write_to_fast = can_write_to_fast,
+            .write_root = write_root});
         // promise is racily emptied after this point
         if (worker_->sleeping.load(std::memory_order_acquire)) {
             std::unique_lock const g(lock_);
@@ -944,9 +955,8 @@ public:
         MONAD_ASSERT(root());
         threadsafe_boost_fibers_promise<size_t> promise;
         auto fut = promise.get_future();
-        comms_.enqueue(
-            FiberLoadAllFromBlockRequest{
-                .promise = &promise, .root = *root(), .sm = machine_});
+        comms_.enqueue(FiberLoadAllFromBlockRequest{
+            .promise = &promise, .root = *root(), .sm = machine_});
         // promise is racily emptied after this point
         if (worker_->sleeping.load(std::memory_order_acquire)) {
             std::unique_lock const g(lock_);
@@ -968,13 +978,12 @@ public:
     {
         threadsafe_boost_fibers_promise<bool> promise;
         auto fut = promise.get_future();
-        comms_.enqueue(
-            FiberTraverseRequest{
-                .promise = &promise,
-                .root = node,
-                .machine = machine,
-                .version = version,
-                .concurrency_limit = concurrency_limit});
+        comms_.enqueue(FiberTraverseRequest{
+            .promise = &promise,
+            .root = node,
+            .machine = machine,
+            .version = version,
+            .concurrency_limit = concurrency_limit});
         // promise is racily emptied after this point
         if (worker_->sleeping.load(std::memory_order_acquire)) {
             std::unique_lock const g(lock_);
@@ -993,9 +1002,8 @@ public:
             }
             threadsafe_boost_fibers_promise<Node::UniquePtr> promise;
             auto fut = promise.get_future();
-            comms_.enqueue(
-                FiberLoadRootVersionRequest{
-                    .promise = &promise, .version = version});
+            comms_.enqueue(FiberLoadRootVersionRequest{
+                .promise = &promise, .version = version});
             // promise is racily emptied after this point
             if (worker_->sleeping.load(std::memory_order_acquire)) {
                 std::unique_lock const g(lock_);
@@ -1032,16 +1040,16 @@ public:
 
         threadsafe_boost_fibers_promise<Node::UniquePtr> promise;
         auto fut = promise.get_future();
-        comms_.enqueue(
-            FiberCopyTrieRequest{
-                .promise = &promise,
-                .src_root = src_root,
-                .src = src,
-                .src_version = src_version,
-                .dest_root = std::move(dest_root),
-                .dest = dest,
-                .dest_version = dest_version,
-                .blocked_by_write = blocked_by_write});
+        comms_.enqueue(FiberCopyTrieRequest{
+            .promise = &promise,
+            .src_root = src_root,
+            .src = src,
+            .src_version = src_version,
+            .dest_root = std::move(dest_root),
+            .dest = dest,
+            .dest_version = dest_version,
+            .machine = machine_,
+            .blocked_by_write = blocked_by_write});
         // promise is racily emptied after this point
         if (worker_->sleeping.load(std::memory_order_acquire)) {
             std::unique_lock const g(lock_);
@@ -1075,8 +1083,13 @@ public:
 
 struct RODb::Impl final : public OnDiskWithWorkerThreadImpl
 {
-    Impl(ReadOnlyOnDiskDbConfig const &options)
+    std::unique_ptr<StateMachine> machine_;
+
+    Impl(
+        ReadOnlyOnDiskDbConfig const &options,
+        std::unique_ptr<StateMachine> machine)
         : OnDiskWithWorkerThreadImpl{options}
+        , machine_(std::move(machine))
     {
     }
 
@@ -1094,7 +1107,8 @@ struct RODb::Impl final : public OnDiskWithWorkerThreadImpl
             .promise = &promise,
             .start = start,
             .key = key,
-            .version = version};
+            .version = version,
+            .machine = *machine_};
         auto fut = promise.get_future();
         comms_.enqueue(req);
         // promise is racily emptied after this point
@@ -1120,8 +1134,10 @@ struct RODb::Impl final : public OnDiskWithWorkerThreadImpl
     }
 };
 
-RODb::RODb(ReadOnlyOnDiskDbConfig const &options)
-    : impl_(std::make_unique<Impl>(options))
+RODb::RODb(
+    ReadOnlyOnDiskDbConfig const &options,
+    std::unique_ptr<StateMachine> machine)
+    : impl_(std::make_unique<Impl>(options, std::move(machine)))
 {
 }
 
@@ -1145,6 +1161,7 @@ DbError find_result_to_db_error(find_result const result) noexcept
     case find_result::key_mismatch_failure:
     case find_result::branch_not_exist_failure:
     case find_result::key_ends_earlier_than_node_failure:
+    case find_result::node_is_pruned_by_auto_expiration:
         return DbError::key_not_found;
     case find_result::root_node_is_null_failure:
     case find_result::version_no_longer_exist:
@@ -1198,8 +1215,8 @@ Db::Db(StateMachine &machine, OnDiskDbConfig const &config)
     MONAD_DEBUG_ASSERT(impl_->aux().is_on_disk());
 }
 
-Db::Db(AsyncIOContext &io_ctx)
-    : impl_{std::make_unique<ROOnDiskBlocking>(io_ctx)}
+Db::Db(AsyncIOContext &io_ctx, std::unique_ptr<StateMachine> machine)
+    : impl_{std::make_unique<ROOnDiskBlocking>(io_ctx, std::move(machine))}
 {
 }
 

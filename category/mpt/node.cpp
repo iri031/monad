@@ -66,7 +66,7 @@ Node::Node(prevent_public_construction_tag) {}
 Node::Node(
     prevent_public_construction_tag, uint16_t const mask,
     std::optional<byte_string_view> value, size_t const data_size,
-    NibblesView const path, bool const end_of_path, int64_t const version)
+    NibblesView const path, bool const end_of_path)
     : mask(mask)
     , bitpacked(
           value.has_value(), end_of_path,
@@ -76,7 +76,6 @@ Node::Node(
 
     , value_len(static_cast<decltype(value_len)>(
           value.transform(&byte_string_view::size).value_or(0)))
-    , version(version)
 {
     MONAD_DEBUG_ASSERT(
         value.transform(&byte_string_view::size).value_or(0) <=
@@ -221,14 +220,39 @@ void Node::set_subtrie_min_version(
         sizeof(int64_t));
 }
 
-unsigned char *Node::child_off_data() noexcept
+unsigned char *Node::child_version_data() noexcept
 {
     return child_min_version_data() + number_of_children() * sizeof(int64_t);
 }
 
-unsigned char const *Node::child_off_data() const noexcept
+unsigned char const *Node::child_version_data() const noexcept
 {
     return child_min_version_data() + number_of_children() * sizeof(int64_t);
+}
+
+int64_t Node::child_version(unsigned const index) const noexcept
+{
+    return unaligned_load<int64_t>(
+        child_version_data() + index * sizeof(int64_t));
+}
+
+void Node::set_child_version(
+    unsigned const index, int64_t const version) noexcept
+{
+    std::memcpy(
+        child_version_data() + index * sizeof(int64_t),
+        &version,
+        sizeof(int64_t));
+}
+
+unsigned char *Node::child_off_data() noexcept
+{
+    return child_version_data() + number_of_children() * sizeof(int64_t);
+}
+
+unsigned char const *Node::child_off_data() const noexcept
+{
+    return child_version_data() + number_of_children() * sizeof(int64_t);
 }
 
 uint16_t Node::child_data_offset(unsigned const index) const noexcept
@@ -418,20 +442,21 @@ bool ChildData::is_valid() const
 
 void ChildData::erase()
 {
-    MONAD_ASSERT(!ptr);
+    ptr = nullptr;
     branch = INVALID_BRANCH;
 }
 
 void ChildData::finalize(
-    Node::UniquePtr node, NibblesView const relpath, Compute &compute,
-    bool const cache)
+    Node::UniquePtr node, int64_t const version, NibblesView const relpath,
+    Compute &compute, bool const cache)
 {
     MONAD_DEBUG_ASSERT(is_valid());
     ptr = std::move(node);
     auto const length = compute.compute(data, ptr.get(), relpath);
     MONAD_DEBUG_ASSERT(length <= std::numeric_limits<uint8_t>::max());
     len = static_cast<uint8_t>(length);
-    metadata.min_version = calc_min_version(*ptr);
+    metadata.version = version;
+    metadata.min_version = calc_min_version(*ptr, version);
     cache_node = cache;
 }
 
@@ -470,7 +495,7 @@ void ChildData::copy_old_child(Node *const old, unsigned const i)
 
 Node::UniquePtr make_node(
     Node &from, NibblesView const path, bool const end_of_path,
-    std::optional<byte_string_view> const value, int64_t const version)
+    std::optional<byte_string_view> const value)
 {
     auto const value_size =
         value.transform(&byte_string_view::size).value_or(0);
@@ -485,8 +510,7 @@ Node::UniquePtr make_node(
         value,
         from.data().size(),
         path,
-        end_of_path,
-        version);
+        end_of_path);
 
     // fnext, min_count, child_data_offset
     std::copy_n(
@@ -513,8 +537,7 @@ Node::UniquePtr make_node(
 Node::UniquePtr make_node(
     uint16_t const mask, std::span<ChildData> const children,
     NibblesView const path, bool const end_of_path,
-    std::optional<byte_string_view> const value, size_t const data_size,
-    int64_t const version)
+    std::optional<byte_string_view> const value, size_t const data_size)
 {
     MONAD_DEBUG_ASSERT(data_size <= KECCAK256_SIZE);
     if (value.has_value()) {
@@ -550,8 +573,7 @@ Node::UniquePtr make_node(
         value,
         data_size,
         path,
-        end_of_path,
-        version);
+        end_of_path);
 
     std::copy_n(
         (byte_string_view::pointer)child_data_offsets.data(),
@@ -566,6 +588,7 @@ Node::UniquePtr make_node(
             node->set_subtrie_min_version(index, child.metadata.min_version);
             node->set_next(index, std::move(child.ptr));
             node->set_child_data(index, {child.data, child.len});
+            node->set_child_version(index, child.metadata.version);
             ++index;
         }
     }
@@ -576,11 +599,10 @@ Node::UniquePtr make_node(
 Node::UniquePtr make_node(
     uint16_t const mask, std::span<ChildData> const children,
     NibblesView const path, bool const end_of_path,
-    std::optional<byte_string_view> const value, byte_string_view const data,
-    int64_t const version)
+    std::optional<byte_string_view> const value, byte_string_view const data)
 {
-    auto node = make_node(
-        mask, children, path, end_of_path, value, data.size(), version);
+    auto node =
+        make_node(mask, children, path, end_of_path, value, data.size());
     std::copy_n(data.data(), data.size(), node->data_data());
     return node;
 }
@@ -591,13 +613,12 @@ Node::UniquePtr create_node_with_children(
     Compute &comp, uint16_t const mask, std::span<ChildData> const children,
     NibblesView const path, bool const end_of_path,
     unsigned const relpath_start_index,
-    std::optional<byte_string_view> const value, int64_t const version)
+    std::optional<byte_string_view> const value)
 {
     MONAD_ASSERT(mask);
     auto const data_size = comp.compute_len(
         children, mask, path.substr(relpath_start_index), value);
-    auto node =
-        make_node(mask, children, path, end_of_path, value, data_size, version);
+    auto node = make_node(mask, children, path, end_of_path, value, data_size);
     MONAD_DEBUG_ASSERT(node);
     if (data_size) {
         comp.compute_branch(node->data_data(), node.get());
@@ -640,7 +661,10 @@ deserialize_node_from_buffer(unsigned char const *read_pos, size_t max_bytes)
     auto const disk_size = unaligned_load<uint32_t>(read_pos);
     MONAD_ASSERT_PRINTF(
         disk_size <= max_bytes, "deserialized node disk size is %u", disk_size);
-    MONAD_ASSERT(disk_size > 0 && disk_size <= Node::max_disk_size);
+    MONAD_ASSERT_PRINTF(
+        disk_size > 0 && disk_size <= Node::max_disk_size,
+        "disk_size %u",
+        disk_size);
     read_pos += Node::disk_size_bytes;
     // Load the on disk node
     auto const mask = unaligned_load<uint16_t>(read_pos);
@@ -670,13 +694,22 @@ Node::UniquePtr copy_node(Node const *const node)
     return node_copy;
 }
 
-int64_t calc_min_version(Node const &node)
+int64_t calc_min_version(Node const &node, int64_t const node_version)
 {
-    int64_t min_version = node.version;
+    int64_t min_version = node_version;
     for (unsigned i = 0; i < node.number_of_children(); ++i) {
         min_version = std::min(min_version, node.subtrie_min_version(i));
     }
     return min_version;
+}
+
+int64_t calc_max_subtrie_version(Node const &node)
+{
+    int64_t max_version = 0;
+    for (unsigned i = 0; i < node.number_of_children(); ++i) {
+        max_version = std::max(max_version, node.child_version(i));
+    }
+    return max_version;
 }
 
 MONAD_MPT_NAMESPACE_END

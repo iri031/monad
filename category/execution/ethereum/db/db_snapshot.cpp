@@ -307,7 +307,7 @@ bool monad_db_dump_snapshot(
                              : std::nullopt,
         .dbname_paths = {dbname_paths, dbname_paths + len}};
     AsyncIOContext io_context{config};
-    Db db{io_context};
+    Db db{io_context, std::make_unique<OnDiskMachine>()};
 
     for (uint64_t b = block < 256 ? 0 : block - 255; b <= block; ++b) {
         auto const header = db.get(

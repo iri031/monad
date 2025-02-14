@@ -145,7 +145,7 @@ TEST_F(OnDiskMerkleTrieGTest, min_truncated_offsets)
                 parent->fnext(parent->to_child_index(branch));
             auto const virtual_node_offset =
                 aux.physical_to_virtual(node_offset);
-            if (virtual_node_offset.in_fast_list()) {
+            if (virtual_node_offset.which_list() == chunk_list::fast) {
                 root_to_node_records.push(
                     {&node,
                      compact_virtual_chunk_offset_t{virtual_node_offset},

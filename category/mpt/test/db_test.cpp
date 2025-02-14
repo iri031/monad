@@ -151,6 +151,7 @@ namespace
         using result_t = monad::Result<T>;
 
         AsyncIOContext io_ctx;
+        StateMachineAlwaysMerkle machine;
         Db ro_db;
         AsyncContextUniquePtr ctx;
         std::atomic<size_t> cbs{0}; // callbacks when found
@@ -158,7 +159,8 @@ namespace
         OnDiskDbWithFileAsyncFixture()
             : io_ctx(ReadOnlyOnDiskDbConfig{
                   .dbname_paths = this->config.dbname_paths})
-            , ro_db(io_ctx)
+            , machine(StateMachineAlwaysMerkle{})
+            , ro_db(io_ctx, machine.clone())
             , ctx(async_context_create(ro_db))
         {
         }
@@ -368,9 +370,11 @@ namespace
         static constexpr unsigned keys_per_block = 10;
 
         ROOnDiskWithFileFixture()
-            : ro_db(ReadOnlyOnDiskDbConfig{
-                  .dbname_paths = this->config.dbname_paths,
-                  .node_lru_size = 100})
+            : ro_db(
+                  ReadOnlyOnDiskDbConfig{
+                      .dbname_paths = this->config.dbname_paths,
+                      .node_lru_size = 100},
+                  machine.clone())
             , pool(2, 16)
         {
             init_db_with_data(db, DBTEST_HISTORY_LENGTH, keys_per_block);
@@ -401,8 +405,8 @@ TEST_F(OnDiskDbWithFileFixture, multiple_read_only_db_share_one_asyncio)
         make_update(kv[1].first, kv[1].second));
 
     AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-    Db rodb1{io_ctx};
-    Db rodb2{io_ctx};
+    Db rodb1{io_ctx, machine.clone()};
+    Db rodb2{io_ctx, machine.clone()};
 
     auto verify_read = [&prefix, &starting_block_id](Db &db) {
         EXPECT_EQ(db.get_latest_version(), starting_block_id);
@@ -447,7 +451,7 @@ TEST_F(OnDiskDbWithFileFixture, read_only_db_single_thread)
         0x05a697d6698c55ee3e4d472c4907bca2184648bcfdd0e023e7ff7089dc984e7e_hex);
 
     AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-    Db ro_db{io_ctx};
+    Db ro_db{io_ctx, machine.clone()};
 
     // Verify RO
     EXPECT_EQ(
@@ -726,7 +730,7 @@ TEST_F(OnDiskDbWithFileFixture, open_emtpy_rodb)
 {
     // construct RODb
     AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-    Db ro_db{io_ctx};
+    Db ro_db{io_ctx, machine.clone()};
     // RODb root is invalid
     EXPECT_FALSE(ro_db.root().is_valid());
     EXPECT_EQ(ro_db.get_latest_version(), INVALID_BLOCK_NUM);
@@ -764,7 +768,7 @@ TEST_F(OnDiskDbWithFileFixture, read_only_db_concurrent)
     auto keep_query = [&]() {
         // construct RODb
         AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-        Db ro_db{io_ctx};
+        Db ro_db{io_ctx, machine.clone()};
 
         uint64_t read_version = 0;
         auto start_version_bytes = serialize_as_big_endian<6>(read_version);
@@ -824,7 +828,7 @@ TEST_F(OnDiskDbWithFileFixture, read_only_db_concurrent)
 TEST_F(OnDiskDbWithFileFixture, upsert_but_not_write_root)
 {
     AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-    Db ro_db{io_ctx};
+    Db ro_db{io_ctx, machine.clone()};
 
     // upsert not write root, rodb reads nothing
     auto const k1 = 0x12345678_hex;
@@ -990,7 +994,7 @@ TEST_F(
     }
     // traverse
     AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-    Db ro_db{io_ctx};
+    Db ro_db{io_ctx, machine.clone()};
     TraverseMachinePruneHistory traverse_machine{upsert_once};
     auto const read_version = ro_db.get_earliest_version();
     ASSERT_EQ(read_version, 0);
@@ -1171,7 +1175,7 @@ TEST_F(OnDiskDbWithFileFixture, load_correct_root_upon_reopen_nonempty_db)
     uint64_t const block_id = 0x123;
 
     AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-    Db ro_db{io_ctx};
+    Db ro_db{io_ctx, machine.clone()};
     {
         Db const db{machine, config};
         // db is init to empty
@@ -1234,7 +1238,7 @@ TEST(DbTest, out_of_order_upserts_to_nonexist_earlier_version)
     Db db{machine, config};
 
     AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-    Db rodb{io_ctx};
+    Db rodb{io_ctx, machine.clone()};
 
     constexpr size_t total_keys = 10000;
     auto [bytes_alloc, updates_alloc] = prepare_random_updates(total_keys);
@@ -1293,15 +1297,26 @@ TEST(DbTest, out_of_order_upserts_with_compaction)
         .dbname_paths = {dbname},
         .fixed_history_length = DBTEST_HISTORY_LENGTH};
     Db db{machine, config};
-    AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-    Db rodb{io_ctx};
 
-    auto get_release_offsets = [](monad::byte_string_view const bytes)
-        -> std::pair<uint32_t, uint32_t> {
-        MONAD_ASSERT(bytes.size() == 8);
+    AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    Db rodb{io_ctx, machine.clone()};
+
+    struct ReleaseOffsetsType
+    {
+        uint32_t fast_offset;
+        uint32_t slow_offset;
+        virtual_chunk_offset_t expire_offset;
+    };
+
+    auto get_release_offsets =
+        [](monad::byte_string_view const bytes) -> ReleaseOffsetsType {
+        MONAD_ASSERT(bytes.size() == ROOT_VALUE_SIZE);
         return {
             monad::unaligned_load<uint32_t>(bytes.data()),
-            monad::unaligned_load<uint32_t>(bytes.data() + sizeof(uint32_t))};
+            monad::unaligned_load<uint32_t>(bytes.data() + sizeof(uint32_t)),
+            std::bit_cast<virtual_chunk_offset_t>(
+                monad::unaligned_load<uint64_t>(
+                    bytes.data() + sizeof(uint32_t) * 2))};
     };
 
     auto const prefix = 0x00_hex;
@@ -1329,14 +1344,17 @@ TEST(DbTest, out_of_order_upserts_with_compaction)
         }
         auto const result_n = rodb.get({}, block_id);
         ASSERT_TRUE(result_n.has_value());
-        auto const [fast_n, slow_n] = get_release_offsets(result_n.value());
+        auto const [fast_offset_n, slow_offset_n, expire_offset_n] =
+            get_release_offsets(result_n.value());
         monad::Result<monad::byte_string_view> const res =
             rodb.get({}, block_id - 1);
         ASSERT_TRUE(res.has_value());
         monad::byte_string const result_before{res.value()};
-        auto const [fast_n_1, slow_n_1] = get_release_offsets(result_before);
-        EXPECT_GE(fast_n, fast_n_1);
-        EXPECT_GE(slow_n, slow_n_1);
+        auto const [fast_offset_n_1, slow_offset_n_1, expire_offset_n_1] =
+            get_release_offsets(result_before);
+        EXPECT_GE(fast_offset_n, fast_offset_n_1);
+        EXPECT_GE(slow_offset_n, slow_offset_n_1);
+        EXPECT_GE(expire_offset_n, expire_offset_n_1);
         // upsert on top of N-1
         upsert_updates_flat_list(
             db,
@@ -1364,11 +1382,12 @@ TEST(DbTest, out_of_order_upserts_with_compaction)
     ASSERT_EQ(n, block_id * keys_per_version);
     auto const result_n = rodb.get({}, block_id - 1);
     ASSERT_TRUE(result_n.has_value());
-    auto const [fast_n, slow_n] = get_release_offsets(result_n.value());
+    auto const [fast_offset_n, slow_offset_n, expire_offset_n] =
+        get_release_offsets(result_n.value());
     EXPECT_EQ(
         rodb.get_data({prefix}, block_id - 1).value(),
         0x03786bcd10037502a4e08158de71f8078a40ce46c93ba13db90cb11841679f5e_hex);
-    EXPECT_GT(fast_n, 0);
+    EXPECT_GT(fast_offset_n, 0);
 }
 
 TYPED_TEST(DbTest, simple_with_same_prefix)
@@ -1759,7 +1778,7 @@ TEST_F(OnDiskDbFixture, rw_query_old_version)
     EXPECT_EQ(bad_read.error(), DbError::version_no_longer_exist);
 }
 
-TEST(DbTest, DISABLED_auto_expire_large_set)
+TEST(DbTest, auto_expire_large_set)
 {
     auto const dbname = create_temp_file(8);
     auto undb = monad::make_scope_exit(
@@ -1777,7 +1796,7 @@ TEST(DbTest, DISABLED_auto_expire_large_set)
     Db db{machine, config};
 
     auto const prefix = 0x00_hex;
-    monad::byte_string const value(256 * 1024, 0);
+    monad::byte_string const value(32, 0);
     std::vector<monad::byte_string> keys;
     std::vector<monad::byte_string> values;
     constexpr unsigned keys_per_block = 5;
@@ -1823,7 +1842,7 @@ TEST(DbTest, DISABLED_auto_expire_large_set)
     }
 }
 
-TEST(DbTest, DISABLED_auto_expire)
+TEST(DbTest, auto_expire)
 {
     auto const dbname = create_temp_file(8);
     auto undb = monad::make_scope_exit(
@@ -1832,11 +1851,12 @@ TEST(DbTest, DISABLED_auto_expire)
         EmptyCompute,
         StateMachineConfig{.expire = true, .cache_depth = 3}>
         machine{};
+    constexpr uint64_t history_len = 5;
     OnDiskDbConfig config{
         .compaction = true,
         .sq_thread_cpu{std::nullopt},
         .dbname_paths = {dbname},
-        .fixed_history_length = 5};
+        .fixed_history_length = history_len};
     Db db{machine, config};
     auto const prefix = 0x00_hex;
     // insert 10 keys
@@ -1852,20 +1872,21 @@ TEST(DbTest, DISABLED_auto_expire)
             block_id,
             make_update(
                 keys[block_id], keys[block_id], false, UpdateList{}, block_id));
-        EXPECT_TRUE(db.get(prefix + keys[block_id], block_id).has_value())
+        ASSERT_TRUE(db.get(prefix + keys[block_id], block_id).has_value())
             << block_id;
-    }
-
-    uint64_t latest_block_id = db.get_latest_version(),
-             earliest_block_id = db.get_earliest_version();
-    for (unsigned i = 0; i <= latest_block_id; ++i) {
-        auto const res = db.get(prefix + keys[i], latest_block_id);
-        if (i < earliest_block_id) { // keys 0-4 are expired
-            EXPECT_FALSE(res.has_value()) << i;
-        }
-        else {
-            EXPECT_TRUE(res.has_value()) << i;
-            EXPECT_EQ(res.value(), keys[i]);
+        auto const earliest_block_id = db.get_earliest_version();
+        if (block_id >= history_len) {
+            for (unsigned i = 0; i < block_id; ++i) {
+                auto const res = db.get(prefix + keys[i], block_id);
+                if (i >= earliest_block_id) {
+                    ASSERT_TRUE(res.has_value())
+                        << "block " << block_id << " key index " << i;
+                    EXPECT_EQ(res.value(), keys[i]);
+                }
+                else {
+                    ASSERT_FALSE(res.has_value()) << i;
+                }
+            }
         }
     }
 
@@ -1874,6 +1895,7 @@ TEST(DbTest, DISABLED_auto_expire)
     for (uint64_t i = 0; i < 5; ++i) {
         keys.emplace_back(serialize_as_big_endian<8>(i + offset));
     }
+    auto const latest_block_id = db.get_latest_version();
     for (uint64_t block_id = latest_block_id + 1;
          block_id <= 5 + latest_block_id;
          ++block_id) {
@@ -1883,20 +1905,19 @@ TEST(DbTest, DISABLED_auto_expire)
             block_id,
             make_update(
                 keys[block_id], keys[block_id], false, UpdateList{}, block_id));
-        EXPECT_TRUE(db.get(prefix + keys[block_id], block_id).has_value())
+        ASSERT_TRUE(db.get(prefix + keys[block_id], block_id).has_value())
             << block_id;
-    }
-
-    latest_block_id = db.get_latest_version(); // 14
-    earliest_block_id = db.get_earliest_version(); // 10
-    for (unsigned i = 0; i <= latest_block_id; ++i) {
-        auto const res = db.get(prefix + keys[i], latest_block_id);
-        if (i < earliest_block_id) { // keys 0-9 are expired
-            EXPECT_FALSE(res.has_value()) << i;
-        }
-        else {
-            EXPECT_TRUE(res.has_value()) << i;
-            EXPECT_EQ(res.value(), keys[i]);
+        auto const earliest_block_id = db.get_earliest_version();
+        for (unsigned i = 0; i < block_id; ++i) {
+            auto const res = db.get(prefix + keys[i], block_id);
+            if (i >= earliest_block_id) {
+                ASSERT_TRUE(res.has_value())
+                    << "block " << block_id << " key index " << i;
+                EXPECT_EQ(res.value(), keys[i]);
+            }
+            else {
+                ASSERT_FALSE(res.has_value()) << i;
+            }
         }
     }
 }
@@ -1977,7 +1998,7 @@ TEST_F(OnDiskDbWithFileFixture, copy_trie_to_different_version_modify_state)
         db, prefix, block_id, make_update(kv_alloc[0], kv_alloc[0]));
 
     AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-    Db rodb{io_ctx};
+    Db rodb{io_ctx, machine.clone()};
 
     // copy trie to a new version
     // read: can't read new dest version until upserting
@@ -2100,7 +2121,7 @@ TEST_F(OnDiskDbWithFileFixture, move_trie_causes_discontinuous_history)
 {
     EXPECT_EQ(db.get_history_length(), DBTEST_HISTORY_LENGTH);
     AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-    Db ro_db{io_ctx};
+    Db ro_db{io_ctx, machine.clone()};
     EXPECT_EQ(ro_db.get_history_length(), DBTEST_HISTORY_LENGTH);
 
     // continuous upsert() and move_trie_version_forward() leads to
@@ -2212,7 +2233,7 @@ TEST_F(OnDiskDbWithFileFixture, move_trie_version_forward_within_history_range)
 {
     EXPECT_EQ(db.get_history_length(), DBTEST_HISTORY_LENGTH);
     AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-    Db ro_db{io_ctx};
+    Db ro_db{io_ctx, machine.clone()};
     EXPECT_EQ(ro_db.get_history_length(), DBTEST_HISTORY_LENGTH);
 
     auto const &kv = fixed_updates::kv;
@@ -2251,7 +2272,7 @@ TEST_F(
 {
     EXPECT_EQ(db.get_history_length(), DBTEST_HISTORY_LENGTH);
     AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-    Db ro_db{io_ctx};
+    Db ro_db{io_ctx, machine.clone()};
     EXPECT_EQ(ro_db.get_history_length(), DBTEST_HISTORY_LENGTH);
 
     auto const &kv = fixed_updates::kv;
@@ -2299,7 +2320,7 @@ TEST_F(OnDiskDbWithFileFixture, reset_history_length_concurrent)
 {
     std::atomic<bool> done{false};
     AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-    Db ro_db{io_ctx};
+    Db ro_db{io_ctx, machine.clone()};
     auto const prefix = 0x00_hex;
 
     // fille rwdb with some blocks
@@ -2393,7 +2414,7 @@ TEST_F(OnDiskDbWithFileFixture, rwdb_reset_history_length)
     EXPECT_TRUE(db.get(prefix + kv[1].first, min_block_num_before).has_value());
 
     AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-    Db ro_db{io_ctx};
+    Db ro_db{io_ctx, machine.clone()};
     EXPECT_EQ(ro_db.get_history_length(), DBTEST_HISTORY_LENGTH);
     EXPECT_TRUE(ro_db.get(prefix + kv[1].first, 0).has_error());
     EXPECT_TRUE(ro_db.get(prefix + kv[1].first, max_block_id).has_value());

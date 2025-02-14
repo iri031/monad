@@ -175,7 +175,7 @@ public:
     version(interior node) >= max(version of the leaf nodes under its prefix),
     it is greater than only when the latest update in the subtrie contains only
     deletions. */
-    int64_t version{0};
+    // int64_t version{0};
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -226,7 +226,7 @@ public:
     Node(
         prevent_public_construction_tag, uint16_t mask,
         std::optional<byte_string_view> value, size_t data_size,
-        NibblesView path, bool end_of_path, int64_t version);
+        NibblesView path, bool end_of_path);
     Node(Node const &) = delete;
     Node(Node &&) = default;
     ~Node();
@@ -261,6 +261,12 @@ public:
     unsigned char const *child_min_version_data() const noexcept;
     int64_t subtrie_min_version(unsigned index) const noexcept;
     void set_subtrie_min_version(unsigned index, int64_t version) noexcept;
+
+    //! child version array
+    unsigned char *child_version_data() noexcept;
+    unsigned char const *child_version_data() const noexcept;
+    int64_t child_version(unsigned index) const noexcept;
+    void set_child_version(unsigned index, int64_t version) noexcept;
 
     //! data_offset array
     unsigned char *child_off_data() noexcept;
@@ -311,8 +317,8 @@ public:
 };
 
 static_assert(std::is_standard_layout_v<Node>, "required by offsetof");
-static_assert(sizeof(Node) == 16);
-static_assert(alignof(Node) == 8);
+static_assert(sizeof(Node) == 8);
+static_assert(alignof(Node) == 4);
 
 struct SubtrieMetadata
 {
@@ -322,6 +328,7 @@ struct SubtrieMetadata
     compact_virtual_chunk_offset_t min_offset_slow{
         INVALID_COMPACT_VIRTUAL_OFFSET};
     int64_t min_version{std::numeric_limits<int64_t>::max()};
+    int64_t version{0};
 
     SubtrieMetadata() = default;
 
@@ -330,11 +337,12 @@ struct SubtrieMetadata
         , min_offset_fast(parent.min_offset_fast(child_index))
         , min_offset_slow(parent.min_offset_slow(child_index))
         , min_version(parent.subtrie_min_version(child_index))
+        , version{parent.child_version(child_index)}
     {
     }
 };
 
-static_assert(sizeof(SubtrieMetadata) == 24);
+static_assert(sizeof(SubtrieMetadata) == 32);
 static_assert(alignof(SubtrieMetadata) == 8);
 
 // ChildData is for temporarily holding a child's info, including child ptr,
@@ -351,13 +359,15 @@ struct ChildData
     bool is_valid() const;
     void erase();
     void copy_old_child(Node *old, unsigned child_branch);
-    void finalize(Node::UniquePtr, NibblesView relpath, Compute &, bool cache);
+    void finalize(
+        Node::UniquePtr, int64_t version, NibblesView relpath, Compute &,
+        bool cache);
     void recompute_data_with_truncated_path(
         unsigned branch_to_old, Node::UniquePtr old_node, SubtrieMetadata,
         unsigned new_path_start_index, Compute &, bool cache);
 };
 
-static_assert(sizeof(ChildData) == 72);
+static_assert(sizeof(ChildData) == 80);
 static_assert(alignof(ChildData) == 8);
 
 constexpr size_t calculate_node_size(
@@ -368,7 +378,7 @@ constexpr size_t calculate_node_size(
     return sizeof(Node) +
            (sizeof(uint16_t) // child data offset
             + sizeof(compact_virtual_chunk_offset_t) * 2 // min truncated offset
-            + sizeof(int64_t) // subtrie min versions
+            + sizeof(int64_t) * 2 // subtrie min versions and child version
             + sizeof(chunk_offset_t) + sizeof(Node *)) *
                number_of_children +
            total_child_data_size + value_size + path_size + data_size;
@@ -386,22 +396,21 @@ constexpr size_t MAX_VALUE_LEN_OF_LEAF =
 
 Node::UniquePtr make_node(
     Node &from, NibblesView path, bool end_of_path,
-    std::optional<byte_string_view> value, int64_t version);
+    std::optional<byte_string_view> value);
 
 Node::UniquePtr make_node(
     uint16_t mask, std::span<ChildData>, NibblesView path, bool end_of_path,
-    std::optional<byte_string_view> value, size_t data_size, int64_t version);
+    std::optional<byte_string_view> value, size_t data_size);
 
 Node::UniquePtr make_node(
     uint16_t mask, std::span<ChildData>, NibblesView path, bool end_of_path,
-    std::optional<byte_string_view> value, byte_string_view data,
-    int64_t version);
+    std::optional<byte_string_view> value, byte_string_view data);
 
 // create node: either branch/extension, with or without leaf
 Node::UniquePtr create_node_with_children(
     Compute &, uint16_t mask, std::span<ChildData> children, NibblesView path,
     bool end_of_path, unsigned relpath_start_index,
-    std::optional<byte_string_view> value, int64_t version);
+    std::optional<byte_string_view> value);
 
 void serialize_node_to_buffer(
     unsigned char *write_pos, unsigned bytes_to_write, Node const &,
@@ -412,7 +421,10 @@ deserialize_node_from_buffer(unsigned char const *read_pos, size_t max_bytes);
 
 Node::UniquePtr copy_node(Node const *);
 
-int64_t calc_min_version(Node const &);
+int64_t calc_min_version(
+    Node const &, int64_t node_version = std::numeric_limits<int64_t>::max());
+
+int64_t calc_max_subtrie_version(Node const &);
 
 // Iterate over the children of a node returning the index and the branch
 // Usage: for (auto const [index, branch] : NodeChildrenRange(node.mask)) {...}

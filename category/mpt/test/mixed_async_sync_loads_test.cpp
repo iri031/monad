@@ -71,8 +71,10 @@ TEST_F(MixedAsyncSyncLoadsTest, works)
     state.initiate();
 
     // Synchronously load the same key
+    monad::test::StateMachineAlwaysEmpty machine{};
     EXPECT_EQ(
-        find_blocking(aux, *root, key, latest_version).first.node->value(),
+        find_blocking(aux, *root, key, latest_version, machine)
+            .first.node->value(),
         value);
 
     // Let the async find of that key complete

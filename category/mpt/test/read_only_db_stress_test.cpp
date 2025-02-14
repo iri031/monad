@@ -15,10 +15,10 @@
 
 #include <category/core/assert.h>
 #include <category/core/byte_string.hpp>
+#include <category/core/fiber/priority_pool.hpp>
 #include <category/core/hex_literal.hpp>
 #include <category/core/keccak.hpp>
 #include <category/core/small_prng.hpp>
-#include <category/core/fiber/priority_pool.hpp>
 #include <category/mpt/db.hpp>
 #include <category/mpt/ondisk_db_config.hpp>
 #include <category/mpt/test/test_fixtures_base.hpp>
@@ -204,7 +204,7 @@ int main(int argc, char *const argv[])
             ReadOnlyOnDiskDbConfig const ro_config{
                 .dbname_paths = {dbname_paths}};
             AsyncIOContext io_ctx{ro_config};
-            Db ro_db{io_ctx};
+            Db ro_db{io_ctx, std::make_unique<StateMachineAlwaysMerkle>()};
 
             while (ro_db.get_latest_version() == INVALID_BLOCK_NUM && !g_done) {
             }
@@ -252,7 +252,7 @@ int main(int argc, char *const argv[])
             ReadOnlyOnDiskDbConfig const ro_config{
                 .dbname_paths = {dbname_paths}};
             AsyncIOContext io_ctx{ro_config};
-            Db ro_db{io_ctx};
+            Db ro_db{io_ctx, std::make_unique<StateMachineAlwaysMerkle>()};
             auto async_ctx = async_context_create(ro_db);
 
             unsigned nsuccess = 0;
@@ -348,7 +348,7 @@ int main(int argc, char *const argv[])
             ReadOnlyOnDiskDbConfig const ro_config{
                 .dbname_paths = {dbname_paths}};
             AsyncIOContext io_ctx{ro_config};
-            Db ro_db{io_ctx};
+            Db ro_db{io_ctx, std::make_unique<StateMachineAlwaysMerkle>()};
 
             unsigned nsuccess = 0;
             unsigned nfailed = 0;
@@ -466,7 +466,7 @@ int main(int argc, char *const argv[])
                 ReadOnlyOnDiskDbConfig const ro_config{
                     .dbname_paths = dbname_paths};
                 AsyncIOContext io_ctx{ro_config};
-                Db ro_db{io_ctx};
+                Db ro_db{io_ctx, std::make_unique<StateMachineAlwaysMerkle>()};
                 auto const version = ro_db.get_earliest_version() + 1;
                 auto const value =
                     serialize_as_big_endian<sizeof(uint64_t)>(version);

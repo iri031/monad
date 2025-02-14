@@ -151,7 +151,9 @@ TEST_F(
     aux.append(monad::mpt::chunk_list::fast, idx);
     monad::async::chunk_offset_t const new_fast_writer_offset{idx, 0};
     aux.advance_db_offsets_to(
-        new_fast_writer_offset, aux.node_writer_slow->sender().offset());
+        new_fast_writer_offset,
+        aux.node_writer_slow->sender().offset(),
+        aux.node_writer_expire->sender().offset());
     std::cout << "Advanced start of fast list offset on disk from ["
               << fast_writer_offset.id << ", " << fast_writer_offset.offset
               << "] to the beginning of a new chunk, id: " << idx << std::endl;

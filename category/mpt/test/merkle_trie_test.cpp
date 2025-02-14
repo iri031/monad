@@ -73,6 +73,7 @@ TYPED_TEST(TrieTest, nested_leave_one_child_on_branch_with_leaf)
             this->aux,
             *this->sm,
             {},
+            0,
             make_update(key1, value, false, std::move(next)));
     }
 
@@ -84,6 +85,7 @@ TYPED_TEST(TrieTest, nested_leave_one_child_on_branch_with_leaf)
             this->aux,
             *this->sm,
             std::move(this->root),
+            0,
             make_update(key1, value, false, std::move(next)));
     }
 
@@ -105,14 +107,14 @@ TYPED_TEST(TrieTest, insert_one_element)
 
     // single update
     this->root =
-        upsert_updates(this->aux, *this->sm, {}, make_update(key, val1));
+        upsert_updates(this->aux, *this->sm, {}, 0, make_update(key, val1));
     EXPECT_EQ(
         this->root_hash(),
         0xa1aa368afa323866e03c21927db548afda3da793f4d3c646d7dd8109477b907e_hex);
 
     // update again
     this->root = upsert_updates(
-        this->aux, *this->sm, std::move(this->root), make_update(key, val2));
+        this->aux, *this->sm, std::move(this->root), 0, make_update(key, val2));
     EXPECT_EQ(
         this->root_hash(),
         0x5d225e3b0f1f386171899d343211850f102fa15de6e808c6f614915333a4f3ab_hex);
@@ -126,6 +128,7 @@ TYPED_TEST(TrieTest, simple_inserts)
         this->aux,
         *this->sm,
         {},
+        0,
         make_update(kv[0].first, kv[0].second),
         make_update(kv[1].first, kv[1].second));
     EXPECT_EQ(
@@ -136,6 +139,7 @@ TYPED_TEST(TrieTest, simple_inserts)
         this->aux,
         *this->sm,
         std::move(this->root),
+        0,
         make_update(kv[2].first, kv[2].second),
         make_update(kv[3].first, kv[3].second));
     EXPECT_EQ(
@@ -151,6 +155,7 @@ TYPED_TEST(TrieTest, upsert_fixed_key_length)
         this->aux,
         *this->sm,
         {},
+        0,
         make_update(kv[0].first, kv[0].second),
         make_update(kv[1].first, kv[1].second));
     EXPECT_EQ(
@@ -162,6 +167,7 @@ TYPED_TEST(TrieTest, upsert_fixed_key_length)
         this->aux,
         *this->sm,
         std::move(this->root),
+        0,
         make_update(kv[2].first, kv[2].second),
         make_update(kv[3].first, kv[3].second));
     EXPECT_EQ(
@@ -173,6 +179,7 @@ TYPED_TEST(TrieTest, upsert_fixed_key_length)
         this->aux,
         *this->sm,
         std::move(this->root),
+        0,
         make_update(kv[4].first, kv[4].second),
         make_update(kv[5].first, kv[5].second),
         make_update(kv[6].first, kv[6].second));
@@ -182,13 +189,21 @@ TYPED_TEST(TrieTest, upsert_fixed_key_length)
 
     // erases
     this->root = upsert_updates(
-        this->aux, *this->sm, std::move(this->root), make_erase(kv[4].first));
+        this->aux,
+        *this->sm,
+        std::move(this->root),
+        0,
+        make_erase(kv[4].first));
     EXPECT_EQ(
         this->root_hash(),
         0x3467f96b8c7a1f9646cbee98500111b37d160ec0f02844b2bdcb89c8bcd3878a_hex);
 
     this->root = upsert_updates(
-        this->aux, *this->sm, std::move(this->root), make_erase(kv[6].first));
+        this->aux,
+        *this->sm,
+        std::move(this->root),
+        0,
+        make_erase(kv[6].first));
     EXPECT_EQ(
         this->root_hash(),
         0xdba3fae4737cde5014f6200508d7659ccc146b760e3a2ded47d7c422372b6b6c_hex);
@@ -197,6 +212,7 @@ TYPED_TEST(TrieTest, upsert_fixed_key_length)
         this->aux,
         *this->sm,
         std::move(this->root),
+        0,
         make_erase(kv[2].first),
         make_erase(kv[3].first),
         make_erase(kv[5].first));
@@ -205,14 +221,22 @@ TYPED_TEST(TrieTest, upsert_fixed_key_length)
         0xb28f388f1d98e9f2fc9daa80988cb324e0d517a86fb1f46b0bf8670728143001_hex);
 
     this->root = upsert_updates(
-        this->aux, *this->sm, std::move(this->root), make_erase(kv[1].first));
+        this->aux,
+        *this->sm,
+        std::move(this->root),
+        0,
+        make_erase(kv[1].first));
     EXPECT_EQ(
         this->root_hash(),
         0x065ed1753a679bbde2ce3ba5af420292b86acd3fdc2ad74215d54cc10b2add72_hex);
 
     // erase the last one
     this->root = upsert_updates(
-        this->aux, *this->sm, std::move(this->root), make_erase(kv[0].first));
+        this->aux,
+        *this->sm,
+        std::move(this->root),
+        0,
+        make_erase(kv[0].first));
     EXPECT_EQ(this->root, nullptr);
 }
 
@@ -225,6 +249,7 @@ TYPED_TEST(TrieTest, insert_unrelated_leaves_then_read)
         this->aux,
         *this->sm,
         {},
+        0,
         make_update(kv[0].first, kv[0].second),
         make_update(kv[1].first, kv[1].second));
     EXPECT_EQ(
@@ -236,35 +261,36 @@ TYPED_TEST(TrieTest, insert_unrelated_leaves_then_read)
         this->aux,
         *this->sm,
         std::move(this->root),
+        0,
         make_update(kv[2].first, kv[2].second),
         make_update(kv[3].first, kv[3].second));
     EXPECT_EQ(
         this->root_hash(),
         0xd339cf4033aca65996859d35da4612b642664cc40734dbdd40738aa47f1e3e44_hex);
 
-    auto [leaf_it, res] =
-        find_blocking(this->aux, *this->root, kv[0].first, version);
+    auto [leaf_it, res] = find_blocking(
+        this->aux, *this->root, kv[0].first, version, *this->sm->clone());
     EXPECT_EQ(res, monad::mpt::find_result::success);
     EXPECT_EQ(
         (monad::byte_string_view{
             leaf_it.node->value_data(), leaf_it.node->value_len}),
         kv[0].second);
-    std::tie(leaf_it, res) =
-        find_blocking(this->aux, *this->root, kv[1].first, version);
+    std::tie(leaf_it, res) = find_blocking(
+        this->aux, *this->root, kv[1].first, version, *this->sm->clone());
     EXPECT_EQ(res, monad::mpt::find_result::success);
     EXPECT_EQ(
         (monad::byte_string_view{
             leaf_it.node->value_data(), leaf_it.node->value_len}),
         kv[1].second);
-    std::tie(leaf_it, res) =
-        find_blocking(this->aux, *this->root, kv[2].first, version);
+    std::tie(leaf_it, res) = find_blocking(
+        this->aux, *this->root, kv[2].first, version, *this->sm->clone());
     EXPECT_EQ(res, monad::mpt::find_result::success);
     EXPECT_EQ(
         (monad::byte_string_view{
             leaf_it.node->value_data(), leaf_it.node->value_len}),
         kv[2].second);
-    std::tie(leaf_it, res) =
-        find_blocking(this->aux, *this->root, kv[3].first, version);
+    std::tie(leaf_it, res) = find_blocking(
+        this->aux, *this->root, kv[3].first, version, *this->sm->clone());
     EXPECT_EQ(res, monad::mpt::find_result::success);
     EXPECT_EQ(
         (monad::byte_string_view{
@@ -299,7 +325,7 @@ TYPED_TEST(TrieTest, inserts_shorter_leaf_data)
 TYPED_TEST(TrieTest, empty_trie_with_empty_update)
 {
     // no update
-    this->root = upsert_updates(this->aux, *this->sm, std::move(this->root));
+    this->root = upsert_updates(this->aux, *this->sm, std::move(this->root), 0);
     EXPECT_EQ(
         this->root_hash(),
         0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421_hex);
@@ -319,7 +345,7 @@ TYPED_TEST(EraseTrieTest, none)
 TYPED_TEST(EraseTrieTest, empty_update_list)
 {
     // no update
-    this->root = upsert_updates(this->aux, *this->sm, std::move(this->root));
+    this->root = upsert_updates(this->aux, *this->sm, std::move(this->root), 0);
     EXPECT_EQ(
         this->root_hash(),
         0x22f3b7fc4b987d8327ec4525baf4cb35087a75d9250a8a3be45881dd889027ad_hex);
@@ -350,6 +376,7 @@ TYPED_TEST(EraseTrieTest, delete_single_branch)
         this->aux,
         *this->sm,
         std::move(this->root),
+        0,
         make_erase(kv[2].first),
         make_erase(kv[3].first));
     EXPECT_EQ(
@@ -362,25 +389,41 @@ TYPED_TEST(EraseTrieTest, delete_one_at_a_time)
     auto kv = fixed_updates::kv;
 
     this->root = upsert_updates(
-        this->aux, *this->sm, std::move(this->root), make_erase(kv[2].first));
+        this->aux,
+        *this->sm,
+        std::move(this->root),
+        0,
+        make_erase(kv[2].first));
     EXPECT_EQ(
         this->root_hash(),
         0xd8b34a85db25148b1901459eac9805edadaa20b03f41fecd3b571f3b549e2774_hex);
 
     this->root = upsert_updates(
-        this->aux, *this->sm, std::move(this->root), make_erase(kv[1].first));
+        this->aux,
+        *this->sm,
+        std::move(this->root),
+        0,
+        make_erase(kv[1].first));
     EXPECT_EQ(
         this->root_hash(),
         0x107c8dd7bf9e7ca1faaa2c5856b412a8d7fccfa0005ca2500673a86b9c1760de_hex);
 
     this->root = upsert_updates(
-        this->aux, *this->sm, std::move(this->root), make_erase(kv[0].first));
+        this->aux,
+        *this->sm,
+        std::move(this->root),
+        0,
+        make_erase(kv[0].first));
     EXPECT_EQ(
         this->root_hash(),
         0x15fa9c02a40994d2d4f9c9b21daba3c4e455985490de5f9ae4889548f34d5873_hex);
 
     this->root = upsert_updates(
-        this->aux, *this->sm, std::move(this->root), make_erase(kv[3].first));
+        this->aux,
+        *this->sm,
+        std::move(this->root),
+        0,
+        make_erase(kv[3].first));
     EXPECT_EQ(
         this->root_hash(),
         0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421_hex);
@@ -408,6 +451,7 @@ TYPED_TEST(TrieTest, nested_fixed_length_tries)
         this->aux,
         *this->sm,
         {},
+        0,
         make_update(kv[0].first, kv[0].second, false, std::move(storage)),
         make_update(kv[1].first, kv[1].second));
     EXPECT_EQ(
@@ -424,6 +468,7 @@ TYPED_TEST(TrieTest, nested_fixed_length_tries)
         this->aux,
         *this->sm,
         std::move(this->root),
+        0,
         make_update(acc1, new_val, false, std::move(storage)));
     EXPECT_EQ(
         this->root_hash(),
@@ -437,6 +482,7 @@ TYPED_TEST(TrieTest, nested_fixed_length_tries)
         this->aux,
         *this->sm,
         std::move(this->root),
+        0,
         make_update(kv[0].first, std::move(storage)));
     EXPECT_EQ(
         this->root_hash(),
@@ -450,6 +496,7 @@ TYPED_TEST(TrieTest, nested_fixed_length_tries)
         this->aux,
         *this->sm,
         std::move(this->root),
+        0,
         make_update(kv[0].first, std::move(storage)));
     EXPECT_EQ(
         this->root_hash(),
@@ -465,6 +512,7 @@ TYPED_TEST(TrieTest, nested_fixed_length_tries)
         this->aux,
         *this->sm,
         std::move(this->root),
+        0,
         make_update(kv[0].first, std::move(storage)));
     EXPECT_EQ(
         this->root_hash(),
@@ -477,6 +525,7 @@ TYPED_TEST(TrieTest, nested_fixed_length_tries)
         this->aux,
         *this->sm,
         std::move(this->root),
+        0,
         make_update(kv[0].first, new_val, true, std::move(storage)));
     EXPECT_EQ(
         this->root_hash(),
@@ -491,6 +540,7 @@ TYPED_TEST(TrieTest, nested_fixed_length_tries)
         this->aux,
         *this->sm,
         std::move(this->root),
+        0,
         make_update(kv[1].first, std::move(storage)));
     EXPECT_EQ(
         this->root_hash(),
@@ -503,6 +553,7 @@ TYPED_TEST(TrieTest, nested_fixed_length_tries)
         this->aux,
         *this->sm,
         std::move(this->root),
+        0,
         make_update(kv[0].first, std::move(storage)));
     EXPECT_EQ(
         this->root_hash(),
@@ -510,7 +561,11 @@ TYPED_TEST(TrieTest, nested_fixed_length_tries)
 
     // erase whole first account (kv[0])
     this->root = upsert_updates(
-        this->aux, *this->sm, std::move(this->root), make_erase(kv[0].first));
+        this->aux,
+        *this->sm,
+        std::move(this->root),
+        0,
+        make_erase(kv[0].first));
     EXPECT_EQ(
         this->root_hash(),
         0x2c077fecb021212686442677ecd59ac2946c34e398b723cf1be431239cb11858_hex);
@@ -534,6 +589,7 @@ TYPED_TEST(TrieTest, verify_correct_compute_at_section_edge)
         this->aux,
         *this->sm,
         {},
+        0,
         make_update(prefix1, empty_value),
         make_update(prefix2, empty_value, false, std::move(next)));
 
@@ -561,6 +617,7 @@ TYPED_TEST(TrieTest, root_data_always_hashed)
         this->aux,
         *this->sm,
         {},
+        0,
         make_update(key1, value1),
         make_update(key2, value2));
 
@@ -597,8 +654,8 @@ TYPED_TEST(TrieTest, aux_do_update_fixed_history_len)
             std::move(ul_prefix),
             block_id,
             true /*compaction*/);
-        auto [state_it, res] =
-            find_blocking(this->aux, *this->root, prefix, block_id);
+        auto [state_it, res] = find_blocking(
+            this->aux, *this->root, prefix, block_id, *this->sm->clone());
         EXPECT_EQ(res, find_result::success);
         EXPECT_EQ(
             state_it.node->data(),
@@ -640,8 +697,8 @@ TYPED_TEST(TrieTest, variable_length_trie)
     auto const value = 0xbeef_hex;
 
     // single element in trie
-    this->root =
-        upsert_updates(this->aux, *this->sm, {}, make_update(keylong, value));
+    this->root = upsert_updates(
+        this->aux, *this->sm, {}, 0, make_update(keylong, value));
     EXPECT_EQ(
         this->root_hash(),
         0x82a7b59bf8abe584aef31b580efaadbf19d0eba0e4ea8986e23db14ba9be6cb2_hex);
@@ -651,6 +708,7 @@ TYPED_TEST(TrieTest, variable_length_trie)
         this->aux,
         *this->sm,
         {},
+        0,
         make_update(key0, value),
         make_update(key1, value),
         make_update(key16, value),
@@ -669,6 +727,7 @@ TYPED_TEST(TrieTest, variable_length_trie)
         this->aux,
         *this->sm,
         {},
+        0,
         make_update(key0, long_value),
         make_update(key1, long_value),
         make_update(key16, long_value),
@@ -681,15 +740,15 @@ TYPED_TEST(TrieTest, variable_length_trie)
 
     // find
     {
-        auto [node0, res] =
-            find_blocking(this->aux, *this->root, key0, version);
+        auto [node0, res] = find_blocking(
+            this->aux, *this->root, key0, version, *this->sm->clone());
         EXPECT_EQ(res, monad::mpt::find_result::success);
         EXPECT_EQ(node0.node->value(), long_value);
     }
 
     {
-        auto [node_long, res] =
-            find_blocking(this->aux, *this->root, keylong, version);
+        auto [node_long, res] = find_blocking(
+            this->aux, *this->root, keylong, version, *this->sm->clone());
         EXPECT_EQ(res, monad::mpt::find_result::success);
         EXPECT_EQ(node_long.node->value(), long_value);
     }
@@ -733,15 +792,19 @@ TYPED_TEST(TrieTest, variable_length_trie_with_prefix)
 
     // find
     {
-        auto [node0, res] =
-            find_blocking(this->aux, *this->root, prefix + key0, version);
+        auto [node0, res] = find_blocking(
+            this->aux, *this->root, prefix + key0, version, *this->sm->clone());
         EXPECT_EQ(res, monad::mpt::find_result::success);
         EXPECT_EQ(node0.node->value(), value);
     }
 
     {
-        auto [node_long, res] =
-            find_blocking(this->aux, *this->root, prefix + keylong, version);
+        auto [node_long, res] = find_blocking(
+            this->aux,
+            *this->root,
+            prefix + keylong,
+            version,
+            *this->sm->clone());
         EXPECT_EQ(res, monad::mpt::find_result::success);
         EXPECT_EQ(node_long.node->value(), value);
     }

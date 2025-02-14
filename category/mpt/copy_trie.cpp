@@ -35,7 +35,7 @@ MONAD_MPT_NAMESPACE_BEGIN
 
 Node::UniquePtr create_node_add_new_branch(
     UpdateAuxImpl &aux, Node *const node, unsigned char const new_branch,
-    Node::UniquePtr new_child, uint64_t const new_version,
+    Node::UniquePtr new_child, int64_t const new_version,
     std::optional<byte_string_view> opt_value)
 {
     uint16_t const mask =
@@ -46,7 +46,9 @@ Node::UniquePtr create_node_add_new_branch(
             auto &child = children[j];
             child.branch = (unsigned char)i;
             child.ptr = std::move(new_child);
-            child.metadata.min_version = calc_min_version(*child.ptr);
+            child.metadata.version = new_version;
+            child.metadata.min_version =
+                calc_min_version(*child.ptr, new_version);
             if (aux.is_on_disk()) {
                 child.metadata.offset = async_write_node_set_spare(
                     aux, *child.ptr, chunk_list::fast);
@@ -64,6 +66,7 @@ Node::UniquePtr create_node_add_new_branch(
             child.branch = (unsigned char)i;
             child.ptr = node->move_next(old_j);
             child.metadata.min_version = node->subtrie_min_version(old_j);
+            child.metadata.version = node->child_version(old_j);
             if (aux.is_on_disk()) {
                 child.metadata.min_offset_fast = node->min_offset_fast(old_j);
                 child.metadata.min_offset_slow = node->min_offset_slow(old_j);
@@ -80,14 +83,13 @@ Node::UniquePtr create_node_add_new_branch(
         node->path_nibble_view(),
         node->end_of_path(),
         opt_value,
-        0,
-        static_cast<int64_t>(new_version));
+        0);
 }
 
 Node::UniquePtr create_node_with_two_children(
     UpdateAuxImpl &aux, NibblesView const path, unsigned char const branch0,
     Node::UniquePtr child0, unsigned char const branch1, Node::UniquePtr child1,
-    uint64_t const new_version, std::optional<byte_string_view> opt_value)
+    int64_t const new_version, std::optional<byte_string_view> opt_value)
 {
     // mismatch: split node's path: turn node to a branch node with two
     // children
@@ -98,7 +100,8 @@ Node::UniquePtr create_node_with_two_children(
     {
         auto &child = children[!zero_comes_first];
         child.ptr = std::move(child0);
-        child.metadata.min_version = calc_min_version(*child.ptr);
+        child.metadata.version = new_version;
+        child.metadata.min_version = calc_min_version(*child.ptr, new_version);
         child.branch = branch0;
         if (aux.is_on_disk()) {
             child.metadata.offset =
@@ -111,7 +114,8 @@ Node::UniquePtr create_node_with_two_children(
     {
         auto &child = children[zero_comes_first];
         child.ptr = std::move(child1);
-        child.metadata.min_version = calc_min_version(*child.ptr);
+        child.metadata.version = new_version;
+        child.metadata.min_version = calc_min_version(*child.ptr, new_version);
         child.branch = branch1;
         if (aux.is_on_disk()) {
             child.metadata.offset =
@@ -121,34 +125,25 @@ Node::UniquePtr create_node_with_two_children(
                 child.metadata.min_offset_slow) = calc_min_offsets(*child.ptr);
         }
     }
-    return make_node(
-        mask,
-        std::span(children),
-        path,
-        false,
-        opt_value,
-        0,
-        static_cast<int64_t>(new_version));
+    return make_node(mask, std::span(children), path, false, opt_value, 0);
 }
 
 Node::UniquePtr copy_trie_impl(
     UpdateAuxImpl &aux, Node &src_root, NibblesView const src_prefix,
     uint64_t const src_version, Node::UniquePtr root, NibblesView const dest,
-    uint64_t const dest_version)
+    uint64_t const dest_version, StateMachine const &machine)
 {
     auto [src_cursor, res] =
-        find_blocking(aux, src_root, src_prefix, src_version);
+        find_blocking(aux, src_root, src_prefix, src_version, *machine.clone());
     MONAD_ASSERT(res == find_result::success);
     Node &src_node = *src_cursor.node;
     if (!root) {
         auto new_node = make_node(
-            src_node,
-            dest,
-            src_node.end_of_path(),
-            src_node.opt_value(),
-            static_cast<int64_t>(dest_version));
+            src_node, dest, src_node.end_of_path(), src_node.opt_value());
         ChildData child{.ptr = std::move(new_node), .branch = dest.get(0)};
-        child.metadata.min_version = calc_min_version(*child.ptr);
+        child.metadata.version = static_cast<int64_t>(dest_version);
+        child.metadata.min_version =
+            calc_min_version(*child.ptr, static_cast<int64_t>(dest_version));
         if (aux.is_on_disk()) {
             child.metadata.offset =
                 async_write_node_set_spare(aux, *child.ptr, chunk_list::fast);
@@ -164,8 +159,7 @@ Node::UniquePtr copy_trie_impl(
             {},
             false, /* new branch node is not end_of_path */
             src_root.value(),
-            0,
-            static_cast<int64_t>(dest_version));
+            0);
     }
     // serialize to buffer for each new node created
     Node *parent = nullptr;
@@ -201,11 +195,7 @@ Node::UniquePtr copy_trie_impl(
             // copy children of src_node to under `dest` prefix, move the in
             // memory children to `dest` node
             auto dest_latter_half = make_node(
-                src_node,
-                dest,
-                src_node.end_of_path(),
-                src_node.opt_value(),
-                src_node.version);
+                src_node, dest, src_node.end_of_path(), src_node.opt_value());
             // move node to under new_node
             auto node_latter_half =
                 parent ? parent->move_next(parent->to_child_index(branch))
@@ -217,7 +207,7 @@ Node::UniquePtr copy_trie_impl(
                 std::move(dest_latter_half),
                 node_nibble,
                 std::move(node_latter_half),
-                dest_version,
+                static_cast<int64_t>(dest_version),
                 node == root.get() ? std::make_optional(src_root.value())
                                    : std::nullopt);
             break;
@@ -243,17 +233,13 @@ Node::UniquePtr copy_trie_impl(
         MONAD_DEBUG_ASSERT(
             prefix_index < std::numeric_limits<unsigned char>::max());
         auto dest_node = make_node(
-            src_node,
-            dest,
-            src_node.end_of_path(),
-            src_node.opt_value(),
-            src_node.version);
+            src_node, dest, src_node.end_of_path(), src_node.opt_value());
         new_node = create_node_add_new_branch(
             aux,
             node,
             nibble,
             std::move(dest_node),
-            dest_version,
+            static_cast<int64_t>(dest_version),
             node == root.get() ? std::make_optional(src_root.value())
                                : std::nullopt);
         break;
@@ -265,8 +251,7 @@ Node::UniquePtr copy_trie_impl(
             src_node,
             node->path_nibble_view(),
             src_node.end_of_path(),
-            src_node.opt_value(),
-            static_cast<int64_t>(dest_version));
+            src_node.opt_value());
     }
     if (node == root.get()) {
         MONAD_ASSERT(parents_and_indexes.empty());
@@ -289,7 +274,9 @@ Node::UniquePtr copy_trie_impl(
                 calc_min_offsets(node);
             p->set_min_offset_fast(i, min_offset_fast);
             p->set_min_offset_slow(i, min_offset_slow);
-            p->set_subtrie_min_version(i, calc_min_version(node));
+            p->set_child_version(i, static_cast<int64_t>(dest_version));
+            p->set_subtrie_min_version(
+                i, calc_min_version(node, static_cast<int64_t>(dest_version)));
             parents_and_indexes.pop();
         }
     }
@@ -301,7 +288,7 @@ Node::UniquePtr copy_trie_to_dest(
     UpdateAuxImpl &aux, Node &src_root, NibblesView const src_prefix,
     uint64_t const src_version, Node::UniquePtr root,
     NibblesView const dest_prefix, uint64_t const dest_version,
-    bool const must_write_to_disk)
+    StateMachine const &machine, bool const must_write_to_disk)
 {
     auto impl = [&]() -> Node::UniquePtr {
         root = copy_trie_impl(
@@ -311,7 +298,8 @@ Node::UniquePtr copy_trie_to_dest(
             src_version,
             std::move(root),
             dest_prefix,
-            dest_version);
+            dest_version,
+            machine);
         if (must_write_to_disk && aux.version_is_valid_ondisk(dest_version) &&
             aux.is_on_disk()) { // DO NOT write new version to disk, only
                                 // upsert() should write new version
@@ -319,7 +307,7 @@ Node::UniquePtr copy_trie_to_dest(
             MONAD_ASSERT(aux.db_history_max_version() >= dest_version);
         }
         if (aux.is_on_disk()) {
-            MONAD_ASSERT(root->value_len == sizeof(uint32_t) * 2);
+            MONAD_ASSERT(root->value_len == ROOT_VALUE_SIZE);
         }
         return std::move(root);
     };

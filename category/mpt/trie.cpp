@@ -102,6 +102,27 @@ struct async_write_node_result
     erased_connected_operation *io_state;
 };
 
+bool verify_node_offset_is_valid(
+    UpdateAuxImpl &aux, StateMachine &sm, chunk_offset_t const node_offset,
+    int64_t const node_version)
+{
+    if (!sm.auto_expire()) {
+        return true;
+    }
+    auto const is_valid =
+        node_version >=
+        static_cast<int64_t>(aux.db_history_min_valid_version());
+    if (is_valid) {
+        auto const chunk_type =
+            aux.db_metadata()->at(node_offset.id)->which_list();
+        MONAD_ASSERT(chunk_type == chunk_list::expire);
+        MONAD_ASSERT(
+            aux.physical_to_virtual(node_offset) >=
+            aux.get_min_virtual_expire_offset_metadata());
+    }
+    return is_valid;
+}
+
 // invoke at the end of each block upsert
 void flush_buffered_writes(UpdateAuxImpl &);
 
@@ -137,11 +158,12 @@ Node::UniquePtr upsert(
                     old_path_nibbles_len, /* prefix_index */
                     old_path,
                     old_node.opt_value(),
-                    old_node.version);
+                    static_cast<int64_t>(version));
                 sm.up(old_path_nibbles_len);
             }
             else {
                 SubtrieMetadata old_metadata{};
+                old_metadata.version = calc_max_subtrie_version(*old);
                 old_metadata.min_version = calc_min_version(*old);
                 upsert_(
                     aux,
@@ -369,7 +391,7 @@ struct update_receiver
     }
 };
 
-static_assert(sizeof(update_receiver) == 88);
+static_assert(sizeof(update_receiver) == 96);
 static_assert(alignof(update_receiver) == 8);
 
 struct read_single_child_receiver
@@ -521,28 +543,22 @@ Node::UniquePtr create_node_from_children_if_any(
     uint16_t const mask, std::span<ChildData> const children,
     NibblesView const path, bool const end_of_path,
     unsigned const relpath_start_index,
-    std::optional<byte_string_view> const leaf_data, int64_t const version)
+    std::optional<byte_string_view> const leaf_data, int64_t &version)
 {
     aux.collect_number_nodes_created_stats();
     // handle non child and single child cases
     auto const number_of_children = static_cast<unsigned>(std::popcount(mask));
     if (number_of_children == 0) {
-        return leaf_data.has_value() ? make_node(
-                                           0,
-                                           {},
-                                           path,
-                                           end_of_path,
-                                           leaf_data.value(),
-                                           {},
-                                           version)
-                                     : Node::UniquePtr{};
+        return leaf_data.has_value()
+                   ? make_node(0, {}, path, end_of_path, leaf_data.value(), {})
+                   : Node::UniquePtr{};
     }
     else if (number_of_children == 1 && !leaf_data.has_value()) {
         auto const j = bitmask_index(
             orig_mask, static_cast<unsigned>(std::countr_zero(mask)));
         MONAD_DEBUG_ASSERT(children[j].ptr);
-        auto node = std::move(children[j].ptr);
-        return node;
+        version = children[j].metadata.version;
+        return std::move(children[j].ptr);
     }
     MONAD_DEBUG_ASSERT(
         number_of_children > 1 ||
@@ -555,8 +571,12 @@ Node::UniquePtr create_node_from_children_if_any(
                 // won't duplicate write of unchanged old child
                 MONAD_DEBUG_ASSERT(child.branch < 16);
                 MONAD_DEBUG_ASSERT(child.ptr);
+                sm.down(child.branch);
                 child.metadata.offset = async_write_node_set_spare(
-                    aux, *child.ptr, chunk_list::fast);
+                    aux,
+                    *child.ptr,
+                    sm.auto_expire() ? chunk_list::expire : chunk_list::fast);
+                sm.up(1);
                 auto const child_virtual_offset =
                     aux.physical_to_virtual(child.metadata.offset);
                 MONAD_DEBUG_ASSERT(
@@ -588,14 +608,26 @@ Node::UniquePtr create_node_from_children_if_any(
         path,
         end_of_path,
         relpath_start_index,
-        leaf_data,
-        version);
+        leaf_data);
 }
 
 void create_node_compute_data_possibly_async(
     UpdateAuxImpl &aux, StateMachine &sm, UpdateTNode &parent, ChildData &entry,
     tnode_unique_ptr tnode, bool const might_on_disk)
 {
+    // erase outdated node
+    for (auto &child : tnode->children) {
+        if (child.is_valid() && child.metadata.offset != INVALID_OFFSET) {
+            sm.down(child.branch);
+            if (sm.auto_expire() &&
+                !verify_node_offset_is_valid(
+                    aux, sm, child.metadata.offset, child.metadata.version)) {
+                tnode->mask &= static_cast<uint16_t>(~(1u << child.branch));
+                child.erase();
+            }
+            sm.up(1);
+        }
+    }
     if (might_on_disk && tnode->number_of_children() == 1) {
         auto &child = tnode->children[bitmask_index(
             tnode->orig_mask,
@@ -623,12 +655,13 @@ void create_node_compute_data_possibly_async(
         tnode->version);
     MONAD_DEBUG_ASSERT(entry.branch < 16);
     if (node) {
-        parent.version = std::max(parent.version, node->version);
+        parent.version = std::max(parent.version, tnode->version);
         NibblesView const path = (std::popcount(tnode->mask) == 1)
                                      ? node->path_nibble_view()
                                      : NibblesView{tnode->path};
         entry.finalize(
             std::move(node),
+            tnode->version,
             path.substr(tnode->path_start_index),
             sm.get_compute(),
             sm.cache());
@@ -674,7 +707,6 @@ void update_value_and_subtrie_(
     else {
         auto const opt_leaf =
             update.value.has_value() ? update.value : old->opt_value();
-        MONAD_ASSERT(update.version >= old->version);
         dispatch_updates_impl_(
             aux,
             sm,
@@ -807,9 +839,10 @@ void create_new_trie_from_requests_(
         opt_leaf_data,
         version);
     MONAD_ASSERT(node);
-    parent_version = std::max(parent_version, node->version);
+    parent_version = std::max(parent_version, version);
     entry.finalize(
         std::move(node),
+        version,
         path.substr(relpath_start_index),
         sm.get_compute(),
         sm.cache());
@@ -871,7 +904,6 @@ void upsert_(
                 !requests.opt_leaf.has_value(),
                 "Invalid update detected: cannot apply variable-length "
                 "updates to a fixed-length table in the database");
-            int64_t const version = old->version;
             auto const opt_leaf_data = old->opt_value();
             dispatch_updates_impl_(
                 aux,
@@ -884,7 +916,7 @@ void upsert_(
                 prefix_index,
                 path,
                 opt_leaf_data,
-                version);
+                old_branch_metadata.version);
             break;
         }
         if (auto old_nibble = old->path_nibble_view().get(prefix_index);
@@ -937,7 +969,7 @@ void dispatch_updates_impl_(
     NibblesView const path, std::optional<byte_string_view> const opt_leaf_data,
     int64_t const version, bool const end_of_path)
 {
-    Node *old = old_ptr.get();
+    Node *const old = old_ptr.get();
     uint16_t const orig_mask = old->mask | requests.mask;
     // tnode->version will be updated bottom up
     auto tnode = make_tnode(
@@ -958,7 +990,12 @@ void dispatch_updates_impl_(
         if ((1 << branch) & requests.mask) {
             children[index].branch = branch;
             sm.down(branch);
-            if ((1 << branch) & old->mask) {
+            if ((1 << branch) & old->mask &&
+                verify_node_offset_is_valid(
+                    aux,
+                    sm,
+                    old->fnext(old->to_child_index(branch)),
+                    old->child_version(old->to_child_index(branch)))) {
                 unsigned const old_child_index = old->to_child_index(branch);
                 upsert_(
                     aux,
@@ -989,6 +1026,7 @@ void dispatch_updates_impl_(
             if (aux.is_on_disk() && sm.compact() &&
                 (child.metadata.min_offset_fast < aux.compact_offset_fast ||
                  child.metadata.min_offset_slow < aux.compact_offset_slow)) {
+                MONAD_ASSERT(!sm.auto_expire());
                 bool const copy_node_for_fast =
                     child.metadata.min_offset_fast < aux.compact_offset_fast;
                 auto compact_tnode = CompactTNode::make(
@@ -1080,6 +1118,7 @@ void mismatch_handler_(
             if (aux.is_on_disk() && sm.compact() &&
                 (child.metadata.min_offset_fast < aux.compact_offset_fast ||
                  child.metadata.min_offset_slow < aux.compact_offset_slow)) {
+                MONAD_ASSERT(!sm.auto_expire());
                 bool const copy_node_for_fast =
                     child.metadata.min_offset_fast < aux.compact_offset_fast;
                 auto compact_tnode = CompactTNode::make(

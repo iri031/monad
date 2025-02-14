@@ -164,14 +164,15 @@ namespace detail
         uint64_t latest_finalized_version;
         uint64_t latest_verified_version;
         uint64_t latest_voted_version;
-        bytes32_t latest_voted_block_id; // 32 bytes
+        bytes32_t latest_voted_block_id;
+        uint64_t min_virtual_expire_offset;
         // TODO: add latest_proposal info, format as follow, remember to
         // subtract those bytes from `future_variables_unused`
         // uint64_t latest_proposal_version;
         // uint8_t latest_proposal_block_id[32];
 
         // padding for adding future atomics without requiring DB reset
-        uint8_t future_variables_unused[4072];
+        uint8_t future_variables_unused[4064];
 
         // used to know if the metadata was being
         // updated when the process suddenly exited

@@ -99,6 +99,7 @@ TEST_F(DbConcurrencyTest1, version_outdated_during_blocking_find)
     ASSERT_TRUE(root);
     auto const &key = state()->keys.front().first;
     auto const &value = state()->keys.front().first;
+    monad::test::StateMachineAlwaysMerkle sm;
 
     // Create a promise/future pair to track completion
     std::promise<int> completion_promise;
@@ -122,7 +123,7 @@ TEST_F(DbConcurrencyTest1, version_outdated_during_blocking_find)
                 root->move_next(idx).reset();
             }
             auto [node_cursor, res] =
-                find_blocking(ro_aux, *root, key, latest_version);
+                find_blocking(ro_aux, *root, key, latest_version, *sm.clone());
             if (res != find_result::success) {
                 ASSERT_EQ(res, find_result::version_no_longer_exist);
                 completion_promise.set_value(count);

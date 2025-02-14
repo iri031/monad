@@ -316,7 +316,7 @@ int main(int const argc, char const *argv[])
             mpt::AsyncIOContext io_ctx{mpt::ReadOnlyOnDiskDbConfig{
                 .sq_thread_cpu = ro_sq_thread_cpu,
                 .dbname_paths = dbname_paths}};
-            mpt::Db ro{io_ctx};
+            mpt::Db ro{io_ctx, std::make_unique<OnDiskMachine>()};
             ctx->ro = &ro;
             while (!token.stop_requested()) {
                 monad_statesync_server_run_once(sync);
@@ -355,7 +355,7 @@ int main(int const argc, char const *argv[])
     if (!db_in_memory) {
         mpt::AsyncIOContext io_ctx{mpt::ReadOnlyOnDiskDbConfig{
             .sq_thread_cpu = ro_sq_thread_cpu, .dbname_paths = dbname_paths}};
-        mpt::Db rodb{io_ctx};
+        mpt::Db rodb{io_ctx, machine->clone()};
         initialized_headers_from_triedb = init_block_hash_buffer_from_triedb(
             rodb, start_block_num, block_hash_buffer);
     }
@@ -443,12 +443,11 @@ int main(int const argc, char const *argv[])
 
     if (!dump_snapshot.empty()) {
         LOG_INFO("Dump db of block: {}", block_num);
-        mpt::AsyncIOContext io_ctx(
-            mpt::ReadOnlyOnDiskDbConfig{
-                .sq_thread_cpu = ro_sq_thread_cpu,
-                .dbname_paths = dbname_paths,
-                .concurrent_read_io_limit = 128});
-        mpt::Db db{io_ctx};
+        mpt::AsyncIOContext io_ctx(mpt::ReadOnlyOnDiskDbConfig{
+            .sq_thread_cpu = ro_sq_thread_cpu,
+            .dbname_paths = dbname_paths,
+            .concurrent_read_io_limit = 128});
+        mpt::Db db{io_ctx, machine->clone()};
         TrieDb ro_db{db};
         write_to_file(ro_db.to_json(), dump_snapshot, block_num);
     }

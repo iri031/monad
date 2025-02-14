@@ -67,7 +67,6 @@ struct MachineBase : public mpt::StateMachine
         CallFrame,
     };
 
-    uint8_t depth{0};
     TrieType trie_section{TrieType::Undefined};
     TableType table{TableType::Prefix};
 
@@ -83,7 +82,7 @@ struct MachineBase : public mpt::StateMachine
     }
 };
 
-static_assert(sizeof(MachineBase) == 16);
+static_assert(sizeof(MachineBase) == 24);
 static_assert(alignof(MachineBase) == 8);
 
 struct InMemoryMachine final : public MachineBase

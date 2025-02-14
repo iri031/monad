@@ -159,7 +159,7 @@ namespace
             , stdb{sdb}
             , sctx{stdb}
             , io_ctx{mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = {sdbname}}}
-            , ro{io_ctx}
+            , ro{io_ctx, std::make_unique<OnDiskMachine>()}
         {
             sctx.ro = &ro;
         }

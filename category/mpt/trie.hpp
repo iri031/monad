@@ -192,7 +192,8 @@ class UpdateAuxImpl
 
     void advance_compact_offsets();
 
-    void free_compacted_chunks();
+    void free_compacted_chunks_before_count(
+        uint32_t fast_count, uint32_t slow_count, uint32_t expire_count);
 
     // clear root offsets of versions <= version
     void clear_root_offsets_up_to_and_including(uint64_t version);
@@ -203,8 +204,6 @@ class UpdateAuxImpl
     void update_disk_growth_data();
 
     /******** Compaction ********/
-    uint32_t chunks_to_remove_before_count_fast_{0};
-    uint32_t chunks_to_remove_before_count_slow_{0};
     // speed control var
     compact_virtual_chunk_offset_t last_block_end_offset_fast_{
         MIN_COMPACT_VIRTUAL_OFFSET};
@@ -723,6 +722,11 @@ public:
     bytes32_t get_latest_voted_block_id() const noexcept;
     uint64_t get_latest_voted_version() const noexcept;
 
+    virtual_chunk_offset_t
+    get_min_virtual_expire_offset_metadata() const noexcept;
+    void
+        set_min_virtual_expire_offset_metadata(virtual_chunk_offset_t) noexcept;
+
     // WARNING: These are destructive, they discard immediately any extraneous
     // data.
     void rewind_to_match_offsets();
@@ -813,7 +817,6 @@ public:
         return get_root_offset_at_version(version) != INVALID_OFFSET;
     }
 
-    // TODO Vicky: better name around this
     chunk_offset_t get_start_of_wip_fast_offset() const noexcept
     {
         MONAD_ASSERT(this->is_on_disk());
@@ -854,7 +857,7 @@ public:
 };
 
 static_assert(
-    sizeof(UpdateAuxImpl) == 184 + sizeof(detail::TrieUpdateCollectedStats));
+    sizeof(UpdateAuxImpl) == 176 + sizeof(detail::TrieUpdateCollectedStats));
 static_assert(alignof(UpdateAuxImpl) == 8);
 
 template <lockable_or_void LockType = void>
@@ -1036,7 +1039,7 @@ Node::UniquePtr upsert(
 Node::UniquePtr copy_trie_to_dest(
     UpdateAuxImpl &, Node &src_root, NibblesView src_prefix,
     uint64_t src_version, Node::UniquePtr dest_root, NibblesView dest_prefx,
-    uint64_t const dest_version, bool must_write_to_disk);
+    uint64_t const dest_version, StateMachine const &, bool must_write_to_disk);
 
 // load all nodes as far as caching policy would allow
 size_t load_all(UpdateAuxImpl &, StateMachine &, NodeCursor);
@@ -1053,6 +1056,7 @@ enum class find_result : uint8_t
     key_mismatch_failure,
     branch_not_exist_failure,
     key_ends_earlier_than_node_failure,
+    node_is_pruned_by_auto_expiration,
     need_to_continue_in_io_thread
 };
 template <class T>
@@ -1063,13 +1067,14 @@ using find_owning_cursor_result_type = find_result_type<OwningNodeCursor>;
 
 using inflight_map_t = unordered_dense_map<
     chunk_offset_t,
-    std::vector<std::function<MONAD_ASYNC_NAMESPACE::result<void>(Node &)>>,
+    std::vector<std::function<MONAD_ASYNC_NAMESPACE::result<void>(
+        Node &, std::unique_ptr<StateMachine> &)>>,
     chunk_offset_t_hasher>;
 
 using inflight_map_owning_t = unordered_dense_map<
     virtual_chunk_offset_t,
     std::vector<std::function<MONAD_ASYNC_NAMESPACE::result<void>(
-        std::shared_ptr<Node> &)>>,
+        std::shared_ptr<Node> &, std::unique_ptr<StateMachine> &)>>,
     virtual_chunk_offset_t_hasher>;
 
 // The request type to put to the fiber buffered channel for triedb thread
@@ -1079,9 +1084,10 @@ struct fiber_find_request_t
     threadsafe_boost_fibers_promise<find_cursor_result_type> *promise;
     NodeCursor start{};
     NibblesView key{};
+    StateMachine const *machine;
 };
 
-static_assert(sizeof(fiber_find_request_t) == 40);
+static_assert(sizeof(fiber_find_request_t) == 48);
 static_assert(alignof(fiber_find_request_t) == 8);
 static_assert(std::is_trivially_copyable_v<fiber_find_request_t> == true);
 
@@ -1095,13 +1101,13 @@ using NodeCache = static_lru_cache<
 void find_notify_fiber_future(
     UpdateAuxImpl &, inflight_map_t &,
     threadsafe_boost_fibers_promise<find_cursor_result_type> &,
-    NodeCursor start, NibblesView key);
+    NodeCursor start, NibblesView key, StateMachine &);
 
 // rodb
 void find_owning_notify_fiber_future(
     UpdateAuxImpl &, NodeCache &, inflight_map_owning_t &,
     threadsafe_boost_fibers_promise<find_owning_cursor_result_type> &promise,
-    OwningNodeCursor &start, NibblesView, uint64_t version);
+    OwningNodeCursor &start, NibblesView, uint64_t version, StateMachine &);
 
 // rodb load root
 void load_root_notify_fiber_future(
@@ -1118,7 +1124,8 @@ synchronization is provided, and user code should make sure no other place is
 modifying trie.
 */
 find_cursor_result_type find_blocking(
-    UpdateAuxImpl const &, NodeCursor, NibblesView key, uint64_t version);
+    UpdateAuxImpl const &, NodeCursor, NibblesView key, uint64_t version,
+    StateMachine &);
 
 /* This function reads a node from the specified physical offset `node_offset`,
 where the spare bits indicate the number of pages to read. It returns a valid
@@ -1150,8 +1157,7 @@ calc_min_offsets(
         if (node_virtual_offset.which_list() == chunk_list::fast) {
             fast_ret = truncated_offset;
         }
-        else {
-            MONAD_ASSERT(node_virtual_offset.which_list() == chunk_list::slow);
+        else if (node_virtual_offset.which_list() == chunk_list::slow) {
             slow_ret = truncated_offset;
         }
     }

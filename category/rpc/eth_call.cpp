@@ -464,7 +464,7 @@ struct monad_eth_call_executor
             // used
             auto const config = mpt::ReadOnlyOnDiskDbConfig{
                 .dbname_paths = paths, .node_lru_size = node_lru_size};
-            return mpt::RODb{config};
+            return mpt::RODb{config, std::make_unique<OnDiskMachine>()};
         }()}
     {
     }

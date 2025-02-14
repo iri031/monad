@@ -231,7 +231,11 @@ struct cli_tool_fixture
 
                 for (auto &key : this->state()->keys) {
                     auto ret = monad::mpt::find_blocking(
-                        aux, root, key.first, aux.db_history_max_version());
+                        aux,
+                        root,
+                        key.first,
+                        aux.db_history_max_version(),
+                        *this->state()->sm.clone());
                     EXPECT_EQ(ret.second, monad::mpt::find_result::success);
                 }
                 EXPECT_EQ(
@@ -334,7 +338,11 @@ struct cli_tool_fixture
 
                     for (auto &key : this->state()->keys) {
                         auto ret = monad::mpt::find_blocking(
-                            aux, root, key.first, aux.db_history_max_version());
+                            aux,
+                            root,
+                            key.first,
+                            aux.db_history_max_version(),
+                            *this->state()->sm.clone());
                         EXPECT_EQ(ret.second, monad::mpt::find_result::success);
                     }
                     EXPECT_EQ(
@@ -366,7 +374,7 @@ TEST_F(cli_tool_archives_restores, archives_restores)
  identically sized DBs, this test ensures that this will remain so.
  */
 struct cli_tool_one_chunk_too_many
-    : public cli_tool_fixture<config{.chunks_to_fill = 4, .chunks_max = 6}>
+    : public cli_tool_fixture<config{.chunks_to_fill = 4, .chunks_max = 7}>
 {
 };
 
@@ -378,7 +386,7 @@ TEST_F(cli_tool_one_chunk_too_many, one_chunk_too_many)
 struct cli_tool_non_one_one_chunk_ids
     : public cli_tool_fixture<config{
           .chunks_to_fill = 4,
-          .chunks_max = 6,
+          .chunks_max = 7,
           .interleave_multiple_sources = true}>
 {
 };

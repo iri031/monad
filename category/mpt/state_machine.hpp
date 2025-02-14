@@ -26,6 +26,10 @@ struct Compute;
 
 struct StateMachine
 {
+protected:
+    size_t depth{0};
+
+public:
     virtual ~StateMachine() = default;
     virtual std::unique_ptr<StateMachine> clone() const = 0;
     virtual void down(unsigned char nibble) = 0;
@@ -38,6 +42,11 @@ struct StateMachine
     virtual bool auto_expire() const
     {
         return false;
+    }
+
+    size_t get_depth() const noexcept
+    {
+        return depth;
     }
 };
 

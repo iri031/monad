@@ -42,13 +42,14 @@ namespace
 
     void find(
         UpdateAuxImpl *aux, inflight_map_t *const inflights, Node *const root,
-        monad::byte_string_view const key, monad::byte_string_view const value)
+        monad::byte_string_view const key, monad::byte_string_view const value,
+        StateMachine *const machine)
     {
         monad::threadsafe_boost_fibers_promise<
             monad::mpt::find_cursor_result_type>
             promise;
         find_notify_fiber_future(
-            *aux, *inflights, promise, NodeCursor{*root}, key);
+            *aux, *inflights, promise, NodeCursor{*root}, key, *machine);
         auto const [it, errc] = promise.get_future().get();
         ASSERT_TRUE(it.is_valid());
         EXPECT_EQ(errc, monad::mpt::find_result::success);
@@ -76,13 +77,15 @@ namespace
             0xcbb6d81afdc76fec144f6a1a283205d42c03c102a94fc210b3a1bcfdcb625884_hex);
 
         inflight_map_t inflights;
+
         boost::fibers::fiber find_fiber(
             find,
             &this->aux,
             &inflights,
             root.get(),
             one_hundred_updates[0].first,
-            one_hundred_updates[0].second);
+            one_hundred_updates[0].second,
+            this->sm.get());
         bool signal_done = false;
         boost::fibers::fiber poll_fiber(poll, aux.io, &signal_done);
         find_fiber.join();
@@ -106,7 +109,13 @@ namespace
         std::vector<boost::fibers::fiber> fibers;
         for (auto const &[key, val] : one_hundred_updates) {
             fibers.emplace_back(
-                find, &this->aux, &inflights, root.get(), key, val);
+                find,
+                &this->aux,
+                &inflights,
+                root.get(),
+                key,
+                val,
+                this->sm.get());
         }
 
         bool signal_done = false;

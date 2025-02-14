@@ -60,7 +60,7 @@ class RODb
     std::unique_ptr<Impl> impl_;
 
 public:
-    RODb(ReadOnlyOnDiskDbConfig const &);
+    RODb(ReadOnlyOnDiskDbConfig const &, std::unique_ptr<StateMachine> machine);
     ~RODb();
 
     RODb(RODb const &) = delete;
@@ -95,7 +95,7 @@ private:
 public:
     Db(StateMachine &); // In-memory mode
     Db(StateMachine &, OnDiskDbConfig const &);
-    Db(AsyncIOContext &);
+    Db(AsyncIOContext &, std::unique_ptr<StateMachine>);
 
     Db(Db const &) = delete;
     Db(Db &&) = delete;

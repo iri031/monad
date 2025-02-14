@@ -167,12 +167,6 @@ bool statesync_server_handle_request(
                 }
             }
 
-            MONAD_ASSERT(node.version >= 0);
-            auto const v = static_cast<uint64_t>(node.version);
-            if (v < from) {
-                return false;
-            }
-
             depth += 1 + ext.nibble_size();
 
             constexpr unsigned HASH_SIZE = KECCAK256_SIZE * 2;
@@ -185,7 +179,7 @@ bool statesync_server_handle_request(
                 addr = std::get<Address>(res.assume_value());
             }
 
-            if (node.has_value() && v <= until) {
+            if (node.has_value()) {
                 auto const send_upsert = [&](monad_sync_type const type,
                                              unsigned char const *const v1 =
                                                  nullptr,
@@ -245,10 +239,17 @@ bool statesync_server_handle_request(
                 MONAD_ASSERT(branch != INVALID_BRANCH);
                 return branch == STATE_NIBBLE || branch == CODE_NIBBLE;
             }
-            auto const v =
-                node.subtrie_min_version(node.to_child_index(branch));
-            MONAD_ASSERT(v >= 0);
-            if (static_cast<uint64_t>(v) > until) {
+            auto const child_index = node.to_child_index(branch);
+            auto const subtrie_min_version =
+                node.subtrie_min_version(child_index);
+            MONAD_ASSERT(subtrie_min_version >= 0);
+            if (static_cast<uint64_t>(subtrie_min_version) > until) {
+                return false;
+            }
+            auto const next_version = node.child_version(child_index);
+            MONAD_ASSERT(next_version >= 0);
+            if (static_cast<uint64_t>(next_version) < from &&
+                static_cast<uint64_t>(next_version) > until) {
                 return false;
             }
             return depth >= prefix.nibble_size() || prefix.get(depth) == branch;

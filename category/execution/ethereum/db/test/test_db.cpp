@@ -244,7 +244,7 @@ TEST(DBTest, read_only)
 
         mpt::AsyncIOContext io_ctx{
             mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = {name}}};
-        mpt::Db ro_db{io_ctx};
+        mpt::Db ro_db{io_ctx, std::make_unique<OnDiskMachine>()};
         TrieDb ro{ro_db};
         ASSERT_EQ(ro.get_block_number(), 1);
         EXPECT_EQ(ro.read_account(ADDR_A), Account{.nonce = 2});
@@ -763,13 +763,12 @@ TYPED_TEST(DBTest, to_json)
   }
 })");
 
-    // RWDb or in memory Db
     EXPECT_EQ(expected_payload, tdb.to_json());
     if (this->on_disk) {
         // also test to_json from a read only db
         mpt::AsyncIOContext io_ctx{
             mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-        mpt::Db ro_db{io_ctx};
+        mpt::Db ro_db{io_ctx, std::make_unique<OnDiskMachine>()};
         TrieDb ro{ro_db};
         EXPECT_EQ(expected_payload, ro.to_json());
 

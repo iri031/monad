@@ -46,6 +46,8 @@ static constexpr uint64_t INVALID_BLOCK_NUM = uint64_t(-1);
 static constexpr uint64_t MIN_HISTORY_LENGTH = 257;
 
 static constexpr uint8_t MAX_PATH_NIBBLES = (1 << 7) - 1; // 127 nibbles
+static constexpr size_t ROOT_VALUE_SIZE =
+    sizeof(uint32_t) * 2 + sizeof(file_offset_t);
 
 static byte_string const empty_trie_hash = [] {
     using namespace ::monad::literals;
@@ -72,6 +74,7 @@ struct virtual_chunk_offset_t
     static constexpr file_offset_t max_offset = (1ULL << 28) - 1;
     static constexpr file_offset_t max_count = (1U << 20) - 1;
     static constexpr file_offset_t max_spare = (1U << 14) - 1;
+    static constexpr file_offset_t max_chunk = (1U << 2) - 1;
 
     static constexpr virtual_chunk_offset_t invalid_value() noexcept
     {
@@ -81,10 +84,10 @@ struct virtual_chunk_offset_t
     constexpr virtual_chunk_offset_t(
         uint32_t count_, file_offset_t offset_, chunk_list list_type_,
         file_offset_t spare_ = max_spare)
-        : offset(offset_ & max_offset)
-        , count(count_ & max_count)
+        : offset{offset_ & max_offset}
+        , count{count_ & max_count}
         , spare{spare_ & max_spare}
-        , list_type((file_offset_t)list_type_)
+        , list_type{(file_offset_t)list_type_ & max_chunk}
     {
         MONAD_DEBUG_ASSERT(spare_ <= max_spare);
         MONAD_DEBUG_ASSERT(count_ <= max_count);

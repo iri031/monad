@@ -130,7 +130,7 @@ TEST(DbBinarySnapshot, Basic)
     {
         AsyncIOContext io_context{
             ReadOnlyOnDiskDbConfig{.dbname_paths = {dest_db}}};
-        mpt::Db db{io_context};
+        mpt::Db db{io_context, std::make_unique<OnDiskMachine>()};
         TrieDb tdb{db};
         for (uint64_t i = 0; i < 100; ++i) {
             tdb.set_block_and_prefix(i);

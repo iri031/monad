@@ -78,7 +78,6 @@ namespace monad::test
     private:
         static constexpr auto cache_depth = prefix_len + 6;
         static constexpr auto max_depth = prefix_len + 64 + 64;
-        size_t depth{0};
 
     public:
         virtual std::unique_ptr<StateMachine> clone() const override
@@ -137,7 +136,6 @@ namespace monad::test
     private:
         static constexpr auto cache_depth = prefix_len + 6;
         static constexpr auto max_depth = prefix_len + 65;
-        size_t depth{0};
 
     public:
         virtual std::unique_ptr<StateMachine> clone() const override
@@ -200,9 +198,6 @@ namespace monad::test
     template <class Compute, StateMachineConfig config = StateMachineConfig{}>
     class StateMachineAlways final : public StateMachine
     {
-    private:
-        size_t depth{0};
-
     public:
         StateMachineAlways() = default;
 
@@ -240,7 +235,7 @@ namespace monad::test
 
         virtual constexpr bool auto_expire() const override
         {
-            return config.expire;
+            return depth != 0 && config.expire;
         }
 
         virtual constexpr bool is_variable_length() const override
@@ -281,10 +276,14 @@ namespace monad::test
     template <class... Updates>
     [[nodiscard]] constexpr Node::UniquePtr upsert_updates(
         UpdateAuxImpl &aux, StateMachine &sm, Node::UniquePtr old,
-        Updates... updates)
+        uint64_t const version, Updates... updates)
     {
         return upsert_updates_with_version(
-            aux, sm, std::move(old), 0, std::forward<Updates>(updates)...);
+            aux,
+            sm,
+            std::move(old),
+            version,
+            std::forward<Updates>(updates)...);
     }
 
     namespace fixed_updates
@@ -506,10 +505,10 @@ namespace monad::test
                     flags);
             }()};
             monad::io::Ring ring1{2};
-            monad::io::Ring ring2{4};
+            monad::io::Ring ring2{6};
             monad::io::Buffers rwbuf{
                 monad::io::make_buffers_for_segregated_read_write(
-                    ring1, ring2, 2, 4,
+                    ring1, ring2, 2, 6,
                     MONAD_ASYNC_NAMESPACE::AsyncIO::MONAD_IO_BUFFERS_READ_SIZE,
                     MONAD_ASYNC_NAMESPACE::AsyncIO::
                         MONAD_IO_BUFFERS_WRITE_SIZE)};

@@ -861,7 +861,7 @@ int main(int argc, char *argv[])
         ReadOnlyOnDiskDbConfig const ro_config{
             .sq_thread_cpu = sq_thread_cpu, .dbname_paths = dbname_paths};
         AsyncIOContext io_ctx{ro_config};
-        Db ro_db{io_ctx};
+        Db ro_db{io_ctx, std::make_unique<OnDiskMachine>()};
         fmt::println(
             "db summary: earliest_block_id={} latest_block_id={} "
             "latest_finalized_block_id={} last_verified_block_id={} "
