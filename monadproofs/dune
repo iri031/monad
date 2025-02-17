@@ -5,7 +5,7 @@
   Lens Lens.Elpi Equations Equations.Prop Equations.Type
   bedrock iris stdpp elpi ExtLib Ltac2 AAC_tactics))
 
-(subdir asts
+(subdir proofs
  (rule
   (targets demo.v)
   (alias test_ast)

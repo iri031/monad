@@ -7,12 +7,18 @@ C-x C-s (press CTRL, then press x, then press s then releas all): save all files
 C-s: search
 C-x/C-c/C-v: cut/copy/paste
 C-x c: exit
+C-x leftarrow: open next buffer(file) in the same frame
+C-x C-leftarrow: open next buffer(file) in the same frame, ignoring pesky debug coq/magit buffers
+C-x k: kill/close current file
+C-x 0: kill current frame so that some adjacent frame will become bigger
+
 C-c o: split the frame horizontally and below, open the file whose pathname the cursor is inside, e.g.
-        /home/abhishek/work/coq/monad/demo.cpp 
+        /root/fv-workspace/monad/proofs/demo.cpp
 
 if the cursor is inside full pathname of a file, e.g. demomisc.v
 
-Coq specifc key bindings:
+Coq-specifc key bindings:
+
 C-rightarrow : check the file until the cursor. the checked part is always highlighted in green. if the cursor
 is below the current green region, the green region will slowly grow till the cursor.
 if the cursor is in the proof script, at the end, the goal at that point will be shown in the RHS window.
@@ -21,12 +27,13 @@ the cursor can be in the green region, in which case, Coq will rewind.
 C-c M-i (press CTRL, then c, release CTRL, press Meta/Alt, press i, release all): recompile dependencies of current file (only those that changed or whose deps changed) and then reload coq for this file and check this file until cursor.
 If you change demo.cpp, you must press this key binding so that the dune build system will regenerate the AST of monad/proofs/demo.cpp into monad/proofs/demo.v, compile demo.v to demo.vo and then Coq in this file.
 
-M-i: jump to defnition. for this to work, the green region should at least cover all the `Require Import` lines. Ideally, the end of the green region should be just above the cursor. There are some known cases where jump to defn doesnt work, but ask on #formal-verification anyway if it is not working for you
+M-i: jump to defnition. for this to work, the green region should at least cover all the `Require Import` lines. Ideally, the end of the green region should be just above the cursor.
+ There are some known cases where jump to defn doesnt work, but ask on #formal-verification anyway if it is not working for you
 
 *)
 
 
-Require Import monad.asts.demo. (* monad/proofs/demo.v, the AST of monad/proofs/demo.cpp, produced by the cpp2v tool
+Require Import monad.proofs.demo. (* monad/proofs/demo.v, the AST of monad/proofs/demo.cpp, produced by the cpp2v tool
 (https://github.com/bluerock-io/BRiCk/blob/master/rocq-bluerock-cpp2v/README.md) *)
 
 Require Import monad.proofs.misc. (* monad/proofs/misc.v *)
@@ -73,7 +80,7 @@ Section with_Sigma.
 Set Nested Proofs Allowed.
 
   
-  (* /home/abhishek/work/coq/monad/demo.cpp *)
+  (* /root/fv-workspace/monad/proofs/demo.cpp *)
   cpp.spec "foo()" as foo_spec with (
         \pre{xv:Z} _global "x" |-> primR uint (1/2) xv (* forall xv .. *)
         \pre _global "y" |-> anyR uint 1
