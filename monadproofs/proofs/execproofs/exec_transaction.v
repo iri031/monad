@@ -606,9 +606,11 @@ Proof using MODd.
     match goal with
     | H:context[stateAfterTransactionAux ?a1 ?b1 ?c1 ?d1] |- context[stateAfterTransactionAux ?a2 ?b2 ?c2 ?d2] => 
         unify a1 a2; unify b1 b2; unify c1 c2; unify d1 d2;
-        remember (stateAfterTransactionAux a1 b1 c1 d1) as saf; destruct saf as [smid result]
+        remember (stateAfterTransactionAux a1 b1 c1 d1) as saf
     end.
-
+    
+    rename result into resultOld.
+    destruct saf as [smid result].
     simpl in *.
     go.
     eagerUnifyU.
@@ -694,6 +696,7 @@ Proof using MODd.
     unfold TransactionR.
     go.
     repeat (iExists _). eagerUnifyC.
+    rename result into resultOld.
     match goal with
     | H:context[stateAfterTransactionAux ?a1 ?b1 ?c1 ?d1] |- context[stateAfterTransactionAux ?a2 ?b2 ?c2 ?d2] => 
         unify a1 a2; unify b1 b2; unify c1 c2; unify d1 d2;

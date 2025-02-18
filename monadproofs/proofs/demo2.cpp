@@ -1,4 +1,5 @@
 #include "demo.cpp"
+#include <atomic>
 
 uint gcdl (uint * nums, uint length) {
     uint result=0;
@@ -122,6 +123,22 @@ struct UnboundedUint {
     //todo: implement
     UnboundedUint& operator=(const UnboundedUint& other) = delete;
 };
+
+class SpinLock {
+public:
+    SpinLock() : locked(false) {}
+
+    void lock() {
+        while (locked.exchange(true))
+            ;
+    }
+
+    void unlock() { locked.store(false); }
+
+private:
+  std::atomic<bool> locked;
+};
+
 // int main() {
 //     Thread t([]() {
 //         std::cout << "Hello, World!" << std::endl;
