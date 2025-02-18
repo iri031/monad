@@ -293,20 +293,22 @@ int main(int const argc, char const *argv[])
         MONAD_ASSERT(false);
     }();
 
-    BlockHashBufferFinalized block_hash_buffer;
+    BlockHashBuffer block_hash_buffer;
     bool initialized_headers_from_triedb = false;
 
     if (!db_in_memory) {
         mpt::Db rodb{mpt::ReadOnlyOnDiskDbConfig{
             .sq_thread_cpu = ro_sq_thread_cpu, .dbname_paths = dbname_paths}};
-        initialized_headers_from_triedb = init_block_hash_buffer_from_triedb(
-            rodb, start_block_num, block_hash_buffer);
+        std::tie(block_hash_buffer, initialized_headers_from_triedb) =
+            make_block_hash_buffer_from_db(rodb, start_block_num);
     }
     if (!initialized_headers_from_triedb) {
         BlockDb block_db{block_db_path};
         MONAD_ASSERT(chain_config == CHAIN_CONFIG_ETHEREUM_MAINNET);
-        MONAD_ASSERT(init_block_hash_buffer_from_blockdb(
-            block_db, start_block_num, block_hash_buffer));
+        auto const res =
+            make_block_hash_buffer_from_blockdb(block_db, start_block_num);
+        MONAD_ASSERT(res.second);
+        block_hash_buffer = res.first;
     }
 
     signal(SIGINT, signal_handler);

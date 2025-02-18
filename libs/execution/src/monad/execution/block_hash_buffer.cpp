@@ -13,132 +13,77 @@
 
 MONAD_NAMESPACE_BEGIN
 
-BlockHashBufferFinalized::BlockHashBufferFinalized()
-    : b_{}
-    , n_{0}
+BlockHashBuffer::BlockHashBuffer(
+    immer::array<bytes32_t> const b, uint64_t const n)
+    : b_{b}
+    , n_{n}
 {
-    for (auto &h : b_) {
-        h = NULL_HASH;
-    }
 }
 
-uint64_t BlockHashBufferFinalized::n() const
+BlockHashBuffer::BlockHashBuffer()
+    : b_{SIZE, NULL_HASH}
+    , n_{0}
+{
+}
+
+uint64_t BlockHashBuffer::n() const
 {
     return n_;
 };
 
-bytes32_t const &BlockHashBufferFinalized::get(uint64_t const n) const
+bytes32_t const &BlockHashBuffer::get(uint64_t const n) const
 {
-    MONAD_ASSERT(n < n_ && n + N >= n_);
-    return b_[n % N];
+    MONAD_ASSERT(n < n_ && n + SIZE >= n_);
+    return b_.at(n % SIZE);
 }
 
-void BlockHashBufferFinalized::set(uint64_t const n, bytes32_t const &h)
+BlockHashBuffer BlockHashBuffer::set(uint64_t const n, bytes32_t const &h) const
 {
     MONAD_ASSERT(!n_ || n == n_);
-    b_[n % N] = h;
-    n_ = n + 1;
+    return BlockHashBuffer{b_.set(n % SIZE, h), n + 1};
 }
 
-BlockHashBufferProposal::BlockHashBufferProposal(
-    bytes32_t const &h, BlockHashBufferFinalized const &buf)
-    : n_{buf.n() + 1}
-    , buf_{&buf}
-    , deltas_{h}
+BlockHashBufferChain::BlockHashBufferChain(BlockHashBuffer const finalized)
+    : finalized_{finalized}
 {
 }
 
-BlockHashBufferProposal::BlockHashBufferProposal(
-    bytes32_t const &h, BlockHashBufferProposal const &parent)
-    : n_{parent.n_ + 1}
-    , buf_{parent.buf_}
+void BlockHashBufferChain::propose(
+    bytes32_t const &hash, uint64_t const block_number, uint64_t const round,
+    uint64_t const parent_round)
 {
-    MONAD_ASSERT(n_ > 0 && n_ > buf_->n());
-    deltas_.push_back(h);
-    deltas_.insert(deltas_.end(), parent.deltas_.begin(), parent.deltas_.end());
-    deltas_.resize(n_ - buf_->n());
+    BlockHashBuffer const &parent = proposed_.contains(parent_round)
+                                        ? proposed_.at(parent_round)
+                                        : finalized_;
+    proposed_[round] = parent.set(block_number, hash);
 }
 
-uint64_t BlockHashBufferProposal::n() const
+void BlockHashBufferChain::finalize(uint64_t const round)
 {
-    return n_;
-}
-
-bytes32_t const &BlockHashBufferProposal::get(uint64_t const n) const
-{
-    MONAD_ASSERT(n < n_ && n + N >= n_);
-    size_t const idx = n_ - n - 1;
-    if (idx < deltas_.size()) {
-        return deltas_.at(idx);
+    if (proposed_.contains(round)) {
+        BlockHashBuffer const &proposed = proposed_.at(round);
+        MONAD_ASSERT(finalized_.n() == proposed.n() - 1);
+        finalized_ = proposed;
     }
-    return buf_->get(n);
+    proposed_.erase(proposed_.begin(), proposed_.upper_bound(round));
 }
 
-BlockHashChain::BlockHashChain(BlockHashBufferFinalized &buf)
-    : buf_{buf}
+BlockHashBuffer const &BlockHashBufferChain::get(uint64_t const round) const
 {
-}
-
-void BlockHashChain::propose(
-    bytes32_t const &hash, uint64_t const round, uint64_t const parent_round)
-{
-    for (auto it = proposals_.rbegin(); it != proposals_.rend(); ++it) {
-        if (it->round == parent_round) {
-            proposals_.emplace_back(Proposal{
-                .round = round,
-                .parent_round = parent_round,
-                .buf = BlockHashBufferProposal(hash, it->buf)});
-            return;
-        }
+    if (proposed_.contains(round)) {
+        return proposed_.at(round);
     }
-    proposals_.emplace_back(Proposal{
-        .round = round,
-        .parent_round = parent_round,
-        .buf = BlockHashBufferProposal(hash, buf_)});
+    return finalized_;
 }
 
-void BlockHashChain::finalize(uint64_t const round)
+std::pair<BlockHashBuffer, bool>
+make_block_hash_buffer_from_db(mpt::Db &db, uint64_t const block_number)
 {
-    auto const to_finalize = buf_.n();
-
-    auto winner_it = std::find_if(
-        proposals_.rbegin(), proposals_.rend(), [round](Proposal const &p) {
-            return p.round == round;
-        });
-    if (MONAD_LIKELY(winner_it != proposals_.rend())) {
-        MONAD_ASSERT((winner_it->buf.n() - 1) == to_finalize);
-        buf_.set(to_finalize, winner_it->buf.get(to_finalize));
-    }
-
-    // cleanup chains
-    proposals_.erase(
-        std::remove_if(
-            proposals_.begin(),
-            proposals_.end(),
-            [round](Proposal const &p) { return p.round <= round; }),
-        proposals_.end());
-}
-
-BlockHashBuffer const &BlockHashChain::find_chain(uint64_t const round) const
-{
-    auto it = std::find_if(
-        proposals_.rbegin(), proposals_.rend(), [round](Proposal const &p) {
-            return p.round == round;
-        });
-    if (MONAD_UNLIKELY(it == proposals_.rend())) {
-        return buf_;
-    }
-    return it->buf;
-}
-
-bool init_block_hash_buffer_from_triedb(
-    mpt::Db &rodb, uint64_t const block_number,
-    BlockHashBufferFinalized &block_hash_buffer)
-{
+    BlockHashBuffer buf;
     for (uint64_t b = block_number < 256 ? 0 : block_number - 256;
          b < block_number;
          ++b) {
-        auto const header = rodb.get(
+        auto const header = db.get(
             mpt::concat(
                 FINALIZED_NIBBLE, mpt::NibblesView{block_header_nibbles}),
             b);
@@ -147,32 +92,32 @@ bool init_block_hash_buffer_from_triedb(
                 "Could not query block header {} from TrieDb -- {}",
                 b,
                 header.error().message().c_str());
-            return false;
+            return {buf, false};
         }
         auto const h = to_bytes(keccak256(header.value()));
-        block_hash_buffer.set(b, h);
+        buf = buf.set(b, h);
     }
 
-    return true;
+    return {buf, true};
 }
 
-bool init_block_hash_buffer_from_blockdb(
-    BlockDb &block_db, uint64_t const block_number,
-    BlockHashBufferFinalized &block_hash_buffer)
+std::pair<BlockHashBuffer, bool>
+make_block_hash_buffer_from_blockdb(BlockDb &db, uint64_t const block_number)
 {
+    BlockHashBuffer buf;
     for (uint64_t b = block_number < 256 ? 1 : block_number - 255;
          b <= block_number;
          ++b) {
         Block block;
-        auto const ok = block_db.get(b, block);
+        auto const ok = db.get(b, block);
         if (!ok) {
             LOG_WARNING("Could not query block {} from blockdb.", b);
-            return false;
+            return {buf, false};
         }
-        block_hash_buffer.set(b - 1, block.header.parent_hash);
+        buf = buf.set(b - 1, block.header.parent_hash);
     }
 
-    return true;
+    return {buf, true};
 }
 
 MONAD_NAMESPACE_END

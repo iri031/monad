@@ -35,7 +35,7 @@ namespace
     Result<evmc::Result> eth_call_impl(
         Chain const &chain, Transaction const &txn, BlockHeader const &header,
         uint64_t const block_number, uint64_t const round,
-        Address const &sender, TrieDb &tdb, BlockHashBufferFinalized &buffer,
+        Address const &sender, TrieDb &tdb, BlockHashBuffer const &buffer,
         monad_state_override_set const &state_overrides)
     {
         Transaction enriched_txn{txn};
@@ -168,7 +168,7 @@ namespace
         Chain const &chain, evmc_revision const rev, Transaction const &txn,
         BlockHeader const &header, uint64_t const block_number,
         uint64_t const round, Address const &sender, TrieDb &tdb,
-        BlockHashBufferFinalized &buffer,
+        BlockHashBuffer const &buffer,
         monad_state_override_set const &state_overrides)
     {
         SWITCH_EVMC_REVISION(
@@ -312,8 +312,9 @@ monad_evmc_result eth_call(
     thread_local TrieDb tdb{db};
 
     monad_evmc_result ret{};
-    BlockHashBufferFinalized buffer{};
-    if (!init_block_hash_buffer_from_triedb(db, block_number, buffer)) {
+    auto const &[buffer, success] =
+        make_block_hash_buffer_from_db(db, block_number);
+    if (!success) {
         ret.status_code = EVMC_REJECTED;
         ret.message = "failure to initialize block hash buffer";
         return ret;

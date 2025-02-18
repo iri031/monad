@@ -3,9 +3,14 @@
 #include <monad/config.hpp>
 #include <monad/core/bytes.hpp>
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#include <immer/array.hpp>
+#pragma GCC diagnostic pop
+
 #include <cstdint>
-#include <deque>
-#include <vector>
+#include <map>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -18,67 +23,43 @@ namespace mpt
 
 class BlockHashBuffer
 {
-public:
-    static constexpr unsigned N = 256;
+    static constexpr unsigned SIZE = 256;
 
-    virtual uint64_t n() const = 0;
-    virtual bytes32_t const &get(uint64_t) const = 0;
-    virtual ~BlockHashBuffer() = default;
-};
-
-class BlockHashBufferFinalized : public BlockHashBuffer
-{
-    bytes32_t b_[N];
+    immer::array<bytes32_t> b_;
     uint64_t n_;
 
+    BlockHashBuffer(immer::array<bytes32_t>, uint64_t);
+
 public:
-    BlockHashBufferFinalized();
+    BlockHashBuffer();
 
-    uint64_t n() const override;
-    bytes32_t const &get(uint64_t) const override;
-
-    void set(uint64_t, bytes32_t const &);
+    uint64_t n() const;
+    bytes32_t const &get(uint64_t) const;
+    [[nodiscard]] BlockHashBuffer set(uint64_t, bytes32_t const &) const;
 };
 
-class BlockHashBufferProposal : public BlockHashBuffer
+static_assert(sizeof(BlockHashBuffer) == 32);
+static_assert(alignof(BlockHashBuffer) == 8);
+
+struct BlockHashBufferChain
 {
-    uint64_t n_;
-    BlockHashBuffer const *buf_;
-    std::vector<bytes32_t> deltas_;
+    BlockHashBuffer finalized_;
+    std::map<uint64_t, BlockHashBuffer> proposed_;
 
 public:
-    BlockHashBufferProposal(
-        bytes32_t const &, BlockHashBufferFinalized const &);
-    BlockHashBufferProposal(bytes32_t const &, BlockHashBufferProposal const &);
+    explicit BlockHashBufferChain(BlockHashBuffer finalized);
 
-    uint64_t n() const override;
-    bytes32_t const &get(uint64_t) const override;
+    void propose(
+        bytes32_t const &, uint64_t block_number, uint64_t round,
+        uint64_t parent_round);
+    void finalize(uint64_t round);
+    BlockHashBuffer const &get(uint64_t round) const;
 };
 
-class BlockHashChain
-{
-    BlockHashBufferFinalized &buf_;
+std::pair<BlockHashBuffer, bool>
+make_block_hash_buffer_from_db(mpt::Db &, uint64_t block_number);
 
-    struct Proposal
-    {
-        uint64_t round;
-        uint64_t parent_round;
-        BlockHashBufferProposal buf;
-    };
-
-    std::deque<Proposal> proposals_;
-
-public:
-    BlockHashChain(BlockHashBufferFinalized &);
-
-    void propose(bytes32_t const &, uint64_t round, uint64_t parent_round);
-    void finalize(uint64_t const round);
-    BlockHashBuffer const &find_chain(uint64_t) const;
-};
-
-bool init_block_hash_buffer_from_triedb(
-    mpt::Db &, uint64_t, BlockHashBufferFinalized &);
-bool init_block_hash_buffer_from_blockdb(
-    BlockDb &, uint64_t, BlockHashBufferFinalized &);
+std::pair<BlockHashBuffer, bool>
+make_block_hash_buffer_from_blockdb(BlockDb &, uint64_t block_number);
 
 MONAD_NAMESPACE_END

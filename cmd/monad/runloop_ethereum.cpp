@@ -63,9 +63,9 @@ namespace
 
 Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
     Chain const &chain, std::filesystem::path const &ledger_dir, Db &db,
-    BlockHashBufferFinalized &block_hash_buffer,
-    fiber::PriorityPool &priority_pool, uint64_t &block_num,
-    uint64_t const end_block_num, sig_atomic_t const volatile &stop)
+    BlockHashBuffer block_hash_buffer, fiber::PriorityPool &priority_pool,
+    uint64_t &block_num, uint64_t const end_block_num,
+    sig_atomic_t const volatile &stop)
 {
     uint64_t const batch_size =
         end_block_num == std::numeric_limits<uint64_t>::max() ? 1 : 1000;
@@ -138,7 +138,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
 
         auto const h =
             to_bytes(keccak256(rlp::encode_block_header(output_header)));
-        block_hash_buffer.set(block_num, h);
+        block_hash_buffer = block_hash_buffer.set(block_num, h);
 
         ntxs += block.transactions.size();
         batch_num_txs += block.transactions.size();

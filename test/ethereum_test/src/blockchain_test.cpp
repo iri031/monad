@@ -270,7 +270,7 @@ void BlockchainTest::TestBody()
         }
         auto db_post_state = tdb.to_json();
 
-        BlockHashBufferFinalized block_hash_buffer;
+        BlockHashBuffer block_hash_buffer;
         for (auto const &j_block : j_contents.at("blocks")) {
 
             auto const block_rlp = j_block.at("rlp").get<byte_string>();
@@ -292,7 +292,7 @@ void BlockchainTest::TestBody()
                 continue;
             }
 
-            block_hash_buffer.set(
+            block_hash_buffer = block_hash_buffer.set(
                 block.value().header.number - 1,
                 block.value().header.parent_hash);
 

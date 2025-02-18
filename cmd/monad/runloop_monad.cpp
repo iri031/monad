@@ -168,7 +168,7 @@ bool validate_delayed_execution_results(
 
 Result<std::pair<uint64_t, uint64_t>> runloop_monad(
     Chain const &chain, std::filesystem::path const &ledger_dir,
-    mpt::Db &raw_db, Db &db, BlockHashBufferFinalized &block_hash_buffer,
+    mpt::Db &raw_db, Db &db, BlockHashBuffer const &block_hash_buffer,
     fiber::PriorityPool &priority_pool, uint64_t &finalized_block_num,
     uint64_t const end_block_num, sig_atomic_t const volatile &stop)
 {
@@ -188,7 +188,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
             }
         }
     }
-    BlockHashChain block_hash_chain(block_hash_buffer);
+    BlockHashBufferChain block_hash_buffer_chain{block_hash_buffer};
 
     uint64_t total_gas = 0;
     uint64_t ntxs = 0;
@@ -207,7 +207,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
 
             auto const ntxns = consensus_body.transactions.size();
             auto const &block_hash_buffer =
-                block_hash_chain.find_chain(consensus_header.parent_round());
+                block_hash_buffer_chain.get(consensus_header.parent_round());
             BOOST_OUTCOME_TRY(
                 auto const proposal_output,
                 on_proposal_event(
@@ -223,8 +223,9 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                     priority_pool,
                     block_number == start_block_num));
             auto const &[output_header, gas_used] = proposal_output;
-            block_hash_chain.propose(
+            block_hash_buffer_chain.propose(
                 output_header,
+                consensus_header.execution_inputs.number,
                 consensus_header.round,
                 consensus_header.parent_round());
             db.update_voted_metadata(
@@ -243,7 +244,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                 block_number,
                 consensus_header.round);
             db.finalize(block_number, consensus_header.round);
-            block_hash_chain.finalize(consensus_header.round);
+            block_hash_buffer_chain.finalize(consensus_header.round);
 
             auto const &verified_blocks =
                 consensus_header.delayed_execution_results;
