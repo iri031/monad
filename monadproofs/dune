@@ -14,3 +14,13 @@
    (run cpp2v -v %{input}  --no-elaborate -o demo.v -- )))
  (alias (name srcs) (deps demo.cpp))
 )
+
+(subdir proofs
+ (rule
+  (targets demo2.v)
+  (alias test_ast)
+  (deps (:input demo2.cpp))
+  (action
+   (run cpp2v -v %{input}  --no-elaborate -o demo2.v -- )))
+ (alias (name srcs) (deps demo2.cpp))
+)
