@@ -40,8 +40,8 @@ jobs:
             const state = 'success';
             const description = 'CI tests passed';
 
-            for (const sha of commits) {
-              if (sha) {
+            for (const commit_sha of commits) {
+              if (commit_sha) {
                 await github.rest.repos.createCommitStatus({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
