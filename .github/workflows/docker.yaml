@@ -4,6 +4,17 @@ on:
   push:
 
 jobs:
+
+  #   This do-nothing job is here merely to have more than one job in
+  #   this workflow file, because the status check names include
+  #   this workflow name (`Docker`, above) only if we have more than
+  #   one job. (Otherwise the status check name is just the job name.)
+  do-nothing:
+    runs-on: ubuntu-24.04-32
+    steps:
+      - name: Do-nothing job, just so we have more than one.
+        run: true
+
   build:
     strategy:
       matrix:
