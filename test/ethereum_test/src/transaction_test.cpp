@@ -1,5 +1,4 @@
 #include <ethereum_test.hpp>
-#include <from_json.hpp>
 #include <transaction_test.hpp>
 
 #include <monad/core/assert.h>
@@ -10,6 +9,7 @@
 #include <monad/execution/transaction_gas.hpp>
 #include <monad/execution/validate_transaction.hpp>
 #include <monad/test/config.hpp>
+#include <monad/util/nlohmann.hpp>
 
 #include <evmc/evmc.h>
 #include <evmc/evmc.hpp>

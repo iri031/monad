@@ -5,7 +5,6 @@ target_sources(
   monad-ethereum-test
   PRIVATE include/blockchain_test.hpp
           include/ethereum_test.hpp
-          include/from_json.hpp
           include/transaction_test.hpp
           src/blockchain_test.cpp
           src/ethereum_test.cpp

@@ -1,6 +1,5 @@
 #include <blockchain_test.hpp>
 #include <ethereum_test.hpp>
-#include <from_json.hpp>
 
 #include <monad/chain/ethereum_mainnet.hpp>
 #include <monad/core/address.hpp>
@@ -28,6 +27,7 @@
 #include <monad/state2/block_state.hpp>
 #include <monad/state3/state.hpp>
 #include <monad/test/config.hpp>
+#include <monad/util/nlohmann.hpp>
 
 #include <evmc/evmc.h>
 #include <evmc/evmc.hpp>
