@@ -41,7 +41,7 @@ private:
 public:
     Db(StateMachine &); // In-memory mode
     Db(StateMachine &, OnDiskDbConfig const &);
-    Db(ReadOnlyOnDiskDbConfig const &);
+    Db(StateMachine &, ReadOnlyOnDiskDbConfig const &);
 
     Db(Db const &) = delete;
     Db(Db &&) = delete;

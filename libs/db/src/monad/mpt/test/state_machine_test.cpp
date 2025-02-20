@@ -57,8 +57,7 @@ namespace
         virtual void down(unsigned char nibble) override
         {
             EXPECT_LE(nibble, 0xf);
-            auto const [_, success] = down_calls.emplace(path, nibble);
-            EXPECT_TRUE(success);
+            down_calls.emplace(path, nibble);
             path.push_back(nibble);
         }
 
@@ -202,16 +201,22 @@ TYPED_TEST(StateMachineTest, modify_existing)
         std::move(this->root),
         make_update(0x1122_hex, monad::byte_string_view{}));
 
-    this->validate_down_calls(
-        DownCalls{{{}, {1}}, {{1}, 1}, {{1, 1}, 2}, {{1, 1, 2}, 2}});
-
-    this->validate_up_calls(
-        UpCalls{{{1, 1, 2, 2}, 1}, {{1, 1, 2}, 1}, {{1, 1}, 2}});
-
     this->validate_compute_calls(ComputeCalls{{1, 1, 2, 2}, {1, 1}});
 
     if (this->aux.is_on_disk()) {
+        this->validate_down_calls(DownCalls{
+            {{}, {1}}, {{1}, 1}, {{1, 1}, 1}, {{1, 1}, 2}, {{1, 1, 2}, 2}});
+
+        this->validate_up_calls(UpCalls{
+            {{1, 1, 2, 2}, 1}, {{1, 1, 1}, 1}, {{1, 1, 2}, 1}, {{1, 1}, 2}});
         this->validate_cache_calls(CacheCalls{{1, 1}, {1, 1, 2, 2}});
+    }
+    else {
+        this->validate_down_calls(
+            DownCalls{{{}, {1}}, {{1}, 1}, {{1, 1}, 2}, {{1, 1, 2}, 2}});
+
+        this->validate_up_calls(
+            UpCalls{{{1, 1, 2, 2}, 1}, {{1, 1, 2}, 1}, {{1, 1}, 2}});
     }
 }
 
@@ -257,12 +262,16 @@ TYPED_TEST(StateMachineTest, mismatch_with_extension)
     this->validate_down_calls(DownCalls{
         {{}, {2}}, {{2}, 2}, {{2, 2}, 2}, {{2, 2, 2}, 2}, {{}, 1}, {{1}, 1}});
 
-    this->validate_up_calls(UpCalls{{{1, 1}, 2}, {{2, 2, 2, 2}, 3}, {{2}, 1}});
-
     this->validate_compute_calls(ComputeCalls{{}, {1, 1}, {2, 2, 2, 2}});
 
     if (this->aux.is_on_disk()) {
+        this->validate_up_calls(
+            UpCalls{{{1}, 1}, {{1, 1}, 2}, {{2, 2, 2, 2}, 3}, {{2}, 1}});
         this->validate_cache_calls(CacheCalls{{}, {1, 1}, {2, 2, 2, 2}});
+    }
+    else {
+        this->validate_up_calls(
+            UpCalls{{{1, 1}, 2}, {{2, 2, 2, 2}, 3}, {{2}, 1}});
     }
 }
 
@@ -279,15 +288,28 @@ TYPED_TEST(StateMachineTest, add_to_branch)
         std::move(this->root),
         make_update(0x1133_hex, monad::byte_string_view{}));
 
-    this->validate_down_calls(
-        DownCalls{{{}, 1}, {{1}, 1}, {{1, 1}, 3}, {{1, 1, 3}, 3}});
-
-    this->validate_up_calls(
-        UpCalls{{{1, 1, 3, 3}, 1}, {{1, 1, 3}, 1}, {{1, 1}, 2}});
-
     this->validate_compute_calls(ComputeCalls{{1, 1}, {1, 1, 3, 3}});
 
     if (this->aux.is_on_disk()) {
+        this->validate_down_calls(DownCalls{
+            {{}, 1},
+            {{1}, 1},
+            {{1, 1}, 1},
+            {{1, 1}, 2},
+            {{1, 1}, 3},
+            {{1, 1, 3}, 3}});
+        this->validate_up_calls(UpCalls{
+            {{1, 1, 3, 3}, 1},
+            {{1, 1, 3}, 1},
+            {{1, 1, 2}, 1},
+            {{1, 1, 1}, 1},
+            {{1, 1}, 2}});
         this->validate_cache_calls(CacheCalls{{1, 1}, {1, 1, 3, 3}});
+    }
+    else {
+        this->validate_down_calls(
+            DownCalls{{{}, 1}, {{1}, 1}, {{1, 1}, 3}, {{1, 1, 3}, 3}});
+        this->validate_up_calls(
+            UpCalls{{{1, 1, 3, 3}, 1}, {{1, 1, 3}, 1}, {{1, 1}, 2}});
     }
 }

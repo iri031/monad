@@ -125,6 +125,7 @@ namespace
         monad_statesync_client_context *cctx;
         std::filesystem::path sdbname;
         OnDiskMachine machine;
+        OnDiskMachine ro_machine;
         mpt::Db sdb;
         TrieDb stdb;
         monad_statesync_server_context sctx;
@@ -140,7 +141,8 @@ namespace
                   OnDiskDbConfig{.append = true, .dbname_paths = {sdbname}}}
             , stdb{sdb}
             , sctx{stdb}
-            , ro{mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = {sdbname}}}
+            , ro{ro_machine,
+                 mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = {sdbname}}}
         {
             sctx.ro = &ro;
         }

@@ -4,12 +4,14 @@
 #include <monad/async/erased_connected_operation.hpp>
 #include <monad/async/io.hpp>
 #include <monad/core/assert.h>
+#include <monad/core/likely.h>
 #include <monad/core/nibble.h>
 #include <monad/core/tl_tid.h>
 #include <monad/mpt/config.hpp>
 #include <monad/mpt/detail/boost_fiber_workarounds.hpp>
 #include <monad/mpt/nibbles_view.hpp>
 #include <monad/mpt/node.hpp>
+#include <monad/mpt/state_machine.hpp>
 #include <monad/mpt/trie.hpp>
 #include <monad/mpt/util.hpp>
 
@@ -18,6 +20,7 @@
 #include <cassert>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <utility>
 
 #include <unistd.h>
@@ -31,7 +34,7 @@ using namespace MONAD_ASYNC_NAMESPACE;
 void find_recursive(
     UpdateAuxImpl &, inflight_map_t &,
     threadsafe_boost_fibers_promise<find_cursor_result_type> &, NodeCursor root,
-    NibblesView key);
+    NibblesView key, StateMachine &);
 
 namespace
 {
@@ -46,15 +49,17 @@ namespace
         unsigned bytes_to_read; // required for sender too
         uint16_t buffer_off;
         unsigned const branch_index;
+        std::unique_ptr<StateMachine> machine;
 
         find_receiver(
             UpdateAuxImpl &aux, inflight_map_t &inflights, Node *const parent,
-            unsigned char const branch)
+            unsigned char const branch, std::unique_ptr<StateMachine> machine)
             : aux(&aux)
             , inflights(inflights)
             , parent(parent)
             , rd_offset(0, 0)
             , branch_index(parent->to_child_index(branch))
+            , machine(std::move(machine))
         {
             chunk_offset_t const offset = parent->fnext(branch_index);
             auto const num_pages_to_load_node =
@@ -90,7 +95,7 @@ namespace
                 auto pendings = std::move(it->second);
                 inflights.erase(it);
                 for (auto &cont : pendings) {
-                    MONAD_ASSERT(cont(NodeCursor{*node}));
+                    MONAD_ASSERT(cont(NodeCursor{*node}, *machine->clone()));
                 }
             }
         }
@@ -104,7 +109,7 @@ namespace
 void find_recursive(
     UpdateAuxImpl &aux, inflight_map_t &inflights,
     threadsafe_boost_fibers_promise<find_cursor_result_type> &promise,
-    NodeCursor root, NibblesView const key)
+    NodeCursor root, NibblesView const key, StateMachine &machine)
 
 {
     if (!root.is_valid()) {
@@ -123,8 +128,9 @@ void find_recursive(
                  find_result::key_ends_earlier_than_node_failure});
             return;
         }
-        if (key.get(prefix_index) !=
-            get_nibble(node->path_data(), node_prefix_index)) {
+        auto const nibble = get_nibble(node->path_data(), node_prefix_index);
+        machine.down(nibble);
+        if (key.get(prefix_index) != nibble) {
             promise.set_value(
                 {NodeCursor{*node, node_prefix_index},
                  find_result::key_mismatch_failure});
@@ -139,36 +145,73 @@ void find_recursive(
     MONAD_ASSERT(prefix_index < key.nibble_size());
     if (unsigned char const branch = key.get(prefix_index);
         node->mask & (1u << branch)) {
+        machine.down(branch);
         MONAD_DEBUG_ASSERT(
             prefix_index < std::numeric_limits<unsigned char>::max());
         auto const next_key =
             key.substr(static_cast<unsigned char>(prefix_index) + 1u);
         auto const child_index = node->to_child_index(branch);
-        if (node->next(child_index) != nullptr) {
-            find_recursive(
-                aux, inflights, promise, *node->next(child_index), next_key);
-            return;
+
+        if (aux.is_on_disk()) {
+            chunk_offset_t const offset = node->fnext(child_index);
+            auto const list_type =
+                aux.db_metadata()->at(offset.id)->which_list();
+            if (machine.auto_expire()) {
+                if (MONAD_UNLIKELY(
+                        list_type != chunk_list::expire ||
+                        aux.physical_to_virtual(offset) <
+                            aux.get_min_virtual_expire_offset_metadata())) {
+                    promise.set_value(
+                        {NodeCursor{},
+                         find_result::node_is_pruned_by_auto_expiration});
+                    return;
+                }
+            }
+            else {
+                MONAD_ASSERT(
+                    list_type != chunk_list::expire &&
+                    list_type != chunk_list::free);
+            }
+
+            if (node->next(child_index) == nullptr) {
+                if (aux.io->owning_thread_id() != get_tl_tid()) {
+                    promise.set_value(
+                        {NodeCursor{*node, node_prefix_index},
+                         find_result::need_to_continue_in_io_thread});
+                    return;
+                }
+                auto cont = [&aux, &inflights, &promise, next_key](
+                                NodeCursor node_cursor,
+                                StateMachine &machine) -> result<void> {
+                    find_recursive(
+                        aux,
+                        inflights,
+                        promise,
+                        node_cursor,
+                        next_key,
+                        machine);
+                    return success();
+                };
+                if (auto lt = inflights.find(offset); lt != inflights.end()) {
+                    lt->second.emplace_back(cont);
+                    return;
+                }
+                inflights[offset].emplace_back(cont);
+                find_receiver receiver(
+                    aux, inflights, node, branch, machine.clone());
+                detail::initiate_async_read_update(
+                    *aux.io, std::move(receiver), receiver.bytes_to_read);
+                return;
+            }
         }
-        if (aux.io->owning_thread_id() != get_tl_tid()) {
-            promise.set_value(
-                {NodeCursor{*node, node_prefix_index},
-                 find_result::need_to_continue_in_io_thread});
-            return;
-        }
-        chunk_offset_t const offset = node->fnext(child_index);
-        auto cont = [&aux, &inflights, &promise, next_key](
-                        NodeCursor node_cursor) -> result<void> {
-            find_recursive(aux, inflights, promise, node_cursor, next_key);
-            return success();
-        };
-        if (auto lt = inflights.find(offset); lt != inflights.end()) {
-            lt->second.emplace_back(cont);
-            return;
-        }
-        inflights[offset].emplace_back(cont);
-        find_receiver receiver(aux, inflights, node, branch);
-        detail::initiate_async_read_update(
-            *aux.io, std::move(receiver), receiver.bytes_to_read);
+        MONAD_ASSERT(node->next(child_index) != nullptr);
+        find_recursive(
+            aux,
+            inflights,
+            promise,
+            *node->next(child_index),
+            next_key,
+            machine);
     }
     else {
         promise.set_value(
@@ -182,7 +225,13 @@ void find_notify_fiber_future(
     fiber_find_request_t const req)
 {
     auto g(aux.shared_lock());
-    find_recursive(aux, inflights, *req.promise, req.start, req.key);
+    find_recursive(
+        aux,
+        inflights,
+        *req.promise,
+        req.start,
+        req.key,
+        *req.machine->clone());
 }
 
 MONAD_MPT_NAMESPACE_END

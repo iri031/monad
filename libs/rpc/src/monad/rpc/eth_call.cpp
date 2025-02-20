@@ -280,6 +280,8 @@ monad_evmc_result eth_call(
     uint64_t const round, std::string const &triedb_path,
     monad_state_override_set const &state_overrides)
 {
+    OnDiskMachine machine;
+
     byte_string_view rlp_tx_view(rlp_tx.begin(), rlp_tx.end());
     auto const tx_result = rlp::decode_transaction(rlp_tx_view);
     MONAD_ASSERT(!tx_result.has_error());
@@ -316,8 +318,8 @@ monad_evmc_result eth_call(
         }
         tdb.reset(); // reset in reverse order
         db.reset(); // cannot create more than one rodb per thread at a time
-        db.reset(
-            new mpt::Db{mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = paths}});
+        db.reset(new mpt::Db{
+            machine, mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = paths}});
         tdb.reset(new TrieDb{*db});
         last_triedb_path = triedb_path;
     }

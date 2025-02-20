@@ -102,11 +102,13 @@ struct Db::ROOnDisk final : public Db::Impl
     io::Ring ring_;
     io::Buffers rwbuf_;
     async::AsyncIO io_;
+    StateMachine &machine_;
     UpdateAux<> aux_;
     chunk_offset_t last_loaded_root_offset_;
     Node::UniquePtr root_;
 
-    explicit ROOnDisk(ReadOnlyOnDiskDbConfig const &options)
+    explicit ROOnDisk(
+        ReadOnlyOnDiskDbConfig const &options, StateMachine &machine)
         : pool_{[&] -> async::storage_pool {
             async::storage_pool::creation_flags pool_options;
             pool_options.open_read_only = true;
@@ -124,6 +126,7 @@ struct Db::ROOnDisk final : public Db::Impl
               ring_, options.rd_buffers,
               async::AsyncIO::MONAD_IO_BUFFERS_READ_SIZE)}
         , io_{pool_, rwbuf_}
+        , machine_(machine)
         , aux_{&io_}
         , last_loaded_root_offset_{aux_.get_root_offset_at_version(
               aux_.db_history_max_version())}
@@ -173,7 +176,8 @@ struct Db::ROOnDisk final : public Db::Impl
         if (!aux().version_is_valid_ondisk(version)) {
             return {NodeCursor{}, find_result::version_no_longer_exist};
         }
-        auto const res = find_blocking(aux(), root, key, version);
+        auto const res =
+            find_blocking(aux(), root, key, version, *machine_.clone());
         // verify version still valid in history after success
         return aux().version_is_valid_ondisk(version)
                    ? res
@@ -284,14 +288,22 @@ struct Db::InMemory final : public Db::Impl
         // in memory copy_trie only allows moving trie from src to prefix under
         // the same version
         root_ = copy_trie_to_dest(
-            aux_, *root_, src, src_version, {}, dest, dest_version, false);
+            aux_,
+            *root_,
+            src,
+            src_version,
+            {},
+            dest,
+            dest_version,
+            machine_,
+            false);
     }
 
     virtual find_cursor_result_type find_fiber_blocking(
         NodeCursor const &root, NibblesView const &key,
         uint64_t const version = 0) override
     {
-        return find_blocking(aux(), root, key, version);
+        return find_blocking(aux(), root, key, version, *machine_.clone());
     }
 
     virtual size_t prefetch_fiber_blocking() override
@@ -359,6 +371,7 @@ struct Db::RWOnDisk final : public Db::Impl
         Node::UniquePtr dest_root;
         NibblesView dest;
         uint64_t dest_version;
+        StateMachine const &machine;
         bool blocked_by_write;
     };
 
@@ -579,6 +592,7 @@ struct Db::RWOnDisk final : public Db::Impl
                             std::move(req->dest_root),
                             req->dest,
                             req->dest_version,
+                            req->machine,
                             req->blocked_by_write);
                         req->promise->set_value(std::move(root));
                     }
@@ -725,7 +739,10 @@ struct Db::RWOnDisk final : public Db::Impl
     {
         threadsafe_boost_fibers_promise<find_cursor_result_type> promise;
         fiber_find_request_t req{
-            .promise = &promise, .start = start, .key = key};
+            .promise = &promise,
+            .start = start,
+            .key = key,
+            .machine = &machine_};
         auto fut = promise.get_future();
         comms_.enqueue(req);
         // promise is racily emptied after this point
@@ -900,6 +917,7 @@ struct Db::RWOnDisk final : public Db::Impl
             .dest_root = std::move(dest_root),
             .dest = dest,
             .dest_version = dest_version,
+            .machine = machine_,
             .blocked_by_write = blocked_by_write});
         // promise is racily emptied after this point
         if (worker_->sleeping.load(std::memory_order_acquire)) {
@@ -943,8 +961,8 @@ Db::Db(StateMachine &machine, OnDiskDbConfig const &config)
     MONAD_DEBUG_ASSERT(impl_->aux().is_on_disk());
 }
 
-Db::Db(ReadOnlyOnDiskDbConfig const &config)
-    : impl_{std::make_unique<ROOnDisk>(config)}
+Db::Db(StateMachine &machine, ReadOnlyOnDiskDbConfig const &config)
+    : impl_{std::make_unique<ROOnDisk>(config, machine)}
 {
 }
 

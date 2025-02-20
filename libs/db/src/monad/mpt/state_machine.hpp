@@ -12,7 +12,7 @@ struct Compute;
 struct StateMachine
 {
 protected:
-    uint8_t depth{0};
+    size_t depth{0};
     bool compact_enabled{true};
 
 public:
@@ -29,6 +29,11 @@ public:
         return false;
     }
 
+    void reset()
+    {
+        depth = 0;
+    }
+
     void toggle_compact(bool enable)
     {
         compact_enabled = enable;
@@ -39,7 +44,7 @@ public:
         return compact_enabled && compact() && !auto_expire();
     }
 
-    uint8_t get_depth() const noexcept
+    size_t get_depth() const noexcept
     {
         return depth;
     }

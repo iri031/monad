@@ -849,8 +849,8 @@ int main(int argc, char *argv[])
     }
 
     ReadOnlyOnDiskDbConfig const ro_config{.dbname_paths = dbname_paths};
-
-    Db ro_db{ro_config};
+    OnDiskMachine ro_machine;
+    Db ro_db{ro_machine, ro_config};
 
     fmt::print("Opening read only database ");
     for (auto const &dbname : dbname_paths) {

@@ -452,6 +452,8 @@ int main(int argc, char *argv[])
             }
         }
 
+        monad::test::StateMachineMerkleWithPrefix<prefix_len> sm{};
+
         { /* upsert test begin */
             MONAD_ASYNC_NAMESPACE::storage_pool pool{
                 {dbname_paths},
@@ -519,7 +521,6 @@ int main(int argc, char *argv[])
 
             auto aux =
                 in_memory ? UpdateAux<>() : UpdateAux<>(&io, history_len);
-            monad::test::StateMachineMerkleWithPrefix<prefix_len> sm{};
 
             Node::UniquePtr root{};
             if (append) {
@@ -669,11 +670,15 @@ int main(int argc, char *argv[])
                     aux.set_io(&io, history_len);
                 }
                 root = read_node_blocking(
-                    aux,
+                    io.storage_pool(),
                     aux.get_latest_root_offset(),
                     aux.db_history_max_version());
                 auto [res, errc] = find_blocking(
-                    aux, *root, state_nibbles, aux.db_history_max_version());
+                    aux,
+                    *root,
+                    state_nibbles,
+                    aux.db_history_max_version(),
+                    *sm.clone());
                 MONAD_ASSERT(errc == find_result::success);
                 state_start = res;
                 return ret;
@@ -795,7 +800,7 @@ int main(int argc, char *argv[])
                 uint64_t ops{0};
                 bool signal_done{false};
                 inflight_map_t inflights;
-                auto find = [n_slices, &ops, &signal_done, &inflights](
+                auto find = [n_slices, &ops, &signal_done, &inflights, &sm](
                                 UpdateAuxImpl *aux,
                                 NodeCursor state_start,
                                 unsigned n) {
@@ -813,7 +818,8 @@ int main(int argc, char *argv[])
                         fiber_find_request_t const request{
                             .promise = &promise,
                             .start = state_start,
-                            .key = key};
+                            .key = key,
+                            .machine = &sm};
                         find_notify_fiber_future(*aux, inflights, request);
                         auto const [node_cursor, errc] =
                             request.promise->get_future().get();
@@ -875,7 +881,7 @@ int main(int argc, char *argv[])
                 std::atomic<uint64_t> ops{0};
                 std::atomic<int> signal_done{0};
                 concurrent_queue<fiber_find_request_t> req;
-                auto find = [n_slices, &ops, &signal_done, &req](
+                auto find = [n_slices, &ops, &signal_done, &req, &sm](
                                 NodeCursor const state_start, unsigned n) {
                     monad::small_prng rand(n);
                     monad::byte_string key;
@@ -900,7 +906,8 @@ int main(int argc, char *argv[])
                         fiber_find_request_t const request{
                             .promise = &*promise_it++,
                             .start = state_start,
-                            .key = key};
+                            .key = key,
+                            .machine = &sm};
                         request.promise->reset();
                         req.enqueue(request);
                         auto const [node_cursor, errc] =
@@ -986,7 +993,7 @@ int main(int argc, char *argv[])
 
                 std::atomic<uint64_t> ops{0};
                 std::atomic<int> signal_done{0};
-                auto find = [n_slices, &ops, &signal_done, &aux](
+                auto find = [n_slices, &ops, &signal_done, &aux, &sm](
                                 NodeCursor const state_start, unsigned n) {
                     monad::small_prng rand(n);
                     struct receiver_t
@@ -998,11 +1005,14 @@ int main(int argc, char *argv[])
                         monad::byte_string key;
                         fiber_find_request_t request;
                         inflight_map_t &inflights;
+                        StateMachine const &machine;
 
                         explicit receiver_t(
-                            UpdateAuxImpl &aux_, inflight_map_t &inflights_)
+                            UpdateAuxImpl &aux_, inflight_map_t &inflights_,
+                            StateMachine const &sm)
                             : aux(aux_)
                             , inflights(inflights_)
+                            , machine(sm)
                         {
                             key.resize(32);
                         }
@@ -1013,7 +1023,8 @@ int main(int argc, char *argv[])
                             request = fiber_find_request_t{
                                 .promise = &p,
                                 .start = state_start,
-                                .key = key};
+                                .key = key,
+                                .machine = &machine};
                         }
                         void set_value(
                             MONAD_ASYNC_NAMESPACE::erased_connected_operation *,
@@ -1029,14 +1040,16 @@ int main(int argc, char *argv[])
                     using connected_state_type = decltype(connect(
                         *aux.io,
                         MONAD_ASYNC_NAMESPACE::threadsafe_sender{},
-                        receiver_t{aux, inflights}));
+                        receiver_t{aux, inflights, sm}));
                     auto states = ::monad::make_array<connected_state_type, 4>(
                         std::piecewise_construct,
                         *aux.io,
                         std::piecewise_construct,
                         std::tuple{},
-                        std::tuple<UpdateAuxImpl &, inflight_map_t &>{
-                            aux, inflights});
+                        std::tuple<
+                            UpdateAuxImpl &,
+                            inflight_map_t &,
+                            StateMachine const &>{aux, inflights, sm});
                     auto *state_it = states.begin();
                     while (0 == signal_done.load(std::memory_order_relaxed)) {
                         auto &state = *state_it++;

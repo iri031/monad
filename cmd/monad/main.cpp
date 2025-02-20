@@ -246,9 +246,12 @@ int main(int const argc, char const *argv[])
             &statesync_server_send_done);
         sync_thread = std::jthread([&](std::stop_token const token) {
             pthread_setname_np(pthread_self(), "statesync thread");
-            mpt::Db ro{mpt::ReadOnlyOnDiskDbConfig{
-                .sq_thread_cpu = ro_sq_thread_cpu,
-                .dbname_paths = dbname_paths}};
+            OnDiskMachine machine{};
+            mpt::Db ro{
+                machine,
+                mpt::ReadOnlyOnDiskDbConfig{
+                    .sq_thread_cpu = ro_sq_thread_cpu,
+                    .dbname_paths = dbname_paths}};
             ctx->ro = &ro;
             while (!token.stop_requested()) {
                 monad_statesync_server_run_once(sync);
@@ -297,8 +300,11 @@ int main(int const argc, char const *argv[])
     bool initialized_headers_from_triedb = false;
 
     if (!db_in_memory) {
-        mpt::Db rodb{mpt::ReadOnlyOnDiskDbConfig{
-            .sq_thread_cpu = ro_sq_thread_cpu, .dbname_paths = dbname_paths}};
+        mpt::Db rodb{
+            *machine,
+            mpt::ReadOnlyOnDiskDbConfig{
+                .sq_thread_cpu = ro_sq_thread_cpu,
+                .dbname_paths = dbname_paths}};
         initialized_headers_from_triedb = init_block_hash_buffer_from_triedb(
             rodb, start_block_num, block_hash_buffer);
     }
@@ -381,10 +387,12 @@ int main(int const argc, char const *argv[])
 
     if (!dump_snapshot.empty()) {
         LOG_INFO("Dump db of block: {}", block_num);
-        mpt::Db db{mpt::ReadOnlyOnDiskDbConfig{
-            .sq_thread_cpu = ro_sq_thread_cpu,
-            .dbname_paths = dbname_paths,
-            .concurrent_read_io_limit = 128}};
+        mpt::Db db{
+            *machine,
+            mpt::ReadOnlyOnDiskDbConfig{
+                .sq_thread_cpu = ro_sq_thread_cpu,
+                .dbname_paths = dbname_paths,
+                .concurrent_read_io_limit = 128}};
         TrieDb ro_db{db};
         write_to_file(ro_db.to_json(), dump_snapshot, block_num);
     }

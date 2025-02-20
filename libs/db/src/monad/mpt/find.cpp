@@ -3,6 +3,8 @@
 #include <monad/mpt/config.hpp>
 #include <monad/mpt/nibbles_view.hpp>
 #include <monad/mpt/node.hpp>
+#include <monad/mpt/node_cursor.hpp>
+#include <monad/mpt/state_machine.hpp>
 #include <monad/mpt/trie.hpp>
 
 #include <bit>
@@ -12,8 +14,8 @@
 MONAD_MPT_NAMESPACE_BEGIN
 
 find_cursor_result_type find_blocking(
-    UpdateAuxImpl const &aux, NodeCursor const root, NibblesView const key,
-    uint64_t const version)
+    UpdateAuxImpl const &aux, NodeCursor root, NibblesView const key,
+    uint64_t const version, StateMachine &machine)
 {
     auto g(aux.shared_lock());
     if (!root.is_valid()) {
@@ -24,29 +26,44 @@ find_cursor_result_type find_blocking(
     unsigned prefix_index = 0;
     while (prefix_index < key.nibble_size()) {
         unsigned char const nibble = key.get(prefix_index);
+        machine.down(nibble);
         if (node->path_nibble_index_end == node_prefix_index) {
             if (!(node->mask & (1u << nibble))) {
                 return {
                     NodeCursor{*node, node_prefix_index},
                     find_result::branch_not_exist_failure};
             }
-            // go to node's matched child
-            if (auto const idx = node->to_child_index(nibble);
-                !node->next(idx)) {
-                MONAD_ASSERT(aux.is_on_disk());
-                auto g2(g.upgrade());
-                if (g2.upgrade_was_atomic() || !node->next(idx)) {
-                    Node::UniquePtr next_node_ondisk =
-                        read_node_blocking(aux, node->fnext(idx), version);
-                    if (!next_node_ondisk) {
+            unsigned const child_index = node->to_child_index(nibble);
+            if (aux.is_on_disk()) {
+                auto const offset = node->fnext(child_index);
+                auto const list_type =
+                    aux.db_metadata()->at(offset.id)->which_list();
+                if (machine.auto_expire()) {
+                    if (list_type != chunk_list::expire ||
+                        aux.physical_to_virtual(offset) <
+                            aux.get_min_virtual_expire_offset_metadata()) {
                         return {
-                            NodeCursor{}, find_result::version_no_longer_exist};
+                            NodeCursor{},
+                            find_result::node_is_pruned_by_auto_expiration};
                     }
-                    node->set_next(idx, std::move(next_node_ondisk));
+                }
+                else {
+                    MONAD_ASSERT(
+                        list_type != chunk_list::expire &&
+                        list_type != chunk_list::free);
+                }
+                // go to node's matched child
+                if (!node->next(child_index)) {
+                    auto g2(g.upgrade());
+                    if (g2.upgrade_was_atomic() || !node->next(child_index)) {
+                        node->set_next(
+                            child_index,
+                            read_node_blocking(aux, offset, version));
+                    }
                 }
             }
-            MONAD_ASSERT(node->next(node->to_child_index(nibble)));
-            node = node->next(node->to_child_index(nibble));
+            MONAD_ASSERT(node->next(child_index));
+            node = node->next(child_index);
             node_prefix_index = node->bitpacked.path_nibble_index_start;
             ++prefix_index;
             continue;
@@ -57,7 +74,7 @@ find_cursor_result_type find_blocking(
                 NodeCursor{*node, node_prefix_index},
                 find_result::key_mismatch_failure};
         }
-        // nibble is matched
+        // nibble matches
         ++prefix_index;
         ++node_prefix_index;
     }

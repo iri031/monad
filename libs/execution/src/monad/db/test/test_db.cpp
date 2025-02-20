@@ -194,7 +194,9 @@ TEST(DBTest, read_only)
             Code{},
             BlockHeader{.number = 1});
 
-        mpt::Db db2(mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = {name}});
+        OnDiskMachine ro_machine;
+        mpt::Db db2(
+            ro_machine, mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = {name}});
         TrieDb ro{db2};
         ASSERT_EQ(ro.get_block_number(), 1);
         EXPECT_EQ(ro.read_account(ADDR_A), Account{.nonce = 2});
@@ -716,7 +718,9 @@ TYPED_TEST(DBTest, to_json)
 
     if (this->on_disk) {
         // also test to_json from a read only db
-        mpt::Db db2{mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+        OnDiskMachine ro_machine;
+        mpt::Db db2{
+            ro_machine, mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
         auto ro_db = TrieDb{db2};
         EXPECT_EQ(expected_payload, ro_db.to_json());
     }

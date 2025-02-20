@@ -150,6 +150,7 @@ TEST_F(LockingTrieTest, works)
     auto *root = this->state()->root.get();
     auto const version = aux.db_history_max_version();
     auto &keys = this->state()->keys;
+    auto &machine = this->state()->sm;
     // Appending blocks only does exclusive lock and unlock and nothing else
     {
         std::stringstream ss;
@@ -197,8 +198,8 @@ TEST_F(LockingTrieTest, works)
     // downgrade back to shared, release
     {
         aux.lock().clear();
-        auto [leaf_it, res] =
-            find_blocking(aux, *root, keys.back().first, version);
+        auto [leaf_it, res] = find_blocking(
+            aux, *root, keys.back().first, version, *machine.clone());
         EXPECT_EQ(res, monad::mpt::find_result::success);
         EXPECT_NE(leaf_it.node, nullptr);
         EXPECT_TRUE(leaf_it.node->has_value());
@@ -215,8 +216,8 @@ TEST_F(LockingTrieTest, works)
     // Now the node is in cache, no exclusive lock should get taken
     {
         aux.lock().clear();
-        auto [leaf_it, res] =
-            find_blocking(aux, *root, keys.back().first, version);
+        auto [leaf_it, res] = find_blocking(
+            aux, *root, keys.back().first, version, *machine.clone());
         EXPECT_EQ(res, monad::mpt::find_result::success);
         EXPECT_NE(leaf_it.node, nullptr);
         EXPECT_TRUE(leaf_it.node->has_value());

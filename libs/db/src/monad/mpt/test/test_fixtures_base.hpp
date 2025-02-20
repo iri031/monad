@@ -106,7 +106,7 @@ namespace monad::test
         }
     };
 
-    static_assert(sizeof(StateMachineMerkleWithPrefix<>) == 16);
+    static_assert(sizeof(StateMachineMerkleWithPrefix<>) == 24);
     static_assert(alignof(StateMachineMerkleWithPrefix<>) == 8);
 
     template <int prefix_len = 2>
@@ -159,7 +159,7 @@ namespace monad::test
         }
     };
 
-    static_assert(sizeof(StateMachineVarLenTrieWithPrefix<>) == 16);
+    static_assert(sizeof(StateMachineVarLenTrieWithPrefix<>) == 24);
     static_assert(alignof(StateMachineVarLenTrieWithPrefix<>) == 8);
 
     struct StateMachineConfig
@@ -208,7 +208,7 @@ namespace monad::test
 
         virtual constexpr bool auto_expire() const override
         {
-            return config.expire;
+            return depth != 0 && config.expire;
         }
     };
 
@@ -463,10 +463,10 @@ namespace monad::test
                     flags);
             }()};
             monad::io::Ring ring1{2};
-            monad::io::Ring ring2{4};
+            monad::io::Ring ring2{6};
             monad::io::Buffers rwbuf{
                 monad::io::make_buffers_for_segregated_read_write(
-                    ring1, ring2, 2, 4,
+                    ring1, ring2, 2, 6,
                     MONAD_ASYNC_NAMESPACE::AsyncIO::MONAD_IO_BUFFERS_READ_SIZE,
                     MONAD_ASYNC_NAMESPACE::AsyncIO::
                         MONAD_IO_BUFFERS_WRITE_SIZE)};

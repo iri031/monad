@@ -61,7 +61,7 @@ struct MachineBase : public mpt::StateMachine
     }
 };
 
-static_assert(sizeof(MachineBase) == 16);
+static_assert(sizeof(MachineBase) == 24);
 static_assert(alignof(MachineBase) == 8);
 
 struct InMemoryMachine final : public MachineBase
