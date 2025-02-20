@@ -14,7 +14,6 @@ Import stdpp.decidable.
 Import cQp_compat.
 Open Scope cQp_scope.
 Open Scope Z_scope.
-Import linearity.
 Import Verbose.
 Ltac slauto := misc.slauto1.
 Disable Notation take.
@@ -22,6 +21,14 @@ Disable Notation drop.
 Disable Notation "`div`" (all).
 Disable Notation intR.
 Disable Notation uintR.
+Lemma lose_resources `{cpp_logic} (P:mpred): P |-- emp.
+Proof using.
+  go.
+Qed.
+
+Ltac lose_resources := try iStopProof; apply lose_resources.
+
+Import linearity.
 
 Section with_Sigma.
   Context `{Sigma:cpp_logic} {CU: genv}.
@@ -244,61 +251,234 @@ also, arrays
   Proof.
     go.
   Qed.
+
+
+  
   (*class UnboundUint *)
   
-Require Import Coq.NArith.BinNat.
-Require Import Coq.Lists.List.
-Require Import Coq.Wellfounded.Wellfounded.
-Require Import Coq.Program.Wf.
-Import ListNotations.
-Require Import FunInd.
+  Require Import Coq.NArith.BinNat.
+  Require Import Coq.Lists.List.
+  Require Import Coq.Wellfounded.Wellfounded.
+  Require Import Coq.Program.Wf.
+  Import ListNotations.
+  Require Import FunInd.
 
-Open Scope N_scope.
-Search N.size.
-Require Import Recdef.
-Function split_in_32 (n : N) {measure (fun n => N.to_nat (N.log2 n))} : list N :=
-  match n with
-  | 0%N => []
-  | 1%N => [1]
-  | _ =>
-    let chunk := n `mod` (2^32) in
-    let n'   := n / (2^32) in
-    chunk :: split_in_32 n'
-  end.
-Proof.
-  {
-    intros. subst.
-    rewrite <- N.shiftr_div_pow2.
-    repeat rewrite N.log2_shiftr.
-    simpl.
-    lia.
-  }
-  {
-    intros. subst.
-    rewrite <- N.shiftr_div_pow2.
-    repeat rewrite N.log2_shiftr.
-    simpl.
-    lia.
-  }
-Defined.
+  Open Scope N_scope.
+  Search N.size.
+  Require Import Recdef.
+  Function split_in_32 (n : N) {measure (fun n => N.to_nat (N.log2 n))} : list N :=
+    match n with
+    | 0%N => []
+    | 1%N => [1]
+    | _ =>
+        let chunk := n `mod` (2^32) in
+        let n'   := n / (2^32) in
+        chunk :: split_in_32 n'
+    end.
+  Proof.
+    {
+      intros. subst.
+      rewrite <- N.shiftr_div_pow2.
+      repeat rewrite N.log2_shiftr.
+      simpl.
+      lia.
+    }
+    {
+      intros. subst.
+      rewrite <- N.shiftr_div_pow2.
+      repeat rewrite N.log2_shiftr.
+      simpl.
+      lia.
+    }
+  Defined.
 
-Eval vm_compute in (split_in_32 (2^65 + 2^32 + 45)).
+  Eval vm_compute in (split_in_32 (2^65 + 2^32 + 45)).
 
-Definition UnboundUintR (q:Qp) (n:N) : Rep :=
-  let pieces32 : list N := split_in_32 n in 
-  _field "size" |-> primR uint q (length pieces32)
-  ** Exists arrBase, _field "data" |-> primR uint q (Vptr arrBase)
-     ** pureR (arrBase |-> arrayR uint (fun i:N => primR uint q i)  pieces32).
-(** note the logical abstraction *)
+  Definition UnboundUintR (q:Qp) (n:N) : Rep :=
+    let pieces32 : list N := split_in_32 n in 
+    _field "size" |-> primR uint q (length pieces32)
+      ** Exists arrBase, _field "data" |-> primR uint q (Vptr arrBase)
+                           ** pureR (arrBase |-> arrayR uint (fun i:N => primR uint q i)  pieces32).
+  (** note the logical abstraction *)
 
-Example unfoldUnboundUintR (p:ptr) q n:
-let pieces32 := split_in_32 n in   
-  p |-> UnboundUintR q n -|-
-       p |-> _field "size" |-> primR uint q (length pieces32)
-       ** Exists arrBase, p |-> _field "data" |-> primR uint q (Vptr arrBase)
+  Example unfoldUnboundUintR (p:ptr) q n:
+    let pieces32 := split_in_32 n in   
+    p |-> UnboundUintR q n -|-
+      p |-> _field "size" |-> primR uint q (length pieces32)
+      ** Exists arrBase, p |-> _field "data" |-> primR uint q (Vptr arrBase)
                            ** arrBase |-> arrayR uint (fun i:N => primR uint q i)  pieces32.
-Proof. simpl.  unfold UnboundUintR. iSplit; go. Qed.
+  Proof. simpl.  unfold UnboundUintR. iSplit; go. Qed.
 
+  Definition ns := (nroot .@@ "::SpinLock").
+  Definition atomic_core_field_offset : offset. Proof. Admitted.
+  Definition atomicR (ty:type) (q : cQp.t) (v : val) : Rep :=
+      structR (Ninst "std::atomic" [Atype ty]) q **
+    atomic_core_field_offset |-> primR ty q v.
+
+(** Properties of [atomicR] *)
+Section atomicR.
+
+  #[global] Instance atomicR_frac T : CFracSplittable_1 (atomicR T).
+  Proof. solve_cfrac. Qed.
+
+  #[global] Instance atomic_type_ptrR_observe ty v q
+    : Observe (type_ptrR (Tnamed (Ninst "std::atomic" [Atype ty]))) (atomicR ty v q) := _.
+
+  #[global] Instance atomic_agree ty v1 v2 q1 q2
+    : Observe2 [| v1 = v2 |] (atomicR ty q1 v1) (atomicR ty q2 v2) := _.
+
+  #[global] Instance atomic_agree_inj `{Vinj : A -> val} `{!Inj eq eq Vinj} ty v1 v2 q1 q2
+    : Observe2 [| v1 = v2 |] (atomicR ty q1 (Vinj v1)) (atomicR ty q2 (Vinj v2)).
+  Proof. exact: (observe2_inj Vinj). Qed.
+
+  Definition learn_atomic_val (p : ptr) ty v1 v2 q1 q2
+    : Learnable (p |-> atomicR ty q1 v1) (p |-> atomicR ty q2 v2) [v2=v1].
+  Proof. solve_learnable. Qed.
+
+  (** [atomicR ty q v] implies that value [v] has type [ty]. *)
+  Lemma atomicR_has_type_prop ty v q :
+    Observe [| has_type_prop v ty |] (atomicR ty q v).
+  Proof. refine _. Qed.
+End atomicR.
+
+Opaque atomicR.
+
+Hint Resolve learn_atomic_val : br_opacity.
   
+  
+   (*
+    (λ this : ptr,
+       \arg{(Q : bool → mpred) (x : bool)} "v" (Vbool x)
+       \pre
+         AU1 << ∀ y : bool, this |-> atomicR Tbool (Vbool y) (cQp.mut 1) >> @ ⊤, ∅
+            << this |-> atomicR Tbool (Vbool x) (cQp.mut 1), COMM Q y >> 
+       \post{y : bool}[Vbool y]
+                Q y)
+  Rep ~= ptr -> mpred
+                *)
+
+  Locate inv.
+  Definition LockR (q: cQp.t) (invId: gname) (lockProtectedResource: mpred) : Rep :=
+  as_Rep (fun (this:ptr)=>
+     this |-> structR "::SpinLock" q
+     ** cinvq ns invId q (Exists locked:bool,
+                  this |-> _field "::SpinLock::locked" |-> atomicR Tbool 1 (Vbool locked)
+	          ** if locked then emp else lockProtectedResource
+    )).
+
+  cpp.spec "SpinLock::SpinLock()" as lock_constr_spec with
+      (fun this:ptr =>
+         \pre{R:mpred} R
+         \post Exists invId,  this |-> LockR 1 invId R
+      ).
+  
+  cpp.spec "SpinLock::lock()" as lock_spec with
+      (fun this:ptr =>
+         \prepost{q invId R} this |-> LockR q  invId R
+         \post R
+      ).
+  
+  cpp.spec "SpinLock::unlock()" as unlock_spec with
+      (fun this:ptr =>
+         \prepost{q invId R} this |-> LockR q  invId R
+         \pre R
+         \post emp
+      ).
+  Notation memory_order_seq_cst := 5.
+    #[ignore_errors]
+    cpp.spec "std::atomic<bool>::exchange(bool, enum std::memory_order)"  as exchange_spec with
+            (λ this : ptr,
+       \arg{(x : bool)} "v" (Vbool x)
+       \arg "order" (Vint memory_order_seq_cst)
+       \pre{Q : bool → mpred}
+         AC1 << ∀ y : bool, this |-> atomicR Tbool (cQp.mut 1) (Vbool y)>> @ ⊤, ∅
+            << this |-> atomicR Tbool (cQp.mut 1) (Vbool x), COMM Q y >> 
+       \post{y : bool}[Vbool y]
+       Q y).
+    Opaque atomicR.
+  Definition fwd_later_exist := [FWD] (@bi.later_exist).
+  Definition fwd_later_sep := [FWD] (@bi.later_sep).
+  Definition bwd_later_exist := [BWD_MW->] (@bi.later_exist).
+  Definition bwd_later_sep := [BWD_MW->] (@bi.later_sep).
+  Definition fwd_at_later := [FWD<-] (@_at_later).
+  Hint Resolve fwd_later_exist fwd_later_sep bwd_later_exist
+    bwd_later_sep : br_opacity.
+
+(* open all cinvq invariants then open rest. used in callAtomicCommitCinv*)
+Ltac openCinvqsRest :=
+  repeat openCinvq;
+  work using fwd_later_exist, fwd_later_sep;
+  repeat removeLater;
+  iApply fupd_mask_intro;[set_solver |]; (* openRest *)
+  iIntrosDestructs.
+
+(**
+   the RHS of your goal should look like a permutation of
+   [[
+   AC pre post ?Q ** (forall ..., ?Q ... -* ...)
+   ]]
+  it first calls [callAtomicCommit] to instantiate the public post Q.
+  then it opens all cinvq invariants
+  then it opens everything else (change the goal from [|={⊤ \ ..\ ... ,∅}=> U)] to  [|={∅}=> U)])
+  and then "does iModIntro" so that you can start proving U which is typically of the form [pre ** ...]
+ *)
+Ltac callAtomicCommitCinv :=
+  callAtomicCommit;
+  openCinvqsRest.
+
+(* applies to goals that look like [|-- AC pre post Q] or [|-- AU pre post Q]  in IPM: only 1 conjuct in conclusion and not 2, where [callAtomicCommitCinv] works. it sets up the proof of AC/AU by doing the usual initialization
+ and opening all invariants and rest so that you can immediately begin proving [pre] *)
+Ltac proveAuAc :=
+  (iAcIntro || iAuIntro);
+  (unfold commit_acc || unfold atomic_acc);
+  openCinvqsRest.
+  
+  Lemma lock_lock_prf: denoteModule module ** exchange_spec |-- lock_spec.
+  Proof using MODd.
+    verify_spec'.
+    go.
+    wp_while (fun _ => emp).
+    go.
+    iExists (fun oldval:bool => (if oldval then emp else R) **  cinvq ns invId q
+        (∃ locked : bool, this |-> o_field CU "SpinLock::locked" |-> atomicR "bool" 1%Qp (Vbool locked) ∗ (if locked then emp else R))).
+    Require Import bedrock.auto.tactics.
+    wrename [cinvq _ _ _ _]  "inv".
+    iSplitL "inv".
+    -
+      Opaque coPset_difference. go.
+      iAcIntro. unfold commit_acc.
+      openCinvqsRest.
+      go.
+      closeCinvqs.
+      go.
+      iModIntro.
+      go.
+    - go.
+      wp_if; go.
+   Qed.
+    #[ignore_errors]
+    cpp.spec "std::atomic<bool>::store(bool, enum std::memory_order)"  as store_spec with
+(λ this : ptr,
+       \arg{(Q : mpred) (x : bool)} "v" (Vbool x)
+       \arg "memorder" (Vint 5)
+       \pre
+         AC1 << ∀ y : bool, this |-> atomicR Tbool (cQp.mut 1) (Vbool y)>> @ ⊤, ∅
+            << this |-> atomicR Tbool (cQp.mut 1) (Vbool x), COMM Q >> 
+                                                               \post    Q).
+      
+  Lemma unlock_prf: denoteModule module ** store_spec |-- unlock_spec.
+  Proof using MODd.
+    verify_spec'.
+    go.
+    iExists _.
+    callAtomicCommitCinv.
+    go.
+    closeCinvqs.
+    go.
+    iModIntro.
+    go.
+    lose_resources.
+  Qed.
+
 End with_Sigma.
   
