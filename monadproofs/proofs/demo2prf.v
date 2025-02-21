@@ -100,6 +100,115 @@ Section with_Sigma.
     rewrite arrayR_split; eauto. go. 
   Qed.
 
+  (** Structs: Point2D *)
+  Definition NodeR `{Σ : cpp_logic, σ : genv} (q: cQp.t) (data: Z) (nextLoc: ptr): Rep :=
+    structR "Node" q
+    ** _field "Node::data_" |-> primR Ti32                       (cQp.mut q) data
+    ** _field "Node::next_" |-> primR (Tptr (Tnamed "Node")) (cQp.mut q) (Vptr nextLoc).
+
+  (** Structs: LinkedList *)
+
+
+  Fixpoint ListR (q : cQp.t) (l : list Z) : Rep :=
+    match l with
+    | [] => nullR
+    | hd :: tl => Exists (p : ptr), NodeR q hd p ** pureR (p |-> ListR q tl)
+    end.
+
+
+  Example listRUnfold (q:Qp) (head:ptr): head |-> ListR 1 [4;5;6] |--
+    Exists node5loc node6loc,
+       head |-> NodeR 1 4 node5loc
+       ** node5loc |-> NodeR 1 5 node6loc
+       ** node6loc |-> NodeR 1 6 nullptr
+       (* ** [| node5loc <> node6loc <> head|] *).
+  Proof using. work. unfold NodeR.  go. Qed.
+
+  cpp.spec "reverse(Node*)" as reverse_spec with
+    (\arg{lp} "l" (Vptr lp)
+     \pre{l} lp |-> ListR 1 l
+     \post{r}[Vptr r] r |-> ListR (cQp.m 1) (List.rev l)).
+
+  Search List.rev.
+  Check rev_app_distr.
+
+  Definition sort (l:list Z) : list Z. Proof. Admitted.
+  cpp.spec "sort(Node*)" as sort_spec with
+    (\arg{lp} "l" (Vptr lp)
+     \pre{l} lp |-> ListR 1 l
+     \post{r}[Vptr r] r |-> ListR (1) (sort l)).
+
+  Fixpoint sorted (l: list Z) : Prop :=
+    match l with
+    | [] => True
+    | h::tl => forall t, t ∈ tl -> h <= t
+    end.
+  
+  cpp.spec "sort(Node*)" as sort_spec2 with
+    (\arg{lp} "l" (Vptr lp)
+     \pre{l} lp |-> ListR 1 l
+     \post{r}[Vptr r] Exists ls, r |-> ListR (1) ls ** [| sorted ls |]).
+  
+  (**  extensional spec
+     - simpler than writing a 
+     - the postcondition is too weak. why? *)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  cpp.spec "sort(Node*)" as sort_spec3 with
+    (\arg{lp} "l" (Vptr lp)
+     \pre{l} lp |-> ListR 1 l
+     \post{r}[Vptr r] Exists ls, r |-> ListR (1) ls ** [| sorted ls /\ l ≡ₚ ls|]).
+
+  Lemma fold_id {A:Type} (f: A->A->A) (asoc: Associative (=) f)
+    (start id: A) (lid: LeftId (=) id f) (rid: RightId (=) id f) (l: list A):
+    fold_left f l start = f start (fold_left f l id).
+  Proof using.
+    hnf in lid.
+    hnf in rid.
+    revert start.
+    induction l; auto.
+    simpl.
+    simpl. rewrite lid.
+    intros.
+    simpl.
+    rewrite IHl.
+    symmetry.
+    rewrite IHl.
+    aac_reflexivity.
+  Qed.
+
+  Lemma fold_split {A:Type} (f: A->A->A)(asoc: Associative (=) f)
+    (id: A) (lid: LeftId (=) id f) (rid: RightId (=) id f) (l: list A) (lSplitSize: nat):
+    fold_left f l id =
+      f (fold_left f (firstn lSplitSize l) id)
+        (fold_left f (skipn  lSplitSize l) id).
+  Proof.
+    rewrite <- (take_drop lSplitSize) at 1.
+    rewrite fold_left_app.
+    rewrite fold_id.
+    aac_reflexivity.
+  Qed.
+  
   (** Passing resources between running threads
 
 last session, we saw:
@@ -140,6 +249,7 @@ Parent: Child.join
    *)
 
   Notation inv := (cinvq (nroot .@@ "::demo2")).
+  
 Lemma cinvq_alloc `{Σ : cpp_logic} (E : coPset) (N : namespace) (P : mpred) :
   WeaklyObjective P → ▷ P |-- |={E}=> ∃ γ : gname, cinvq N γ 1 P.
 Proof.
@@ -238,17 +348,6 @@ Qed.
 
   
   
-  Definition SPSCQueueInv1 : Rep :=
-    Exists (items: list Z) (head: nat) (tail:nat) (inProduceOp inConsumeOp: bool),
-      [∗ list] i↦  item ∈ (skipn 1 items),  _field "bufer".["int" ! ((1+head + i) `mod` 256)] |-> primR "int"  1 (Vint item)
-      ** (if inConsumeOp then emp else _field "bufer".["int" ! head ] |->  primR "int"  1 (hd 0 items))
-      ** [∗ list] i↦  _ ∈ (seq 0 (256-length items -2)),  _field "bufer".["int" ! (1+tail + i) `mod` 256 ] |-> anyR "int" 1
-      ** (if inProduceOp then emp else _field "bufer".["int" ! tail ] |-> anyR "int" 1).
-  Definition QProducerR ()
-*)
-  Check Z.gcd_comm.
-  Check Z.gcd_assoc.
-
   (** *Parallelizing a sequence of operations
 - e.g. sequence of operations monad transactions.
 - Commutativivity enables ||: a o b = b o a
@@ -385,18 +484,6 @@ also, arrays
       Z.gcd (fold_left Z.gcd (firstn lSplitSize l) 0) (fold_left Z.gcd (skipn lSplitSize l) 0).
   Proof using. apply misc.fold_split_gcd; auto. Qed.
 
-  Lemma fold_split {A:Type} (f: A->A->A) (c: Commutative (=) f) (asoc: Associative (=) f)
-    (id: A) (lid: LeftId (=) id f) (l: list A) (lSplitSize: nat):
-    fold_left f l id =
-      f (fold_left f (firstn lSplitSize l) id)
-        (fold_left f (skipn  lSplitSize l) id).
-  Proof.
-    rewrite <- (take_drop lSplitSize) at 1.
-    rewrite fold_left_app.
-    rewrite fold_id.
-    aac_reflexivity.
-  Qed.
-
   (** *Structs and Classes
      we often use multi-word numbers: EVMword is 256 bits *)
   
@@ -462,12 +549,13 @@ also, arrays
                            ** arrBase |-> arrayR uint (fun i:N => primR uint q i)  pieces32.
   Proof. simpl.  unfold UnboundUintR. iSplit; go. Qed.
 
+  Transparent atomicR.
 (** Properties of [atomicR] *)
 Section atomicR.
   Definition ns := (nroot .@@ "::SpinLock").
 
   #[global] Instance atomicR_frac T : CFracSplittable_1 (atomicR T).
-  Proof. solve_cfrac. Qed.
+  Proof.  solve_cfrac. Qed.
 
   #[global] Instance atomic_type_ptrR_observe ty v q
     : Observe (type_ptrR (Tnamed (Ninst "std::atomic" [Atype ty]))) (atomicR ty v q) := _.
@@ -632,10 +720,29 @@ End with_Sigma.
   
 
 (* TODO
+
+0. linkedlist
 1. remove AWrapper. work on a global atomic variable to make things simpler. dont  need a class rep. getU() , setU(v) instead.
 2. just after bar_prf, contrast how the cinv version allows access and how it requires to return back ownership
 3. show prime number dupl
-4. SPSC queue asciiart how ownership of array elem is passed from producer to consumer
-5. existentials to capture the idea
-6. explain why ghost variables needed: in the produce() \post we want to ensure that produceInProgress is false.
+4. BlockState picture
+5. counter auth frag specs
+6. block state specs
+8. lock 
+7. lock protected linked list
+
+
+sequence:
+1. arrays: gcdl spec
+2: structs: point: not much logical abstraction 
+3: structs: linked list
+4: thread sharing resources while running: asciiart
+5: setU/getU specs: 3 variants: concurrent, sequential, concurrent with Primes
+6: setU/getU 4th spec: auth frag
+7: execute_block diagram to explain the auth/frag spec of BlockState
+8. block state specs
+9. lock code and lock protected linked list: asciiart/animation explaining how lock protects linked list. emplasize the lock protected resource need not be atomic.
+10. ThreadSafeLinkedList Rep
+
+
 *)

@@ -23,6 +23,27 @@ uint parallel_gcdl(uint * nums, uint length) {
     return gcd(resultl, resultr);
 }
 
+uint fold_left(uint * nums, uint length, uint (*f)(uint, uint)) {
+    uint result=0;
+    for (uint i=0; i<length; i++) {
+        result=f(result, nums[i]);
+    }
+    return result;
+}
+
+uint parallel_fold_left(uint * nums, uint length, uint (*f)(uint, uint)) {
+    uint mid=length/2;
+    uint resultl;
+    auto foldlLambda = [&nums, &mid, &resultl]() {
+        resultl=fold_left(nums, mid, f);
+    };
+    Thread t1(foldlLambda);
+    t1.start();
+    uint resultr;
+    resultr=fold_left(nums+mid, length-mid, f);
+    t1.join();
+    return f(resultl, resultr);
+}
 
 
 // to be verified. there may be bugs here
@@ -124,9 +145,117 @@ struct UnboundedUint {
     UnboundedUint& operator=(const UnboundedUint& other) = delete;
 };
 
+struct Node {
+    Node(Node *next, int data) : next_(next), data_(data) {}
+
+    Node *next_;
+    int data_;
+};
+
+typedef Node *List;
+
+void
+split(List ab, List &a, List &b) {
+    bool which = true;
+    while (ab) {
+        auto temp = ab->next_;
+        if (which) {
+            ab->next_ = a;
+            a = ab;
+        } else {
+            ab->next_ = b;
+            b = ab;
+        }
+        ab = temp;
+        which = !which;
+    }
+}
+
+List
+reverse(List l) {
+    List prev = nullptr;
+    List next = nullptr;
+    while (l != nullptr) {
+        next = l->next_;
+        l->next_ = prev;
+        prev = l;
+        l = next;
+    }
+    return prev;
+}
+
+void move_cons(List &from, List &to) {
+  auto t = from->next_;
+  from->next_ = to;
+  to = from;
+  from = t;
+}
+
+// [rev_append] could be written as a tail-recursive function
+// but not all compilation levels will optimize this to constant
+// space.
+List rev_append(List a, List rest) {
+  while (a) {
+    move_cons(a, rest);
+  }
+  return rest;
+}
+
+// this does a reverse merge, i.e. it changes the order of the list
+List rev_merge(bool dir, List a, List b) {
+  List result = nullptr;
+  do {
+    if (a) {
+      if (b) {
+        if (a->data_ < b->data_)
+          move_cons(dir ? b : a, result);
+        else
+          move_cons(dir ? a : b, result);
+      } else
+        return rev_append(a, result);
+    } else
+      return rev_append(b, result);
+  } while (true);
+}
+
+List merge(List a, List b) {
+  if (not a) return b;
+  if (not b) return a;
+  if (a->data_ < b->data_) {
+    a->next_ = merge(a->next_, b);
+    return a;
+  } else {
+    b->next_ = merge(a, b->next_);
+    return b;
+  }
+}
+
+List merge_sort_rec(List ls) {
+  if (ls && ls->next_) {
+    List a = nullptr, b = nullptr;
+    split(ls, a, b);
+    a = merge_sort_rec(a);
+    b = merge_sort_rec(b);
+    return merge(a, b);
+  } else
+    return ls;
+}
+
+List sort(List l) {
+    return merge_sort_rec(l);
+}
+
 int z = 0;
 void bar() {
     z = 1;
+}
+
+std::atomic<int> u;
+void setU() {
+    u.store(1);
+}
+void getU() {
+    u.load();
 }
 
 class AWrapper {
