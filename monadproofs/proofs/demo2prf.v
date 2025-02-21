@@ -238,11 +238,12 @@ Qed.
 
   
   
-(*
-  Definition SPSCQueueInv  (this: ptr) : mpred :=
-    Exists (items: list Z) (head: nat) (tail:nat),
-      [∗ list] i \
-      lstar (map (fun _field "bufer".["int" ! head] items)
+  Definition SPSCQueueInv1 : Rep :=
+    Exists (items: list Z) (head: nat) (tail:nat) (inProduceOp inConsumeOp: bool),
+      [∗ list] i↦  item ∈ (skipn 1 items),  _field "bufer".["int" ! ((1+head + i) `mod` 256)] |-> primR "int"  1 (Vint item)
+      ** (if inConsumeOp then emp else _field "bufer".["int" ! head ] |->  primR "int"  1 (hd 0 items))
+      ** [∗ list] i↦  _ ∈ (seq 0 (256-length items -2)),  _field "bufer".["int" ! (1+tail + i) `mod` 256 ] |-> anyR "int" 1
+      ** (if inProduceOp then emp else _field "bufer".["int" ! tail ] |-> anyR "int" 1).
   Definition QProducerR ()
 *)
   Check Z.gcd_comm.
