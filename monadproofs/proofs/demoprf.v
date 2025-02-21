@@ -328,7 +328,6 @@ how we lose:
   (** *Demo: read-read concurrency using fractional permissions *)
 
   (*
-  Step 1: Initial Resource Ownership
   ┌──────────────────────────┐
   │  Parent owns P:mpred     │
   └──────────────────────────┘

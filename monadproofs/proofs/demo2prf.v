@@ -29,13 +29,21 @@ Qed.
 Ltac lose_resources := try iStopProof; apply lose_resources.
 
 Import linearity.
+(** start recording *)
+
+(** [gcd_proof] *)
 
 Section with_Sigma.
   Context `{Sigma:cpp_logic} {CU: genv}.
   Context  {MODd : demo2.module ⊧ CU}.
+  Definition atomic_core_field_offset : offset. Proof. Admitted.
+  Definition atomicR (ty:type) (q : cQp.t) (v : val) : Rep :=
+      structR (Ninst "std::atomic" [Atype ty]) q **
+    atomic_core_field_offset |-> primR ty q v.
 
   Open Scope Z_scope.
   Set Nested Proofs Allowed.
+
   (**  *Arrays *)
   Definition gcdl_spec_core : WpSpec mpredI val val :=
       \arg{numsp:ptr} "nums" (Vptr numsp)
@@ -91,8 +99,152 @@ Section with_Sigma.
     intros.
     rewrite arrayR_split; eauto. go. 
   Qed.
-  
 
+  (** Passing resources between running threads
+
+last session, we saw:
+- pass assertions (incl ownership) to a new thread when starting it
+- get back its postcondition at t.join()
+
+  ┌──────────────────────────┐
+  │  Parent owns P:mpred     │
+  └──────────────────────────┘
+           |
+           | Split resources:  P -|- Pₖ ** C
+           v
+  ┌──────────────┬──────────────┐
+  │ Pₖ (Parent)  │  C (Child)   │
+  └──────────────┴──────────────┘
+           |                |
+           |                |
+           |     <-?->      |
+           |                |
+           |                |
+     Parent Thread       Child Thread (new)
+         runs with Pₖ        runs with C
+  ┌──────────────┬──────────────┐
+  │ Pₖ' (Parent) │  C'(Child)   │ child done executing
+  └──────────────┴──────────────┘
+           |                |
+Parent: Child.join 
+  ┌──────────────────────────┐
+  │ Parent owns Pk' ** C'    │
+  └──────────────────────────┘
+
+
+- no way to pass resources between running threads
+*)
+
+(** *Concurrent Invariants 
+[c200,345]
+   *)
+
+  Notation inv := (cinvq (nroot .@@ "::demo2")).
+Lemma cinvq_alloc `{Σ : cpp_logic} (E : coPset) (N : namespace) (P : mpred) :
+  WeaklyObjective P → ▷ P |-- |={E}=> ∃ γ : gname, cinvq N γ 1 P.
+Proof.
+  intros.
+  unfold cinvq.
+  wapply (cinv_alloc E N P).
+  work.
+  iModIntro.
+  ework.
+  eagerUnifyU. go.
+Qed.
+
+
+Example boxedResource (P:mpred) (invId: gname): mpred := inv invId 1 P.
+
+
+Lemma splitInv (P:mpred) (invId: gname) (q:Qp):
+  inv invId q P |-- inv invId (q/2) P ** inv invId (q/2) P.
+Proof using.
+  rewrite <- (@fractional _ _ (cinvq_frac _)).
+  f_equiv.
+  Ltac solveQpeq2 :=
+    repeat match goal with
+      H:Qp |- _ => destruct H; simpl in *;
+              f_equal;
+      solveQpeq;
+        solveQeq
+      end.
+  solveQpeq2.
+Qed.
+
+  cpp.spec "bar()" as bar_spec with (
+      \prepost{q invId} inv q invId (∃ zv, _global "z" |-> primR "int" 1 zv)
+      \post emp
+    ).
+  Lemma bar_prf : denoteModule module |-- bar_spec.
+  Proof using.
+    verify_spec.
+    go.
+  Abort. (* highlight. not an atomic op. cannot open the inv box *)
+  
+  Definition AWrapperR  (q: Qp) (invId: gname): Rep :=
+    structR "AWRapper" q **
+    as_Rep (fun this:ptr =>
+      inv invId q (∃ i:Z, this ,, _field "v" |-> atomicR "int" 1 i)).
+
+  (** above, i is ∃ quantified *)
+  Definition AWrapperRs  (q: Qp) (i:Z): Rep :=
+    structR "AWRapper" q **
+      _field "v" |-> atomicR "int" q (Vint i).
+
+  
+  cpp.spec "AWrapper::setValue(int)" as setValue_spec with (fun (this:ptr) =>
+     \prepost{q invid} this |-> AWrapperR q invid
+     \arg{newval:Z} "value" (Vint newval)
+     \post emp).
+  
+  cpp.spec "AWrapper::setValue(int)" as setValue_nonconcurrent_spec with (fun (this:ptr) =>
+     \pre{oldVal} this |-> AWrapperRs 1 oldVal
+     \arg{i:Z} "value" (Vint i)
+     \post this |-> AWrapperRs 1 i). (** but.. no other thread can call any method during this call *)
+
+  cpp.spec "AWrapper::getValue()" as getValue_spec with (fun (this:ptr) =>
+     \prepost{q invid} this |-> AWrapperR q invid
+     \post{any:Z} [Vint any] emp).
+
+  cpp.spec "AWrapper::getValue()" as getValue_nonconcurrent_spec with (fun (this:ptr) =>
+     \prepost{q (val:Z)} this |-> AWrapperRs q val
+     \post [Vint val] emp).
+
+  Lemma as_Rep_meaning (f: ptr -> mpred) (base:ptr) :
+    (base |-> as_Rep f)  -|- f base.
+  Proof using. iSplit; go. Qed.
+  
+  Definition AWrapperR2  (q: Qp) (invId: gname): Rep :=
+    structR "AWRapper" q **
+    as_Rep (fun this:ptr =>
+       inv invId q (∃ i:Z, this ,, _field "v" |-> atomicR "int" 1 i
+                        ** [| isPrime i |] )).
+
+  cpp.spec "AWrapper::setValue(int)" as setValue2_spec with (fun (this:ptr) =>
+     \prepost{q invId} this |-> AWrapperR2 q invId
+     \arg{i:Z} "value" (Vint i)
+     \pre [| isPrime i |] 
+     \post emp).
+
+  cpp.spec "AWrapper::getValue()" as getValue2_spec with (fun (this:ptr) =>
+     \prepost{q invid} this |-> AWrapperR2 q invid
+     \post{any:Z} [Vint any] [| isPrime any |]).
+
+  Opaque atomicR.
+  Lemma duplPrime (i:Z) (this:ptr) :
+    let p := this ,, _field "v" |-> atomicR "int" 1 i ** [| isPrime i |] in
+    p |-- p ** [| isPrime i |].
+  Proof using. go. Qed.
+
+  
+  
+(*
+  Definition SPSCQueueInv  (this: ptr) : mpred :=
+    Exists (items: list Z) (head: nat) (tail:nat),
+      [∗ list] i \
+      lstar (map (fun _field "bufer".["int" ! head] items)
+  Definition QProducerR ()
+*)
   Check Z.gcd_comm.
   Check Z.gcd_assoc.
 
@@ -309,14 +461,9 @@ also, arrays
                            ** arrBase |-> arrayR uint (fun i:N => primR uint q i)  pieces32.
   Proof. simpl.  unfold UnboundUintR. iSplit; go. Qed.
 
-  Definition ns := (nroot .@@ "::SpinLock").
-  Definition atomic_core_field_offset : offset. Proof. Admitted.
-  Definition atomicR (ty:type) (q : cQp.t) (v : val) : Rep :=
-      structR (Ninst "std::atomic" [Atype ty]) q **
-    atomic_core_field_offset |-> primR ty q v.
-
 (** Properties of [atomicR] *)
 Section atomicR.
+  Definition ns := (nroot .@@ "::SpinLock").
 
   #[global] Instance atomicR_frac T : CFracSplittable_1 (atomicR T).
   Proof. solve_cfrac. Qed.
@@ -482,3 +629,12 @@ Ltac proveAuAc :=
 
 End with_Sigma.
   
+
+(* TODO
+1. remove AWrapper. work on a global atomic variable to make things simpler. dont  need a class rep. getU() , setU(v) instead.
+2. just after bar_prf, contrast how the cinv version allows access and how it requires to return back ownership
+3. show prime number dupl
+4. SPSC queue asciiart how ownership of array elem is passed from producer to consumer
+5. existentials to capture the idea
+6. explain why ghost variables needed: in the produce() \post we want to ensure that produceInProgress is false.
+*)

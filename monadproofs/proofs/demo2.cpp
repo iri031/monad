@@ -124,6 +124,52 @@ struct UnboundedUint {
     UnboundedUint& operator=(const UnboundedUint& other) = delete;
 };
 
+int z = 0;
+void bar() {
+    z = 1;
+}
+
+class AWrapper {
+public:
+    AWrapper(int value) : v(value) {}
+    std::atomic<int> v;
+    void setValue(int value) {
+        v.store(value);
+    }
+    
+    int getValue() {
+        return v.load();
+    }
+
+    int setThenGetValue(int value) {
+        setValue(value);
+        // some other thread can execute setValue(value') here
+        return getValue();
+    }
+
+};
+
+/*
+ 
+             Parent Thread                        
+                  │                                     
+                  │  Create Invariant:                  
+                  │                                     
+                  │    ┌───────────────────────────┐    
+                  │    │  ∃ i: Z, a.v|-> atomicR i │    
+                  │    └───────────────────────────┘    
+                  │                                    
+                  ├───────────────────────────────────►
+                  │                (Fork Child)       Child Thread
+                  │                                    │
+                  │                                    │
+           a.setValue(5)                               │
+                  │                                    │
+                  │                           a.setValue(6) 
+                  │                                    │
+                  │                                    │
+
+ */
 class SpinLock {
 public:
     SpinLock() : locked(false) {}
@@ -138,6 +184,165 @@ public:
 private:
   std::atomic<bool> locked;
 };
+
+class CircularBuffer
+{
+public:
+    static constexpr uint CAPACITY = 256;
+
+    CircularBuffer()
+        : head_(0), tail_(0)
+    {
+    }
+
+    bool push(uint32_t value)
+    {
+        uint tail = tail_;
+        uint nextTail = (tail + 1) % CAPACITY;
+
+        uint head = head_;
+
+        if (nextTail == head)
+        {
+            return false;
+        }
+
+        buffer_[tail] = value;
+
+        tail_ = nextTail;
+        return true;
+    }
+    bool pop(uint32_t &value)
+    {
+        uint head = head_;
+
+        uint tail = tail_;
+
+        if (head == tail)
+        {
+            return false;
+        }
+
+        value = buffer_[head];
+
+        uint nextHead = (head + 1) % CAPACITY;
+
+        head_ = nextHead;
+        return true;
+    }
+
+    bool isEmpty() const
+    {
+        return head_ == tail_;
+    }
+
+    bool isFull() const
+    {
+        uint tail = tail_;
+        uint nextTail = (tail + 1) % CAPACITY;
+        uint head = head_;
+        return (nextTail == head);
+    }
+
+private:
+    uint head_;
+    uint tail_;
+
+    int buffer_[CAPACITY];
+};
+
+class SPSCQueue
+{
+public:
+    static constexpr uint CAPACITY = 256;
+
+    SPSCQueue()
+        : head_(0), tail_(0)
+    {
+    }
+
+    // Push a value into the buffer (from the producer thread).
+    // Returns true on success, false if the buffer is full.
+    bool push(uint32_t value)
+    {
+        // Load the current tail (relaxed, since only one producer writes to tail).
+        uint tail = tail_.load(std::memory_order_seq_cst);
+        // Calculate the next tail index.
+        uint nextTail = (tail + 1) % CAPACITY;
+
+        // We need to ensure we see the latest head; use acquire or stronger
+        // so that we don't overwrite unconsumed data.
+        uint head = head_.load(std::memory_order_acquire);
+
+        // If next tail equals head, the buffer is full (cannot push).
+        if (nextTail == head)
+        {
+            return false;
+        }
+
+        // Store the value into the buffer.
+        buffer_[tail] = value;
+
+        // Publish the new tail (release, so consumer sees the stored value).
+        tail_.store(nextTail, std::memory_order_seq_cst);
+        return true;
+    }
+
+    // Pop a value from the buffer (from the consumer thread).
+    // Returns true on success, false if the buffer is empty.
+    bool pop(uint32_t &value)
+    {
+        // Load the current head (relaxed, since only one consumer writes to head).
+        uint head = head_.load(std::memory_order_seq_cst);
+
+        // We need the latest tail so we do an acquire or stronger here
+        // to ensure the read of buffer_ is valid.
+        uint tail = tail_.load(std::memory_order_seq_cst);
+
+        // If head equals tail, the buffer is empty (cannot pop).
+        if (head == tail)
+        {
+            return false;
+        }
+
+        // Read the value from the buffer.
+        value = buffer_[head];
+
+        // Calculate the next head index.
+        uint nextHead = (head + 1) % CAPACITY;
+
+        // Publish the new head (release).
+        head_.store(nextHead, std::memory_order_release);
+        return true;
+    }
+
+    // Check if the buffer is empty.
+    bool isEmpty() const
+    {
+        return head_.load(std::memory_order_acquire) ==
+               tail_.load(std::memory_order_acquire);
+    }
+
+    // Check if the buffer is full.
+    bool isFull() const
+    {
+        // nextTail == head means full
+        uint tail = tail_.load(std::memory_order_acquire);
+        uint nextTail = (tail + 1) % CAPACITY;
+        uint head = head_.load(std::memory_order_acquire);
+        return (nextTail == head);
+    }
+
+private:
+    // Atomic indices for head (consumer) and tail (producer).
+    // Each is only written from one thread but may be read from both.
+    std::atomic<uint> head_;
+    std::atomic<uint> tail_;
+
+    // Fixed-size storage for the ring buffer.
+    uint buffer_[CAPACITY];
+};
+
 
 // int main() {
 //     Thread t([]() {
