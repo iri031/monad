@@ -15,7 +15,6 @@ Import cQp_compat.
 Open Scope cQp_scope.
 Open Scope Z_scope.
 Import Verbose.
-Ltac slauto := misc.slauto1.
 Disable Notation take.
 Disable Notation drop.
 Disable Notation "`div`" (all).
@@ -39,8 +38,9 @@ Section with_Sigma.
   Context  {MODd : demo2.module ⊧ CU}.
   Definition atomic_core_field_offset : offset. Proof. Admitted.
   Definition atomicR (ty:type) (q : cQp.t) (v : val) : Rep :=
-      structR (Ninst "std::atomic" [Atype ty]) q **
-    atomic_core_field_offset |-> primR ty q v.
+    structR (Ninst "std::atomic" [Atype ty]) q
+    ** o_base CU (Ninst "std::atomic" [Atype ty]) (Ninst "std::__atomic_base" [Atype ty]) |-> structR  (Ninst "std::__atomic_base" [Atype ty]) q
+    ** atomic_core_field_offset |-> primR ty q v.
 
 (** Properties of [atomicR] *)
 Section atomicR.
@@ -52,6 +52,18 @@ Section atomicR.
   #[global] Instance atomic_type_ptrR_observe ty v q
     : Observe (type_ptrR (Tnamed (Ninst "std::atomic" [Atype ty]))) (atomicR ty v q) := _.
 
+  #[global] Instance atomic_type_ptrR_base_observe ty v q (p:ptr)
+    : Observe (type_ptr (Tnamed (Ninst "std::__atomic_base" [Atype ty])) (p,, o_base CU (Ninst "std::atomic" [Atype ty]) (Ninst "std::__atomic_base" [Atype ty]))) (p |-> atomicR ty v q).
+  Proof.
+    apply observe_intro;[exact _|].
+    iIntrosDestructs.
+    unfold atomicR.
+    hideRhs.
+    go.
+    unhideAllFromWork.
+    go.
+  Qed.
+  
   #[global] Instance atomic_agree ty v1 v2 q1 q2
     : Observe2 [| v1 = v2 |] (atomicR ty q1 v1) (atomicR ty q2 v2) := _.
 
@@ -70,6 +82,43 @@ Section atomicR.
 End atomicR.
 
 Opaque atomicR.
+  Definition fwd_later_exist := [FWD] (@bi.later_exist).
+  Definition fwd_later_sep := [FWD] (@bi.later_sep).
+  Definition bwd_later_exist := [BWD_MW->] (@bi.later_exist).
+  Definition bwd_later_sep := [BWD_MW->] (@bi.later_sep).
+  Definition fwd_at_later := [FWD<-] (@_at_later).
+  Hint Resolve fwd_later_exist fwd_later_sep bwd_later_exist
+    bwd_later_sep : br_opacity.
+
+(* open all cinvq invariants then open rest. used in callAtomicCommitCinv*)
+Ltac openCinvqsRest :=
+  repeat openCinvq;
+  work using fwd_later_exist, fwd_later_sep;
+  repeat removeLater;
+  iApply fupd_mask_intro;[set_solver |]; (* openRest *)
+  iIntrosDestructs.
+
+(**
+   the RHS of your goal should look like a permutation of
+   [[
+   AC pre post ?Q ** (forall ..., ?Q ... -* ...)
+   ]]
+  it first calls [callAtomicCommit] to instantiate the public post Q.
+  then it opens all cinvq invariants
+  then it opens everything else (change the goal from [|={⊤ \ ..\ ... ,∅}=> U)] to  [|={∅}=> U)])
+  and then "does iModIntro" so that you can start proving U which is typically of the form [pre ** ...]
+ *)
+Ltac callAtomicCommitCinv :=
+  try (iExists _);
+  callAtomicCommit;
+  openCinvqsRest.
+
+(* applies to goals that look like [|-- AC pre post Q] or [|-- AU pre post Q]  in IPM: only 1 conjuct in conclusion and not 2, where [callAtomicCommitCinv] works. it sets up the proof of AC/AU by doing the usual initialization
+ and opening all invariants and rest so that you can immediately begin proving [pre] *)
+Ltac proveAuAc :=
+  (iAcIntro || iAuIntro);
+  (unfold commit_acc || unfold atomic_acc);
+  openCinvqsRest.
 
 (*
 Hint Resolve learn_atomic_val : br_opacity.
@@ -358,32 +407,90 @@ Qed.
        Q y).
 
     Opaque coPset_difference.
-    
+    Lemma peek_cinvq a b c P (C:mpred) learn:
+      ▷ P |-- bupd (▷ P ** learn) 
+      -> (learn -* cinvq a b c P -*  |={⊤}=> C) |-- cinvq a b c P -*  |={⊤}=> C.
+    Proof using.
+      intros hl.
+      go.
+      openCinvq.
+      rewrite hl.
+      ghost.
+      go.
+      wapply invariants.close_cinvQR4.
+      eagerUnifyU.
+      unhideAllFromWork.
+      go.
+      iModIntro.
+      iFrame.
+    Qed.
+
+    Lemma admitReferenceTo ty ptr : emp |-- reference_to ty ptr.
+    Proof. Admitted.
+    Ltac solveRefereceTo :=
+      IPM.perm_right ltac:(fun R _ =>
+                             match R with
+                             | reference_to ?ty ?p =>
+                                 wapply (admitReferenceTo ty p)
+                             end
+                          ).
+Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo)); try iPureIntro.
   Lemma setU_prf: denoteModule module ** int_exchange_spec |-- setU_spec.
-  Proof using.
-    verify_spec.
-    go.
-    iAssert (_global "u" |-> o_base CU "std::atomic<int>" "std::__atomic_base<int>" |-> structR  "std::__atomic_base<int>" 1) as "?".
-    admit.
+  Proof using MODd.
+    verify_spec'.
     slauto.
-    iExists _.
     callAtomicCommitCinv.
-    go.
     Existing Instance learn_atomic_val.
     go.
     closeCinvqs.
     go.
     iModIntro.
     simpl.
-    iIntrosDestructs.
-    iFrame.
-    do 5 step.
-    step.
-    step...
+    do 9 step...
     go.
-     Fail idtac.
-  Admitted.
+  Qed.
     
+  cpp.spec "setThenGetU(int)" as setGetU_spec with (
+      \prepost{q invId} inv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv)
+      \arg{value} "value" (Vint value)
+      \post{any:Z} [Vint any] emp
+      ).
+    #[ignore_errors]
+    cpp.spec "std::__atomic_base<int>::load(enum std::memory_order) const"  as int_load_spec with
+            (λ this : ptr,
+       \let pd := this ,, o_derived CU "std::__atomic_base<int>" "std::atomic<int>"  
+       \arg "order" (Vint memory_order_seq_cst)
+       \pre{Q : Z → mpred}
+         AC1 << ∀ y : Z, pd |-> atomicR "int" (cQp.mut 1) (Vint y)>> @ ⊤, ∅
+                      << pd |-> atomicR "int" (cQp.mut 1) (Vint y), COMM Q y >> 
+       \post{y : Z}[Vint y]
+       Q y).
+  cpp.spec "setThenGetU(int)" as setGetU_spec_wrong with (
+      \prepost{q invId} inv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv)
+      \arg{value} "value" (Vint value)
+      \post [Vint value] emp
+      ).
+  Lemma setGetU_prf: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setGetU_spec_wrong.
+  Proof using MODd.
+    verify_spec.
+    slauto.
+    callAtomicCommitCinv.
+    Existing Instance learn_atomic_val.
+    go. (* now u has value value. TODO: rename value *)
+    closeCinvqs.
+    go. (* now u's value is any zv *)
+    iModIntro.
+    go.
+    callAtomicCommitCinv. (* when we open the invariant again, a may be <> value [g100,220] *)
+    go.
+    closeCinvqs.
+    go.
+    iModIntro.
+    go.
+  Abort.
+
+
+(** * BlockState analog: can we skip wrapper? *)
     
   Definition AWrapperR  (q: Qp) (invId: gname): Rep :=
     structR "AWRapper" q **
@@ -739,42 +846,6 @@ also, arrays
        \post{y : bool}[Vbool y]
        Q y).
     Opaque atomicR.
-  Definition fwd_later_exist := [FWD] (@bi.later_exist).
-  Definition fwd_later_sep := [FWD] (@bi.later_sep).
-  Definition bwd_later_exist := [BWD_MW->] (@bi.later_exist).
-  Definition bwd_later_sep := [BWD_MW->] (@bi.later_sep).
-  Definition fwd_at_later := [FWD<-] (@_at_later).
-  Hint Resolve fwd_later_exist fwd_later_sep bwd_later_exist
-    bwd_later_sep : br_opacity.
-
-(* open all cinvq invariants then open rest. used in callAtomicCommitCinv*)
-Ltac openCinvqsRest :=
-  repeat openCinvq;
-  work using fwd_later_exist, fwd_later_sep;
-  repeat removeLater;
-  iApply fupd_mask_intro;[set_solver |]; (* openRest *)
-  iIntrosDestructs.
-
-(**
-   the RHS of your goal should look like a permutation of
-   [[
-   AC pre post ?Q ** (forall ..., ?Q ... -* ...)
-   ]]
-  it first calls [callAtomicCommit] to instantiate the public post Q.
-  then it opens all cinvq invariants
-  then it opens everything else (change the goal from [|={⊤ \ ..\ ... ,∅}=> U)] to  [|={∅}=> U)])
-  and then "does iModIntro" so that you can start proving U which is typically of the form [pre ** ...]
- *)
-Ltac callAtomicCommitCinv :=
-  callAtomicCommit;
-  openCinvqsRest.
-
-(* applies to goals that look like [|-- AC pre post Q] or [|-- AU pre post Q]  in IPM: only 1 conjuct in conclusion and not 2, where [callAtomicCommitCinv] works. it sets up the proof of AC/AU by doing the usual initialization
- and opening all invariants and rest so that you can immediately begin proving [pre] *)
-Ltac proveAuAc :=
-  (iAcIntro || iAuIntro);
-  (unfold commit_acc || unfold atomic_acc);
-  openCinvqsRest.
   
   Lemma lock_lock_prf: denoteModule module ** exchange_spec |-- lock_spec.
   Proof using MODd.

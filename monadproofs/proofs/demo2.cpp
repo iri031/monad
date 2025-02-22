@@ -258,6 +258,10 @@ void setU(int value) {
 int getU() {
     return u.load();
 }
+int setThenGetU(int value) {
+    u.exchange(value);
+    return u.load();
+}
 
 class AWrapper {
 public:
