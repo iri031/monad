@@ -75,6 +75,9 @@ Section atomicR.
     : Learnable (p |-> atomicR ty q1 v1) (p |-> atomicR ty q2 v2) [v2=v1].
   Proof. solve_learnable. Qed.
 
+  Definition learn_atomic_val_UNSAFE (p : ptr) ty v1 v2 q1 q2
+    : Learnable (p |-> atomicR ty q1 v1) (p |-> atomicR ty q2 v2) [v2=v1; q1=q2].
+  Proof. solve_learnable. Qed.
   (** [atomicR ty q v] implies that value [v] has type [ty]. *)
   Lemma atomicR_has_type_prop ty v q :
     Observe [| has_type_prop v ty |] (atomicR ty q v).
@@ -109,7 +112,7 @@ Ltac openCinvqsRest :=
   and then "does iModIntro" so that you can start proving U which is typically of the form [pre ** ...]
  *)
 Ltac callAtomicCommitCinv :=
-  try (iExists _);
+  repeat (iExists _);
   callAtomicCommit;
   openCinvqsRest.
 
@@ -360,23 +363,36 @@ Proof.
   eagerUnifyU. go.
 Qed.
 
+Lemma cinvq_alloc_no_shared_pages `{Σ : cpp_logic} (E : coPset) (N : namespace) (P : mpred) :
+  ▷ P |-- |={E}=> ∃ γ : gname, cinvq N γ 1 P.
+  Proof.
+    intros.
+    apply cinvq_alloc.
+  Admitted.
 
 Example boxedResource (P:mpred) (invId: gname): mpred := inv invId 1 P.
 
+  Ltac solveCqpeq :=
+    repeat match goal with
+        H:Qp |- _ => destruct H; simpl in *
+      end;
+       unfold cQpc, cQp.scale; simpl in *;
+       f_equal;              
+        solveQpeq;
+        solveQeq.
 
-Lemma splitInv (P:mpred) (invId: gname) (q:Qp):
-  inv invId q P |-- inv invId (q/2) P ** inv invId (q/2) P.
+Lemma splitcinvq (P:mpred) ns (invId: gname) (q:Qp):
+  cinvq ns invId q P |-- cinvq ns invId (q/2) P ** cinvq ns invId (q/2) P.
 Proof using.
   rewrite <- (@fractional _ _ (cinvq_frac _)).
   f_equiv.
-  Ltac solveQpeq2 :=
-    repeat match goal with
-      H:Qp |- _ => destruct H; simpl in *;
-              f_equal;
-      solveQpeq;
-        solveQeq
-      end.
-  solveQpeq2.
+  solveCqpeq.
+Qed.
+  
+Lemma splitInv (P:mpred) (invId: gname) (q:Qp):
+  inv invId q P |-- inv invId (q/2) P ** inv invId (q/2) P.
+Proof using.
+  apply splitcinvq.
 Qed.
 
   cpp.spec "bar()" as bar_spec with (
@@ -394,6 +410,7 @@ Qed.
       \arg{value} "value" (Vint value)
       \post emp
       ).
+  
     #[ignore_errors]
     cpp.spec "std::__atomic_base<int>::exchange(int, enum std::memory_order)"  as int_exchange_spec with
             (λ this : ptr,
@@ -450,32 +467,54 @@ Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo));
     go.
   Qed.
     
-  cpp.spec "setThenGetU(int)" as setGetU_spec with (
-      \prepost{q invId} inv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv)
-      \arg{value} "value" (Vint value)
-      \post{any:Z} [Vint any] emp
-      ).
     #[ignore_errors]
     cpp.spec "std::__atomic_base<int>::load(enum std::memory_order) const"  as int_load_spec with
             (λ this : ptr,
        \let pd := this ,, o_derived CU "std::__atomic_base<int>" "std::atomic<int>"  
        \arg "order" (Vint memory_order_seq_cst)
-       \pre{Q : Z → mpred}
-         AC1 << ∀ y : Z, pd |-> atomicR "int" (cQp.mut 1) (Vint y)>> @ ⊤, ∅
-                      << pd |-> atomicR "int" (cQp.mut 1) (Vint y), COMM Q y >> 
+       \pre{ (q:Qp) (InvOut : Z → mpred)}
+         AC1 << ∀ y : Z, pd |-> atomicR "int" q (Vint y)>> @ ⊤, ∅
+                      << pd |-> atomicR "int" q (Vint y), COMM InvOut y >> 
        \post{y : Z}[Vint y]
-       Q y).
+       InvOut y).
   cpp.spec "setThenGetU(int)" as setGetU_spec_wrong with (
       \prepost{q invId} inv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv)
       \arg{value} "value" (Vint value)
       \post [Vint value] emp
-      ).
+        ).
+  (** why is the above spec unprovable? *)
+  
   Lemma setGetU_prf: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setGetU_spec_wrong.
   Proof using MODd.
     verify_spec.
     slauto.
     callAtomicCommitCinv.
     Existing Instance learn_atomic_val.
+    go. (* now u has value value. TODO: rename value *)
+    closeCinvqs.
+    go. (* now u's value is any zv *)
+    iModIntro.
+    Existing Instance learn_atomic_val_UNSAFE.
+    go.
+    callAtomicCommitCinv. (* when we open the invariant again, a may be <> value [g100,220] *)
+    go.
+    closeCinvqs.
+    go.
+    iModIntro.
+    go.
+  Abort.
+
+  cpp.spec "setThenGetU(int)" as setGetU_spec with (
+      \prepost{q invId} inv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv)
+      \arg{value} "value" (Vint value)
+      \post{any:Z} [Vint any] emp
+      ).
+
+  Lemma setGetU_prf: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setGetU_spec.
+  Proof using MODd.
+    verify_spec'.
+    slauto.
+    callAtomicCommitCinv.
     go. (* now u has value value. TODO: rename value *)
     closeCinvqs.
     go. (* now u's value is any zv *)
@@ -487,11 +526,150 @@ Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo));
     go.
     iModIntro.
     go.
+  Qed.
+
+  cpp.spec "setThenGetU(int)" as setGetU_spec2 with (
+      \prepost{q invId} inv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv ** [| isPrime zv |])
+      \arg{value} "value" (Vint value)
+      \post{any:Z} [Vint any] emp
+      ).
+  
+  (* why is the above spec unprovable (for the code) *)
+  Lemma setGetU_prf_prime: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setGetU_spec2.
+  Proof using MODd.
+    verify_spec'.
+    slauto.
+    callAtomicCommitCinv.
+    go. (* now u has value value. TODO: rename value *)
+    closeCinvqs. (* highlight zv and instantiation is value *)
+    go. 
   Abort.
+  cpp.spec "setThenGetU(int)" as setGetU_spec_prime with (
+      \prepost{q invId} inv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv ** [| isPrime zv |])
+      \arg{value} "value" (Vint value)
+      \pre [| isPrime value |] 
+      \post{any:Z} [Vint any] [| isPrime value |]
+      ).
+
+  Lemma setGetU_prf_prime: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setGetU_spec_prime.
+  Proof using MODd.
+    verify_spec'.
+    slauto.
+    callAtomicCommitCinv.
+    go. (* now u has value value. TODO: rename value *)
+    closeCinvqs.
+    go. (* now u's value is any zv *)
+    iModIntro.
+    go.
+    callAtomicCommitCinv. (* when we open the invariant again, a may be <> value [g100,220] *)
+    go.
+    closeCinvqs.
+    go.
+    iModIntro.
+    go.
+  Qed.
+  
+(** * heart of concurrency proofs
+sequential proofs: loop invariants
+concurrency proofs: cinv: rename inv?
+
+- loopinvy:  beginning/end of loop body
+- concurrency invariants: always hold. all code points in all methods
+
+next .. examples of more interesting loopinv
+ *)
 
 
-(** * BlockState analog: can we skip wrapper? *)
+  
+  (** * BlockState analog: *)
+
+  Definition ucinv (q:Qp) (invId: gname): mpred
+    := inv invId q (∃ zv:Z, _global "u" |-> atomicR "int" (1/2) zv ** [| isPrime zv |]).
+  (** only half in inv *)
+  
+  Definition uAuthR (invId: gname) (uv: Z): mpred
+    := ucinv (1/2) invId ** _global "u" |-> atomicR "int" (1/2) uv.
+
+  (* no fraction argument in uAuthR
+     p1: ucinv (1/4) invId ** _global "u" |-> atomicR "int" (1/4) uv.
+
+     p2: ucinv (1/4) invId ** _global "u" |-> atomicR "int" (1/4) uv.
+   *)
+  
+  Definition uFragR (q:Qp) (invId: gname) : mpred := ucinv (q/2) invId.
+  (* different from fractional ownership: [_global "u" |-> atomicR "int" q 3], [_global "x" |-> primR "int" q 3] *)
+
+  Lemma atomicr_split (p:ptr) ty (q:Qp) v :
+    p|-> atomicR ty (cQp.mut q) v -|- (p |-> atomicR ty (cQp.mut q/2) v) ** p |-> atomicR ty (cQp.mut q/2) v.
+  Proof using.
+    rewrite -> cfractional_split_half with (R := fun q => atomicR ty q v);[| exact _].
+    rewrite _at_sep.
+    f_equiv; f_equiv; f_equiv;
+      solveCqpeq.
+  Qed.
+  Definition atomicrC := [CANCEL] atomicr_split.
+  Hint Resolve atomicrC : br_opacity.
+  Definition lcinvqg_unsafe a1 g1 q1 P1 a2 g2 q2 P2:
+    Learnable (cinvq a1 g1 q1 P1) (cinvq a2 g2 q2 P2) [g1=g2] := ltac:(solve_learnable).
+  Existing Instance lcinvqg_unsafe.
+  Definition cinvqC := [CANCEL] splitcinvq.
+  Hint Resolve cinvqC : br_opacity.
+  Lemma init (initv:Z) E:
+    _global "u" |-> atomicR "int" 1 initv ** [| isPrime initv |]
+      |-- |={E}=> Exists invId, uAuthR invId initv ** uFragR 1 invId.
+  Proof using.
+    unfold uAuthR, uFragR, ucinv. go.
+    match goal with
+      |- context[cinvq ?ns _ _ ?P] => wapply (cinvq_alloc_no_shared_pages _ ns P)
+    end.
+    iFrame.
+    rewrite <- bi.later_intro.
+    go.
+    iModIntro.
+    go.
+  Qed.
+            
+  cpp.spec "setU(int)" as setU_spec2 with (
+      \pre{(uv:Z) invId} uAuthR invId uv
+      \arg{newvalue} "value" (Vint newvalue)
+      \post uAuthR invId newvalue
+      ).
+  cpp.spec "getU()" as getU_spec2 with (
+      \prepost{invId q} uFragR invId q
+      \post{any:Z} [Vint any] [| isPrime any|]
+      ).
+  
+  cpp.spec "setThenGetU(int)" as setThenGet_spec2 with (
+      \pre{(oldvalue:Z) invId} uAuthR invId oldvalue
+      \arg{newvalue:Z} "value" (Vint newvalue)
+      \post [Vint newvalue] uAuthR invId newvalue
+      ).
+
+  Lemma setGetU_prf2: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setThenGet_spec2.
+  Proof using MODd.
+    verify_spec'.
+    slauto. unfold uAuthR, ucinv. go.
+    callAtomicCommitCinv.
+    fhskllkj
+    go. (* now u has value value. TODO: rename value *)
+    closeCinvqs.
+    go. (* now u's value is any zv *)
+    iModIntro.
+    go.
+    callAtomicCommitCinv. (* when we open the invariant again, a may be <> value [g100,220] *)
+    go.
+    closeCinvqs.
+    go.
+    iModIntro.
+    go.
+  Qed.
     
+  
+  cpp.spec "getU()" as getU_spec2 with (
+      \prepost{invId q} uFragR invId q
+      \post{any:Z} [Vint any] [| isPrime any|]
+      ).
+  
   Definition AWrapperR  (q: Qp) (invId: gname): Rep :=
     structR "AWRapper" q **
     as_Rep (fun this:ptr =>
