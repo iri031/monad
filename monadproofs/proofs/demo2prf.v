@@ -68,12 +68,36 @@ Section with_Sigma.
     repeat rewrite o_sub_sub;
     closed.norm closed.numeric_types; go.
   Abort.
-
     
   cpp.spec "gcdl(unsigned int*, unsigned int)" as gcdl_spec with (gcdl_spec_core).
   cpp.spec "parallel_gcdl(unsigned int*, unsigned int)" as parallel_gcdl_spec with (gcdl_spec_core).
 
+  Compute (findBodyOfFnNamed2 module (isFunctionNamed2 "fold_left")).
 
+  Lemma xx: gcdl_spec = emp.
+  Proof using.
+    unfold gcdl_spec.
+    unfold gcdl_spec_core.
+    Set Printing Coercions.
+    simpl.
+  Abort.
+  Search function_spec WpSpec_cpp.
+  #[ignore_errors]
+  cpp.spec "fold_left(unsigned int*, unsigned int, unsigned int(*)(unsigned int,unsigned int), unsigned int)" as fold_left_spec with (
+      \arg{numsp:ptr} "nums" (Vptr numsp)
+      \prepost{(l: list Z) (q:Qp)} numsp |-> arrayR uint (fun i:Z => primR uint q i) l
+      \arg "size" (Vint (length l))
+      \arg{fptr} "f" (Vptr fptr)
+      \arg{initv} "init" (Vint initv)
+      \pre{fm: Z->Z->Z} fptr |-> cpp_specR (tFunction "unsigned int" ["unsigned int*"%cpp_type; "unsigned int"%cpp_type])
+      (
+        \arg{av:Z} "a" (Vint av)
+        \arg{bv:Z} "b" (Vint bv)
+        \post [Vint (fm av bv)] emp
+       )
+      \post [Vint (fold_left fm l initv)] emp).
+
+    
   (** * 2+ ways to split an arrays *)
   (** split fraction: both threads can read entire array *)
   Lemma fractionalSplitArrayR (numsp:ptr) (l: list Z) (q:Qp):
@@ -418,6 +442,50 @@ also, arrays
       go.
     }
   Qed.
+
+  Lemma fold_left_prf : denoteModule module |-- fold_left_spec.
+  Proof using.
+    verify_spec'.
+    slauto.
+    wp_for (fun _ => Exists iv:nat,
+        i_addr |-> primR uint 1 iv
+        ** [| iv <= length l |]%nat
+        ** result_addr |-> primR uint 1 ((fold_left fm (firstn iv l) initv))).
+    unfold cQpc.
+    go.
+    rewrite <- (bi.exist_intro 0%nat).
+    go.
+    wp_if.
+    {
+      slauto.
+      Set Printing Implicit.
+      eapplyToSomeHyp @arrayR_cell2.
+      forward_reason.
+      rewrite -> autogenhypr.
+      hideRhs.
+      go.
+      unhideAllFromWork.
+      slauto.
+      Hint Resolve @find_spec.find_cpp_specR : br_opacity.
+      go.
+      (*
+      wapply gcd_proof. work. (* gcd_spec is now in context *)
+      go. (* loop body finished, reistablish loopinv *)
+      iExists (1+iv)%nat.
+      slauto.
+      simpl.
+      go.
+      rewrite -> autogenhypr.
+      go.
+    }
+    {
+      slauto.
+      assert (iv=length l) as Heq by lia.
+      subst.
+      autorewrite with syntactic.
+      go.
+    } *)
+  Abort.
   
       Compute (Z.quot (-5) 4).
       Compute (Z.div (-5) 4).

@@ -23,24 +23,24 @@ uint parallel_gcdl(uint * nums, uint length) {
     return gcd(resultl, resultr);
 }
 
-uint fold_left(uint * nums, uint length, uint (*f)(uint, uint)) {
-    uint result=0;
+uint fold_left(uint * nums, uint length, uint (*f)(uint, uint), uint id) {
+    uint result=id;
     for (uint i=0; i<length; i++) {
         result=f(result, nums[i]);
     }
     return result;
 }
 
-uint parallel_fold_left(uint * nums, uint length, uint (*f)(uint, uint)) {
+uint parallel_fold_left(uint * nums, uint length, uint (*f)(uint, uint), uint id) {
     uint mid=length/2;
     uint resultl;
-    auto foldlLambda = [&nums, &mid, &resultl]() {
-        resultl=fold_left(nums, mid, f);
+    auto foldlLambda = [&nums, &mid, &resultl, &f, &id]() {
+        resultl=fold_left(nums, mid, f, id);
     };
     Thread t1(foldlLambda);
     t1.start();
     uint resultr;
-    resultr=fold_left(nums+mid, length-mid, f);
+    resultr=fold_left(nums+mid, length-mid, f, id);
     t1.join();
     return f(resultl, resultr);
 }
