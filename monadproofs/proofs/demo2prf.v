@@ -372,11 +372,14 @@ Lemma cinvq_alloc_no_shared_pages `{Σ : cpp_logic} (E : coPset) (N : namespace)
 
 Example boxedResource (P:mpred) (invId: gname): mpred := inv invId 1 P.
 
+Lemma mut_mut_add: ∀ q1 q2 : Qp, cQp.mut (q1 + q2) = (cQp.mut q1 + cQp.mut q2)%cQp.
+Proof. intros. reflexivity. Qed.
   Ltac solveCqpeq :=
     repeat match goal with
         H:Qp |- _ => destruct H; simpl in *
       end;
-       unfold cQpc, cQp.scale; simpl in *;
+      unfold cQpc, cQp.scale; simpl in *;
+      repeat rewrite <- mut_mut_add;
        f_equal;              
         solveQpeq;
         solveQeq.
@@ -642,33 +645,104 @@ next .. examples of more interesting loopinv
   cpp.spec "setThenGetU(int)" as setThenGet_spec2 with (
       \pre{(oldvalue:Z) invId} uAuthR invId oldvalue
       \arg{newvalue:Z} "value" (Vint newvalue)
+      \pre [| isPrime newvalue |]
       \post [Vint newvalue] uAuthR invId newvalue
       ).
 
+    Lemma observe_elim_rep (Q P : Rep) (p:ptr): Observe Q P → p |-> P ⊢ p|->(P ∗ Q).
+    Proof using.
+      intros Ho.
+      apply _at_mono.
+      wapplyObserve Ho.
+      go.
+    Qed.
+    
+    Search Observe Rep.
+        
+  Lemma observe_2_elim_rep Q P1 P2 (p:ptr) {O : Observe2 Q P1 P2} : p|->P1 ⊢ p|-> P2 -∗ p|->P1 ∗ p|->P2 ∗ p|->Q.
+  Proof.
+    iIntros. iStopProof.
+    repeat rewrite <- _at_sep.
+    apply _at_mono.
+    wapplyObserve O.
+    go.
+  Qed.
+
+Ltac wapplyObserveRep lemma:=
+  try intros;
+  idtac;
+  [
+    wapply (@observe_elim_rep _ _ _ (lemma)) || wapply (@observe_elim_rep _ _ _ (lemma _))
+    || wapply (@observe_elim_rep _ _ _ (lemma _ _)) || wapply (@observe_elim_rep _ _ _ (lemma _ _ _))
+    || wapply (@observe_elim_rep _ _ _ (lemma _ _ _ _)) || wapply (@observe_elim_rep _ _ _ (lemma _ _ _ _ _))
+    || wapply (@observe_elim_rep _ _ _ (lemma _ _ _ _ _ _)) || wapply (@observe_elim_rep _ _ _ (lemma _ _ _ _ _ _ _))
+    || wapply (@observe_elim_rep _ _ _ (lemma _ _ _ _ _ _ _ _)) || wapply (@observe_elim_rep _ _ _ (lemma _ _ _ _ _ _ _ _ _))
+    || wapply (@observe_elim_rep _ _ _ (lemma _ _ _ _ _ _ _ _ _ _)) || wapply (@observe_elim_rep _ _ _ (lemma _ _ _ _ _ _ _ _ _ _ _))
+    
+    || wapply (@observe_2_elim_rep _ _ _ _ (lemma)) || wapply (@observe_2_elim_rep _ _ _ _ (lemma _))
+    || wapply (@observe_2_elim_rep _ _ _ _ (lemma _ _)) || wapply (@observe_2_elim_rep _ _ _ _ (lemma _ _ _))
+    || wapply (@observe_2_elim_rep _ _ _ _ (lemma _ _ _ _)) || wapply (@observe_2_elim_rep _ _ _ _ (lemma _ _ _ _ _))
+    || wapply (@observe_2_elim_rep _ _ _ _ (lemma _ _ _ _ _ _)) || wapply (@observe_2_elim_rep _ _ _ _ (lemma _ _ _ _ _ _ _))
+    || wapply (@observe_2_elim_rep _ _ _ _ (lemma _ _ _ _ _ _ _ _)) || wapply (@observe_2_elim_rep _ _ _ _ (lemma _ _ _ _ _ _ _ _ _))
+    || wapply (@observe_2_elim_rep _ _ _ _ (lemma _ _ _ _ _ _ _ _ _ _)) || wapply (@observe_2_elim_rep _ _ _ _ (lemma _ _ _ _ _ _ _ _ _ _ _))
+    
+  ].
+    Lemma atomicR_combine (p:ptr) (q1 q2: Qp) (v1 v2 : val) ty:
+    p |-> atomicR ty q1 v1 ** p |-> atomicR ty q2 v2
+      |-- p |-> atomicR ty (q1+q2) v1 ** [| v1 = v2 |].
+    Proof using.
+      go.
+      wapplyObserveRep atomic_agree. eagerUnifyU. go.
+      rewrite -> @cfractional.cfractional with (P := fun q => atomicR ty q v1);[| exact _].
+      go.
+    Qed.
+    Lemma atomicR_combine_half (p:ptr) (q: Qp) (v1 v2 : val) ty:
+    p |-> atomicR ty (q/2) v1 ** p |-> atomicR ty (q/2) v2
+      |-- p |-> atomicR ty q v1 ** [| v1 = v2 |].
+    Proof using.
+      rewrite atomicR_combine.
+      go.
+      iClear "#".
+      iStopProof.
+      apply _at_mono.
+      f_equiv.
+      solveCqpeq.
+    Qed.
+    Definition atomicR_combineF := [FWD] atomicR_combine.
+  
   Lemma setGetU_prf2: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setThenGet_spec2.
-  Proof using MODd.
+  Proof using MODd with (fold cQpc).
     verify_spec'.
     slauto. unfold uAuthR, ucinv. go.
     callAtomicCommitCinv.
-    fhskllkj
-    go. (* now u has value value. TODO: rename value *)
-    closeCinvqs.
-    go. (* now u's value is any zv *)
-    iModIntro.
     go.
-    callAtomicCommitCinv. (* when we open the invariant again, a may be <> value [g100,220] *)
+    work using atomicR_combineF.
+    rewrite <- mut_mut_add.  rewrite Qp.half_half...
     go.
     closeCinvqs.
     go.
     iModIntro.
+    (** closed the invariant and se still have 1/2 left [g11,12].
+        crucial when we call load next: [g11,12]
+        other threads can race but they can only read. I own 1/2 of atomicR. other threads can only access the 1/2 in the inv *)
     go.
+    callAtomicCommitCinv...
+    (* had before [g11,12]. opening the invariant got this part [g] says u has value a and is IsPrime [g].
+       same trick again: agreement [g]
+     *)
+    wapply atomicR_combine. eagerUnifyU. iFrame.
+    iIntros "[? a]". iRevert "a".
+    rewrite <- only_provable_wand_forall_2.
+    iIntros. 
+    applyToSomeHyp (Vint_inj).
+    subst a.
+    rewrite <- mut_mut_add.  rewrite Qp.half_half...
+    go.
+    closeCinvqs.
+    go.
+    iModIntro. go.
   Qed.
     
-  
-  cpp.spec "getU()" as getU_spec2 with (
-      \prepost{invId q} uFragR invId q
-      \post{any:Z} [Vint any] [| isPrime any|]
-      ).
   
   Definition AWrapperR  (q: Qp) (invId: gname): Rep :=
     structR "AWRapper" q **
@@ -1077,15 +1151,18 @@ End with_Sigma.
 
 (* TODO
 
+4. BlockState picture
+6. block state specs
+7. lock protected linked list
+8. narrartive+offsets in coments.
+
+done:
+
 0. linkedlist
 1. remove AWrapper. work on a global atomic variable to make things simpler. dont  need a class rep. getU() , setU(v) instead.
 2. just after bar_prf, contrast how the cinv version allows access and how it requires to return back ownership
 3. show prime number dupl
-4. BlockState picture
 5. counter auth frag specs
-6. block state specs
-8. lock 
-7. lock protected linked list
 
 
 sequence:
