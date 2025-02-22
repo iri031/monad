@@ -32,6 +32,7 @@ Import linearity.
 (** start recording *)
 
 (** [gcd_proof] *)
+Notation memory_order_seq_cst := 5.
 
 Section with_Sigma.
   Context `{Sigma:cpp_logic} {CU: genv}.
@@ -41,6 +42,38 @@ Section with_Sigma.
       structR (Ninst "std::atomic" [Atype ty]) q **
     atomic_core_field_offset |-> primR ty q v.
 
+(** Properties of [atomicR] *)
+Section atomicR.
+  Definition ns := (nroot .@@ "::SpinLock").
+
+  #[global] Instance atomicR_frac T : CFracSplittable_1 (atomicR T).
+  Proof.  solve_cfrac. Qed.
+
+  #[global] Instance atomic_type_ptrR_observe ty v q
+    : Observe (type_ptrR (Tnamed (Ninst "std::atomic" [Atype ty]))) (atomicR ty v q) := _.
+
+  #[global] Instance atomic_agree ty v1 v2 q1 q2
+    : Observe2 [| v1 = v2 |] (atomicR ty q1 v1) (atomicR ty q2 v2) := _.
+
+  #[global] Instance atomic_agree_inj `{Vinj : A -> val} `{!Inj eq eq Vinj} ty v1 v2 q1 q2
+    : Observe2 [| v1 = v2 |] (atomicR ty q1 (Vinj v1)) (atomicR ty q2 (Vinj v2)).
+  Proof. exact: (observe2_inj Vinj). Qed.
+
+  Definition learn_atomic_val (p : ptr) ty v1 v2 q1 q2
+    : Learnable (p |-> atomicR ty q1 v1) (p |-> atomicR ty q2 v2) [v2=v1].
+  Proof. solve_learnable. Qed.
+
+  (** [atomicR ty q v] implies that value [v] has type [ty]. *)
+  Lemma atomicR_has_type_prop ty v q :
+    Observe [| has_type_prop v ty |] (atomicR ty q v).
+  Proof. refine _. Qed.
+End atomicR.
+
+Opaque atomicR.
+
+(*
+Hint Resolve learn_atomic_val : br_opacity.
+*)  
   Open Scope Z_scope.
   Set Nested Proofs Allowed.
 
@@ -74,14 +107,6 @@ Section with_Sigma.
 
   Compute (findBodyOfFnNamed2 module (isFunctionNamed2 "fold_left")).
 
-  Lemma xx: gcdl_spec = emp.
-  Proof using.
-    unfold gcdl_spec.
-    unfold gcdl_spec_core.
-    Set Printing Coercions.
-    simpl.
-  Abort.
-  Search function_spec WpSpec_cpp.
   #[ignore_errors]
   cpp.spec "fold_left(unsigned int*, unsigned int, unsigned int(*)(unsigned int,unsigned int), unsigned int)" as fold_left_spec with (
       \arg{numsp:ptr} "nums" (Vptr numsp)
@@ -314,7 +339,52 @@ Qed.
     verify_spec.
     go.
   Abort. (* highlight. not an atomic op. cannot open the inv box *)
-  
+
+  cpp.spec "setU(int)" as setU_spec with (
+      \prepost{q invId} inv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv)
+      \arg{value} "value" (Vint value)
+      \post emp
+      ).
+    #[ignore_errors]
+    cpp.spec "std::__atomic_base<int>::exchange(int, enum std::memory_order)"  as int_exchange_spec with
+            (λ this : ptr,
+       \arg{(x : Z)} "v" (Vint x)
+       \arg "order" (Vint memory_order_seq_cst)
+       \let pd := this ,, o_derived CU "std::__atomic_base<int>" "std::atomic<int>"  
+       \pre{Q : Z → mpred}
+         AC1 << ∀ y : Z, pd |-> atomicR "int" (cQp.mut 1) (Vint y)>> @ ⊤, ∅
+            << pd |-> atomicR "int" (cQp.mut 1) (Vint x), COMM Q y >> 
+       \post{y : Z}[Vint y]
+       Q y).
+
+    Opaque coPset_difference.
+    
+  Lemma setU_prf: denoteModule module ** int_exchange_spec |-- setU_spec.
+  Proof using.
+    verify_spec.
+    go.
+    iAssert (_global "u" |-> o_base CU "std::atomic<int>" "std::__atomic_base<int>" |-> structR  "std::__atomic_base<int>" 1) as "?".
+    admit.
+    slauto.
+    iExists _.
+    callAtomicCommitCinv.
+    go.
+    Existing Instance learn_atomic_val.
+    go.
+    closeCinvqs.
+    go.
+    iModIntro.
+    simpl.
+    iIntrosDestructs.
+    iFrame.
+    do 5 step.
+    step.
+    step...
+    go.
+     Fail idtac.
+  Admitted.
+    
+    
   Definition AWrapperR  (q: Qp) (invId: gname): Rep :=
     structR "AWRapper" q **
     as_Rep (fun this:ptr =>
@@ -618,36 +688,6 @@ also, arrays
   Proof. simpl.  unfold UnboundUintR. iSplit; go. Qed.
 
   Transparent atomicR.
-(** Properties of [atomicR] *)
-Section atomicR.
-  Definition ns := (nroot .@@ "::SpinLock").
-
-  #[global] Instance atomicR_frac T : CFracSplittable_1 (atomicR T).
-  Proof.  solve_cfrac. Qed.
-
-  #[global] Instance atomic_type_ptrR_observe ty v q
-    : Observe (type_ptrR (Tnamed (Ninst "std::atomic" [Atype ty]))) (atomicR ty v q) := _.
-
-  #[global] Instance atomic_agree ty v1 v2 q1 q2
-    : Observe2 [| v1 = v2 |] (atomicR ty q1 v1) (atomicR ty q2 v2) := _.
-
-  #[global] Instance atomic_agree_inj `{Vinj : A -> val} `{!Inj eq eq Vinj} ty v1 v2 q1 q2
-    : Observe2 [| v1 = v2 |] (atomicR ty q1 (Vinj v1)) (atomicR ty q2 (Vinj v2)).
-  Proof. exact: (observe2_inj Vinj). Qed.
-
-  Definition learn_atomic_val (p : ptr) ty v1 v2 q1 q2
-    : Learnable (p |-> atomicR ty q1 v1) (p |-> atomicR ty q2 v2) [v2=v1].
-  Proof. solve_learnable. Qed.
-
-  (** [atomicR ty q v] implies that value [v] has type [ty]. *)
-  Lemma atomicR_has_type_prop ty v q :
-    Observe [| has_type_prop v ty |] (atomicR ty q v).
-  Proof. refine _. Qed.
-End atomicR.
-
-Opaque atomicR.
-
-Hint Resolve learn_atomic_val : br_opacity.
   
   
    (*
@@ -688,7 +728,6 @@ Hint Resolve learn_atomic_val : br_opacity.
          \pre R
          \post emp
       ).
-  Notation memory_order_seq_cst := 5.
     #[ignore_errors]
     cpp.spec "std::atomic<bool>::exchange(bool, enum std::memory_order)"  as exchange_spec with
             (λ this : ptr,

@@ -250,12 +250,13 @@ void bar() {
     z = 1;
 }
 
+
 std::atomic<int> u;
-void setU() {
-    u.store(1);
+void setU(int value) {
+    u.exchange(value);
 }
-void getU() {
-    u.load();
+int getU() {
+    return u.load();
 }
 
 class AWrapper {

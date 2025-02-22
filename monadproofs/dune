@@ -11,7 +11,7 @@
   (alias test_ast)
   (deps (:input demo.cpp))
   (action
-   (run cpp2v -v %{input}  --no-elaborate -o demo.v -- )))
+   (run cpp2v -v %{input}  --no-elaborate -o demo.v -- -stdlib=libstdc++)))
  (alias (name srcs) (deps demo.cpp))
 )
 
@@ -21,6 +21,6 @@
   (alias test_ast)
   (deps (:input demo2.cpp))
   (action
-   (run cpp2v -v %{input}  --no-elaborate -o demo2.v -- )))
+   (run cpp2v -v %{input}  --no-elaborate -o demo2.v -- -stdlib=libstdc++)))
  (alias (name srcs) (deps demo2.cpp))
 )
