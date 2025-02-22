@@ -384,26 +384,6 @@ Definition exec_final :=
          Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "Result")))); Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "evmc")) (Nid "address"))))]
   |} execute_final_spec.
 
-cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState"))
-       (Nfunction function_qualifiers.N ("can_merge")
-          [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))))]))
-         as can_merge with
-  (
-         fun (this:ptr) =>
-  \arg{statep} "" (Vptr statep) 
-  \prepost{assumptionsAndUpdates} statep |-> StateR assumptionsAndUpdates
-  \prepost{preBlockState g preTxState} this |-> BlockState.Rauth preBlockState g preTxState
-  \post{b} [Vbool b] [| if b then  (satisfiesAssumptions assumptionsAndUpdates preTxState) else Logic.True |]).
-cpp.spec (Nscoped (Nscoped (Nglobal (Nid "monad")) (Nid "BlockState"))
-            (Nfunction function_qualifiers.N ("merge") [Tref (Tconst (Tnamed (Nscoped (Nglobal (Nid "monad")) (Nid "State"))))]))
-  as merge with
-  (
-         fun (this:ptr) =>
-  \arg{statep} "" (Vptr statep) 
-  \prepost{assumptionsAndUpdates} statep |-> StateR assumptionsAndUpdates
-  \pre{preBlockState g preTxState} this |-> BlockState.Rauth preBlockState g preTxState
-  \pre [| satisfiesAssumptions assumptionsAndUpdates preTxState |]
-  \post this |-> BlockState.Rauth preBlockState g (applyUpdates assumptionsAndUpdates preTxState)).
 (* TODO: generalize *)
 #[ignore_errors]
 cpp.spec ((Ninst

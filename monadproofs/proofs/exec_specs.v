@@ -184,6 +184,7 @@ Context  {MODd : exb.module ⊧ CU}.
    [Avalue (Eint 11 "enum evmc_revision")]) as exbb_spec with (execute_block_simpler).
 
 
+  
   cpp.spec 
   "monad::reset_promises(unsigned long)" as reset_promises with
       ( \with (Transaction: Type)
@@ -446,8 +447,55 @@ Section with_Sigma.
                forall preTxState, satisfiesAssumptions assumptionsAndUpdates preTxState -> postCond preTxState
              else satisfiesAssumptions assumptionsAndUpdates preTxState /\ postCond preTxState                                                                                    
              |].
- 
+
   Definition IncarnationR (q:Qp) (i: Indices): Rep. Proof. Admitted.
+
+  cpp.spec "monad::BlockState::can_merge(const monad::State&)"
+    as can_merge with ( fun (this:ptr) =>
+     \arg{statep} "state" (Vptr statep) 
+     \prepost{assumptionsAndUpdates} statep |-> StateR assumptionsAndUpdates
+     \prepost{preBlockState invId preTxState} this |-> BlockState.Rauth preBlockState invId preTxState
+     \post{b} [Vbool b] [| if b
+                           then satisfiesAssumptions assumptionsAndUpdates preTxState
+                           else Logic.True |]).
+
+  cpp.spec "monad::BlockState::merge(const monad::State&)"
+    as merge with (fun (this:ptr) =>
+    \arg{statep} "state" (Vptr statep) 
+    \prepost{assumptionsAndUpdates} statep |-> StateR assumptionsAndUpdates
+    \pre{preBlockState invId preTxState} this |-> BlockState.Rauth preBlockState invId preTxState
+    \pre [| satisfiesAssumptions assumptionsAndUpdates preTxState |]
+    \post this |-> BlockState.Rauth preBlockState invId (applyUpdates assumptionsAndUpdates preTxState)).
+
+  Definition bytes32R (q:Qp) (z:Z) : Rep. Proof. Admitted.
+
+  (* spec for speculative phase *)
+  cpp.spec "monad::BlockState::read_storage(const evmc::address&, monad::Incarnation, const evmc::bytes32&)"
+    as read_storage_spec with (fun (this:ptr) =>
+      \pre{preBlockState g q} this |-> BlockState.Rfrag preBlockState q g
+      \arg{addressp} "address" (Vptr addressp)
+      \arg{incp} "incarnation" (Vptr incp)
+      \prepost{q indices} incp |-> IncarnationR q indices
+      \arg{keyp} "address" (Vptr keyp)
+      \post{retp:ptr} [Vptr retp] Exists anyvalue:Z, retp |-> bytes32R 1 anyvalue). 
+
+  Definition lookupStorage (s: StateOfAccounts) (addr: address) (key: Z) (blockTxInd: Indices) : Z. Proof. Admitted.
+
+  
+  (* spec for re-exec phase *)
+  cpp.spec "monad::BlockState::read_storage(const evmc::address&, monad::Incarnation, const evmc::bytes32&)"
+    as read_storage_spec_auth with (fun (this:ptr) =>
+      \pre{preBlockState g preTxState} this |-> BlockState.Rauth preBlockState g preTxState
+      \arg{addressp} "address" (Vptr addressp)
+      \prepost{q address} addressp |-> addressR q address
+      \arg{incp} "incarnation" (Vptr incp)
+      \prepost{q blockTxInd} incp |-> IncarnationR q blockTxInd
+      \arg{keyp} "key" (Vptr keyp)
+      \prepost{key:Z} keyp |-> bytes32R q key
+      \post{retp:ptr} [Vptr retp]  retp |-> bytes32R 1 (lookupStorage preTxState address key blockTxInd)). 
+
+(* TODO: add spec of read_storage *)
+
 
   (* delete *)
   Definition StateConstr : ptr -> WpSpec mpredI val val :=
@@ -457,6 +505,8 @@ Section with_Sigma.
       \pre{q inc} incp |-> IncarnationR q inc 
       \post this |-> StateR {| blockStatePtr := bsp; indices:= inc; original := ∅; newStates:= ∅ |}.
 
+
+  
   (*
       \pre [| block.block_account_nonce senderAcState = block.tr_nonce t|]
      \post  [| match original assumptionsAndUpdates !! senderAddr with

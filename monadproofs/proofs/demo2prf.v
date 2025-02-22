@@ -1149,25 +1149,26 @@ also, arrays
 End with_Sigma.
   
 
-(* TODO
-
-4. BlockState picture
-6. block state specs
-7. lock protected linked list
+(* TODO:
+2: clean this file
+4. BlockState tikz aniimation
 8. narrartive+offsets in coments.
+7. lock protected linked list: code
+10. lock protected linked list: tikz animation
 
 done:
-
 0. linkedlist
 1. remove AWrapper. work on a global atomic variable to make things simpler. dont  need a class rep. getU() , setU(v) instead.
 2. just after bar_prf, contrast how the cinv version allows access and how it requires to return back ownership
 3. show prime number dupl
 5. counter auth frag specs
+9. spec of BlockState::read_storage
+6. BlockState::merge and can_merge specs: cleanup
 
 
 sequence:
 1. arrays: gcdl spec
-2: structs: point: not much logical abstraction 
+2: structs: Node: not much logical abstraction 
 3: structs: linked list
 4: thread sharing resources while running: asciiart
 5: setU/getU specs: 3 variants: concurrent, sequential, concurrent with Primes
