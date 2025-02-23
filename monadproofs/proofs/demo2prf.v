@@ -136,21 +136,6 @@ Hint Resolve learn_atomic_val : br_opacity.
     rewrite arrayR_split; eauto. go. 
   Qed.
 
-
-  (** *Parallelizing a sequence of operations
-
-(((i o a1) o a2 ) o a3 )        (((i o a4) o a5 ) o a6 )
-                    \               /
-                     \             /
-                      \           /
-                   left_result   right_result
-                          \       /
-                           \     /
-                            \   /
-                        (left_result o right_result)
-
-*)
-
   Hint Rewrite @fold_left_app: syntactic.
   Existing Instance UNSAFE_read_prim_cancel.
   
@@ -161,7 +146,8 @@ Hint Resolve learn_atomic_val : br_opacity.
     apply module_le_true.
     exact _.
   Qed.
-  
+
+  (* move this proof to the end? without discussing loopinv, this cannot be explained *)
   Lemma gcdl_proof: denoteModule module |-- gcdl_spec.
   Proof using MODd with (fold cQpc).
     verify_spec.
@@ -179,7 +165,7 @@ Hint Resolve learn_atomic_val : br_opacity.
       rewrite -> autogenhypr.
       hideRhs.
       go.
-      unhideAllFromWork.
+      unhideAllFromWork...
       slauto. (* call to gcd. we have already proved it's spec *)
       wapply gcd_proof. work. (* gcd_spec is now in context *)
       go. (* loop body finished, reistablish loopinv *)
@@ -251,31 +237,37 @@ Hint Resolve learn_atomic_val : br_opacity.
     iExists _. eagerUnifyU. 
     autorewrite with syntactic. go.
     wapply @arrayR_combinep. eagerUnifyU.
-    autorewrite with syntactic. go.
-    (* c++ semantics computes ... postcond requires *)
+    autorewrite with syntactic. go...
+    (* c++ semantics computes, postcond requires *)
     icancel (cancel_at p);[| go].
     do 2 f_equiv.
     symmetry.
     apply fold_split_gcd.
     auto.
   Qed.
-  
-  Lemma fold_split_gcd  (l: list Z) (pl: forall a, In a l -> 0 <= a) (lSplitSize: nat):
-    fold_left Z.gcd l 0=
-      Z.gcd (fold_left Z.gcd (firstn lSplitSize l) 0) (fold_left Z.gcd (skipn lSplitSize l) 0).
-  Proof using. apply misc.fold_split_gcd; auto. Qed.
 
-  Lemma fold_split {A:Type} (f: A->A->A)(asoc: Associative (=) f)
-    (id: A) (lid: LeftId (=) id f) (rid: RightId (=) id f) (l: list A) (lSplitSize: nat):
-    fold_left f l id =
-      f (fold_left f (firstn lSplitSize l) id)
-        (fold_left f (skipn  lSplitSize l) id).
-  Proof.
-    rewrite <- (take_drop lSplitSize) at 1.
-    rewrite fold_left_app.
-    rewrite fold_id2.
-    aac_reflexivity.
-  Qed.
+  Lemma fold_split_gcd  (l: list Z) (pl: forall a, In a l -> 0 <= a) (lSplitSize: nat):
+      Z.gcd
+        (fold_left Z.gcd (firstn lSplitSize l) 0)
+        (fold_left Z.gcd (skipn lSplitSize l) 0)=
+    fold_left Z.gcd l 0.
+  Proof using. symmetry. apply misc.fold_split_gcd; auto. Qed.
+
+  (** o:=Z.gcd
+((((((i o a1) o a2) o a3) o a4) o a5) o a6)
+
+(((i o a1) o a2 ) o a3 )        (((i o a4) o a5 ) o a6 )
+                    \               /
+                      \           /
+                   left_result   right_result
+                          \       /
+                            \   /
+                        (left_result o right_result)
+*)
+
+  (** * Time for Quiz
+[c]
+   *)
 
   #[ignore_errors]
   cpp.spec "fold_left(unsigned int*, unsigned int, unsigned int(*)(unsigned int,unsigned int), unsigned int)" as fold_left_spec with (
@@ -294,7 +286,7 @@ Hint Resolve learn_atomic_val : br_opacity.
       \post [Vint (fold_left fm l initv)] emp).
 
   #[ignore_errors]
-  cpp.spec "fold_left_parallel(unsigned int*, unsigned int, unsigned int(*)(unsigned int,unsigned int), unsigned int)" as fold_left_spec with (
+  cpp.spec "parallel_fold_left(unsigned int*, unsigned int, unsigned int(*)(unsigned int,unsigned int), unsigned int)" as par_fold_left_spec with (
       \arg{numsp:ptr} "nums" (Vptr numsp)
       \prepost{(l: list Z) (q:Qp)} numsp |-> arrayR uint (fun i:Z => primR uint q i) l
       \arg "size" (Vint (length l))
@@ -312,6 +304,19 @@ Hint Resolve learn_atomic_val : br_opacity.
       \pre [| RightId (=) initv fm |]
       \post [Vint (fold_left fm l initv)] emp).
   
+  Lemma fold_split {A:Type} (f: A->A->A)(asoc: Associative (=) f)
+    (id: A) (lid: LeftId (=) id f) (rid: RightId (=) id f) (l: list A) (lSplitSize: nat):
+    fold_left f l id =
+      f (fold_left f (firstn lSplitSize l) id)
+        (fold_left f (skipn  lSplitSize l) id).
+  Proof.
+    rewrite <- (take_drop lSplitSize) at 1.
+    rewrite fold_left_app.
+    rewrite fold_id2.
+    aac_reflexivity.
+  Qed.
+
+  (* move this proof to the end? without discussing loopinv, this cannot be explained *)
   Lemma fold_left_prf : denoteModule module |-- fold_left_spec.
   Proof using MODd.
     verify_spec'.
@@ -788,12 +793,66 @@ next .. examples of more interesting loopinv
     lose_resources.
   Qed.
 
+  (*
+  Lemma pfl_proof: denoteModule module
+                       ** (thread_class_specs "parallel_gcdl(unsigned int*, unsigned int)::@0")
+                       |-- par_fold_left_spec.
+  Proof using MODd with (fold cQpc).
+    unfold thread_class_specs.
+    verify_spec'.
+    name_locals.
+    wapplyObserve  obsUintArrayR.
+    eagerUnifyU. work.
+    go.
+    rename _addr_1 into lam_addr.
+    aggregateRepPieces lam_addr.
+    go.
+    hideP ps.
+    Opaque Nat.div.
+    assert ( (length l/ 2 <= length l)%nat) as Hle.
+    {
+      rewrite <- Nat.div2_div.
+      apply Nat.le_div2_diag_l.
+    }
+    nat2ZNLdup.
+    rewrite (primr_split nums_addr).
+    rewrite (primr_split mid_addr).
+    simpl in *.
+    closed.norm closed.numeric_types.
+    rewrite -> arrayR_split with (i:=((length l)/2)%nat) (xs:=l) by lia;
+      go... (* array ownership spit into 2 pieces *)
+    revertAdrs constr:([numsp; resultl_addr; nums_addr; mid_addr]).
+    repeat rewrite bi.wand_curry.
+    intantiateWand.
+    instWithPEvar taskPost.
+    go.
+    iSplitL "".
+    { verify_spec'.
+      go.
+      iExists _. eagerUnifyU.
+      autorewrite with syntactic. go.
+      erefl.
+    }
+    unhideAllFromWork.
+    autorewrite with syntactic. go. 
+    iExists _. eagerUnifyU. 
+    autorewrite with syntactic. go.
+    wapply @arrayR_combinep. eagerUnifyU.
+    autorewrite with syntactic. go...
+    (* c++ semantics computes, postcond requires *)
+    icancel (cancel_at p);[| go].
+    do 2 f_equiv.
+    symmetry.
+    apply fold_split_gcd.
+    auto.
+  Qed. *)
 End with_Sigma.
   
 
 (* TODO:
 2: clean this file
-8. narrartive+offsets in coments.
+3. finalize cpp code and goal before determining offsets
+8. narrartive+offsets in coments. optimize around proofchecking times
 7. lock protected linked list: code
 10. lock protected linked list: tikz animation
 11. fold_left proof w/ function ptr
