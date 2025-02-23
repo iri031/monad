@@ -57,8 +57,6 @@ Disable Notation drop.
 Disable Notation "`div`" (all).
 Disable Notation intR.
 Disable Notation uintR.
-Notation uint := "unsigned int"%cpp_type.
-Definition cQpc := cQp.mk false.
 
 (** ** Questions/comment timing recommendation *)
 
@@ -726,7 +724,6 @@ uint parallel_gcd_lcm2(uint a, uint b, uint &gcd_result) {
       (* reached end of loop body, asked to: 1) return FULL ownership of temp 2) reistablish loopinv *)
       (* av'0 := bv', bv'0:= av' `mod` bv' *)
       slauto. (* gcd of new values of a b = gcd of original a b *)
-      Search Z.gcd (_ `mod` _)%Z.
       aac_rewrite Z.gcd_mod; arith.
     }
 

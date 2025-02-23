@@ -72,3 +72,4 @@ Ltac hideLoc l :=
                      ).
 
 
+Notation cinv := (cinvq (nroot .@@ "::demo2")).
