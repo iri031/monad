@@ -12,13 +12,11 @@ uint gcdl (uint * nums, uint length) {
 uint parallel_gcdl(uint * nums, uint length) {
     uint mid=length/2;
     uint resultl;
-    auto gcdlLambda = [&nums, &mid, &resultl]() {
+    Thread t1([nums, mid, &resultl]() {
         resultl=gcdl(nums, mid);
-    };
-    Thread t1(gcdlLambda);
+    });
     t1.start();
-    uint resultr;
-    resultr=gcdl(nums+mid, length-mid);
+    uint resultr=gcdl(nums+mid, length-mid);
     t1.join();
     return gcd(resultl, resultr);
 }
@@ -34,12 +32,11 @@ uint fold_left(uint * nums, uint length, uint (*f)(uint, uint), uint id) {
 uint parallel_fold_left(uint * nums, uint length, uint (*f)(uint, uint), uint id) {
     uint mid=length/2;
     uint resultl;
-    Thread t1([&nums, &mid, &resultl, &f, &id]() {
+    Thread t1([nums, mid, &resultl, f, id]() {
         resultl=fold_left(nums, mid, f, id);
     });
     t1.start();
-    uint resultr;
-    resultr=fold_left(nums+mid, length-mid, f, id);
+    uint resultr=fold_left(nums+mid, length-mid, f, id);
     t1.join();
     return f(resultl, resultr);
 }
@@ -55,8 +52,7 @@ struct Node {
 
 typedef Node *List;
 
-void
-split(List ab, List &a, List &b) {
+void split(List ab, List &a, List &b) {
     bool which = true;
     while (ab) {
         auto temp = ab->next_;
@@ -159,10 +155,6 @@ void setU(int value) {
 int getU() {
     return u.load();
 }
-int setThenGetU(int value) {
-    u.exchange(value);
-    return u.load();
-}
 /*
  
              Parent Thread                        
@@ -185,6 +177,10 @@ int setThenGetU(int value) {
 
  */
 
+int setThenGetU(int value) {
+    u.exchange(value);
+    return u.load();
+}
 
 class SpinLock {
 public:

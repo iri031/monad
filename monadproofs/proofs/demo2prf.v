@@ -2,25 +2,14 @@ Require Import monad.proofs.demo2.
 Require Import bedrock.auto.invariants.
 Require Import bedrock.auto.cpp.proof.
 Require Import bedrock.auto.cpp.tactics4.
-
-Require Import monad.proofs.misc. (* monad/proofs/misc.v *)
+Require Import monad.proofs.misc.
 Require Import monad.proofs.demomisc.
 Require Import monad.proofs.demoprf.
 From AAC_tactics Require Import AAC.
 From AAC_tactics Require Import Instances.
 Import Instances.Z.
-Import stdpp.list.
-Import stdpp.decidable.
 Import cQp_compat.
-Open Scope cQp_scope.
-Open Scope Z_scope.
 Import Verbose.
-Disable Notation take.
-Disable Notation drop.
-Disable Notation "`div`" (all).
-Disable Notation intR.
-Disable Notation uintR.
-
 Import linearity.
 
 
@@ -210,7 +199,6 @@ Hint Resolve learn_atomic_val : br_opacity.
   cpp.spec (Nscoped 
               "parallel_gcdl(unsigned int*, unsigned int)::@0" Ndtor)  as lam2destr  inline.
 
-
   Lemma pgcdl_proof: denoteModule module
                        ** (thread_class_specs "parallel_gcdl(unsigned int*, unsigned int)::@0")
                        |-- parallel_gcdl_spec.
@@ -222,7 +210,8 @@ Hint Resolve learn_atomic_val : br_opacity.
     name_locals.
     wapplyObserve  obsUintArrayR.
     eagerUnifyU. work.
-    aggregateRepPieces gcdlLambda_addr.
+    rename a into lam.
+    aggregateRepPieces lam.
     go.
     hideP ps.
     Opaque Nat.div.
@@ -232,15 +221,16 @@ Hint Resolve learn_atomic_val : br_opacity.
       apply Nat.le_div2_diag_l.
     }
     nat2ZNLdup.
-    rewrite (primr_split nums_addr).
-    rewrite (primr_split mid_addr).
-    simpl in *.
-    closed.norm closed.numeric_types.
+    progress closed.norm closed.numeric_types.
     rewrite -> arrayR_split with (i:=((length l)/2)%nat) (xs:=l) by lia;
-      go... (* array ownership spit into 2 pieces *)
-    revertAdrs constr:([numsp; resultl_addr; nums_addr; mid_addr]).
-    repeat rewrite bi.wand_curry.
-    intantiateWand.
+      go... (* array ownership spit into 2 pieces. [g], the child thread gets [g] *)
+    revertAdrs constr:([numsp; resultl_addr]);
+      repeat rewrite bi.wand_curry;
+      intantiateWand.
+    (*
+    iExists (resultl_addr |-> uninitR "unsigned int" 1%Qp **
+               numsp |-> arrayR "unsigned int" (λ i : Z, primR "unsigned int" q i) (firstn (length l / 2) l))...
+     *)
     instWithPEvar taskPost.
     go.
     iSplitL "".
@@ -256,7 +246,7 @@ Hint Resolve learn_atomic_val : br_opacity.
     autorewrite with syntactic. go.
     wapply @arrayR_combinep. eagerUnifyU.
     autorewrite with syntactic. go...
-    (* c++ semantics computes, postcond requires *)
+    (* symbolic eval computs, postcond requires, [g] *)
     icancel (cancel_at p);[| go].
     do 2 f_equiv.
     symmetry.
@@ -332,45 +322,6 @@ Hint Resolve learn_atomic_val : br_opacity.
     rewrite fold_left_app.
     rewrite fold_id2.
     aac_reflexivity.
-  Qed.
-
-  (* move this proof to the end? without discussing loopinv, this cannot be explained *)
-  Lemma fold_left_prf : denoteModule module |-- fold_left_spec.
-  Proof using MODd.
-    verify_spec'.
-    slauto.
-    wp_for (fun _ => Exists iv:nat,
-        i_addr |-> primR uint 1 iv
-        ** [| iv <= length l |]%nat
-        ** result_addr |-> primR uint 1 ((fold_left fm (firstn iv l) initv))).
-    unfold cQpc.
-    go.
-    Set Printing Coercions.
-    rewrite <- (bi.exist_intro 0%nat).
-    go.
-    wp_if.
-    {
-      slauto.
-      Set Printing Implicit.
-      eapplyToSomeHyp @arrayR_cell2.
-      forward_reason.
-      rewrite -> autogenhypr.
-      hideRhs.
-      go.
-      unhideAllFromWork.
-      slauto. (* loop body finished, reistablish loopinv *)
-      iExists (1+iv)%nat.
-      slauto.
-      rewrite -> autogenhypr.
-      go.
-    }
-    {
-      slauto.
-      assert (iv=length l) as Heq by lia.
-      subst.
-      autorewrite with syntactic.
-      go.
-    }
   Qed.
   
   (** Structs: Node [c] *)
@@ -811,20 +762,61 @@ next .. examples of more interesting loopinv
     lose_resources.
   Qed.
 
-  (*
+  (* move this proof to the end? without discussing loopinv, this cannot be explained *)
+  Lemma fold_left_prf : denoteModule module |-- fold_left_spec.
+  Proof using MODd.
+    verify_spec'.
+    slauto.
+    wp_for (fun _ => Exists iv:nat,
+        i_addr |-> primR uint 1 iv
+        ** [| iv <= length l |]%nat
+        ** result_addr |-> primR uint 1 ((fold_left fm (firstn iv l) initv))).
+    unfold cQpc.
+    go.
+    Set Printing Coercions.
+    rewrite <- (bi.exist_intro 0%nat).
+    go.
+    wp_if.
+    {
+      slauto.
+      Set Printing Implicit.
+      eapplyToSomeHyp @arrayR_cell2.
+      forward_reason.
+      rewrite -> autogenhypr.
+      hideRhs.
+      go.
+      unhideAllFromWork.
+      slauto. (* loop body finished, reistablish loopinv *)
+      iExists (1+iv)%nat.
+      slauto.
+      rewrite -> autogenhypr.
+      go.
+    }
+    {
+      slauto.
+      assert (iv=length l) as Heq by lia.
+      subst.
+      autorewrite with syntactic.
+      go.
+    }
+  Qed.
+  
+  cpp.spec (Nscoped 
+              "parallel_fold_left(unsigned int*, unsigned int, unsigned int(*)(unsigned int,unsigned int), unsigned int)::@0"
+              Ndtor)  as lam3destr  inline.
   Lemma pfl_proof: denoteModule module
-                       ** (thread_class_specs "parallel_gcdl(unsigned int*, unsigned int)::@0")
+                   ** (thread_class_specs "parallel_fold_left(unsigned int*, unsigned int, unsigned int(*)(unsigned int,unsigned int), unsigned int)::@0")
                        |-- par_fold_left_spec.
   Proof using MODd with (fold cQpc).
     unfold thread_class_specs.
     verify_spec'.
+    wapply fold_left_prf; work.
     name_locals.
     wapplyObserve  obsUintArrayR.
     eagerUnifyU. work.
     go.
-    rename _addr_1 into lam_addr.
-    aggregateRepPieces lam_addr.
-    go.
+    rename a into lam.
+    aggregateRepPieces lam.
     hideP ps.
     Opaque Nat.div.
     assert ( (length l/ 2 <= length l)%nat) as Hle.
@@ -834,6 +826,7 @@ next .. examples of more interesting loopinv
     }
     nat2ZNLdup.
     rewrite (primr_split nums_addr).
+    name_locals.
     rewrite (primr_split mid_addr).
     simpl in *.
     closed.norm closed.numeric_types.
@@ -847,13 +840,13 @@ next .. examples of more interesting loopinv
     iSplitL "".
     { verify_spec'.
       go.
-      iExists _. eagerUnifyU.
+      iExists _, fm. eagerUnifyU.
       autorewrite with syntactic. go.
       erefl.
     }
     unhideAllFromWork.
     autorewrite with syntactic. go. 
-    iExists _. eagerUnifyU. 
+    iExists _, fm. eagerUnifyU. 
     autorewrite with syntactic. go.
     wapply @arrayR_combinep. eagerUnifyU.
     autorewrite with syntactic. go...
@@ -861,9 +854,8 @@ next .. examples of more interesting loopinv
     icancel (cancel_at p);[| go].
     do 2 f_equiv.
     symmetry.
-    apply fold_split_gcd.
-    auto.
-  Qed. *)
+    apply fold_split; auto.
+  Qed.
 End with_Sigma.
   
 
@@ -873,8 +865,6 @@ End with_Sigma.
 8. narrartive+offsets in coments. optimize around proofchecking times
 7. lock protected linked list: code
 10. lock protected linked list: tikz animation
-11. fold_left proof w/ function ptr
-12. test cases of c++ functions
 
 done:
 0. linkedlist
@@ -885,6 +875,8 @@ done:
 9. spec of BlockState::read_storage
 6. BlockState::merge and can_merge specs: cleanup
 4. BlockState tikz aniimation
+11. fold_left proof w/ function ptr
+12. test cases of c++ functions
 
 
 sequence:
