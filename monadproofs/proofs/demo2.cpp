@@ -479,6 +479,55 @@ struct UnboundedUint {
     UnboundedUint& operator=(const UnboundedUint& other) = delete;
 };
 
+
+#include <iostream>
+#include <cassert>
+
+void test_parallel_gcd_lcm() {
+    uint a = 48;
+    uint b = 18;
+    uint gcd_result = 0;
+    uint lcm_result = 0;
+
+    parallel_gcd_lcm(a, b, gcd_result, lcm_result);
+
+    assert(gcd_result == 6);
+    assert(lcm_result == 144);
+    std::cout << "Test parallel_gcd_lcm passed!" << std::endl;
+}
+
+void test_parallel_gcd_lcm2() {
+    uint a = 48;
+    uint b = 18;
+    uint gcd_result = 0;
+
+    uint lcm_result = parallel_gcd_lcm2(a, b, gcd_result);
+
+    assert(gcd_result == 6);
+    assert(lcm_result == 144);
+    std::cout << "Test parallel_gcd_lcm2 passed!" << std::endl;
+}
+
+
+void test_parallel_fold_left() {
+    uint vec[] = {48, 18, 30};
+    uint init = 0;
+
+    uint result = parallel_fold_left(vec, 3, gcd, init);
+
+    assert(result == 6);
+    std::cout << "Test parallel_fold_left passed!" << std::endl;
+}
+
+int main() {
+    test_parallel_gcd_lcm();
+    test_parallel_gcd_lcm2();
+    test_parallel_fold_left();
+
+    return 0;
+}
+
+
 // int main() {
 //     Thread t([]() {
 //         std::cout << "Hello, World!" << std::endl;
