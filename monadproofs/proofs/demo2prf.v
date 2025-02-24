@@ -45,6 +45,7 @@ Section with_Sigma.
                       << pd |-> atomicR "int" q (Vint y), COMM InvOut y >> 
        \post{y : Z}[Vint y]
        InvOut y).
+    
     #[ignore_errors]
     cpp.spec "std::atomic<bool>::exchange(bool, enum std::memory_order)"  as exchange_spec with
             (λ this : ptr,
@@ -55,9 +56,10 @@ Section with_Sigma.
             << this |-> atomicR Tbool (cQp.mut 1) (Vbool x), COMM Q y >> 
        \post{y : bool}[Vbool y]
        Q y).
+    
     #[ignore_errors]
     cpp.spec "std::atomic<bool>::store(bool, enum std::memory_order)"  as store_spec with
-(λ this : ptr,
+        (λ this : ptr,
        \arg{(Q : mpred) (x : bool)} "v" (Vbool x)
        \arg "memorder" (Vint 5)
        \pre
@@ -71,16 +73,15 @@ Hint Resolve learn_atomic_val : br_opacity.
   Open Scope Z_scope.
   Set Nested Proofs Allowed.
 
-  (**  *Arrays *)
+  (* /home/abhishek/work/coq/monad/monadproofs/proofs/demo2.cpp *)
+  (**  *Arrays  *)
   Definition gcdl_spec_core : WpSpec mpredI val val :=
       \arg{numsp:ptr} "nums" (Vptr numsp)
-      \prepost{(l: list Z) (q:Qp)} numsp |-> arrayR uint (fun i:Z => primR uint q i) l
-      \arg "size" (Vint (length l))
+      \prepost{(l: list Z) (q:Qp)}
+             numsp |-> arrayR uint (fun i:Z => primR uint q i) l
+      \arg "length" (Vint (length l))
       \post [Vint (fold_left Z.gcd l 0)] emp.
-
-  Example fold_left_gcd (n1 n2 n3: Z) :
-    fold_left Z.gcd [n1;n2;n3] 0 =  Z.gcd (Z.gcd (Z.gcd 0 n1) n2) n3.
-  Proof. reflexivity. Abort.
+  (* [c45,49] *)
   
   Example arrayR3 (p:ptr) (n1 n2 n3: Z) (q: Qp):
     p |-> arrayR uint (fun i:Z => primR uint q i) [n1;n2;n3]
@@ -95,6 +96,11 @@ Hint Resolve learn_atomic_val : br_opacity.
     repeat rewrite o_sub_sub;
     closed.norm closed.numeric_types; go.
   Abort.
+
+  Example fold_left_gcd (n1 n2 n3: Z) :
+    fold_left Z.gcd [n1;n2;n3] 0 =  Z.gcd (Z.gcd (Z.gcd 0 n1) n2) n3.
+  Proof. reflexivity. Abort.
+  
     
   cpp.spec "gcdl(unsigned int*, unsigned int)" as gcdl_spec with (gcdl_spec_core).
 
@@ -142,7 +148,9 @@ Hint Resolve learn_atomic_val : br_opacity.
     rewrite arrayR_split; eauto. go. 
   Qed.
 
-  cpp.spec "parallel_gcdl(unsigned int*, unsigned int)" as parallel_gcdl_spec with (gcdl_spec_core).
+  (* [c204,218; c436,436] same spec, faster impl*)
+  cpp.spec "parallel_gcdl(unsigned int*, unsigned int)"
+    as parallel_gcdl_spec with (gcdl_spec_core).
   
   Hint Rewrite @fold_left_app: syntactic.
   Existing Instance UNSAFE_read_prim_cancel.
@@ -179,7 +187,8 @@ Hint Resolve learn_atomic_val : br_opacity.
     name_locals.
     progress closed.norm closed.numeric_types.
     rewrite -> arrayR_split with (i:=((length l)/2)%nat) (xs:=l) by lia;
-      go... (* array ownership spit into 2 pieces. [g], the child thread gets [g] *)
+      go... (* array ownership spit into 2 pieces. [g1335,1409] [g1433,1443] [g1433,1443; g1497,1515],
+             [g1556,1563],  [g1556,1563; g1335,1409] [g1556,1563; g1335,1409; g1294,1330; c855,862] *)
     revertAdrs constr:([numsp; resultl_addr]);
       repeat rewrite bi.wand_curry;
       intantiateWand.
@@ -202,20 +211,13 @@ Hint Resolve learn_atomic_val : br_opacity.
     autorewrite with syntactic. go.
     wapply @arrayR_combinep. eagerUnifyU.
     autorewrite with syntactic. go...
-    (* symbolic eval computs, postcond requires, [g] *)
+    (* [g1766,1844] [g1766,1844; g1910,1927]  *)
     icancel (cancel_at p);[| go].
     do 2 f_equiv.
     symmetry.
     apply fold_split_gcd.
     auto.
   Qed.
-
-  Lemma fold_split_gcd  (l: list Z) (pl: forall a, In a l -> 0 <= a) (lSplitSize: nat):
-      Z.gcd
-        (fold_left Z.gcd (firstn lSplitSize l) 0)
-        (fold_left Z.gcd (skipn lSplitSize l) 0)=
-    fold_left Z.gcd l 0.
-  Proof using. symmetry. apply misc.fold_split_gcd; auto. Qed.
 
   (** o:=Z.gcd
 ((((((i o a1) o a2) o a3) o a4) o a5) o a6)
@@ -229,9 +231,15 @@ Hint Resolve learn_atomic_val : br_opacity.
                         (left_result o right_result)
 *)
 
-  (** * Time for Quiz
-[c]
-   *)
+  Lemma fold_split_gcd  (l: list Z) (pl: forall a, In a l -> 0 <= a)
+       (ls: nat):
+    Z.gcd
+      (fold_left Z.gcd (firstn ls l) 0)
+      (fold_left Z.gcd (skipn ls l) 0)
+   = fold_left Z.gcd l 0.
+  Proof using. symmetry. apply misc.fold_split_gcd; auto. Qed.
+
+  (** Quiz [c675,675] *)
 
   #[ignore_errors]
   cpp.spec "fold_left(unsigned int*, unsigned int, unsigned int(*)(unsigned int,unsigned int), unsigned int)" as fold_left_spec with (
@@ -280,14 +288,20 @@ Hint Resolve learn_atomic_val : br_opacity.
     aac_reflexivity.
   Qed.
   
-  (** Structs: Node [c] *)
-  Definition NodeR `{Σ : cpp_logic, σ : genv} (q: cQp.t) (data: Z) (nextLoc: ptr): Rep :=
-    structR "Node" q
-    ** _field "Node::data_" |-> primR Ti32                       (cQp.mut q) data
-    ** _field "Node::next_" |-> primR (Tptr (Tnamed "Node")) (cQp.mut q) (Vptr nextLoc).
+  (** Structs: Node [c1025,1025] *)
+  Definition NodeR  (q: cQp.t) (data: Z) (nextLoc: ptr): Rep :=
+    _field "Node::data_" |-> primR "int" q data
+    ** _field "Node::next_" |-> primR "Node*" q (Vptr nextLoc)
+    ** structR "Node" q.
+
+  Example nodeRUnfold (q:Qp) (data: Z) (nextLoc: ptr) (loc:ptr) :=
+    loc |-> NodeR q data nextLoc
+    |-- loc ,, _field "Node::data_" |-> primR "int" q data 
+    ** loc ,, _field "Node::next_" |-> primR "Node*" q (Vptr nextLoc)
+    ** loc |-> structR "Node" q.
+  
 
   (** Structs: LinkedList [c] *)
-
 
   Fixpoint ListR (q : cQp.t) (l : list Z) : Rep :=
     match l with
@@ -301,17 +315,22 @@ Hint Resolve learn_atomic_val : br_opacity.
        ** node5loc |-> NodeR 1 5 node6loc
        ** node6loc |-> NodeR 1 6 nullptr
        (* ** [| node5loc <> node6loc <> head|] *).
-  Proof using. work. unfold NodeR.  go. Qed.
+  Proof using. work. unfold NodeR.  go. Abort.
+
+  Example nullReq (p: ptr): p |-> nullR |-- [| p = nullptr |].
+  Proof. go. Abort.
 
   cpp.spec "reverse(Node*)" as reverse_spec with
     (\arg{lp} "l" (Vptr lp)
      \pre{l} lp |-> ListR 1 l
      \post{r}[Vptr r] r |-> ListR (cQp.m 1) (List.rev l)).
 
+  (** why trust [List.rev] *)
   Search List.rev.
   Check rev_app_distr.
 
   Definition sort (l:list Z) : list Z. Proof. Admitted.
+  
   cpp.spec "sort(Node*)" as sort_spec with
     (\arg{lp} "l" (Vptr lp)
      \pre{l} lp |-> ListR 1 l
@@ -326,7 +345,8 @@ Hint Resolve learn_atomic_val : br_opacity.
   cpp.spec "sort(Node*)" as sort_spec2 with
     (\arg{lp} "l" (Vptr lp)
      \pre{l} lp |-> ListR 1 l
-     \post{r}[Vptr r] Exists ls, r |-> ListR (1) ls ** [| sorted ls |]).
+     \post{r}[Vptr r] Exists ls,
+         r |-> ListR 1 ls ** [| sorted ls |]).
   
   (**  extensional spec
      - simpler than writing a 
@@ -360,10 +380,9 @@ Hint Resolve learn_atomic_val : br_opacity.
 
 
 
-  (** Passing resources between running threads
-
-last session, we saw:
-- pass assertions (incl ownership) to a new thread when starting it
+  (** 
+last session::
+- pass assertions to a new thread when starting it
 - get back its postcondition at t.join()
 
   ┌──────────────────────────┐
@@ -376,10 +395,7 @@ last session, we saw:
   │ Pₖ (Parent)  │  C (Child)   │
   └──────────────┴──────────────┘
            |                |
-           |                |
            |     <-?->      |
-           |                |
-           |                |
      Parent Thread       Child Thread (new)
          runs with Pₖ        runs with C
   ┌──────────────┬──────────────┐
@@ -392,16 +408,21 @@ Parent: Child.join
   └──────────────────────────┘
 
 
-- no way to pass resources between running threads
+- not enough [c2989,2989]
 *)
 
-(** *Concurrent Invariants 
-[c200,345]
-   *)
+
+
+
+
+
+
+
+  
+(** *cinv : concurrent invariants *)
   
 
 Example boxedResource (P:mpred) (invId: gname): mpred := cinv invId 1 P.
-
   
 Lemma splitInv (P:mpred) (invId: gname) (q:Qp):
   cinv invId q P |-- cinv invId (q/2) P ** cinv invId (q/2) P.
@@ -410,32 +431,33 @@ Proof using.
 Qed.
 
   cpp.spec "bar()" as bar_spec with (
-      \prepost{q invId} cinv q invId (∃ zv, _global "z" |-> primR "int" 1 zv)
+      \prepost{q invId} cinv q invId (_global "z" |-> anyR "int" 1)
       \post emp
     ).
+  
   Lemma bar_prf : denoteModule module |-- bar_spec.
-  Proof using.
+  Proof with (fold cQpc).
     verify_spec.
-    go.
-  Abort. (* highlight. not an atomic op. cannot open the cinv box *)
+    go... (* [g262,284] [g262,284; g195,218] *)
+  Abort.
 
-  cpp.spec "setU(int)" as setU_spec with (
-    \prepost{q invId} cinv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv)
-    \arg{uv} "uv" (Vint uv)
-    \post emp
-    ).
       
-    Opaque coPset_difference.
-    Opaque atomicR.
+  Opaque coPset_difference.
+  Opaque atomicR.
     
-    Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo)); try iPureIntro.
+  Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo)); try iPureIntro.
     
+  (*[c3638,3662] *)
+  cpp.spec "setU(int)" as setU_spec with (
+    \prepost{q invId} cinv q invId (∃ uv:Z, _global "u" |-> atomicR "int" 1 uv)
+    \arg{uvnew} "value" (Vint uvnew)
+    \post emp). 
+(*
   Lemma setU_prf: denoteModule module ** int_exchange_spec |-- setU_spec.
   Proof using MODd with (fold cQpc).
     verify_spec'.
     slauto.
     callAtomicCommitCinv... (* [g] *)
-    Existing Instance learn_atomic_val.
     go... (* got back the postcondition of the atomic write: [g] *)
     closeCinvqs... (* highlight the cinv and the conjunct. any value is fine [g] *)
     go... (* once we close cinv, we lost that u has value uv. now [g] *)
@@ -444,39 +466,53 @@ Qed.
     do 9 step... (* finished symbolic exec. not left with anything saying that the value of u is still uv *)
     go.
   Qed.
-
+*)
   cpp.spec "setThenGetU(int)" as setGetU_spec_wrong with (
-      \prepost{q invId} cinv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv)
-      \arg{uv} "value" (Vint uv)
-      \post [Vint uv] emp
+      \prepost{q invId} cinv q invId (∃ uv:Z, _global "u" |-> atomicR "int" 1 uv)
+      \arg{uvnew} "value" (Vint uvnew)
+      \post [Vint uvnew] emp
         ).
-  (** [c] why is the above spec unprovable? *)
+  (** [c4161,4172] why is the above spec unprovable? *)
   
-  Lemma setGetU_prf: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setGetU_spec_wrong.
-  Proof using MODd.
-    verify_spec.
+  Lemma setGetU_prf:
+    denoteModule module
+      ** int_exchange_spec
+      ** int_load_spec
+    |-- setGetU_spec_wrong.
+  Proof using MODd with (fold cQpc).
+    verify_spec... (* [g343,374] [g554,564] *)
     slauto.
-    callAtomicCommitCinv.
-    go.
-    closeCinvqs.
-    go.
-    iModIntro... (* [gc] just before calling load. so far the code we executed is the same as setU [c]. so the wallet [g] looks exactly like at the end of the previous proof. *)
-    Existing Instance learn_atomic_val_UNSAFE.
-    go.
     repeat (iExists _); callAtomicCommit.
-    repeat openCinvq... (* [g] *)
+    repeat openCinvq. (* [g] *)
+    removeLater... (* [g593,630] cinv gone*)
+    work.
+    rename uv into uvcur... (* [g675,679]*)
+    
     work using fwd_later_exist, fwd_later_sep;
       repeat removeLater;
       iApply fupd_mask_intro;[set_solver |];
+      iIntrosDestructs... (* [g752,786; g645,678] [g752,754; g674,679] *)
+    Existing Instance learn_atomic_val.
+    go... (* w post [g707,712; c4177,4182] [g752,758]  must close*)
+    closeCinvqs... (* [g676,714] [g676,714; g616,654] [g616,655; g542,576] [g542,576]*)
+    work... (* lost that and got [g537,585] [g549,551; g583,585], [c4213,4215] *)
+    iModIntro.
+    Existing Instance learn_atomic_val_UNSAFE.
+    go.
+    repeat (iExists _); callAtomicCommit.
+    repeat openCinvq.
+    removeLater. (* [c4227,4233] [g705,707; g739,741]*)
+    go.
+    iApply fupd_mask_intro;[set_solver |];
       iIntrosDestructs.
-    rename a into uvAtLoad... (* call that value uvAtLoad. which is what the function will return *)
     go.
     closeCinvqs.
     go.
     iModIntro.
-    go... (* but the postcondition wants uv [g] *)
+    go.
   Abort.
 
+  (* correct: spec: *)
   cpp.spec "setThenGetU(int)" as setGetU_spec with (
       \prepost{q invId} cinv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv)
       \arg{uv} "value" (Vint uv)
@@ -502,8 +538,8 @@ Qed.
   Qed.
 
   cpp.spec "setThenGetU(int)" as setGetU_spec2 with (
-      \prepost{q invId} cinv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv ** [| isPrime zv |])
-      \arg{uv} "value" (Vint uv)
+      \prepost{q invId} cinv q invId (∃ uv:Z, _global "u" |-> atomicR "int" 1 uv ** [| isPrime uv |])
+      \arg{uvnew:Z} "uvnew" (Vint uvnew)
       \post{any:Z} [Vint any] emp
       ).
   (** why is the above spec unprovable (for the code) *)
@@ -515,15 +551,17 @@ Qed.
     slauto.
     callAtomicCommitCinv.
     go.
-    closeCinvqs... (* [g] highlight zv and instantiation is value *)
+    rename a into uvBeforeWrite.
+    (* close inv at the end of u.exchange *)
+    closeCinvqs... (* [g660,662 ; g613,618] [g660,662 ; g613,618; g699,710] *)
     go. 
   Abort.
   
   cpp.spec "setThenGetU(int)" as setGetU_spec_prime with (
       \prepost{q invId} cinv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv ** [| isPrime zv |])
-      \arg{uv} "value" (Vint uv)
-      \pre [| isPrime uv |] 
-      \post{any:Z} [Vint any (* not uv *)] [| isPrime uv |]
+      \arg{uvnew} "uvnew" (Vint uvnew)
+      \pre [| isPrime uvnew |] 
+      \post{any:Z} [Vint any (* not uvnew *)] [| isPrime any |]
       ).
 
   Lemma setGetU_prf_prime: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setGetU_spec_prime.
@@ -538,11 +576,21 @@ Qed.
     go.
     callAtomicCommitCinv.
     go.
+    rename a into uvAtLoad.
     closeCinvqs.
     go.
     iModIntro.
     go.
   Qed.
+  
+  Lemma duplPrime (i:Z) :
+    ([| isPrime i |]:mpred) |-- [| isPrime i |] ** [| isPrime i |] .
+  Proof using. go. Abort.
+    
+  Lemma duplPrime2 (i:Z) (this:ptr) :
+    let p := this ,, _field "v" |-> atomicR "int" 1 i ** [| isPrime i |] in
+    p |-- p ** [| isPrime i |].
+  Proof using. go. Abort.
   
   (** * heart of concurrency proofs
 main challenge:
@@ -554,10 +602,10 @@ cinv more difficult:
 - concurrency invariants: always hold. all code points in all methods
 
 next .. examples of more interesting cinv
-
+[]
    *)
 Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mpred :=
-  cinvq ns invId q
+  cinv invId q
     (Exists locked:bool,
         this |-> _field "::SpinLock::locked" |-> atomicR Tbool 1 (Vbool locked)
 	** if locked then emp else lockProtectedResource
@@ -586,7 +634,7 @@ Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mp
 
   Lemma uFragRsplit q invId :
     uFragR q invId |-- uFragR (q/2) invId ** uFragR (q/2) invId.
-  Proof using.
+  Proof.
     unfold uFragR,ucinv.
     rewrite splitcinvq.
     go.
@@ -599,7 +647,7 @@ Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mp
   Lemma init (initv:Z) E:
     _global "u" |-> atomicR "int" 1 initv ** [| isPrime initv |]
       |-- |={E}=> Exists invId, uAuthR invId initv ** uFragR 1 invId.
-  Proof using.
+  Proof.
     unfold uAuthR, uFragR, ucinv. go.
     match goal with
       |- context[cinvq ?ns _ _ ?P] => wapply (cinvq_alloc_no_shared_pages _ ns P)
