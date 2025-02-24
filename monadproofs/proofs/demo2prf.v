@@ -188,7 +188,7 @@ Hint Resolve learn_atomic_val : br_opacity.
     progress closed.norm closed.numeric_types.
     rewrite -> arrayR_split with (i:=((length l)/2)%nat) (xs:=l) by lia;
       go... (* array ownership spit into 2 pieces. [g1335,1409] [g1433,1443] [g1433,1443; g1497,1515],
-             [g1556,1563],  [g1556,1563; g1335,1409] [g1556,1563; g1335,1409; g1294,1330; c855,862] *)
+             [g1556,1563],  [g1556,1563; g1335,1409] [g1556,1563; g1335,1409; g1294,1330; c335,342] *)
     revertAdrs constr:([numsp; resultl_addr]);
       repeat rewrite bi.wand_curry;
       intantiateWand.
@@ -210,7 +210,7 @@ Hint Resolve learn_atomic_val : br_opacity.
     iExists _. eagerUnifyU. 
     autorewrite with syntactic. go.
     wapply @arrayR_combinep. eagerUnifyU.
-    autorewrite with syntactic. go...
+    autorewrite with syntactic. go... (* lemma below*)
     (* [g1766,1844] [g1766,1844; g1910,1927]  *)
     icancel (cancel_at p);[| go].
     do 2 f_equiv.
@@ -288,7 +288,7 @@ Hint Resolve learn_atomic_val : br_opacity.
     aac_reflexivity.
   Qed.
   
-  (** Structs: Node [c1025,1025] *)
+  (** Structs: Node [c1032,1036] *)
   Definition NodeR  (q: cQp.t) (data: Z) (nextLoc: ptr): Rep :=
     _field "Node::data_" |-> primR "int" q data
     ** _field "Node::next_" |-> primR "Node*" q (Vptr nextLoc)
@@ -301,12 +301,14 @@ Hint Resolve learn_atomic_val : br_opacity.
     ** loc |-> structR "Node" q.
   
 
-  (** Structs: LinkedList [c] *)
+  (** Structs: LinkedList *)
 
   Fixpoint ListR (q : cQp.t) (l : list Z) : Rep :=
     match l with
     | [] => nullR
-    | hd :: tl => Exists (p : ptr), NodeR q hd p ** pureR (p |-> ListR q tl)
+    | hd :: tl =>
+        Exists (tlLoc: ptr), NodeR q hd tlLoc
+                             ** pureR (tlLoc |-> ListR q tl)
     end.
 
   Example listRUnfold (q:Qp) (head:ptr): head |-> ListR 1 [4;5;6] |--
@@ -472,7 +474,7 @@ Qed.
       \arg{uvnew} "value" (Vint uvnew)
       \post [Vint uvnew] emp
         ).
-  (** [c4161,4172] why is the above spec unprovable? *)
+  (** [c4032,4043] why is the above spec unprovable? *)
   
   Lemma setGetU_prf:
     denoteModule module
@@ -495,13 +497,13 @@ Qed.
     Existing Instance learn_atomic_val.
     go... (* w post [g707,712; c4177,4182] [g752,758]  must close*)
     closeCinvqs... (* [g676,714] [g676,714; g616,654] [g616,655; g542,576] [g542,576]*)
-    work... (* lost that and got [g537,585] [g549,551; g583,585], [c4213,4215] *)
+    work... (* lost that and got [g537,585] [g549,551; g583,585], [c4048,4053] *)
     iModIntro.
     Existing Instance learn_atomic_val_UNSAFE.
     go.
     repeat (iExists _); callAtomicCommit.
     repeat openCinvq.
-    removeLater. (* [c4227,4233] [g705,707; g739,741]*)
+    removeLater... (* [c4098,4104] [g705,707; g739,741]*)
     go.
     iApply fupd_mask_intro;[set_solver |];
       iIntrosDestructs.
@@ -601,9 +603,12 @@ cinv more difficult:
 - loopinv:  beginning/end of loop body
 - concurrency invariants: always hold. all code points in all methods
 
+7 conditions, 20 functions in codebase. weeks tweaking the cinv so that the proofs of all 20 functions go though
+
 next .. examples of more interesting cinv
-[]
+[c4415,4439] [c4380,4400] [c4332,4353] [c4348,4352]
    *)
+  
 Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mpred :=
   cinv invId q
     (Exists locked:bool,
@@ -611,7 +616,34 @@ Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mp
 	** if locked then emp else lockProtectedResource
     ).
 
-(** 7 conditions, 20 functions in codebase. weeks tweaking the cinv so that the proofs of all 20 functions go though *)
+  Definition LockR (q: cQp.t) (invId: gname) (lockProtectedResource: mpred) : Rep :=
+  as_Rep (fun (this:ptr)=>
+     this |-> structR "::SpinLock" q
+     ** cinvq ns invId q (Exists locked:bool,
+                  this |-> _field "::SpinLock::locked" |-> atomicR Tbool 1 (Vbool locked)
+	          ** if locked then emp else lockProtectedResource
+    )).
+
+  cpp.spec "SpinLock::SpinLock()" as lock_constr_spec with
+    (fun this:ptr =>
+       \pre{lockProtectedResource:mpred} lockProtectedResource
+       \post Exists invId, this |-> LockR 1 invId lockProtectedResource
+     ).
+  
+  cpp.spec "SpinLock::lock()" as lock_spec with
+    (fun this:ptr =>
+       \prepost{q invId lockProtectedResource}
+           this |-> LockR q invId lockProtectedResource
+       \post lockProtectedResource
+    ).
+  
+  cpp.spec "SpinLock::unlock()" as unlock_spec with
+    (fun this:ptr =>
+       \prepost{q invId lockProtectedResource} this |-> LockR q  invId lockProtectedResource
+       \pre lockProtectedResource
+       \post emp
+     ).
+
   
   (** * BlockState analog: *)
 
@@ -732,32 +764,6 @@ Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mp
   Proof using. go. Qed.
 
       
-  Definition LockR (q: cQp.t) (invId: gname) (lockProtectedResource: mpred) : Rep :=
-  as_Rep (fun (this:ptr)=>
-     this |-> structR "::SpinLock" q
-     ** cinvq ns invId q (Exists locked:bool,
-                  this |-> _field "::SpinLock::locked" |-> atomicR Tbool 1 (Vbool locked)
-	          ** if locked then emp else lockProtectedResource
-    )).
-
-  cpp.spec "SpinLock::SpinLock()" as lock_constr_spec with
-      (fun this:ptr =>
-         \pre{R:mpred} R
-         \post Exists invId,  this |-> LockR 1 invId R
-      ).
-  
-  cpp.spec "SpinLock::lock()" as lock_spec with
-      (fun this:ptr =>
-         \prepost{q invId R} this |-> LockR q  invId R
-         \post R
-      ).
-  
-  cpp.spec "SpinLock::unlock()" as unlock_spec with
-      (fun this:ptr =>
-         \prepost{q invId R} this |-> LockR q  invId R
-         \pre R
-         \post emp
-      ).
     Opaque atomicR.
   
   Lemma lock_lock_prf: denoteModule module ** exchange_spec |-- lock_spec.
