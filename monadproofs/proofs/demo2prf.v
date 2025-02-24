@@ -73,7 +73,7 @@ Hint Resolve learn_atomic_val : br_opacity.
   Open Scope Z_scope.
   Set Nested Proofs Allowed.
 
-  (* /home/abhishek/work/coq/monad/monadproofs/proofs/demo2.cpp *)
+  (* /home/abhishek/work/coq/blue/fm-workspace-snapshot3b/fm-workspace-12-16/monad/proofs/demo2.cpp *)
   (**  *Arrays  *)
   Definition gcdl_spec_core : WpSpec mpredI val val :=
       \arg{numsp:ptr} "nums" (Vptr numsp)
@@ -657,7 +657,6 @@ Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mp
 
   (* no fraction argument in uAuthR:
      p1: ucinv (1/4) invId ** _global "u" |-> atomicR "int" (1/4) uv.
-
      p2: ucinv (1/4) invId ** _global "u" |-> atomicR "int" (1/4) uv.
    *)
   

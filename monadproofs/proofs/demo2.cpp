@@ -146,8 +146,17 @@ int z = 0;
 void bar() {
     z = 1;
 }
-
-
+                                              
+/* 
+Parent Thread                        
+     ├───────────────────────────────────►
+     │                            Child Thread
+   setU(5)                                │
+     │                                setU(6)
+     │                                    │
+   setU(7)                                │
+     │                                    │
+*/
 std::atomic<int> u;
 void setU(int value) {
     u.exchange(value);
@@ -156,42 +165,36 @@ int getU() {
     return u.load();
 }
 /*
- 
-             Parent Thread                        
-                  │                                     
-                  │  Create Invariant:                  
-                  │                                     
-                  │    ┌───────────────────────────┐    
-                  │    │  ∃ i: Z, u |-> atomicR i │ 
-                  │    └───────────────────────────┘    
-                  │                                    
-                  ├───────────────────────────────────►
-                  │                (Fork Child)       Child Thread
-                  │                                    │
-                  │                                    │
-                setU(5)                                │
-                  │                                    │
-                  │                                setU(6) 
-                  │                                    │
-                  │                                    │
-
+Parent Thread 
+     │                                     
+     │  Create Invariant:                  
+     │    ┌───────────────────────────┐    
+     │    │  ∃ i: Z, u |-> atomicR i  │ 
+     │    └───────────────────────────┘    
+     ├───────────────────────────────────►
+     │                            Child Thread
+     │                                    │
+   setU(5)                                │
+     │                                    │
+     │                                setU(6) 
+     │                                    │
  */
 
-int setThenGetU(int value) {
-    u.exchange(value);
+int setThenGetU(int uvnew) {
+    u.exchange(uvnew);
+    //
     return u.load();
 }
-
+                                                   
+      
 class SpinLock {
 public:
-    SpinLock() : locked(false) {}
-
-    void lock() {
-        while (locked.exchange(true))
-            ;
+  SpinLock() : locked(false) {}
+// returns only when exchange atomically flips locked from false to true  
+  void lock() {
+        while (locked.exchange(true));
     }
-
-    void unlock() { locked.store(false); }
+  void unlock() { locked.store(false); }
 
 private:
   std::atomic<bool> locked;
