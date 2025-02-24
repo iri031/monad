@@ -34,10 +34,9 @@ uint fold_left(uint * nums, uint length, uint (*f)(uint, uint), uint id) {
 uint parallel_fold_left(uint * nums, uint length, uint (*f)(uint, uint), uint id) {
     uint mid=length/2;
     uint resultl;
-    auto foldlLambda = [&nums, &mid, &resultl, &f, &id]() {
+    Thread t1([&nums, &mid, &resultl, &f, &id]() {
         resultl=fold_left(nums, mid, f, id);
-    };
-    Thread t1(foldlLambda);
+    });
     t1.start();
     uint resultr;
     resultr=fold_left(nums+mid, length-mid, f, id);

@@ -110,8 +110,17 @@ Hint Resolve learn_atomic_val : br_opacity.
   cpp.spec "gcdl(unsigned int*, unsigned int)" as gcdl_spec with (gcdl_spec_core).
   cpp.spec "parallel_gcdl(unsigned int*, unsigned int)" as parallel_gcdl_spec with (gcdl_spec_core).
 
-  (** * 2+ ways to split an arrays *)
-  (** split fraction: both threads can read entire array *)
+  (** * 2+ ways to split an arrays
+
+   +---+---+---+---+---+---+
+   | q | q | q | q | q | q |
+   +---+---+---+---+---+---+
+
+  +---+---+---+---+---+---+       +---+---+---+---+---+---+
+   |q/2|q/2|q/2|q/2|q/2|q/2|      |q/2|q/2|q/2|q/2|q/2|q/2|
+   +---+---+---+---+---+---+      +---+---+---+---+---+---+
+
+   *)
   Lemma fractionalSplitArrayR (numsp:ptr) (l: list Z) (q:Qp):
     numsp |-> arrayR uint (fun i:Z => primR uint q i) l |--
       numsp |-> arrayR uint (fun i:Z => primR uint (q/2) i) l
@@ -126,6 +135,15 @@ Hint Resolve learn_atomic_val : br_opacity.
 
   (** subarray partitioning: when threads concurrently read/write to disjoint segments.
      demonstrated in next example, which also illustrates the power of commutativity
+   +---+---+---+---+---+---+
+   | q | q | q | q | q | q |
+   +---+---+---+---+---+---+
+
+
+   +---+---+---+                   +---+---+---+
+   | q | q | q |                    | q | q | q |
+   +---+---+---+                    +---+---+---+
+
    *)
   Lemma arrayR_split {T} ty (base:ptr) (i:nat) xs (R: T-> Rep):
     (i <= length xs)%nat ->
@@ -856,6 +874,7 @@ End with_Sigma.
 7. lock protected linked list: code
 10. lock protected linked list: tikz animation
 11. fold_left proof w/ function ptr
+12. test cases of c++ functions
 
 done:
 0. linkedlist
