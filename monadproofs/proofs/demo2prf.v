@@ -307,8 +307,9 @@ Hint Resolve learn_atomic_val : br_opacity.
     match l with
     | [] => nullR
     | hd :: tl =>
-        Exists (tlLoc: ptr), NodeR q hd tlLoc
-                             ** pureR (tlLoc |-> ListR q tl)
+        Exists (tlLoc: ptr),
+          NodeR q hd tlLoc
+          ** pureR (tlLoc |-> ListR q tl)
     end.
 
   Example listRUnfold (q:Qp) (head:ptr): head |-> ListR 1 [4;5;6] |--
@@ -341,14 +342,14 @@ Hint Resolve learn_atomic_val : br_opacity.
   Fixpoint sorted (l: list Z) : Prop :=
     match l with
     | [] => True
-    | h::tl => forall t, t ∈ tl -> h <= t
+    | h::tl => sorted tl /\ forall t, t ∈ tl -> h <= t 
     end.
   
   cpp.spec "sort(Node*)" as sort_spec2 with
     (\arg{lp} "l" (Vptr lp)
      \pre{l} lp |-> ListR 1 l
-     \post{r}[Vptr r] Exists ls,
-         r |-> ListR 1 ls ** [| sorted ls |]).
+     \post{r}[Vptr r]
+        Exists ls, r |-> ListR 1 ls ** [| sorted ls |]).
   
   (**  extensional spec
      - simpler than writing a 
@@ -593,6 +594,16 @@ Qed.
     let p := this ,, _field "v" |-> atomicR "int" 1 i ** [| isPrime i |] in
     p |-- p ** [| isPrime i |].
   Proof using. go. Abort.
+
+
+
+  Definition LockR (q: cQp.t) (invId: gname) (lockProtectedResource: mpred) : Rep :=
+  as_Rep (fun (this:ptr)=>
+     this |-> structR "::SpinLock" q
+     ** cinvq ns invId q (Exists locked:bool,
+                  this |-> _field "::SpinLock::locked" |-> atomicR Tbool 1 (Vbool locked)
+	          ** if locked then emp else lockProtectedResource
+    )).
   
   (** * heart of concurrency proofs
 main challenge:
@@ -611,18 +622,10 @@ next .. examples of more interesting cinv
   
 Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mpred :=
   cinv invId q
-    (Exists locked:bool,
+    (∃ locked:bool,
         this |-> _field "::SpinLock::locked" |-> atomicR Tbool 1 (Vbool locked)
 	** if locked then emp else lockProtectedResource
     ).
-
-  Definition LockR (q: cQp.t) (invId: gname) (lockProtectedResource: mpred) : Rep :=
-  as_Rep (fun (this:ptr)=>
-     this |-> structR "::SpinLock" q
-     ** cinvq ns invId q (Exists locked:bool,
-                  this |-> _field "::SpinLock::locked" |-> atomicR Tbool 1 (Vbool locked)
-	          ** if locked then emp else lockProtectedResource
-    )).
 
   cpp.spec "SpinLock::SpinLock()" as lock_constr_spec with
     (fun this:ptr =>
@@ -648,23 +651,29 @@ Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mp
   (** * BlockState analog: *)
 
   Definition ucinv (q:Qp) (invId: gname): mpred
-    := cinv invId q (∃ zv:Z, _global "u" |-> atomicR "int" (1/2) zv ** [| isPrime zv |]).
+    := cinv invId q (∃ uv:Z, _global "u" |-> atomicR "int" (1/2) uv
+                             ** [| isPrime uv |]).
   (** only half in cinv *)
 
 
   Definition uAuthR (invId: gname) (uv: Z): mpred
-    := ucinv (1/2) invId ** _global "u" |-> atomicR "int" (1/2) uv.
+    := ucinv (1/2) invId
+       ** _global "u" |-> atomicR "int" (1/2) uv.
 
   (* no fraction argument in uAuthR:
      p1: ucinv (1/4) invId ** _global "u" |-> atomicR "int" (1/4) uv.
      p2: ucinv (1/4) invId ** _global "u" |-> atomicR "int" (1/4) uv.
    *)
   
-  Definition uFragR (q:Qp) (invId: gname) : mpred := ucinv (q/2) invId.
-  (* different from fractional ownership: [_global "u" |-> atomicR "int" q 3], [_global "x" |-> primR "int" q 3] *)
+  Definition uFragR (q:Qp) (invId: gname) : mpred
+    := ucinv (q/2) invId.
+  (* different from fractional ownership:
+          [_global "u" |-> atomicR "int" q 3],
+          [_global "x" |-> primR "int" q 3] *)
 
   Lemma uFragRsplit q invId :
-    uFragR q invId |-- uFragR (q/2) invId ** uFragR (q/2) invId.
+    uFragR q invId |--    uFragR (q/2) invId
+                       ** uFragR (q/2) invId.
   Proof.
     unfold uFragR,ucinv.
     rewrite splitcinvq.
@@ -717,31 +726,33 @@ Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mp
   Lemma setGetU_prf2: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setThenGet_spec2.
   Proof using MODd with (fold cQpc).
     verify_spec'.
-    unfold uAuthR, ucinv. work. (* [g], precond: 1/2 bare, 1/2 in inv *)
+    unfold uAuthR, ucinv. work... (* [g455,490; g507,548; c4032,4043] *)
     go.
-    callAtomicCommitCinv... (* before atomic op, we bare the 1/2 in the invariant, [g] a and oldvalue *)
+    callAtomicCommitCinv.
+    rename a into uvinv... (* [g582,623] [g630,668; g340,352] *)
     (* [atomicR_combine] *)
+    (* [g615,623;g663,668] *)
     work using atomicR_combineF.
-    rewrite <- mut_mut_add.  rewrite Qp.half_half...
-    go.
-    closeCinvqs... (* write finished. closing cinv. only needs half [g] *)
-    go.
-    iModIntro...
+    rewrite <- mut_mut_add.  rewrite Qp.half_half... (* [g696,732; g619,656] *)
+    go... (* [g648,656]*)
+    closeCinvqs... (* [g570,575] *)
+    go... (* [g481,486] [g515,517; g553,555] [g515,517; g553,555; g489,497] *)
+    iModIntro...  (* [c4084,4086; g456,497] *)
     (* because of [g], even though inv says \exists, we know that value must be newvalue. crucual when we do the load [g c] 
         other threads can race but they can only read [c].
         I privately own 1/2 of atomicR [g].
         other threads can only access the 1/2 in the cinv [g] *)
     go.
-    callAtomicCommitCinv...
-    (* open cinv for load [g11,12]. opening the invariant got this part [g] says u has value a. all we know about it is that IsPrime [g].
-       same trick again: [atomicR_combine]
+    callAtomicCommitCinv.
+    rename a into uvAtLoad. (* [g708,716; g756,764] *)
+    (* same trick again: [atomicR_combine]
      *)
     wapply atomicR_combine. eagerUnifyU. iFrame.
     iIntros "[? a]". iRevert "a".
     rewrite <- only_provable_wand_forall_2.
     iIntros. 
     applyToSomeHyp (Vint_inj).
-    subst a.
+    subst uvAtLoad.
     rewrite <- mut_mut_add.  rewrite Qp.half_half...
     go.
     closeCinvqs.
@@ -749,8 +760,6 @@ Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mp
     iModIntro.
     go.
   Qed.
-    
-  
 
   Lemma as_Rep_meaning (f: ptr -> mpred) (base:ptr) :
     (base |-> as_Rep f)  -|- f base.
