@@ -97,7 +97,6 @@ Hint Resolve learn_atomic_val : br_opacity.
   Abort.
     
   cpp.spec "gcdl(unsigned int*, unsigned int)" as gcdl_spec with (gcdl_spec_core).
-  cpp.spec "parallel_gcdl(unsigned int*, unsigned int)" as parallel_gcdl_spec with (gcdl_spec_core).
 
   (** * 2+ ways to split an arrays
 
@@ -143,55 +142,11 @@ Hint Resolve learn_atomic_val : br_opacity.
     rewrite arrayR_split; eauto. go. 
   Qed.
 
+  cpp.spec "parallel_gcdl(unsigned int*, unsigned int)" as parallel_gcdl_spec with (gcdl_spec_core).
+  
   Hint Rewrite @fold_left_app: syntactic.
   Existing Instance UNSAFE_read_prim_cancel.
   
-  Lemma gcd_proof: denoteModule module |-- gcd_spec.
-  Proof using.
-    rewrite <- demoprf.gcd_proof.
-    apply denoteModule_weaken.
-    apply module_le_true.
-    exact _.
-  Qed.
-
-  (* move this proof to the end? without discussing loopinv, this cannot be explained *)
-  Lemma gcdl_proof: denoteModule module |-- gcdl_spec.
-  Proof using MODd with (fold cQpc).
-    verify_spec.
-    slauto.
-    wp_for (fun _ => Exists iv:nat,
-        i_addr |-> primR uint 1 iv
-        ** [| iv <= length l |]%nat
-        ** result_addr |-> primR uint 1 ((fold_left Z.gcd (firstn iv l) 0))).
-    go. iExists 0%nat. go.
-    wp_if.
-    {
-      slauto.
-      eapplyToSomeHyp @arrayR_cell2.
-      forward_reason.
-      rewrite -> autogenhypr.
-      hideRhs.
-      go.
-      unhideAllFromWork...
-      slauto. (* call to gcd. we have already proved it's spec *)
-      wapply gcd_proof. work. (* gcd_spec is now in context *)
-      go. (* loop body finished, reistablish loopinv *)
-      iExists (1+iv)%nat.
-      slauto.
-      simpl.
-      go.
-      rewrite -> autogenhypr.
-      go.
-    }
-    {
-      slauto.
-      assert (iv=length l) as Heq by lia.
-      subst.
-      autorewrite with syntactic.
-      go.
-    }
-  Qed.
-
   
       Compute (Z.quot (-5) 4).
       Compute (Z.div (-5) 4).
@@ -201,15 +156,15 @@ Hint Resolve learn_atomic_val : br_opacity.
 
   Lemma pgcdl_proof: denoteModule module
                        ** (thread_class_specs "parallel_gcdl(unsigned int*, unsigned int)::@0")
+                       ** gcd_spec
+                       ** gcdl_spec
                        |-- parallel_gcdl_spec.
   Proof using MODd with (fold cQpc).
     unfold thread_class_specs.
     verify_spec'.
-    wapply gcdl_proof.
-    wapply gcd_proof. go.
     name_locals.
     wapplyObserve  obsUintArrayR.
-    eagerUnifyU. work.
+    eagerUnifyU. go.
     rename a into lam.
     aggregateRepPieces lam.
     go.
@@ -221,6 +176,7 @@ Hint Resolve learn_atomic_val : br_opacity.
       apply Nat.le_div2_diag_l.
     }
     nat2ZNLdup.
+    name_locals.
     progress closed.norm closed.numeric_types.
     rewrite -> arrayR_split with (i:=((length l)/2)%nat) (xs:=l) by lia;
       go... (* array ownership spit into 2 pieces. [g], the child thread gets [g] *)
@@ -464,59 +420,66 @@ Qed.
   Abort. (* highlight. not an atomic op. cannot open the cinv box *)
 
   cpp.spec "setU(int)" as setU_spec with (
-      \prepost{q invId} cinv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv)
-      \arg{value} "value" (Vint value)
-      \post emp
-      ).
+    \prepost{q invId} cinv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv)
+    \arg{uv} "uv" (Vint uv)
+    \post emp
+    ).
       
     Opaque coPset_difference.
     Opaque atomicR.
-Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo)); try iPureIntro.
+    
+    Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo)); try iPureIntro.
+    
   Lemma setU_prf: denoteModule module ** int_exchange_spec |-- setU_spec.
-  Proof using MODd.
+  Proof using MODd with (fold cQpc).
     verify_spec'.
     slauto.
-    callAtomicCommitCinv.
+    callAtomicCommitCinv... (* [g] *)
     Existing Instance learn_atomic_val.
-    go.
-    closeCinvqs.
-    go.
+    go... (* got back the postcondition of the atomic write: [g] *)
+    closeCinvqs... (* highlight the cinv and the conjunct. any value is fine [g] *)
+    go... (* once we close cinv, we lost that u has value uv. now [g] *)
     iModIntro.
     simpl.
-    do 9 step...
+    do 9 step... (* finished symbolic exec. not left with anything saying that the value of u is still uv *)
     go.
   Qed.
-    
+
   cpp.spec "setThenGetU(int)" as setGetU_spec_wrong with (
       \prepost{q invId} cinv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv)
-      \arg{value} "value" (Vint value)
-      \post [Vint value] emp
+      \arg{uv} "value" (Vint uv)
+      \post [Vint uv] emp
         ).
-  (** why is the above spec unprovable? *)
+  (** [c] why is the above spec unprovable? *)
   
   Lemma setGetU_prf: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setGetU_spec_wrong.
   Proof using MODd.
     verify_spec.
     slauto.
     callAtomicCommitCinv.
-    Existing Instance learn_atomic_val.
-    go. (* now u has value value. TODO: rename value *)
+    go.
     closeCinvqs.
-    go. (* now u's value is any zv *)
-    iModIntro.
+    go.
+    iModIntro... (* [gc] just before calling load. so far the code we executed is the same as setU [c]. so the wallet [g] looks exactly like at the end of the previous proof. *)
     Existing Instance learn_atomic_val_UNSAFE.
     go.
-    callAtomicCommitCinv. (* when we open the invariant again, a may be <> value [g100,220] *)
+    repeat (iExists _); callAtomicCommit.
+    repeat openCinvq... (* [g] *)
+    work using fwd_later_exist, fwd_later_sep;
+      repeat removeLater;
+      iApply fupd_mask_intro;[set_solver |];
+      iIntrosDestructs.
+    rename a into uvAtLoad... (* call that value uvAtLoad. which is what the function will return *)
     go.
     closeCinvqs.
     go.
     iModIntro.
-    go.
+    go... (* but the postcondition wants uv [g] *)
   Abort.
 
   cpp.spec "setThenGetU(int)" as setGetU_spec with (
       \prepost{q invId} cinv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv)
-      \arg{value} "value" (Vint value)
+      \arg{uv} "value" (Vint uv)
       \post{any:Z} [Vint any] emp
       ).
 
@@ -525,12 +488,12 @@ Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo));
     verify_spec'.
     slauto.
     callAtomicCommitCinv.
-    go. (* now u has value value. TODO: rename value *)
+    go.
     closeCinvqs.
-    go. (* now u's value is any zv *)
+    go.
     iModIntro.
     go.
-    callAtomicCommitCinv. (* when we open the invariant again, a may be <> value [g100,220] *)
+    callAtomicCommitCinv.
     go.
     closeCinvqs.
     go.
@@ -540,25 +503,27 @@ Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo));
 
   cpp.spec "setThenGetU(int)" as setGetU_spec2 with (
       \prepost{q invId} cinv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv ** [| isPrime zv |])
-      \arg{value} "value" (Vint value)
+      \arg{uv} "value" (Vint uv)
       \post{any:Z} [Vint any] emp
       ).
+  (** why is the above spec unprovable (for the code) *)
+
   
-  (* why is the above spec unprovable (for the code) *)
   Lemma setGetU_prf_prime: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setGetU_spec2.
   Proof using MODd.
     verify_spec'.
     slauto.
     callAtomicCommitCinv.
-    go. (* now u has value value. TODO: rename value *)
-    closeCinvqs. (* highlight zv and instantiation is value *)
+    go.
+    closeCinvqs... (* [g] highlight zv and instantiation is value *)
     go. 
   Abort.
+  
   cpp.spec "setThenGetU(int)" as setGetU_spec_prime with (
       \prepost{q invId} cinv q invId (∃ zv:Z, _global "u" |-> atomicR "int" 1 zv ** [| isPrime zv |])
-      \arg{value} "value" (Vint value)
-      \pre [| isPrime value |] 
-      \post{any:Z} [Vint any] [| isPrime value |]
+      \arg{uv} "value" (Vint uv)
+      \pre [| isPrime uv |] 
+      \post{any:Z} [Vint any (* not uv *)] [| isPrime uv |]
       ).
 
   Lemma setGetU_prf_prime: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setGetU_spec_prime.
@@ -566,12 +531,12 @@ Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo));
     verify_spec'.
     slauto.
     callAtomicCommitCinv.
-    go. (* now u has value value. TODO: rename value *)
+    go.
     closeCinvqs.
-    go. (* now u's value is any zv *)
+    go.
     iModIntro.
     go.
-    callAtomicCommitCinv. (* when we open the invariant again, a may be <> value [g100,220] *)
+    callAtomicCommitCinv.
     go.
     closeCinvqs.
     go.
@@ -579,17 +544,26 @@ Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo));
     go.
   Qed.
   
-(** * heart of concurrency proofs
+  (** * heart of concurrency proofs
+main challenge:
 sequential proofs: loop invariants
-concurrency proofs: cinv: rename inv?
+concurrency proofs: cinv
 
-- loopinvy:  beginning/end of loop body
+cinv more difficult:
+- loopinv:  beginning/end of loop body
 - concurrency invariants: always hold. all code points in all methods
 
-next .. examples of more interesting loopinv
- *)
+next .. examples of more interesting cinv
 
+   *)
+Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mpred :=
+  cinvq ns invId q
+    (Exists locked:bool,
+        this |-> _field "::SpinLock::locked" |-> atomicR Tbool 1 (Vbool locked)
+	** if locked then emp else lockProtectedResource
+    ).
 
+(** 7 conditions, 20 functions in codebase. weeks tweaking the cinv so that the proofs of all 20 functions go though *)
   
   (** * BlockState analog: *)
 
@@ -610,9 +584,18 @@ next .. examples of more interesting loopinv
   Definition uFragR (q:Qp) (invId: gname) : mpred := ucinv (q/2) invId.
   (* different from fractional ownership: [_global "u" |-> atomicR "int" q 3], [_global "x" |-> primR "int" q 3] *)
 
+  Lemma uFragRsplit q invId :
+    uFragR q invId |-- uFragR (q/2) invId ** uFragR (q/2) invId.
+  Proof using.
+    unfold uFragR,ucinv.
+    rewrite splitcinvq.
+    go.
+  Qed.
+
   Hint Resolve atomicrC : br_opacity.
   Existing Instance lcinvqg_unsafe.
   Hint Resolve cinvqC : br_opacity.
+  
   Lemma init (initv:Z) E:
     _global "u" |-> atomicR "int" 1 initv ** [| isPrime initv |]
       |-- |={E}=> Exists invId, uAuthR invId initv ** uFragR 1 invId.
@@ -633,6 +616,7 @@ next .. examples of more interesting loopinv
       \arg{newvalue} "value" (Vint newvalue)
       \post uAuthR invId newvalue
       ).
+  
   cpp.spec "getU()" as getU_spec2 with (
       \prepost{invId q} uFragR invId q
       \post{any:Z} [Vint any] [| isPrime any|]
@@ -654,22 +638,24 @@ next .. examples of more interesting loopinv
   Lemma setGetU_prf2: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setThenGet_spec2.
   Proof using MODd with (fold cQpc).
     verify_spec'.
-    slauto. unfold uAuthR, ucinv. go.
-    callAtomicCommitCinv.
+    unfold uAuthR, ucinv. work. (* [g], precond: 1/2 bare, 1/2 in inv *)
     go.
+    callAtomicCommitCinv... (* before atomic op, we bare the 1/2 in the invariant, [g] a and oldvalue *)
+    (* [atomicR_combine] *)
     work using atomicR_combineF.
     rewrite <- mut_mut_add.  rewrite Qp.half_half...
     go.
-    closeCinvqs.
+    closeCinvqs... (* write finished. closing cinv. only needs half [g] *)
     go.
-    iModIntro.
-    (** closed the invariant and se still have 1/2 left [g11,12].
-        crucial when we call load next: [g11,12]
-        other threads can race but they can only read. I own 1/2 of atomicR. other threads can only access the 1/2 in the cinv *)
+    iModIntro...
+    (* because of [g], even though inv says \exists, we know that value must be newvalue. crucual when we do the load [g c] 
+        other threads can race but they can only read [c].
+        I privately own 1/2 of atomicR [g].
+        other threads can only access the 1/2 in the cinv [g] *)
     go.
     callAtomicCommitCinv...
-    (* had before [g11,12]. opening the invariant got this part [g] says u has value a and is IsPrime [g].
-       same trick again: agreement [g]
+    (* open cinv for load [g11,12]. opening the invariant got this part [g] says u has value a. all we know about it is that IsPrime [g].
+       same trick again: [atomicR_combine]
      *)
     wapply atomicR_combine. eagerUnifyU. iFrame.
     iIntros "[? a]". iRevert "a".
@@ -681,7 +667,8 @@ next .. examples of more interesting loopinv
     go.
     closeCinvqs.
     go.
-    iModIntro. go.
+    iModIntro.
+    go.
   Qed.
     
   
@@ -762,6 +749,53 @@ next .. examples of more interesting loopinv
     lose_resources.
   Qed.
 
+  Lemma gcd_proof: denoteModule module |-- gcd_spec.
+  Proof using.
+    rewrite <- demoprf.gcd_proof.
+    apply denoteModule_weaken.
+    apply module_le_true.
+    exact _.
+  Qed.
+
+  (* move this proof to the end? without discussing loopinv, this cannot be explained *)
+  Lemma gcdl_proof: denoteModule module |-- gcdl_spec.
+  Proof using MODd with (fold cQpc).
+    verify_spec.
+    slauto.
+    wp_for (fun _ => Exists iv:nat,
+        i_addr |-> primR uint 1 iv
+        ** [| iv <= length l |]%nat
+        ** result_addr |-> primR uint 1 ((fold_left Z.gcd (firstn iv l) 0))).
+    go. iExists 0%nat. go.
+    wp_if.
+    {
+      slauto.
+      eapplyToSomeHyp @arrayR_cell2.
+      forward_reason.
+      rewrite -> autogenhypr.
+      hideRhs.
+      go.
+      unhideAllFromWork...
+      slauto. (* call to gcd. we have already proved it's spec *)
+      wapply gcd_proof. work. (* gcd_spec is now in context *)
+      go. (* loop body finished, reistablish loopinv *)
+      iExists (1+iv)%nat.
+      slauto.
+      simpl.
+      go.
+      rewrite -> autogenhypr.
+      go.
+    }
+    {
+      slauto.
+      assert (iv=length l) as Heq by lia.
+      subst.
+      autorewrite with syntactic.
+      go.
+    }
+  Qed.
+
+  
   (* move this proof to the end? without discussing loopinv, this cannot be explained *)
   Lemma fold_left_prf : denoteModule module |-- fold_left_spec.
   Proof using MODd.
@@ -862,9 +896,10 @@ End with_Sigma.
 (* TODO:
 2: clean this file
 3. finalize cpp code and goal before determining offsets
-8. narrartive+offsets in coments. optimize around proofchecking times
+8. narrartive+offsets+... in coments. optimize around proofchecking times
 7. lock protected linked list: code
 10. lock protected linked list: tikz animation
+12. sketch sema inv in slides
 
 done:
 0. linkedlist
