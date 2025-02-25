@@ -218,7 +218,7 @@ Hint Resolve learn_atomic_val : br_opacity.
     apply fold_split_gcd.
     auto.
   Qed.
-
+  
   (** o:=Z.gcd
 ((((((i o a1) o a2) o a3) o a4) o a5) o a6)
 
@@ -952,6 +952,17 @@ Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mp
     symmetry.
     apply fold_split; auto.
   Qed.
+
+  cpp.spec "testgcdl()" as testspec with (
+    \pre emp
+    \post [Vint 6] emp).
+
+  Lemma testgcdl_prf: denoteModule module ** parallel_gcdl_spec |-- testspec.
+  Proof using.
+    verify_spec'.
+    slauto.
+  Qed.
+  
 End with_Sigma.
   
 

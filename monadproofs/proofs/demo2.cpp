@@ -227,6 +227,11 @@ class ConcLList{
   }
 };
 
+int testgcdl() {
+    uint vec[] = {48, 18, 30};
+    return parallel_gcdl(vec, 3);
+}
+
 class AWrapper {
 public:
     AWrapper(int value) : v(value) {}
