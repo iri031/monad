@@ -200,6 +200,33 @@ private:
   std::atomic<bool> locked;
 };
 
+List cons(int data, List l){
+  List res = new (std::nothrow) Node(l, data);
+  return res;
+}
+
+class ConcLList{
+  SpinLock lock;
+  List head;
+  bool push(int data)
+  {
+    bool success=false;
+    lock.lock();
+    head=cons(data,head);
+    if(head)
+      success=true;
+    lock.unlock();
+    return success;
+  }
+
+  void creverse()
+  {
+    lock.lock();
+    head=reverse(head);
+    lock.unlock();
+  }
+};
+
 class AWrapper {
 public:
     AWrapper(int value) : v(value) {}

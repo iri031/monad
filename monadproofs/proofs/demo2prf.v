@@ -780,12 +780,12 @@ Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mp
     go.
     wp_while (fun _ => emp).
     go.
-    iExists (fun oldval:bool => (if oldval then emp else R) **  cinvq ns invId q
-        (∃ locked : bool, this |-> o_field CU "SpinLock::locked" |-> atomicR "bool" 1%Qp (Vbool locked) ∗ (if locked then emp else R))).
+    iExists (fun oldval:bool => (if oldval then emp else lockProtectedResource) **  cinvq ns invId q
+        (∃ locked : bool, this |-> o_field CU "SpinLock::locked" |-> atomicR "bool" 1%Qp (Vbool locked) ∗ (if locked then emp else lockProtectedResource))).
     wrename [cinvq _ _ _ _]  "inv".
     iSplitL "inv".
     -
-      Opaque coPset_difference. go.
+      go.
       iAcIntro. unfold commit_acc.
       openCinvqsRest.
       go.
