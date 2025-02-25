@@ -606,15 +606,13 @@ void parallel_gcd_lcm_wrong(const uint &a, const uint &b, uint &gcd_result, uint
                ** bp |-> primR uint (qb/2) bv)...
     instWithPEvar taskPost... (* taskPost: infer it automatically, optimally *)
     slauto; iSplitL ""...
-    (* scroll up: remaining precond of [ThreadConstructor] *)
     { verify_spec'.
-      go... (* any postcond choice must be implied by currently available context => it is the strongest postcond *)
+      go... 
       erefl.
-      (* inferring both \pre and \post: no optimality guarantee *)
     }
     unhideAllFromWork.
     iIntrosDestructs.
-    subst taskPost... (* now we have the postcond of Thread constructor *)
+    subst taskPost...
     slauto.
   Abort.
 

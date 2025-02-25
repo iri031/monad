@@ -50,7 +50,7 @@ struct Node {
     int data_;
 };
 
-typedef Node *List;
+typedef Node * List;
 
 void split(List ab, List &a, List &b) {
     bool which = true;
@@ -147,7 +147,7 @@ void bar() {
     z = 1;
 }
                                               
-/* 
+/*
 Parent Thread                        
      ├───────────────────────────────────►
      │                            Child Thread
@@ -164,12 +164,12 @@ void setU(int value) {
 int getU() {
     return u.load();
 }
-/*
+/*          
 Parent Thread 
      │                                     
-     │  Create Invariant:                  
+     │  Create Concurrent Invariant:                  
      │    ┌───────────────────────────┐    
-     │    │  ∃ i: Z, u |-> atomicR i  │ 
+     │    │  ∃ i: Z, u |-> atomicR 1 i│ 
      │    └───────────────────────────┘    
      ├───────────────────────────────────►
      │                            Child Thread
@@ -204,6 +204,15 @@ List cons(int data, List l){
   List res = new (std::nothrow) Node(l, data);
   return res;
 }
+
+/*
+Parent Thread                        
+     ├───────────────────────────────────►
+     │                            Child Thread
+   push(5)                                │
+     │                                    push(4)
+     │                                    │
+*/
 
 class ConcLList{
   SpinLock lock;

@@ -74,7 +74,9 @@ Hint Resolve learn_atomic_val : br_opacity.
   Set Nested Proofs Allowed.
 
   (* /home/abhishek/work/coq/blue/fm-workspace-snapshot3b/fm-workspace-12-16/monad/proofs/demo2.cpp *)
-  (**  *Arrays  *)
+  (**  *Arrays
+    _global "x" |-> primR "int" q 5
+   *)
   Definition gcdl_spec_core : WpSpec mpredI val val :=
       \arg{numsp:ptr} "nums" (Vptr numsp)
       \prepost{(l: list Z) (q:Qp)}
@@ -142,7 +144,8 @@ Hint Resolve learn_atomic_val : br_opacity.
   Lemma arrayR_split {T} ty (base:ptr) (i:nat) xs (R: T-> Rep):
     (i <= length xs)%nat ->
        base |-> arrayR ty R xs
-    |-- base |-> arrayR ty R (firstn i xs) ** base .[ ty ! i ] |-> arrayR ty R (skipn i xs).
+         |-- base |-> arrayR ty R (firstn i xs)
+             ** base .[ ty ! i ] |-> arrayR ty R (skipn i xs).
   Proof.
     intros.
     rewrite arrayR_split; eauto. go. 
@@ -194,7 +197,7 @@ Hint Resolve learn_atomic_val : br_opacity.
       intantiateWand.
     (*
     iExists (resultl_addr |-> uninitR "unsigned int" 1%Qp **
-               numsp |-> arrayR "unsigned int" (λ i : Z, primR "unsigned int" q i) (firstn (length l / 2) l))...
+               numsp |-> arrayR "unsigned int" (λ i : Z, primR "unsigned int" q i) (firstn (length l / 2) l))
      *)
     instWithPEvar taskPost.
     go.
@@ -287,18 +290,20 @@ Hint Resolve learn_atomic_val : br_opacity.
     rewrite fold_id2.
     aac_reflexivity.
   Qed.
-  
+  (* emplasize generality: dont need to prove again and again, in compiler  *)
+
+  (* Rep vs mpred *)
   (** Structs: Node [c1032,1036] *)
   Definition NodeR  (q: cQp.t) (data: Z) (nextLoc: ptr): Rep :=
-    _field "Node::data_" |-> primR "int" q data
+    _field "Node::data_" |-> primR "int" q (Vint data)
     ** _field "Node::next_" |-> primR "Node*" q (Vptr nextLoc)
     ** structR "Node" q.
 
   Example nodeRUnfold (q:Qp) (data: Z) (nextLoc: ptr) (loc:ptr) :=
     loc |-> NodeR q data nextLoc
     |-- loc ,, _field "Node::data_" |-> primR "int" q data 
-    ** loc ,, _field "Node::next_" |-> primR "Node*" q (Vptr nextLoc)
-    ** loc |-> structR "Node" q.
+        ** loc ,, _field "Node::next_" |-> primR "Node*" q (Vptr nextLoc)
+        ** loc |-> structR "Node" q.
   
 
   (** Structs: LinkedList *)
@@ -312,11 +317,11 @@ Hint Resolve learn_atomic_val : br_opacity.
           ** pureR (tlLoc |-> ListR q tl)
     end.
 
-  Example listRUnfold (q:Qp) (head:ptr): head |-> ListR 1 [4;5;6] |--
+  Example listRUnfold (q:Qp) (head:ptr): head |-> ListR q [4;5;6] |--
     Exists node5loc node6loc,
-       head |-> NodeR 1 4 node5loc
-       ** node5loc |-> NodeR 1 5 node6loc
-       ** node6loc |-> NodeR 1 6 nullptr
+       head |-> NodeR q 4 node5loc
+       ** node5loc |-> NodeR q 5 node6loc
+       ** node6loc |-> NodeR q 6 nullptr
        (* ** [| node5loc <> node6loc <> head|] *).
   Proof using. work. unfold NodeR.  go. Abort.
 
@@ -325,8 +330,8 @@ Hint Resolve learn_atomic_val : br_opacity.
 
   cpp.spec "reverse(Node*)" as reverse_spec with
     (\arg{lp} "l" (Vptr lp)
-     \pre{l} lp |-> ListR 1 l
-     \post{r}[Vptr r] r |-> ListR (cQp.m 1) (List.rev l)).
+     \pre{l: list Z} lp |-> ListR 1 l
+     \post{r}[Vptr r] r |-> ListR 1 (List.rev l)).
 
   (** why trust [List.rev] *)
   Search List.rev.
@@ -337,7 +342,7 @@ Hint Resolve learn_atomic_val : br_opacity.
   cpp.spec "sort(Node*)" as sort_spec with
     (\arg{lp} "l" (Vptr lp)
      \pre{l} lp |-> ListR 1 l
-     \post{r}[Vptr r] r |-> ListR (1) (sort l)).
+     \post{r}[Vptr r] r |-> ListR 1 (sort l)).
 
   Fixpoint sorted (l: list Z) : Prop :=
     match l with
@@ -425,6 +430,14 @@ Parent: Child.join
 (** *cinv : concurrent invariants *)
   
 
+  Notation cinvr invId q R:=
+        (as_Rep (fun this:ptr => cinv invId q (this |-> R))).
+
+  (*
+  Definition cinvr (invId: gname) (q:Qp) (R:Rep) :Rep  :=
+    as_Rep (fun this:ptr => cinv invId q (this |-> R)).
+   *)
+  
 Example boxedResource (P:mpred) (invId: gname): mpred := cinv invId 1 P.
   
 Lemma splitInv (P:mpred) (invId: gname) (q:Qp):
@@ -432,6 +445,10 @@ Lemma splitInv (P:mpred) (invId: gname) (q:Qp):
 Proof using.
   apply splitcinvq.
 Qed.
+Lemma splitInv2  (invId: gname) (q:Qp):
+  let P := _global "x" |-> primR "int" 1 5 in
+  cinv invId q P |-- cinv invId (q/2) P ** cinv invId (q/2) P.
+Abort.
 
   cpp.spec "bar()" as bar_spec with (
       \prepost{q invId} cinv q invId (_global "z" |-> anyR "int" 1)
@@ -486,7 +503,7 @@ Qed.
     verify_spec... (* [g343,374] [g554,564] *)
     slauto.
     repeat (iExists _); callAtomicCommit.
-    repeat openCinvq. (* [g] *)
+    repeat openCinvq.
     removeLater... (* [g593,630] cinv gone*)
     work.
     rename uv into uvcur... (* [g675,679]*)
@@ -595,16 +612,6 @@ Qed.
     p |-- p ** [| isPrime i |].
   Proof using. go. Abort.
 
-
-
-  Definition LockR (q: cQp.t) (invId: gname) (lockProtectedResource: mpred) : Rep :=
-  as_Rep (fun (this:ptr)=>
-     this |-> structR "::SpinLock" q
-     ** cinvq ns invId q (Exists locked:bool,
-                  this |-> _field "::SpinLock::locked" |-> atomicR Tbool 1 (Vbool locked)
-	          ** if locked then emp else lockProtectedResource
-    )).
-  
   (** * heart of concurrency proofs
 main challenge:
 sequential proofs: loop invariants
@@ -620,12 +627,36 @@ next .. examples of more interesting cinv
 [c4415,4439] [c4380,4400] [c4332,4353] [c4348,4352]
    *)
   
-Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mpred :=
-  cinv invId q
-    (∃ locked:bool,
-        this |-> _field "::SpinLock::locked" |-> atomicR Tbool 1 (Vbool locked)
-	** if locked then emp else lockProtectedResource
-    ).
+Definition LockR (q: Qp) (invId: gname) (lockProtectedResource: mpred) : Rep :=
+  structR "::SpinLock" q
+  ** cinvr invId q
+      (∃ locked:bool,
+      _field "::SpinLock::locked" |-> atomicR "bool" 1 (Vbool locked)
+      ** if locked then emp else pureR lockProtectedResource).
+
+Lemma lockReq (l:ptr) (q: Qp) (invId: gname)
+  (lockProtectedResource: mpred):
+  l |-> LockR q invId lockProtectedResource
+  |--
+  l |-> structR "SpinLock" q
+  ** cinv invId q
+       (∃ locked : bool,
+           l ,, _field "SpinLock::locked"
+             |-> atomicR "bool" 1%Qp (Vbool locked) **
+             (if locked then emp else lockProtectedResource)).
+  Proof using.
+    unfold LockR.
+    go.
+    iClear "#".
+    iStopProof.
+    unfold cinvq.
+    f_equiv.
+    apply bi.equiv_entails_1_2.
+    apply cinv_proper.
+    iSplit; go.
+    - destruct locked; go.
+    - destruct v; go.
+   Abort.
 
   cpp.spec "SpinLock::SpinLock()" as lock_constr_spec with
     (fun this:ptr =>
@@ -637,16 +668,22 @@ Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mp
     (fun this:ptr =>
        \prepost{q invId lockProtectedResource}
            this |-> LockR q invId lockProtectedResource
-       \post lockProtectedResource
+       \post lockProtectedResource (* non-atomics *)
     ).
   
   cpp.spec "SpinLock::unlock()" as unlock_spec with
     (fun this:ptr =>
-       \prepost{q invId lockProtectedResource} this |-> LockR q  invId lockProtectedResource
+       \prepost{q invId lockProtectedResource}
+           this |-> LockR q  invId lockProtectedResource
        \pre lockProtectedResource
        \post emp
      ).
 
+Definition ConcLListR (q:Qp) (invId: gname) (base:ptr) : mpred :=
+  base |-> structR "ConcLList" q 
+  ** base,, _field "ConcLList::lock"
+     |-> LockR q invId
+           (∃ (l:list Z), base,, _field "ConcLList::head" |-> ListR 1 l).
   
   (** * BlockState analog: *)
 
@@ -774,11 +811,18 @@ Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mp
       
     Opaque atomicR.
   
+      Ltac finishOpeningCinv :=
+      work using fwd_later_exist, fwd_later_sep;
+        repeat removeLater;
+        iApply fupd_mask_intro;[set_solver |]; (* openRest *)
+      iIntrosDestructs.
+      
   Lemma lock_lock_prf: denoteModule module ** exchange_spec |-- lock_spec.
   Proof using MODd.
     verify_spec'.
     go.
     wp_while (fun _ => emp).
+    unfold LockR.
     go.
     iExists (fun oldval:bool => (if oldval then emp else lockProtectedResource) **  cinvq ns invId q
         (∃ locked : bool, this |-> o_field CU "SpinLock::locked" |-> atomicR "bool" 1%Qp (Vbool locked) ∗ (if locked then emp else lockProtectedResource))).
@@ -787,12 +831,16 @@ Example SpinLockRSnippet  invId q (this:ptr)  (lockProtectedResource:mpred) : mp
     -
       go.
       iAcIntro. unfold commit_acc.
-      openCinvqsRest.
+      repeat openCinvq.
+      rewrite _at_exists.
+      setoid_rewrite _at_sep.
+      finishOpeningCinv.
       go.
       closeCinvqs.
       go.
       iModIntro.
-      go.
+      go. destruct a; go.
+      setorewrite _at_exists.
     - go.
       wp_if; go.
    Qed.
