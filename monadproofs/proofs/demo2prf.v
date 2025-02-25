@@ -65,8 +65,19 @@ Section with_Sigma.
        \pre
          AC1 << ∀ y : bool, this |-> atomicR Tbool (cQp.mut 1) (Vbool y)>> @ ⊤, ∅
             << this |-> atomicR Tbool (cQp.mut 1) (Vbool x), COMM Q >> 
-                                                               \post    Q).
-  
+       \post    Q).
+
+    #[ignore_errors]
+    cpp.spec "std::__atomic_base<int>::store(int, enum std::memory_order)"  as int_store_spec with
+        (λ this : ptr,
+       \arg{(Q : mpred) (x : Z)} "v" (Vint x)
+       \let pd := this ,, o_derived CU "std::__atomic_base<int>" "std::atomic<int>"  
+       \arg "memorder" (Vint 5)
+       \pre
+         AC1 << ∀ y : Z, pd |-> atomicR "int" 1 (Vint y)>> @ ⊤, ∅
+            << pd |-> atomicR "int" 1 (Vint x), COMM Q >> 
+       \post Q).
+    
 (*
 Hint Resolve learn_atomic_val : br_opacity.
 *)  
@@ -242,7 +253,7 @@ Hint Resolve learn_atomic_val : br_opacity.
    = fold_left Z.gcd l 0.
   Proof using. symmetry. apply misc.fold_split_gcd; auto. Qed.
 
-  (** Quiz [c675,675] *)
+  (** Quiz [c680,698] *)
 
   #[ignore_errors]
   cpp.spec "fold_left(unsigned int*, unsigned int, unsigned int(*)(unsigned int,unsigned int), unsigned int)" as fold_left_spec with (
@@ -461,13 +472,12 @@ Abort.
     go... (* [g262,284] [g262,284; g195,218] *)
   Abort.
 
-      
   Opaque coPset_difference.
   Opaque atomicR.
     
   Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo)); try iPureIntro.
     
-  (*[c3638,3662] *)
+  (*[c3638,3665] *)
   cpp.spec "setU(int)" as setU_spec with (
     \prepost{q invId} cinv q invId (∃ uv:Z, _global "u" |-> atomicR "int" 1 uv)
     \arg{uvnew} "value" (Vint uvnew)
@@ -496,7 +506,7 @@ Abort.
   
   Lemma setGetU_prf:
     denoteModule module
-      ** int_exchange_spec
+      ** int_store_spec
       ** int_load_spec
     |-- setGetU_spec_wrong.
   Proof using MODd with (fold cQpc).
@@ -539,7 +549,7 @@ Abort.
       \post{any:Z} [Vint any] emp
       ).
 
-  Lemma setGetU_prf: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setGetU_spec.
+  Lemma setGetU_prf: denoteModule module ** int_store_spec  ** int_load_spec |-- setGetU_spec.
   Proof using MODd.
     verify_spec'.
     slauto.
@@ -557,15 +567,18 @@ Abort.
     go.
   Qed.
 
-  cpp.spec "setThenGetU(int)" as setGetU_spec2 with (
-      \prepost{q invId} cinv q invId (∃ uv:Z, _global "u" |-> atomicR "int" 1 uv ** [| isPrime uv |])
-      \arg{uvnew:Z} "uvnew" (Vint uvnew)
-      \post{any:Z} [Vint any] emp
+cpp.spec "setThenGetU(int)" as setGetU_spec2 with (
+   \prepost{q invId}
+     cinv q invId
+       (∃ uv:Z, _global "u" |-> atomicR "int" 1 uv
+                ** [| isPrime uv |])
+   \arg{uvnew:Z} "uvnew" (Vint uvnew)
+   \post{any:Z} [Vint any] emp
       ).
   (** why is the above spec unprovable (for the code) *)
 
   
-  Lemma setGetU_prf_prime: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setGetU_spec2.
+  Lemma setGetU_prf_prime: denoteModule module ** int_store_spec  ** int_load_spec |-- setGetU_spec2.
   Proof using MODd.
     verify_spec'.
     slauto.
@@ -584,7 +597,7 @@ Abort.
       \post{any:Z} [Vint any (* not uvnew *)] [| isPrime any |]
       ).
 
-  Lemma setGetU_prf_prime: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setGetU_spec_prime.
+  Lemma setGetU_prf_prime: denoteModule module ** int_store_spec  ** int_load_spec |-- setGetU_spec_prime.
   Proof using MODd.
     verify_spec'.
     slauto.
@@ -624,7 +637,6 @@ cinv more difficult:
 7 conditions, 20 functions in codebase. weeks tweaking the cinv so that the proofs of all 20 functions go though
 
 next .. examples of more interesting cinv
-[c4415,4439] [c4380,4400] [c4332,4353] [c4348,4352]
    *)
   
 Definition LockR (q: Qp) (invId: gname) (lockProtectedResource: mpred) : Rep :=
@@ -746,42 +758,38 @@ Definition ConcLListR (q:Qp) (invId: gname) (base:ptr) : mpred :=
       \prepost{invId q} uFragR invId q
       \post{any:Z} [Vint any] [| isPrime any|]
       ).
-  
+
   cpp.spec "getU()" as getU_spec_auth with (
       \prepost{invId uval} uAuthR invId uval
-      \post{any:Z} [Vint uval] [| isPrime uval|]
+      \post [Vint uval] [| isPrime uval|]
       ).
-  
+
   cpp.spec "setThenGetU(int)" as setThenGet_spec2 with (
       \pre{(oldvalue:Z) invId} uAuthR invId oldvalue
-      \arg{newvalue:Z} "value" (Vint newvalue)
-      \pre [| isPrime newvalue |]
-      \post [Vint newvalue] uAuthR invId newvalue
+      \arg{uvnew:Z} "value" (Vint uvnew)
+      \pre [| isPrime uvnew |]
+      \post [Vint uvnew] uAuthR invId uvnew
       ).
 
   
-  Lemma setGetU_prf2: denoteModule module ** int_exchange_spec  ** int_load_spec |-- setThenGet_spec2.
+  Lemma setGetU_prf2: denoteModule module ** int_store_spec  ** int_load_spec |-- setThenGet_spec2.
   Proof using MODd with (fold cQpc).
     verify_spec'.
-    unfold uAuthR, ucinv. work... (* [g455,490; g507,548; c4032,4043] *)
+    unfold uAuthR, ucinv. work... (* [g440,476; g492,533; c4032,4043] *)
     go.
     callAtomicCommitCinv.
-    rename a into uvinv... (* [g582,623] [g630,668; g340,352] *)
+    rename a into uvinv... (* [g567,608] [g615,653; g331,343] *)
     (* [atomicR_combine] *)
-    (* [g615,623;g663,668] *)
+    (* [g600,608;g648,653] *)
     work using atomicR_combineF.
-    rewrite <- mut_mut_add.  rewrite Qp.half_half... (* [g696,732; g619,656] *)
-    go... (* [g648,656]*)
-    closeCinvqs... (* [g570,575] *)
-    go... (* [g481,486] [g515,517; g553,555] [g515,517; g553,555; g489,497] *)
-    iModIntro...  (* [c4084,4086; g456,497] *)
-    (* because of [g], even though inv says \exists, we know that value must be newvalue. crucual when we do the load [g c] 
-        other threads can race but they can only read [c].
-        I privately own 1/2 of atomicR [g].
-        other threads can only access the 1/2 in the cinv [g] *)
+    rewrite <- mut_mut_add.  rewrite Qp.half_half... (* [g681,717; g604,641] *)
+    go... (* [g633,638]*)
+    closeCinvqs... (* [g552,557] *)
+    go... (* [g474,479] [g497,499; g535,537] [g497,499; g535,537; g474,479] *)
+    iModIntro...  (* code may run [c4077,4086; g441,479] but because of inv, private owned *)
     go.
     callAtomicCommitCinv.
-    rename a into uvAtLoad. (* [g708,716; g756,764] *)
+    rename a into uvAtLoad... (* [g652,657; g697,705] *)
     (* same trick again: [atomicR_combine]
      *)
     wapply atomicR_combine. eagerUnifyU. iFrame.

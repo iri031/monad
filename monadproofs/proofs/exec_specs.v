@@ -476,7 +476,7 @@ Section with_Sigma.
       \arg{addressp} "address" (Vptr addressp)
       \arg{incp} "incarnation" (Vptr incp)
       \prepost{q indices} incp |-> IncarnationR q indices
-      \arg{keyp} "address" (Vptr keyp)
+      \arg{keyp} "key" (Vptr keyp)
       \post{retp:ptr} [Vptr retp] Exists anyvalue:Z, retp |-> bytes32R 1 anyvalue). 
 
   Definition lookupStorage (s: StateOfAccounts) (addr: address) (key: Z) (blockTxInd: Indices) : Z. Proof. Admitted.

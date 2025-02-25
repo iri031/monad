@@ -52,33 +52,32 @@ struct Node {
 
 typedef Node * List;
 
-void split(List ab, List &a, List &b) {
-    bool which = true;
-    while (ab) {
-        auto temp = ab->next_;
-        if (which) {
-            ab->next_ = a;
-            a = ab;
-        } else {
-            ab->next_ = b;
-            b = ab;
-        }
-        ab = temp;
-        which = !which;
-    }
+List reverse(List l) {
+  List prev = nullptr;
+  List next = nullptr;
+  while (l != nullptr) {
+    next = l->next_;
+    l->next_ = prev;
+    prev = l;
+    l = next;
+  }
+    return prev;
 }
 
-List
-reverse(List l) {
-    List prev = nullptr;
-    List next = nullptr;
-    while (l != nullptr) {
-        next = l->next_;
-        l->next_ = prev;
-        prev = l;
-        l = next;
+void split(List ab, List &a, List &b) {
+  bool which = true;
+  while (ab) {
+    auto temp = ab->next_;
+    if (which) {
+      ab->next_ = a;
+      a = ab;
+    } else {
+      ab->next_ = b;
+      b = ab;
     }
-    return prev;
+    ab = temp;
+    which = !which;
+  }
 }
 
 void move_cons(List &from, List &to) {
@@ -159,18 +158,16 @@ Parent Thread
 */
 std::atomic<int> u;
 void setU(int value) {
-    u.exchange(value);
+    u.store(value);
 }
-int getU() {
-    return u.load();
-}
-/*          
-Parent Thread 
-     │                                     
+                               
+/*                                           
+Parent Thread                                
+     │                                       
      │  Create Concurrent Invariant:                  
      │    ┌───────────────────────────┐    
      │    │  ∃ i: Z, u |-> atomicR 1 i│ 
-     │    └───────────────────────────┘    
+     │    └───────────────────────────┘  
      ├───────────────────────────────────►
      │                            Child Thread
      │                                    │
@@ -181,24 +178,29 @@ Parent Thread
  */
 
 int setThenGetU(int uvnew) {
-    u.exchange(uvnew);
-    //
-    return u.load();
+  u.store(uvnew);
+  //       
+  return u.load();
 }
-                                                   
-      
+
+int getU() {
+  return u.load();
+}
+
 class SpinLock {
 public:
   SpinLock() : locked(false) {}
-// returns only when exchange atomically flips locked from false to true  
+
+// returns only when exchange atomically flips locked FROM false to true
   void lock() {
-        while (locked.exchange(true));
-    }
+    while (locked.exchange(true));
+  }
   void unlock() { locked.store(false); }
 
 private:
   std::atomic<bool> locked;
 };
+// foo.exchange(bar): atomically reads foo and sets it to bar. returns the original value.
 
 List cons(int data, List l){
   List res = new (std::nothrow) Node(l, data);
