@@ -243,6 +243,10 @@ int testgcdl() {
     return parallel_gcdl(vec, 3);
 }
 
+void incdata(Node * n){
+  n->data_++;
+}
+
 class AWrapper {
 public:
     AWrapper(int value) : v(value) {}

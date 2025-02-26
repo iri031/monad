@@ -301,10 +301,46 @@ Hint Resolve learn_atomic_val : br_opacity.
     rewrite fold_id2.
     aac_reflexivity.
   Qed.
-  (* emplasize generality: dont need to prove again and again, in compiler  *)
+  (* generality: dont need to prove again and again, for each f  *)
 
   (* Rep vs mpred *)
   (** Structs: Node [c1032,1036] *)
+
+
+  Definition NodeR  (q: cQp.t) (data: Z) (nextLoc: ptr): Rep :=
+    _field "Node::data_" |-> primR "int" q (Vint data)
+    ** _field "Node::next_" |-> primR "Node*" q (Vptr nextLoc)
+    ** structR "Node" q.
+
+  Definition NodeRf  (q: cQp.t) (data: Z) (nextLoc: ptr) : ptr -> mpred :=
+    fun (nodebase: ptr) =>
+    (* nodebase.data_ *)  
+    nodebase,, _field "Node::data_" |-> primR "int" q (Vint data)
+    ** nodebase,, _field "Node::next_" |-> primR "Node*" q (Vptr nextLoc)
+    ** nodebase |-> structR "Node" q.
+
+  cpp.spec "incdata(Node *)"  as incd_spec with (
+     \arg{np} "n" (Vptr np)
+     \pre{data nextLoc} NodeRf 1 data nextLoc np
+     \pre [| data < 2^31 -1 |]
+     \post NodeRf 1 (1+data) nextLoc np
+      ).
+
+  cpp.spec "incdata(Node *)"  as incd_spec_idiomatic with (
+     \arg{np} "n" (Vptr np)
+     \pre{data nextLoc} np |-> NodeR 1 data nextLoc
+     \pre [| data < 2^31 -1 |]
+     \post np |-> NodeR 1 (1+data) nextLoc
+      ).
+
+  Lemma eqv (data:Z) (nextLoc:ptr) (nodebase:ptr) q :
+    nodebase |-> NodeR q data nextLoc
+    -|- NodeRf q data nextLoc nodebase.
+  Proof. unfold NodeR, NodeRf. iSplit; go. Qed.
+  
+  Lemma incd_proof: denoteModule module |-- incd_spec.
+  Proof using MODd. verify_spec. unfold NodeRf. slauto. Qed.
+  
   Definition NodeR  (q: cQp.t) (data: Z) (nextLoc: ptr): Rep :=
     _field "Node::data_" |-> primR "int" q (Vint data)
     ** _field "Node::next_" |-> primR "Node*" q (Vptr nextLoc)
