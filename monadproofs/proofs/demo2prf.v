@@ -510,21 +510,7 @@ Abort.
     \prepost{q invId} cinv q invId (∃ uv:Z, _global "u" |-> atomicR "int" 1 uv)
     \arg{uvnew} "value" (Vint uvnew)
     \post emp). 
-(*
-  Lemma setU_prf: denoteModule module ** int_exchange_spec |-- setU_spec.
-  Proof using MODd with (fold cQpc).
-    verify_spec'.
-    slauto.
-    callAtomicCommitCinv... (* [g] *)
-    go... (* got back the postcondition of the atomic write: [g] *)
-    closeCinvqs... (* highlight the cinv and the conjunct. any value is fine [g] *)
-    go... (* once we close cinv, we lost that u has value uv. now [g] *)
-    iModIntro.
-    simpl.
-    do 9 step... (* finished symbolic exec. not left with anything saying that the value of u is still uv *)
-    go.
-  Qed.
-*)
+
   cpp.spec "setThenGetU(int)" as setGetU_spec_wrong with (
       \prepost{q invId} cinv q invId (∃ uv:Z, _global "u" |-> atomicR "int" 1 uv)
       \arg{uvnew} "value" (Vint uvnew)
@@ -538,28 +524,28 @@ Abort.
       ** int_load_spec
     |-- setGetU_spec_wrong.
   Proof using MODd with (fold cQpc).
-    verify_spec... (* [g343,374] [g554,564] *)
+    verify_spec... (* [g340,371] [g551,558] *)
     slauto.
     repeat (iExists _); callAtomicCommit.
     repeat openCinvq.
-    removeLater... (* [g593,630] cinv gone*)
+    removeLater... (* [g590,627] cinv gone*)
     work.
-    rename uv into uvcur... (* [g675,679]*)
+    rename uv into uvcur... (* [g671,676]*)
     
     work using fwd_later_exist, fwd_later_sep;
       repeat removeLater;
       iApply fupd_mask_intro;[set_solver |];
-      iIntrosDestructs... (* [g752,786; g645,678] [g752,754; g674,679] *)
+      iIntrosDestructs... (* [g749,780; g642,675] [g749,751; g671,676] *)
     Existing Instance learn_atomic_val.
-    go... (* w post [g707,712; c4177,4182] [g752,758]  must close*)
-    closeCinvqs... (* [g676,714] [g676,714; g616,654] [g616,655; g542,576] [g542,576]*)
-    work... (* lost that and got [g537,585] [g549,551; g583,585], [c4048,4053] *)
+    go... (* w post [g704,709; c4067,4072] [g749,755]  must close*)
+    closeCinvqs... (* [g676,708] [g673,711; g613,651] [g613,652; g539,573] [g539,573]*)
+    work... (* lost that and got [g534,582] [g546,548; g580,582], [c4067,4072] *)
     iModIntro.
     Existing Instance learn_atomic_val_UNSAFE.
     go.
     repeat (iExists _); callAtomicCommit.
     repeat openCinvq.
-    removeLater... (* [c4098,4104] [g705,707; g739,741]*)
+    removeLater... (* [c4098,4104] [g664,666; g698,700]*)
     go.
     iApply fupd_mask_intro;[set_solver |];
       iIntrosDestructs.
@@ -614,7 +600,7 @@ cpp.spec "setThenGetU(int)" as setGetU_spec2 with (
     go.
     rename a into uvBeforeWrite.
     (* close inv at the end of u.exchange *)
-    closeCinvqs... (* [g660,662 ; g613,618] [g660,662 ; g613,618; g699,710] *)
+    closeCinvqs... (* [g651,653 ; g604,609] [g651,653 ; g604,609; g690,701] *)
     go. 
   Abort.
   
