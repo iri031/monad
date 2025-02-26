@@ -306,7 +306,10 @@ Hint Resolve learn_atomic_val : br_opacity.
   (* Rep vs mpred *)
   (** Structs: Node [c1032,1036] *)
 
-
+  Example addOffset (p: ptr) (o: offset) : ptr := p ,, o.
+  Example array2Offset : offset := (.["int" ! 2]).
+  Example fieldOffset : offset := _field "Node::data_".
+  
   Definition NodeR  (q: cQp.t) (data: Z) (nextLoc: ptr): Rep :=
     _field "Node::data_" |-> primR "int" q (Vint data)
     ** _field "Node::next_" |-> primR "Node*" q (Vptr nextLoc)
@@ -321,13 +324,14 @@ Hint Resolve learn_atomic_val : br_opacity.
 
   cpp.spec "incdata(Node *)"  as incd_spec with (
      \arg{np} "n" (Vptr np)
-     \pre{data nextLoc} NodeRf 1 data nextLoc np
+     \pre{data nextLoc} NodeRf 1 data nextLoc np (* shorthand. unfold in prf *)
      \pre [| data < 2^31 -1 |]
      \post NodeRf 1 (1+data) nextLoc np
       ).
 
   cpp.spec "incdata(Node *)"  as incd_spec_idiomatic with (
-     \arg{np} "n" (Vptr np)
+      \arg{np} "n" (Vptr np)
+      (* _global "x" |-> primR "int" 1 45 *)
      \pre{data nextLoc} np |-> NodeR 1 data nextLoc
      \pre [| data < 2^31 -1 |]
      \post np |-> NodeR 1 (1+data) nextLoc
@@ -341,18 +345,6 @@ Hint Resolve learn_atomic_val : br_opacity.
   Lemma incd_proof: denoteModule module |-- incd_spec.
   Proof using MODd. verify_spec. unfold NodeRf. slauto. Qed.
   
-  Definition NodeR  (q: cQp.t) (data: Z) (nextLoc: ptr): Rep :=
-    _field "Node::data_" |-> primR "int" q (Vint data)
-    ** _field "Node::next_" |-> primR "Node*" q (Vptr nextLoc)
-    ** structR "Node" q.
-
-  Example nodeRUnfold (q:Qp) (data: Z) (nextLoc: ptr) (loc:ptr) :=
-    loc |-> NodeR q data nextLoc
-    |-- loc ,, _field "Node::data_" |-> primR "int" q data 
-        ** loc ,, _field "Node::next_" |-> primR "Node*" q (Vptr nextLoc)
-        ** loc |-> structR "Node" q.
-  
-
   (** Structs: LinkedList *)
 
   Fixpoint ListR (q : cQp.t) (l : list Z) : Rep :=
