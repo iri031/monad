@@ -1,3 +1,5 @@
+ (*specs/proofs of /root/fv-workspace/monad/proofs/demo2.cpp *)
+
 Require Import monad.proofs.demo2.
 Require Import bedrock.auto.invariants.
 Require Import bedrock.auto.cpp.proof.
@@ -11,11 +13,6 @@ Import Instances.Z.
 Import cQp_compat.
 Import Verbose.
 Import linearity.
-
-
-(** start recording.
-Exercises:
- *)
 
 Notation memory_order_seq_cst := 5.
 
@@ -84,7 +81,6 @@ Hint Resolve learn_atomic_val : br_opacity.
   Open Scope Z_scope.
   Set Nested Proofs Allowed.
 
-  (* /home/abhishek/work/coq/blue/fm-workspace-snapshot3b/fm-workspace-12-16/monad/proofs/demo2.cpp *)
   (**  *Arrays
     _global "x" |-> primR "int" q 5
    *)
