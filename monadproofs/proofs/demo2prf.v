@@ -77,7 +77,7 @@ Section with_Sigma.
          AC1 << ∀ y : Z, pd |-> atomicR "int" 1 (Vint y)>> @ ⊤, ∅
             << pd |-> atomicR "int" 1 (Vint x), COMM Q >> 
        \post Q).
-    
+
 (*
 Hint Resolve learn_atomic_val : br_opacity.
 *)  
@@ -108,11 +108,11 @@ Hint Resolve learn_atomic_val : br_opacity.
     iSplit; go;
     repeat rewrite o_sub_sub;
     closed.norm closed.numeric_types; go.
-  Abort.
+  Qed.
 
   Example fold_left_gcd (n1 n2 n3: Z) :
     fold_left Z.gcd [n1;n2;n3] 0 =  Z.gcd (Z.gcd (Z.gcd 0 n1) n2) n3.
-  Proof. reflexivity. Abort.
+  Proof. reflexivity. Qed.
   
     
   cpp.spec "gcdl(unsigned int*, unsigned int)" as gcdl_spec with (gcdl_spec_core).
@@ -362,10 +362,10 @@ Hint Resolve learn_atomic_val : br_opacity.
        ** node5loc |-> NodeR q 5 node6loc
        ** node6loc |-> NodeR q 6 nullptr
        (* ** [| node5loc <> node6loc <> head|] *).
-  Proof using. work. unfold NodeR.  go. Abort.
+  Proof using. work. unfold NodeR.  go. Qed.
 
   Example nullReq (p: ptr): p |-> nullR |-- [| p = nullptr |].
-  Proof. go. Abort.
+  Proof. go. Qed.
 
   cpp.spec "reverse(Node*)" as reverse_spec with
     (\arg{lp} "l" (Vptr lp)
@@ -487,7 +487,7 @@ Qed.
 Lemma splitInv2  (invId: gname) (q:Qp):
   let P := _global "x" |-> primR "int" 1 5 in
   cinv invId q P |-- cinv invId (q/2) P ** cinv invId (q/2) P.
-Abort.
+Proof.   apply splitcinvq. Qed.
 
   cpp.spec "bar()" as bar_spec with (
       \prepost{q invId} cinv q invId (_global "z" |-> anyR "int" 1)
@@ -632,12 +632,12 @@ cpp.spec "setThenGetU(int)" as setGetU_spec2 with (
   
   Lemma duplPrime (i:Z) :
     ([| isPrime i |]:mpred) |-- [| isPrime i |] ** [| isPrime i |] .
-  Proof using. go. Abort.
+  Proof using. go. Qed.
     
   Lemma duplPrime2 (i:Z) (this:ptr) :
     let p := this ,, _field "v" |-> atomicR "int" 1 i ** [| isPrime i |] in
     p |-- p ** [| isPrime i |].
-  Proof using. go. Abort.
+  Proof using. go. Qed.
 
   (** * heart of concurrency proofs
 main challenge:
@@ -663,7 +663,7 @@ Definition LockR (q: Qp) (invId: gname) (lockProtectedResource: mpred) : Rep :=
 Lemma lockReq (l:ptr) (q: Qp) (invId: gname)
   (lockProtectedResource: mpred):
   l |-> LockR q invId lockProtectedResource
-  |--
+  -|-
   l |-> structR "SpinLock" q
   ** cinv invId q
        (∃ locked : bool,
@@ -672,17 +672,15 @@ Lemma lockReq (l:ptr) (q: Qp) (invId: gname)
              (if locked then emp else lockProtectedResource)).
   Proof using.
     unfold LockR.
-    go.
-    iClear "#".
-    iStopProof.
-    unfold cinvq.
+    rewrite _at_sep.
     f_equiv.
-    apply bi.equiv_entails_1_2.
+    unfold cinvq.
+    rewrite _at_as_Rep.
+    f_equiv.
     apply cinv_proper.
-    iSplit; go.
-    - destruct locked; go.
-    - destruct v; go.
-   Abort.
+    iSplit; go; ren_hyp locked bool;
+      destruct locked; go.
+   Qed.
 
   cpp.spec "SpinLock::SpinLock()" as lock_constr_spec with
     (fun this:ptr =>
@@ -825,11 +823,6 @@ Definition ConcLListR (q:Qp) (invId: gname) (base:ptr) : mpred :=
   Proof using. iSplit; go. Qed.
   
 
-  Lemma duplPrime (i:Z) (this:ptr) :
-    let p := this ,, _field "v" |-> atomicR "int" 1 i ** [| isPrime i |] in
-    p |-- p ** [| isPrime i |].
-  Proof using. go. Qed.
-
       
     Opaque atomicR.
   
@@ -844,32 +837,20 @@ Definition ConcLListR (q:Qp) (invId: gname) (base:ptr) : mpred :=
     verify_spec'.
     go.
     wp_while (fun _ => emp).
-    unfold LockR.
+    rewrite lockReq.
     go.
-    iExists (fun oldval:bool => (if oldval then emp else lockProtectedResource) **  cinvq ns invId q
-        (∃ locked : bool, this |-> o_field CU "SpinLock::locked" |-> atomicR "bool" 1%Qp (Vbool locked) ∗ (if locked then emp else lockProtectedResource))).
-    wrename [cinvq _ _ _ _]  "inv".
-    iSplitL "inv".
-    -
-      go.
-      iAcIntro. unfold commit_acc.
-      repeat openCinvq.
-      rewrite _at_exists.
-      setoid_rewrite _at_sep.
-      finishOpeningCinv.
-      go.
-      closeCinvqs.
-      go.
-      iModIntro.
-      go. destruct a; go.
-      setorewrite _at_exists.
-    - go.
-      wp_if; go.
-   Qed.
+    callAtomicCommitCinv.
+    go.
+    closeCinvqs.
+    go.
+    iModIntro.
+    go. destruct a; go.
+  Qed.
       
   Lemma unlock_prf: denoteModule module ** store_spec |-- unlock_spec.
   Proof using MODd.
     verify_spec'.
+    rewrite lockReq.
     go.
     iExists _.
     callAtomicCommitCinv.
@@ -1034,40 +1015,3 @@ Definition ConcLListR (q:Qp) (invId: gname) (base:ptr) : mpred :=
   Qed.
   
 End with_Sigma.
-  
-
-(* TODO:
-2: clean this file
-3. finalize cpp code and goal before determining offsets
-8. narrartive+offsets+... in coments. optimize around proofchecking times
-7. lock protected linked list: code
-10. lock protected linked list: tikz animation
-12. sketch sema inv in slides
-
-done:
-0. linkedlist
-1. remove AWrapper. work on a global atomic variable to make things simpler. dont  need a class rep. getU() , setU(v) instead.
-2. just after bar_prf, contrast how the cinv version allows access and how it requires to return back ownership
-3. show prime number dupl
-5. counter auth frag specs
-9. spec of BlockState::read_storage
-6. BlockState::merge and can_merge specs: cleanup
-4. BlockState tikz aniimation
-11. fold_left proof w/ function ptr
-12. test cases of c++ functions
-
-
-sequence:
-1. arrays: gcdl spec
-2: structs: Node: not much logical abstraction 
-3: structs: linked list
-4: thread sharing resources while running: asciiart
-5: setU/getU specs: 3 variants: concurrent, sequential, concurrent with Primes
-6: setU/getU 4th spec: auth frag
-7: execute_block diagram to explain the auth/frag spec of BlockState
-8. block state specs
-9. lock code and lock protected linked list: asciiart/animation explaining how lock protects linked list. emplasize the lock protected resource need not be atomic.
-10. ThreadSafeLinkedList Rep
-
-
-*)
