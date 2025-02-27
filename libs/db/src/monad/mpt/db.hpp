@@ -123,6 +123,7 @@ struct AsyncContext
         chunk_offset_t, std::shared_ptr<Node>, chunk_offset_t_hasher>;
 
     UpdateAux<> &aux;
+    StateMachine &sm;
     TrieRootCache root_cache;
     inflight_root_t inflight_roots;
     inflight_node_t inflight_nodes;
@@ -201,6 +202,7 @@ namespace detail
     };
 }
 
+// TODO: prevent traversing any
 inline detail::TraverseSender make_traverse_sender(
     AsyncContext *const context, Node::UniquePtr traverse_root,
     std::unique_ptr<TraverseMachine> machine, uint64_t const block_id,

@@ -73,6 +73,7 @@ struct Db::Impl
 
     virtual Node::UniquePtr &root() = 0;
     virtual UpdateAux<> &aux() = 0;
+    virtual StateMachine &machine() = 0;
     virtual void upsert_fiber_blocking(
         UpdateList &&, uint64_t, bool enable_compaction, bool can_write_to_fast,
         bool write_root) = 0;
@@ -157,6 +158,11 @@ struct Db::ROOnDisk final : public Db::Impl
     virtual UpdateAux<> &aux() override
     {
         return aux_;
+    }
+
+    virtual StateMachine &machine() override
+    {
+        return machine_;
     }
 
     virtual void
@@ -271,6 +277,11 @@ struct Db::InMemory final : public Db::Impl
     virtual UpdateAux<> &aux() override
     {
         return aux_;
+    }
+
+    virtual StateMachine &machine() override
+    {
+        return machine_;
     }
 
     virtual void upsert_fiber_blocking(
@@ -731,6 +742,11 @@ struct Db::RWOnDisk final : public Db::Impl
     virtual UpdateAux<> &aux() override
     {
         return aux_;
+    }
+
+    virtual StateMachine &machine() override
+    {
+        return machine_;
     }
 
     // threadsafe
