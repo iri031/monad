@@ -1371,9 +1371,7 @@ void UpdateAuxImpl::advance_compact_offsets(
         return;
     }
     constexpr auto fast_usage_limit_start_compaction = 0.1;
-    auto const fast_disk_usage =
-        num_chunks(chunk_list::fast) / (double)io->chunk_count();
-    if (fast_disk_usage < fast_usage_limit_start_compaction) {
+    if (num_chunks(chunk_list::fast) < fast_usage_limit_start_compaction) {
         return;
     }
 
@@ -1393,12 +1391,10 @@ void UpdateAuxImpl::advance_compact_offsets(
     }
     constexpr double usage_limit_start_compact_slow = 0.6;
     constexpr double slow_usage_limit_start_compact_slow = 0.2;
-    auto const slow_list_usage =
-        num_chunks(chunk_list::slow) / (double)io->chunk_count();
     // we won't start compacting slow list when slow list usage is low or total
     // usage is below 60%
     if (disk_usage() > usage_limit_start_compact_slow &&
-        slow_list_usage > slow_usage_limit_start_compact_slow) {
+        disk_usage(chunk_list::slow) > slow_usage_limit_start_compact_slow) {
         // Compact slow ring: the offset is based on slow list garbage
         // collection ratio of last block
         compact_offset_range_slow_.set_value(

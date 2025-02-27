@@ -765,8 +765,25 @@ public:
 
     double disk_usage() const
     {
-        return 1.0 -
-               (double)num_chunks(chunk_list::free) / (double)io->chunk_count();
+        MONAD_ASSERT(is_on_disk());
+        return disk_usage(chunk_list::fast) + disk_usage(chunk_list::slow) +
+               disk_usage(chunk_list::expire);
+    }
+
+    double disk_usage(chunk_list const type) const
+    {
+        MONAD_ASSERT(is_on_disk());
+        MONAD_ASSERT(type != chunk_list::free);
+        node_writer_unique_ptr_type const &writer =
+            (type == chunk_list::fast)
+                ? node_writer_fast
+                : (type == chunk_list::slow ? node_writer_slow
+                                            : node_writer_expire);
+        auto &pool = io->storage_pool();
+        auto const chunk =
+            pool.activate_chunk(pool.seq, writer->sender().offset().id);
+        bool const empty = chunk->size() == 0;
+        return (num_chunks(type) - (unsigned)empty) / (double)io->chunk_count();
     }
 
     chunk_offset_t get_latest_root_offset() const noexcept
