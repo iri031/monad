@@ -15,13 +15,16 @@
 #include <monad/execution/switch_evmc_revision.hpp>
 #include <monad/execution/tx_context.hpp>
 #include <monad/execution/validate_transaction.hpp>
+#include <monad/fiber/priority_pool.hpp>
 #include <monad/lru/static_lru_cache.hpp>
 #include <monad/mpt/util.hpp>
 #include <monad/rpc/eth_call.hpp>
+#include <monad/rpc/foobar.h>
 #include <monad/state2/block_state.hpp>
 #include <monad/state3/state.hpp>
 #include <monad/types/incarnation.hpp>
 
+#include <boost/fiber/future/promise.hpp>
 #include <boost/outcome/try.hpp>
 
 #include <quill/Quill.h>
@@ -272,6 +275,84 @@ void monad_state_override_set::set_override_state(
     object.emplace(key, value);
 }
 
+using EvmcReturn = std::optional<Result<evmc::Result>>;
+using EthCallPromise = boost::fibers::promise<void>;
+using BlockHashCache = static_lru_cache<uint64_t, bytes32_t>;
+
+class EthCallExecutor {
+public:
+    fiber::PriorityPool pool_;
+
+    std::unique_ptr<mpt::Db> db_{};
+    std::unique_ptr<TrieDb> tdb_{};
+
+    BlockHashCache blockhash_cache_{7200};
+    std::unique_ptr<BlockHashBufferFinalized> buffer_{};
+    std::optional<uint64_t> last_block_number_{};
+
+    EthCallExecutor(unsigned const num_fibers, std::string const &triedb_path)
+        : pool_{1, num_fibers} 
+    {
+        std::vector<std::filesystem::path> paths;
+        if (std::filesystem::is_directory(triedb_path)) {
+            for (auto const &file :
+                 std::filesystem::directory_iterator(triedb_path)) {
+                paths.emplace_back(file.path());
+            }
+        }
+        else {
+            paths.emplace_back(triedb_path);
+        }
+        db_.reset(
+            new mpt::Db{mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = paths}});
+        tdb_.reset(new TrieDb{*db_});
+    }
+
+    EthCallExecutor(EthCallExecutor const &) = delete;
+    EthCallExecutor &operator=(EthCallExecutor const &) = delete;
+
+    ~EthCallExecutor() {
+        tdb_.reset();
+        db_.reset();
+    }
+
+    bool update_block_buffer(uint64_t const block_number) {
+        if (!last_block_number_ || *(last_block_number_) != block_number) {
+            buffer_.reset(new BlockHashBufferFinalized{});
+            BlockHashCache::ConstAccessor acc;
+            for (uint64_t b = block_number < 256 ? 0 : block_number - 256;
+                 b < block_number;
+                 ++b) {
+                if (blockhash_cache_.find(acc, b)) {
+                    buffer_->set(b, acc->second->val);
+                    continue;
+                }
+
+                auto const header = db_->get(
+                    mpt::concat(
+                        FINALIZED_NIBBLE, mpt::NibblesView{block_header_nibbles}),
+                    b);
+                if (!header.has_value()) {
+                    LOG_WARNING(
+                        "Could not query block header {} from TrieDb -- {}",
+                        b,
+                        header.error().message().c_str());
+                    return false;
+                }
+                auto const h = to_bytes(keccak256(header.value()));
+                buffer_->set(b, h);
+                blockhash_cache_.insert(b, h);
+            }
+            last_block_number_ = block_number;
+        }
+        return true;
+    }
+};
+
+void test_foobar(void (*complete)(void *user), void *user) {
+    complete(user);
+}
+
 // TODO: eth_call should take in a handle to db instead
 monad_evmc_result eth_call(
     monad_chain_config const chain_config, std::vector<uint8_t> const &rlp_tx,
@@ -298,61 +379,16 @@ monad_evmc_result eth_call(
     MONAD_ASSERT(!sender_result.has_error());
     auto const sender = sender_result.value();
 
-    thread_local std::unique_ptr<mpt::Db> db{};
-    thread_local std::unique_ptr<TrieDb> tdb{};
-    thread_local std::optional<std::string> last_triedb_path{};
-    using BlockHashCache = static_lru_cache<uint64_t, bytes32_t>;
-    thread_local BlockHashCache blockhash_cache{7200};
-    if (!last_triedb_path || *last_triedb_path != triedb_path) {
-        std::vector<std::filesystem::path> paths;
-        if (std::filesystem::is_directory(triedb_path)) {
-            for (auto const &file :
-                 std::filesystem::directory_iterator(triedb_path)) {
-                paths.emplace_back(file.path());
-            }
-        }
-        else {
-            paths.emplace_back(triedb_path);
-        }
-        tdb.reset(); // reset in reverse order
-        db.reset(); // cannot create more than one rodb per thread at a time
-        db.reset(
-            new mpt::Db{mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = paths}});
-        tdb.reset(new TrieDb{*db});
-        last_triedb_path = triedb_path;
+    thread_local std::unique_ptr<EthCallExecutor> executor{};
+    if (!executor) {
+        executor = std::make_unique<EthCallExecutor>(1, triedb_path);
     }
 
-    thread_local std::unique_ptr<BlockHashBufferFinalized> buffer{};
-    thread_local std::optional<uint64_t> last_block_number{};
-    if (!last_block_number || *last_block_number != block_number) {
-        buffer.reset(new BlockHashBufferFinalized{});
-        BlockHashCache::ConstAccessor acc;
-        for (uint64_t b = block_number < 256 ? 0 : block_number - 256;
-             b < block_number;
-             ++b) {
-            if (blockhash_cache.find(acc, b)) {
-                buffer->set(b, acc->second->val);
-                continue;
-            }
-
-            auto const header = db->get(
-                mpt::concat(
-                    FINALIZED_NIBBLE, mpt::NibblesView{block_header_nibbles}),
-                b);
-            if (!header.has_value()) {
-                LOG_WARNING(
-                    "Could not query block header {} from TrieDb -- {}",
-                    b,
-                    header.error().message().c_str());
-                return {
-                    .status_code = EVMC_REJECTED,
-                    .message = "failure to initialize block hash buffer"};
-            }
-            auto const h = to_bytes(keccak256(header.value()));
-            buffer->set(b, h);
-            blockhash_cache.insert(b, h);
-        }
-        last_block_number = block_number;
+    bool success = executor->update_block_buffer(block_number);
+    if (!success) {
+        return {
+            .status_code = EVMC_REJECTED,
+            .message = "failure to initialize block hash buffer"};
     }
 
     auto chain = [chain_config] -> std::unique_ptr<Chain> {
@@ -370,23 +406,47 @@ monad_evmc_result eth_call(
     evmc_revision const rev =
         chain->get_revision(block_header.number, block_header.timestamp);
 
-    auto const result = eth_call_impl(
-        *chain,
-        rev,
-        tx,
-        block_header,
-        block_number,
-        round,
-        sender,
-        *tdb,
-        *buffer,
-        state_overrides);
-    if (MONAD_UNLIKELY(result.has_error())) {
+    std::shared_ptr<EthCallPromise> promise{
+        new EthCallPromise};
+
+    EvmcReturn result;
+
+    executor->pool_.submit(
+        0,
+        [&chain = *chain,
+         rev = rev,
+         promise = promise,
+         &result = result,
+         transaction = tx,
+         block_header = block_header,
+         block_number = block_number,
+         block_round = round,
+         sender = sender,
+         &tdb = *(executor->tdb_),
+         &block_hash_buffer = *(executor->buffer_),
+         state_overrides = state_overrides] {
+            result = eth_call_impl(
+                chain,
+                rev,
+                transaction,
+                block_header,
+                block_number,
+                block_round,
+                sender,
+                tdb,
+                block_hash_buffer,
+                state_overrides);
+
+            promise->set_value();
+        });
+
+    promise->get_future().wait();
+    if (MONAD_UNLIKELY(result->has_error())) {
         return {
             .status_code = EVMC_REJECTED,
-            .message = result.error().message().c_str()};
+            .message = result->error().message().c_str()};
     }
-    auto const &res = result.assume_value();
+    auto const &res = result->assume_value();
     return {
         .status_code = res.status_code,
         .output_data = {res.output_data, res.output_data + res.output_size},
