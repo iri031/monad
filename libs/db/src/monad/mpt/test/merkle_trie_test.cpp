@@ -49,7 +49,7 @@ struct GetProofTest : public TFixture
 {
     auto get_proof(ProofOptions opts)
     {
-        auto [key, proof] = get_proof_blocking(
+        auto proof = get_proof_blocking(
             this->aux,
             NodeCursor{*this->root},
             DummyComputeLeafData::compute,
@@ -59,7 +59,19 @@ struct GetProofTest : public TFixture
         for (auto const &node : proof) {
             encoded_proof += node;
         }
-        return std::make_pair(key, monad::rlp::encode_list2(encoded_proof));
+        return std::make_pair(
+            opts.prefix, monad::rlp::encode_list2(encoded_proof));
+    }
+
+    monad::Result<void>
+    verify_prefix(NibblesView prefix, monad::byte_string_view encoded_proof)
+    {
+        return verify_prefix_blocking(
+            this->aux,
+            NodeCursor{*this->root},
+            prefix,
+            DummyComputeLeafData::compute,
+            encoded_proof);
     }
 };
 
@@ -335,7 +347,7 @@ TYPED_TEST(GetProofTest, single_leaf)
     };
     auto const [key, proof] = this->get_proof(opts);
     EXPECT_EQ(key, key1);
-    auto const res = monad::mpt2::verify_proof(key, key, merkle_root, proof);
+    auto const res = monad::mpt2::verify_proof(key, merkle_root, proof);
     EXPECT_FALSE(res.has_error());
 }
 
@@ -364,7 +376,7 @@ TYPED_TEST(GetProofTest, one_branch_two_leaves)
     auto const [key, proof] = this->get_proof(opts);
     EXPECT_EQ(key, key1);
 
-    auto const res = monad::mpt2::verify_proof(key, key, merkle_root, proof);
+    auto const res = monad::mpt2::verify_proof(key, merkle_root, proof);
     EXPECT_FALSE(res.has_error());
 }
 
@@ -393,7 +405,7 @@ TYPED_TEST(GetProofTest, extension_and_branch)
     auto const [key, proof] = this->get_proof(opts);
     EXPECT_EQ(key, key1);
 
-    auto const res = monad::mpt2::verify_proof(key, key, merkle_root, proof);
+    auto const res = monad::mpt2::verify_proof(key, merkle_root, proof);
     EXPECT_FALSE(res.has_error());
 }
 
@@ -439,7 +451,7 @@ TYPED_TEST(GetProofTest, coalesce1)
     auto const [key, proof] = this->get_proof(opts);
     EXPECT_EQ(key, subkey1);
 
-    auto const res = monad::mpt2::verify_proof(key, key, merkle_root, proof);
+    auto const res = monad::mpt2::verify_proof(key, merkle_root, proof);
     EXPECT_FALSE(res.has_error());
 }
 
@@ -485,7 +497,7 @@ TYPED_TEST(GetProofTest, coalesce2)
     auto const [key, proof] = this->get_proof(opts);
     EXPECT_EQ(key, subkey1);
 
-    auto const res = monad::mpt2::verify_proof(key, key, merkle_root, proof);
+    auto const res = monad::mpt2::verify_proof(key, merkle_root, proof);
     EXPECT_FALSE(res.has_error());
 }
 
@@ -524,8 +536,102 @@ TYPED_TEST(GetProofTest, coalesce3)
     auto const [key, proof] = this->get_proof(opts);
     EXPECT_EQ(key, subkey1);
 
-    auto const res = monad::mpt2::verify_proof(key, key, merkle_root, proof);
+    auto const res = monad::mpt2::verify_proof(key, merkle_root, proof);
     EXPECT_FALSE(res.has_error());
+}
+
+TYPED_TEST(GetProofTest, verify_prefix)
+{
+    monad::byte_string const keys[] = {0xAA_hex, 0xBB_hex, 0xCC_hex};
+    monad::byte_string const subkeys[] = {0xAA_hex, 0xBB_hex, 0xCC_hex};
+
+    auto const value = 0xdeadbeef_hex;
+
+    this->root = upsert_updates(
+        this->aux,
+        *this->sm,
+        {},
+        make_update(keys[0], value),
+        make_update(keys[1], value),
+        make_update(keys[0] + subkeys[0], value),
+        make_update(keys[1] + subkeys[1], value),
+        make_update(keys[0] + subkeys[1], value),
+        make_update(keys[1] + subkeys[0], value));
+
+    auto const merkle_root = monad::to_bytes(this->root_hash());
+
+    ProofOptions opts = {
+        .prefix = keys[0],
+        .leaf_nibbles_len = 2,
+        .root_is_subtrie = true,
+    };
+    auto const [key, proof] = this->get_proof(opts);
+    EXPECT_EQ(key, opts.prefix);
+
+    auto const res = monad::mpt2::verify_proof(keys[0], merkle_root, proof);
+    EXPECT_FALSE(res.has_error());
+
+    std::vector<monad::byte_string> proofs(256);
+    for (auto i = 0u; i < 256u; ++i) {
+        Nibbles key{2};
+        key.set(0, i & 0x0F);
+        key.set(1, static_cast<unsigned char>(i) >> 4);
+        ProofOptions opts = {
+            .prefix = key,
+            .leaf_nibbles_len = 2,
+            .root_is_subtrie = true,
+        };
+        proofs[i] = this->get_proof(opts).second;
+    }
+
+    for (auto i = 0; i < 256; ++i) {
+        Nibbles key{2};
+        key.set(0, i & 0x0F);
+        key.set(1, static_cast<unsigned char>(i) >> 4);
+        auto res = this->verify_prefix(key, proofs[i]);
+        EXPECT_FALSE(res.has_error());
+    }
+
+    this->root = upsert_updates(
+        this->aux,
+        *this->sm,
+        std::move(this->root),
+        make_update(keys[2], value));
+
+    for (auto i = 0; i < 256; ++i) {
+        Nibbles key{2};
+        key.set(0, i & 0x0F);
+        key.set(1, static_cast<unsigned char>(i) >> 4);
+        auto res = this->verify_prefix(key, proofs[i]);
+        if (i != 0xCC) {
+            EXPECT_FALSE(res.has_error());
+        }
+        else {
+            EXPECT_TRUE(res.has_error())
+                << "expect verify failure since key changed";
+        }
+    }
+
+    this->root = upsert_updates(
+        this->aux,
+        *this->sm,
+        std::move(this->root),
+        make_erase(keys[2]),
+        make_update(keys[0] + subkeys[2], value));
+
+    for (auto i = 0; i < 256; ++i) {
+        Nibbles key{2};
+        key.set(0, i & 0x0F);
+        key.set(1, static_cast<unsigned char>(i) >> 4);
+        auto res = this->verify_prefix(key, proofs[i]);
+        if (i != 0xAA) {
+            EXPECT_FALSE(res.has_error());
+        }
+        else {
+            EXPECT_TRUE(res.has_error())
+                << "expect verify failure since key changed";
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////

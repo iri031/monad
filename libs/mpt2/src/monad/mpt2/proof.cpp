@@ -1,3 +1,4 @@
+#include <iomanip>
 #include <monad/core/byte_string.hpp>
 #include <monad/core/keccak.hpp>
 #include <monad/core/likely.h>
@@ -16,60 +17,26 @@ using namespace monad::mpt;
 
 MONAD_MPT2_NAMESPACE_BEGIN
 
-namespace
-{
-    template <typename T>
-    Result<T> UnwrapItemOrError(rlp::RawItem const &item)
-    {
-        if (MONAD_LIKELY(std::holds_alternative<T>(item.value))) {
-            return std::get<T>(item.value);
-        }
-        return ProofError::UnexpectedType;
-    }
-
-    bytes32_t to_node_reference(rlp::RawItem node)
-    {
-        bytes32_t h{};
-        auto const rlp = rlp::encode_item(node);
-        mpt::to_node_reference(rlp, h.bytes);
-        return h;
-    }
-
-    Result<bytes32_t> to_key(rlp::RawItem node)
-    {
-        if (auto const *data = std::get_if<RawString>(&node.value);
-            data != nullptr) {
-            byte_string_view const key = *data;
-            if (MONAD_UNLIKELY(key.size() > KECCAK256_SIZE)) {
-                return ProofError::UnexpectedType;
-            }
-            if (key.size() == KECCAK256_SIZE) {
-                return to_bytes(key);
-            }
-        }
-        return to_node_reference(node);
-    }
-}
-
 using rlp::RawItem;
 using rlp::RawList;
 using rlp::RawString;
 
 Result<void> verify_proof(
-    NibblesView const key, NibblesView const prefix,
-    bytes32_t const &merkle_root, byte_string_view encoded_proof)
+    NibblesView const key, bytes32_t const &merkle_root,
+    byte_string_view encoded_proof)
 {
-    if (!key.starts_with(prefix)) {
-        return ProofError::InvalidKey;
-    }
-
     BOOST_OUTCOME_TRY(
         auto const decoded_proof, rlp::decode_item(encoded_proof));
     BOOST_OUTCOME_TRY(
         auto const proof, UnwrapItemOrError<RawList>(decoded_proof));
 
+    if (proof.empty()) {
+        // should have at least one node to compare vs root
+        return ProofError::InvalidKey;
+    }
+
     std::vector<bytes32_t> hashes;
-    hashes.reserve(proof.size());
+    hashes.resize(proof.size());
     for (size_t i = 1; i < proof.size(); ++i) {
         hashes[i] = to_node_reference(proof[i]);
     }
@@ -78,9 +45,14 @@ Result<void> verify_proof(
     bytes32_t expected_hash = merkle_root;
     Nibbles path;
 
-    for (size_t i = 0; i < proof.size(); ++i) {
+    auto i = 0ul;
+    while (true) {
         if (MONAD_UNLIKELY(expected_hash != hashes[i])) {
             return ProofError::WrongMerkleProof;
+        }
+
+        if (i == proof.size() - 1) {
+            break;
         }
 
         BOOST_OUTCOME_TRY(
@@ -97,18 +69,14 @@ Result<void> verify_proof(
             path = concat(path, decode_path(relpath));
         }
         else if (is_leaf_node(node)) {
-            BOOST_OUTCOME_TRY(
-                auto const relpath, UnwrapItemOrError<RawString>(node[0]));
-            path = concat(path, decode_path(relpath));
-            break;
+            return ProofError::UnexpectedType;
         }
         else {
             return ProofError::UnexpectedType;
         }
+        ++i;
     }
-    if (MONAD_UNLIKELY(path != key)) {
-        return ProofError::InvalidKey;
-    }
+
     return success();
 }
 

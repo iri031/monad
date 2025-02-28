@@ -2,6 +2,7 @@
 
 #include <monad/async/config.hpp>
 #include <monad/core/byte_string.hpp>
+#include <monad/core/result.hpp>
 #include <monad/mpt/compute.hpp>
 #include <monad/mpt/config.hpp>
 #include <monad/mpt/detail/collected_stats.hpp>
@@ -1070,7 +1071,6 @@ find_blocking(UpdateAuxImpl const &, NodeCursor, NibblesView key);
 //////////////////////////////////////////////////////////////////////////////
 // get_proof
 using compute_leaf_fn = byte_string(Node const &);
-using get_proof_result_type = std::pair<Nibbles, std::vector<byte_string>>;
 
 struct ProofOptions
 {
@@ -1080,9 +1080,13 @@ struct ProofOptions
 };
 
 // Returns the proof for a prefix.
-get_proof_result_type get_proof_blocking(
+std::vector<byte_string> get_proof_blocking(
     UpdateAuxImpl const &, NodeCursor, compute_leaf_fn on_leaf,
     ProofOptions const &);
+
+Result<void> verify_prefix_blocking(
+    UpdateAuxImpl const &aux, NodeCursor root, NibblesView prefix,
+    byte_string (*on_leaf)(Node const &), byte_string_view encoded_proof);
 
 //////////////////////////////////////////////////////////////////////////////
 // helpers

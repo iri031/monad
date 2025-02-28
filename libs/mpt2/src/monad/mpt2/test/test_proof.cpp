@@ -42,16 +42,6 @@ namespace
     };
 }
 
-TEST(Proof, KeyPrefixMismatch)
-{
-    Nibbles const key{0x1234_hex};
-    Nibbles const prefix{0xAA_hex};
-    bytes32_t const merkle_root{};
-    auto const res = verify_proof(key, prefix, merkle_root, {});
-    ASSERT_TRUE(res.has_error());
-    EXPECT_EQ(res.assume_error(), ProofError::InvalidKey);
-}
-
 TEST(Proof, Success)
 {
     monad::byte_string encoded_proof;
@@ -59,7 +49,7 @@ TEST(Proof, Success)
         encoded_proof += node;
     }
     encoded_proof = rlp::encode_list2(encoded_proof);
-    auto const res = verify_proof(prefix, prefix, merkle_root, encoded_proof);
+    auto const res = verify_proof(prefix, merkle_root, encoded_proof);
     EXPECT_FALSE(res.has_error());
 }
 
@@ -71,7 +61,7 @@ TEST(Proof, CorrectProofBadKey)
     }
     encoded_proof = rlp::encode_list2(encoded_proof);
     Nibbles const bad_key{0xAABA_hex};
-    auto const res = verify_proof(bad_key, prefix, merkle_root, encoded_proof);
+    auto const res = verify_proof(bad_key, merkle_root, encoded_proof);
     ASSERT_TRUE(res.has_error());
     EXPECT_EQ(res.assume_error(), ProofError::InvalidKey);
 }
@@ -85,7 +75,7 @@ TEST(Proof, BadLeaf)
         encoded_proof += node;
     }
     encoded_proof = rlp::encode_list2(encoded_proof);
-    auto const res = verify_proof(prefix, prefix, merkle_root, encoded_proof);
+    auto const res = verify_proof(prefix, merkle_root, encoded_proof);
     ASSERT_TRUE(res.has_error());
     EXPECT_EQ(res.assume_error(), ProofError::WrongMerkleProof);
 }
@@ -99,7 +89,7 @@ TEST(Proof, BadExtension)
         encoded_proof += node;
     }
     encoded_proof = rlp::encode_list2(encoded_proof);
-    auto const res = verify_proof(prefix, prefix, merkle_root, encoded_proof);
+    auto const res = verify_proof(prefix, merkle_root, encoded_proof);
     ASSERT_TRUE(res.has_error());
     EXPECT_EQ(res.assume_error(), ProofError::WrongMerkleProof);
 }

@@ -16,7 +16,7 @@
 
 MONAD_MPT_NAMESPACE_BEGIN
 
-unsigned encode_two_pieces(
+unsigned compute_two_pieces(
     unsigned char *const dest, NibblesView const path,
     byte_string_view const second, bool const has_value)
 {
@@ -127,7 +127,7 @@ std::span<unsigned char> encode_16_children(
 }
 
 std::span<unsigned char>
-encode_16_children(Node *node, std::span<unsigned char> result)
+encode_16_children(Node const *node, std::span<unsigned char> result)
 {
 
     for (unsigned i = 0, bit = 1; i < 16; ++i, bit <<= 1) {
@@ -154,7 +154,7 @@ encode_16_children(Node *node, std::span<unsigned char> result)
     return result;
 }
 
-void encode_branch(Node *node, on_result_fn fn, bool const ignore_value)
+void encode_branch(Node const *node, on_result_fn fn, bool const ignore_value)
 {
     // compute branch node hash
     inline_owning_bytes_span branch_str_rlp{
@@ -171,7 +171,7 @@ void encode_branch(Node *node, on_result_fn fn, bool const ignore_value)
     fn({branch_rlp.data(), branch_rlp.size()});
 }
 
-byte_string encode_branch(Node *node, bool const ignore_value)
+byte_string encode_branch(Node const *node, bool const ignore_value)
 {
     byte_string output;
     encode_branch(

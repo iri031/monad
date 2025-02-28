@@ -25,8 +25,8 @@ enum class ProofError
     UnexpectedType,
 };
 
-Result<void> verify_proof(
-    mpt::NibblesView, mpt::NibblesView, bytes32_t const &, byte_string_view);
+Result<void>
+verify_proof(mpt::NibblesView, bytes32_t const &, byte_string_view);
 
 MONAD_MPT2_NAMESPACE_END
 
