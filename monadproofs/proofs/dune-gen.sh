@@ -5,18 +5,21 @@
 
 set -euo pipefail
 
-# 1) Get the system flags by calling ext_flags.sh
+# 1) Ensure dune.inc is cleared before writing
+> dune.inc  # Truncate file (clear it)
+
+# 2) Get the system flags by calling ext_flags.sh
 system_includes="$(./ext_flags.sh)"
 
-# 2) Generate the rules
+# 3) Generate rules and write directly to dune.inc
 shopt -s nullglob
 
 for src in *.cpp *.hpp; do
     base="${src%.*}"   # e.g. foo.cpp -> foo
     ext="${src##*.}"   # e.g. foo.cpp -> cpp
 
-    # We'll produce a single .v file: foo_cpp.v
-    cat <<EOF
+    # Append the rule to dune.inc
+    cat <<EOF >> dune.inc
 (rule
  (targets ${base}.v)
  (alias test_ast)
@@ -27,4 +30,5 @@ for src in *.cpp *.hpp; do
 
 (alias (name srcs) (deps ${src}))
 EOF
+
 done
