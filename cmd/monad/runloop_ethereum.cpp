@@ -1,9 +1,11 @@
 #include "runloop_ethereum.hpp"
+#include "event.hpp"
 
 #include <monad/chain/chain.hpp>
 #include <monad/core/assert.h>
 #include <monad/core/block.hpp>
 #include <monad/core/bytes.hpp>
+#include <monad/core/event/exec_event_recorder.hpp>
 #include <monad/core/keccak.hpp>
 #include <monad/core/monad_block.hpp>
 #include <monad/core/rlp/block_rlp.hpp>
@@ -19,11 +21,14 @@
 #include <monad/procfs/statm.h>
 #include <monad/state2/block_state.hpp>
 
+#include <boost/fiber/future/promise.hpp>
 #include <boost/outcome/try.hpp>
 #include <quill/Quill.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
+#include <span>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -63,6 +68,172 @@ namespace
 
 }
 
+// Processing a block encompasses all the following actions:
+//
+//   1. block header input validation
+//   2. sender address recovery
+//   3. "core" execution: transaction-level EVM execution that tracks state
+//      changes, but does not commit them
+//   4. database commit of state changes (incl. Merkle root calculations)
+//   5. post-commit validation of header, with Merkle root fields filled in
+//   6. immediate database finalization of the proposal
+//   7. computation of block hash, appending it to the circular hash buffer
+//   8. emitting a block metrics log line
+static Result<BlockExecOutput> process_ethereum_block(
+    Chain const &chain, Db &db, vm::VM &vm,
+    BlockHashBufferFinalized &block_hash_buffer,
+    fiber::PriorityPool &priority_pool,
+    MonadConsensusBlockHeader const &consensus_header, Block &block,
+    bytes32_t const &block_id, bytes32_t const &parent_block_id)
+{
+    [[maybe_unused]] auto const block_start = std::chrono::system_clock::now();
+    auto const block_begin = std::chrono::steady_clock::now();
+    BOOST_OUTCOME_TRY(chain.static_validate_header(block.header));
+
+    evmc_revision const rev =
+        chain.get_revision(block.header.number, block.header.timestamp);
+
+    BOOST_OUTCOME_TRY(static_validate_block(rev, block));
+
+    size_t const transaction_count = block.transactions.size();
+    std::vector<boost::fibers::promise<void>> txn_sync_barriers(
+        transaction_count);
+
+    auto const sender_recovery_begin = std::chrono::steady_clock::now();
+    auto const recovered_senders =
+        recover_senders(block.transactions, priority_pool, txn_sync_barriers);
+    [[maybe_unused]] auto const sender_recovery_time =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - sender_recovery_begin);
+
+    std::vector<Address> senders(transaction_count);
+    for (unsigned i = 0; i < recovered_senders.size(); ++i) {
+        if (recovered_senders[i].has_value()) {
+            senders[i] = recovered_senders[i].value();
+        }
+        else {
+            return TransactionError::MissingSender;
+        }
+    }
+
+    // Ethereum: Each block executes on top of its parent proposal, except
+    // for the first block, which executes on the last finalized state. For
+    // every block, commit a proposal of round = block_number and block_id =
+    // blake3(consensus_header), then immediately finalize the proposal.
+    db.set_block_and_prefix(block.header.number - 1, parent_block_id);
+
+    BlockExecOutput exec_output;
+    BlockMetrics block_metrics;
+    BlockState block_state(db, vm);
+    record_exec_event(std::nullopt, MONAD_EXEC_BLOCK_PERF_EVM_ENTER);
+    BOOST_OUTCOME_TRY(
+        auto results,
+        execute_block(
+            chain,
+            rev,
+            block,
+            senders,
+            block_state,
+            block_hash_buffer,
+            priority_pool,
+            block_metrics,
+            txn_sync_barriers));
+    record_exec_event(std::nullopt, MONAD_EXEC_BLOCK_PERF_EVM_EXIT);
+
+    std::vector<Receipt> receipts(results.size());
+    std::vector<std::vector<CallFrame>> call_frames(results.size());
+    for (unsigned i = 0; i < results.size(); ++i) {
+        auto &result = results[i];
+        receipts[i] = std::move(result.receipt);
+        call_frames[i] = std::move(result.call_frames);
+    }
+
+    block_state.log_debug();
+    auto const commit_begin = std::chrono::steady_clock::now();
+    block_state.commit(
+        block_id,
+        consensus_header,
+        receipts,
+        call_frames,
+        senders,
+        block.transactions,
+        block.ommers,
+        block.withdrawals);
+    [[maybe_unused]] auto const commit_time =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - commit_begin);
+
+    exec_output.eth_header = db.read_eth_header();
+    BOOST_OUTCOME_TRY(
+        chain.validate_output_header(block.header, exec_output.eth_header));
+
+    db.finalize(block.header.number, block_id);
+    db.update_verified_block(block.header.number);
+
+    exec_output.eth_block_hash =
+        to_bytes(keccak256(rlp::encode_block_header(exec_output.eth_header)));
+    block_hash_buffer.set(
+        exec_output.eth_header.number, exec_output.eth_block_hash);
+
+    [[maybe_unused]] auto const block_time =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - block_begin);
+    LOG_INFO(
+        "__exec_block,bl={:8},ts={}"
+        ",tx={:5},rt={:4},rtp={:5.2f}%"
+        ",sr={:>7},txe={:>8},cmt={:>8},tot={:>8},tpse={:5},tps={:5}"
+        ",gas={:9},gpse={:4},gps={:3}{}",
+        block.header.number,
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            block_start.time_since_epoch())
+            .count(),
+        block.transactions.size(),
+        block_metrics.num_retries(),
+        100.0 * (double)block_metrics.num_retries() /
+            std::max(1.0, (double)block.transactions.size()),
+        sender_recovery_time,
+        block_metrics.tx_exec_time(),
+        commit_time,
+        block_time,
+        block.transactions.size() * 1'000'000 /
+            (uint64_t)std::max(1L, block_metrics.tx_exec_time().count()),
+        block.transactions.size() * 1'000'000 /
+            (uint64_t)std::max(1L, block_time.count()),
+        exec_output.eth_header.gas_used,
+        exec_output.eth_header.gas_used /
+            (uint64_t)std::max(1L, block_metrics.tx_exec_time().count()),
+        exec_output.eth_header.gas_used /
+            (uint64_t)std::max(1L, block_time.count()),
+        db.print_stats());
+
+    return exec_output;
+}
+
+// Historical Ethereum replay does not have consensus events like the Monad
+// chain, but we emit dummy versions because it reduces the difference for
+// event consuming code that waits to see a particular commitment state (e.g.,
+// finalized) before acting; the "blockcap" helper library (which only records
+// finalized blocks) is an example. This does not try to imitate the pipelined
+// operation of the Monad chain's consensus events
+static void emit_consensus_events(
+    bytes32_t const &block_id,
+    MonadConsensusBlockHeader const &consensus_header)
+{
+    monad_exec_block_qc const qc = {
+        .block_tag = {.id = block_id, .block_number = consensus_header.seqno},
+        .round = consensus_header.block_round + 1,
+        .epoch = consensus_header.epoch};
+    record_exec_event(std::nullopt, MONAD_EXEC_BLOCK_QC, qc);
+
+    monad_exec_block_finalized const finalized_info = {
+        .id = block_id, .block_number = consensus_header.seqno};
+    record_exec_event(std::nullopt, MONAD_EXEC_BLOCK_FINALIZED, finalized_info);
+
+    monad_exec_block_verified const verified_info = {
+        .block_number = consensus_header.seqno};
+    record_exec_event(std::nullopt, MONAD_EXEC_BLOCK_VERIFIED, verified_info);
+}
+
 Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
     Chain const &chain, std::filesystem::path const &ledger_dir, Db &db,
     vm::VM &vm, BlockHashBufferFinalized &block_hash_buffer,
@@ -77,125 +248,45 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
     uint64_t batch_gas = 0;
     auto batch_begin = std::chrono::steady_clock::now();
     uint64_t ntxs = 0;
-
+    uint256_t const chain_id = chain.get_chain_id();
     BlockDb block_db(ledger_dir);
     bytes32_t parent_block_id{};
+
     while (block_num <= end_block_num && stop == 0) {
-        [[maybe_unused]] auto const block_start =
-            std::chrono::system_clock::now();
-        auto const block_begin = std::chrono::steady_clock::now();
         Block block;
         MONAD_ASSERT_PRINTF(
             block_db.get(block_num, block),
             "Could not query %lu from blockdb",
             block_num);
 
-        BOOST_OUTCOME_TRY(chain.static_validate_header(block.header));
-
-        evmc_revision const rev =
-            chain.get_revision(block.header.number, block.header.timestamp);
-
-        BOOST_OUTCOME_TRY(static_validate_block(rev, block));
-
-        auto const sender_recovery_begin = std::chrono::steady_clock::now();
-        auto const recovered_senders =
-            recover_senders(block.transactions, priority_pool);
-        [[maybe_unused]] auto const sender_recovery_time =
-            std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::steady_clock::now() - sender_recovery_begin);
-        std::vector<Address> senders(block.transactions.size());
-        for (unsigned i = 0; i < recovered_senders.size(); ++i) {
-            if (recovered_senders[i].has_value()) {
-                senders[i] = recovered_senders[i].value();
-            }
-            else {
-                return TransactionError::MissingSender;
-            }
-        }
-        // Ethereum: Each block executes on top of its parent proposal, except
-        // for the first block, which executes on the last finalized state. For
-        // every block, commit a proposal of round = block_number and block_id =
-        // blake3(consensus_header), then immediately finalize the proposal.
-        db.set_block_and_prefix(block.header.number - 1, parent_block_id);
-        BlockState block_state(db, vm);
-        BlockMetrics block_metrics;
-        BOOST_OUTCOME_TRY(
-            auto results,
-            execute_block(
-                chain,
-                rev,
-                block,
-                senders,
-                block_state,
-                block_hash_buffer,
-                priority_pool,
-                block_metrics));
-
-        std::vector<Receipt> receipts(results.size());
-        std::vector<std::vector<CallFrame>> call_frames(results.size());
-        for (unsigned i = 0; i < results.size(); ++i) {
-            auto &result = results[i];
-            receipts[i] = std::move(result.receipt);
-            call_frames[i] = (std::move(result.call_frames));
-        }
-
-        block_state.log_debug();
-        auto const commit_begin = std::chrono::steady_clock::now();
+        // Generate a fake Monad consensus header for this historical
+        // Ethereum block
         auto const [consensus_header, block_id] =
             consensus_header_and_id_from_eth_header(block.header);
-        block_state.commit(
+        record_block_exec_start(
             block_id,
-            consensus_header,
-            receipts,
-            call_frames,
-            senders,
-            block.transactions,
-            block.ommers,
-            block.withdrawals);
-        [[maybe_unused]] auto const commit_time =
-            std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::steady_clock::now() - commit_begin);
-        auto const output_header = db.read_eth_header();
+            chain_id,
+            consensus_header.execution_inputs.parent_hash,
+            consensus_header.execution_inputs,
+            consensus_header.block_round,
+            consensus_header.epoch,
+            size(block.transactions));
+
+        // Call the main block execution subroutine and record the results
         BOOST_OUTCOME_TRY(
-            chain.validate_output_header(block.header, output_header));
+            BlockExecOutput const exec_output,
+            record_block_exec_result(process_ethereum_block(
+                chain,
+                db,
+                vm,
+                block_hash_buffer,
+                priority_pool,
+                consensus_header,
+                block,
+                block_id,
+                parent_block_id)));
 
-        db.finalize(block.header.number, block_id);
-        db.update_verified_block(block.header.number);
-
-        auto const h =
-            to_bytes(keccak256(rlp::encode_block_header(output_header)));
-        block_hash_buffer.set(block_num, h);
-
-        [[maybe_unused]] auto const block_time =
-            std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::steady_clock::now() - block_begin);
-        LOG_INFO(
-            "__exec_block,bl={:8},ts={}"
-            ",tx={:5},rt={:4},rtp={:5.2f}%"
-            ",sr={:>7},txe={:>8},cmt={:>8},tot={:>8},tpse={:5},tps={:5}"
-            ",gas={:9},gpse={:4},gps={:3}{}",
-            block.header.number,
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                block_start.time_since_epoch())
-                .count(),
-            block.transactions.size(),
-            block_metrics.num_retries(),
-            100.0 * (double)block_metrics.num_retries() /
-                std::max(1.0, (double)block.transactions.size()),
-            sender_recovery_time,
-            block_metrics.tx_exec_time(),
-            commit_time,
-            block_time,
-            block.transactions.size() * 1'000'000 /
-                (uint64_t)std::max(1L, block_metrics.tx_exec_time().count()),
-            block.transactions.size() * 1'000'000 /
-                (uint64_t)std::max(1L, block_time.count()),
-            output_header.gas_used,
-            output_header.gas_used /
-                (uint64_t)std::max(1L, block_metrics.tx_exec_time().count()),
-            output_header.gas_used / (uint64_t)std::max(1L, block_time.count()),
-            db.print_stats());
-
+        emit_consensus_events(block_id, consensus_header);
         ntxs += block.transactions.size();
         batch_num_txs += block.transactions.size();
         total_gas += block.header.gas_used;
