@@ -1,4 +1,5 @@
 #include <atomic>
+using uint = unsigned int;
 
 class SPSCQueue
 {
