@@ -26,7 +26,7 @@ for src in *.cpp *.hpp; do
  (deps (:input ${src}))
  (action
   (run cpp2v -v %{input} --no-elaborate -o ${base}.v
-             -- -stdlib=libc++ ${system_includes} )))
+             -- -stdlib=libstdc++ ${system_includes} )))
 
 (alias (name srcs) (deps ${src}))
 EOF

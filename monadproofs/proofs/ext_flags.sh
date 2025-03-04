@@ -1,45 +1,44 @@
 #!/usr/bin/env bash
 #
-# ext_flags.sh: Extract system include flags from Clang.
+# ext_flags.sh: Extract system include flags from Clang, ensuring -stdlib=libc++ works.
 
 set -euo pipefail
 
 getSystemPaths() {
     local args=()
     while [[ $# -gt 0 ]]; do
-        if [[ "$1" == "-isystem" ]]; then
-            args+=("$1")
+        if [[ "$1" =~ ^(-isystem)$ ]]; then
+            args+=("${BASH_REMATCH[1]}")
             shift
-            if [[ $# -gt 0 ]]; then
-                args+=("$1")
-            fi
-        elif [[ "$1" =~ ^-internal.*system.*$ ]]; then
+            args+=("$1")
+        elif [[ "$1" =~ ^(-internal.*system.*)$ ]]; then
+            args+=("-Xclang")
+            args+=("${BASH_REMATCH[1]}")
+            shift
             args+=("-Xclang")
             args+=("$1")
-            shift
-            if [[ $# -gt 0 ]]; then
-                args+=("-Xclang")
-                args+=("$1")
-            fi
         fi
         shift
     done
     echo "${args[@]}"
 }
 
-if [[ $# -gt 0 ]]; then
-    # If arguments are passed, parse them directly
-    getSystemPaths "$@"
-else
-    # Extract Clang system includes in a safe way
-    clang_args=$(clang++ -### -E -x c++ - < /dev/null 2>&1 | grep -Fv '(in-process)' | sed '5q;d')
+# 1) Capture all lines from Clang's verbose driver output with -stdlib=libc++
+clang_out="$(clang++ -### -E -x c++ -stdlib=libc++ - < /dev/null 2>&1 || true)"
 
-    # Ensure Clang actually produced output
-    if [[ -n "$clang_args" ]]; then
-        # Use eval + set -- to properly split the command output into separate arguments
-        eval set -- "$clang_args"
-        getSystemPaths "$@"
-    else
-        exit 1  # Fail if Clang did not return expected output
-    fi
-fi
+# 2) Remove any lines mentioning '(in-process)'
+clang_out="$(echo "$clang_out" | grep -Fv '(in-process)' || true)"
+
+# 3) Extract everything inside "double quotes" from all lines
+mapfile -t quoted_lines < <(echo "$clang_out" | grep -oE '"[^"]+"')
+
+# 4) Strip the surrounding quotes and store in an array
+tokens=()
+for item in "${quoted_lines[@]}"; do
+    no_quotes="${item#\"}"  # remove first quote
+    no_quotes="${no_quotes%\"}" # remove last quote
+    tokens+=( "$no_quotes" )
+done
+
+# 5) Pass these tokens to getSystemPaths
+getSystemPaths "${tokens[@]}"
