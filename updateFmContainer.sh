@@ -13,4 +13,4 @@ docker exec cppfvcoq sh -c "echo 'ulimit -Ss unlimited'  > editDemo2Prf.sh"
 docker exec cppfvcoq sh -c "echo 'emacs -nw fv-workspace/monad/proofs/demo2prf.v'  >> editDemo2Prf.sh"
 docker exec cppfvcoq chmod +x editDemo2Prf.sh
 docker exec cppfvcoq bash -login -c "cd /root/fv-workspace/monad; dune build"
-echo "Success. your docker image is now up to date"
+echo "Success. your docker container cppfvcoq is now up to date"

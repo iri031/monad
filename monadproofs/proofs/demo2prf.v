@@ -6,6 +6,7 @@ Require Import bedrock.auto.cpp.proof.
 Require Import bedrock.auto.cpp.tactics4.
 Require Import monad.proofs.misc.
 Require Import monad.proofs.demomisc.
+Require Import monad.proofs.atomic_specs.
 Require Import monad.proofs.demoprf.
 From AAC_tactics Require Import AAC.
 From AAC_tactics Require Import Instances.
@@ -19,61 +20,6 @@ Notation memory_order_seq_cst := 5.
 Section with_Sigma.
   Context `{Sigma:cpp_logic}  {CU: genv}.
   Context  {MODd : demo2.module ⊧ CU}.
-
-    #[ignore_errors]
-    cpp.spec "std::__atomic_base<int>::exchange(int, enum std::memory_order)"  as int_exchange_spec with
-            (λ this : ptr,
-       \arg{(x : Z)} "v" (Vint x)
-       \arg "order" (Vint memory_order_seq_cst)
-       \let pd := this ,, o_derived CU "std::__atomic_base<int>" "std::atomic<int>"  
-       \pre{Q : Z → mpred}
-         AC1 << ∀ y : Z, pd |-> atomicR "int" (cQp.mut 1) (Vint y)>> @ ⊤, ∅
-            << pd |-> atomicR "int" (cQp.mut 1) (Vint x), COMM Q y >> 
-       \post{y : Z}[Vint y]
-       Q y).
-
-    #[ignore_errors]
-    cpp.spec "std::__atomic_base<int>::load(enum std::memory_order) const"  as int_load_spec with
-            (λ this : ptr,
-       \let pd := this ,, o_derived CU "std::__atomic_base<int>" "std::atomic<int>"  
-       \arg "order" (Vint memory_order_seq_cst)
-       \pre{ (q:Qp) (InvOut : Z → mpred)}
-         AC1 << ∀ y : Z, pd |-> atomicR "int" q (Vint y)>> @ ⊤, ∅
-                      << pd |-> atomicR "int" q (Vint y), COMM InvOut y >> 
-       \post{y : Z}[Vint y]
-       InvOut y).
-    
-    #[ignore_errors]
-    cpp.spec "std::atomic<bool>::exchange(bool, enum std::memory_order)"  as exchange_spec with
-            (λ this : ptr,
-       \arg{(x : bool)} "v" (Vbool x)
-       \arg "order" (Vint memory_order_seq_cst)
-       \pre{Q : bool → mpred}
-         AC1 << ∀ y : bool, this |-> atomicR Tbool (cQp.mut 1) (Vbool y)>> @ ⊤, ∅
-            << this |-> atomicR Tbool (cQp.mut 1) (Vbool x), COMM Q y >> 
-       \post{y : bool}[Vbool y]
-       Q y).
-    
-    #[ignore_errors]
-    cpp.spec "std::atomic<bool>::store(bool, enum std::memory_order)"  as store_spec with
-        (λ this : ptr,
-       \arg{(Q : mpred) (x : bool)} "v" (Vbool x)
-       \arg "memorder" (Vint 5)
-       \pre
-         AC1 << ∀ y : bool, this |-> atomicR Tbool (cQp.mut 1) (Vbool y)>> @ ⊤, ∅
-            << this |-> atomicR Tbool (cQp.mut 1) (Vbool x), COMM Q >> 
-       \post    Q).
-
-    #[ignore_errors]
-    cpp.spec "std::__atomic_base<int>::store(int, enum std::memory_order)"  as int_store_spec with
-        (λ this : ptr,
-       \arg{(Q : mpred) (x : Z)} "v" (Vint x)
-       \let pd := this ,, o_derived CU "std::__atomic_base<int>" "std::atomic<int>"  
-       \arg "memorder" (Vint 5)
-       \pre
-         AC1 << ∀ y : Z, pd |-> atomicR "int" 1 (Vint y)>> @ ⊤, ∅
-            << pd |-> atomicR "int" 1 (Vint x), COMM Q >> 
-       \post Q).
 
 (*
 Hint Resolve learn_atomic_val : br_opacity.
@@ -519,7 +465,7 @@ Proof.   apply splitcinvq. Qed.
       ** int_store_spec
       ** int_load_spec
     |-- setGetU_spec_wrong.
-  Proof using MODd with (fold cQpc).
+  Proof using MODd with (fold cQpc; normalize_ptrs).
     verify_spec... (* [g340,371] [g551,558] *)
     slauto.
     repeat (iExists _); callAtomicCommit.
@@ -546,6 +492,7 @@ Proof.   apply splitcinvq. Qed.
     iApply fupd_mask_intro;[set_solver |];
       iIntrosDestructs.
     go.
+    go...
     closeCinvqs.
     go.
     iModIntro.
@@ -560,17 +507,17 @@ Proof.   apply splitcinvq. Qed.
       ).
 
   Lemma setGetU_prf: denoteModule module ** int_store_spec  ** int_load_spec |-- setGetU_spec.
-  Proof using MODd.
+  Proof using MODd with (fold cQpc; normalize_ptrs).
     verify_spec'.
     slauto.
     callAtomicCommitCinv.
-    go.
+    go... go.
     closeCinvqs.
     go.
     iModIntro.
     go.
     callAtomicCommitCinv.
-    go.
+    go... go.
     closeCinvqs.
     go.
     iModIntro.
@@ -589,11 +536,11 @@ cpp.spec "setThenGetU(int)" as setGetU_spec2 with (
 
   
   Lemma setGetU_prf_prime: denoteModule module ** int_store_spec  ** int_load_spec |-- setGetU_spec2.
-  Proof using MODd.
+  Proof using MODd with (fold cQpc; normalize_ptrs).
     verify_spec'.
     slauto.
     callAtomicCommitCinv.
-    go.
+    go... go.
     rename a into uvBeforeWrite.
     (* close inv at the end of u.exchange *)
     closeCinvqs... (* [g651,653 ; g604,609] [g651,653 ; g604,609; g690,701] *)
@@ -608,15 +555,15 @@ cpp.spec "setThenGetU(int)" as setGetU_spec2 with (
       ).
 
   Lemma setGetU_prf_prime: denoteModule module ** int_store_spec  ** int_load_spec |-- setGetU_spec_prime.
-  Proof using MODd.
+  Proof using MODd with (fold cQpc; normalize_ptrs).
     verify_spec'.
-    slauto.
+    slauto...
     callAtomicCommitCinv.
     go.
     closeCinvqs.
     go.
     iModIntro.
-    go.
+    go...
     callAtomicCommitCinv.
     go.
     rename a into uvAtLoad.
@@ -781,10 +728,11 @@ Definition ConcLListR (q:Qp) (invId: gname) (base:ptr) : mpred :=
 
   
   Lemma setGetU_prf2: denoteModule module ** int_store_spec  ** int_load_spec |-- setThenGet_spec2.
-  Proof using MODd with (fold cQpc).
+  Proof using MODd with (fold cQpc; normalize_ptrs).
     verify_spec'.
     unfold uAuthR, ucinv. work... (* [g440,476; g492,533; c4032,4043] *)
-    go.
+    slauto.
+    normalize_ptrs.
     callAtomicCommitCinv.
     rename a into uvinv... (* [g567,608] [g615,653; g331,343] *)
     (* [atomicR_combine] *)
@@ -807,7 +755,7 @@ Definition ConcLListR (q:Qp) (invId: gname) (base:ptr) : mpred :=
     applyToSomeHyp (Vint_inj).
     subst uvAtLoad.
     rewrite <- mut_mut_add.  rewrite Qp.half_half...
-    go.
+    go...
     closeCinvqs.
     go.
     iModIntro.
