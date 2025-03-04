@@ -5,5 +5,5 @@
   Lens Lens.Elpi Equations Equations.Prop Equations.Type
   bedrock iris stdpp elpi ExtLib Ltac2 AAC_tactics))
 
-(subdir proofs
+(subdir tutorials
 	(include dune.inc))

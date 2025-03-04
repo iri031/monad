@@ -1,10 +1,10 @@
-Require Import monad.proofs.demo2.
+Require Import monad.tutorials.demo2.
 Require Import bedrock.auto.invariants.
 Require Import bedrock.auto.cpp.proof.
 Require Import bedrock.auto.cpp.tactics4.
 Require Import monad.proofs.misc.
-Require Import monad.proofs.demomisc.
-Require Import monad.proofs.demoprf.
+Require Import monad.tutorials.demomisc.
+Require Import monad.tutorials.demoprf.
 From AAC_tactics Require Import AAC.
 From AAC_tactics Require Import Instances.
 Import Instances.Z.

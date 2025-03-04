@@ -33,14 +33,14 @@ M-i: jump to defnition. for this to work, the green region should at least cover
 *)
 
 
-Require Import monad.proofs.demo. (* monad/proofs/demo.v, the AST of monad/proofs/demo.cpp, produced by the cpp2v tool
+Require Import monad.tutorials.demo. (* monad/tutorials/demo.v, the AST of monad/tutorials/demo.cpp, produced by the cpp2v tool
 (https://github.com/bluerock-io/BRiCk/blob/master/rocq-bluerock-cpp2v/README.md) *)
 
 Require Import monad.proofs.misc. (* monad/proofs/misc.v *)
 Require Import bedrock.auto.invariants.
 Require Import bedrock.auto.cpp.proof.
 Require Import bedrock.auto.cpp.tactics4.
-Require Import monad.proofs.demomisc.
+Require Import monad.tutorials.demomisc.
 From AAC_tactics Require Import AAC.
 From AAC_tactics Require Import Instances.
 Import Instances.Z.
