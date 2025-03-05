@@ -1,3 +1,5 @@
+set +x
+set -e
 rm -rf build
 CC=clang-18 CXX=clang++-18 cmake \
     -DCMAKE_TOOLCHAIN_FILE:STRING=libs/core/toolchains/gcc-avx2.cmake \
