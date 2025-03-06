@@ -170,6 +170,13 @@ void monad_statesync_client_handle_proof(
     ctx->proofs[prefix] = {data, data + size};
 }
 
+void monad_statesync_client_restore_prefix(
+    monad_statesync_client_context *const ctx, uint64_t const prefix)
+{
+    auto bytes = from_prefix(prefix, monad_statesync_client_prefix_bytes());
+    ctx->restore_prefix(bytes);
+}
+
 bool monad_statesync_client_finalize(monad_statesync_client_context *const ctx)
 {
     auto const &tgrt = ctx->tgrt;
