@@ -13,7 +13,7 @@ public:
 
     // Push a value into the buffer (from the producer thread).
     // Returns true on success, false if the buffer is full.
-    bool push(uint32_t value)
+    bool push(int value)
     {
         uint tail = tail_.load();
         uint nextTail = (tail + 1) % CAPACITY;
@@ -31,7 +31,7 @@ public:
         return true;
     }
 
-    bool pop(uint32_t &value)
+    bool pop(int &value)
     {
         uint head = head_.load();
 
@@ -70,5 +70,5 @@ private:
     std::atomic<uint> tail_;
 
     // Fixed-size storage for the ring buffer.
-    uint buffer_[CAPACITY];
+    int buffer_[CAPACITY];
 };

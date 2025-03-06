@@ -1,6 +1,6 @@
  (*specs/proofs of /root/fv-workspace/monad/proofs/demo2.cpp *)
 
-Require Import monad.tutorials.demo2.
+Require Import monad.tutorials.demo3.
 Require Import bedrock.auto.invariants.
 Require Import bedrock.auto.cpp.proof.
 Require Import bedrock.auto.cpp.tactics4.
@@ -8,21 +8,123 @@ Require Import monad.proofs.misc.
 Require Import monad.tutorials.demomisc.
 Require Import monad.tutorials.atomic_specs.
 Require Import monad.tutorials.demoprf.
+Require Import monad.proofs.stsg.
 From AAC_tactics Require Import AAC.
 From AAC_tactics Require Import Instances.
 Import Instances.Z.
 Import cQp_compat.
 Import Verbose.
 Import linearity.
+(* Agnostic to how many producers/consumers there are *)
+Module QueueModel.
+  Section Cap. Variable (capacity: nat).
+
+  Record State :=
+    {
+      produced: list Z;
+      consumedPrefixLen: nat;
+    }.
+
+  Definition full (s: State) : Prop :=
+    length (produced s) - consumedPrefixLen s < capacity.
+  
+  Definition empty (s: State) : Prop :=
+    length (produced s) = consumedPrefixLen s.
+
+  Inductive step : State -> State -> Prop :=
+  | produce: forall (newItem:Z) (prev: State),
+      (¬ full prev) -> step prev
+                            {| produced := newItem::(produced prev);
+                                    consumedPrefixLen := consumedPrefixLen prev |}
+  | consume: forall (newItem:Z) (prev: State),
+      (¬ empty prev) -> step prev
+                             {| produced := produced prev;
+                                 consumedPrefixLen := 1+ consumedPrefixLen prev |}.
+    
+(* when we do MPSC queues, the simulation will become the main spec *)
+
+  Definition sts : stsT :=
+    @stsg.Sts State Empty_set 
+      (fun keys_owned_by_transition_initiator init_state final_state =>
+         step init_state final_state).
+
+  
+  End Cap.
+End QueueModel.
+      
 
 Section with_Sigma.
   Context `{Sigma:cpp_logic}  {CU: genv}.
-  Context  {MODd : demo2.module ⊧ CU}.
+  Context  {MODd : demo3.module ⊧ CU}.
 
-(*
-Hint Resolve learn_atomic_val : br_opacity.
-*)  
-  Open Scope Z_scope.
+  Context (capacity:nat) `{sss: !stsG (QueueModel.sts capacity)}.
+  Notation qsts := (QueueModel.sts capacity).
+  Notation "a |--> r" := (own a r) (at level 80).
+  Definition auth (g:gname) (s: sts.state qsts): mpred:=
+    g |--> sts_auth s ∅.
+  
+  Definition ProducerR (l: list Z) : Rep. Admitted.
+  Definition ConsumerR (l: list Z) : Rep. Admitted.
+  
+  cpp.spec "SPSCQueue::push(int)" as pushq with (fun (this:ptr)=>
+    \arg{value} "value" (Vint value)
+    \pre{prodHistory: list Z} this |-> ProducerR prodHistory
+    \post{retb:bool} [Vbool retb]
+                  if retb
+                  then this |-> ProducerR (value::prodHistory)
+                  else this |-> ProducerR prodHistory).
+  
+  cpp.spec "SPSCQueue::pop(int&)" as popq with (fun (this:ptr)=>
+    \arg{valuep} "value" (Vptr valuep)
+    \pre{consumeHistory: list Z} this |-> ConsumerR consumeHistory
+    \pre valuep |-> anyR "int" 1  
+    \post Exists value:Z, valuep |-> primR "int" 1 value ** this |-> ConsumerR (value::consumeHistory)
+    ).
+
+  (* transfer extra resource. only cover this if we have time *)
+  Definition ProducerRg (l: list Z) (R: list Z-> mpred) : Rep. Admitted.
+  Definition ConsumerRg (l: list Z) (R: list Z-> mpred) : Rep. Admitted.
+  
+  cpp.spec "SPSCQueue::push(int)" as pushqg with (fun (this:ptr)=>
+    \arg{value} "value" (Vint value)
+    \pre{(prodHistory: list Z) (R: list Z-> mpred)} this |-> ProducerRg prodHistory R
+    \pre R (value::prodHistory)
+    \post{retb:bool} [Vbool retb]
+                  if retb
+                  then this |-> ProducerRg (value::prodHistory) R
+                  else R (value::prodHistory) ** this |-> ProducerRg prodHistory R).
+  Locate sts.
+  cpp.spec "SPSCQueue::pop(int&)" as popq with (fun (this:ptr)=>
+    \arg{valuep} "value" (Vptr valuep)
+    \pre{consumeHistory: list Z} this |-> ConsumerR consumeHistory
+    \pre valuep |-> anyR "int" 1  
+    \post Exists value:Z, valuep |-> primR "int" 1 value ** this |-> ConsumerR (value::consumeHistory)
+    ).
+  
+  Record spscqid :=
+    {
+      invId : gname;
+      producedListLoc: gname;
+      consumedIndexLoc: gname;
+    }.
+
+  Definition SPSCQueueInv1 : Rep :=
+    Exists (items: list Z) (head: nat) (tail:nat) (inProduceOp inConsumeOp: bool),
+      (* ownership of active cells *)
+      [∗ list] i↦  item ∈ (skipn 1 items),  _field "bufer".["int" ! ((1+head + i) `mod` 256)] |-> primR "int"  1 (Vint item)
+      (* ownership of to-be consumed cell *)
+      ** (if inConsumeOp then emp else _field "buffer".["int" ! head ] |->  primR "int"  1 (hd 0 items))
+      (* ownership of inactive cells *)
+      ** [∗ list] i↦  _ ∈ (seq 0 (256-length items-2)),  _field "bufer".["int" ! (1+tail + i) `mod` 256 ] |-> anyR "int" 1
+      (* ownership of to-be produced cell *)
+      ** (if inProduceOp then emp else _field "buffer".["int" ! tail ] |-> anyR "int" 1).
+   
+  Definition SPSCQProducerR  (sid: spscqid) : Rep :=
+    
+    as_Rep (fun this => 
+              cinv (invId sid) (1/2)
+            )
+  cpp.spec ""
   Set Nested Proofs Allowed.
 
   (**  *Arrays
