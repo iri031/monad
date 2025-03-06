@@ -82,30 +82,37 @@ Section with_Sigma.
     ).
 
   (* transfer extra resource. only cover this if we have time *)
-  Definition ProducerRg (l: list Z) (R: list Z-> mpred) : Rep. Admitted.
-  Definition ConsumerRg (l: list Z) (R: list Z-> mpred) : Rep. Admitted.
+  Definition ProducerRg (l: list Z) (R: Z -> list Z-> mpred) : Rep. Admitted.
+  Definition ConsumerRg (l: list Z) (R: Z -> list Z-> mpred) : Rep. Admitted.
   
   cpp.spec "SPSCQueue::push(int)" as pushqg with (fun (this:ptr)=>
     \arg{value} "value" (Vint value)
-    \pre{(prodHistory: list Z) (R: list Z-> mpred)} this |-> ProducerRg prodHistory R
-    \pre R (value::prodHistory)
+    \pre{(prodHistory: list Z) (R: Z -> list Z-> mpred)} this |-> ProducerRg prodHistory R
+    \pre R value prodHistory
     \post{retb:bool} [Vbool retb]
                   if retb
                   then this |-> ProducerRg (value::prodHistory) R
-                  else R (value::prodHistory) ** this |-> ProducerRg prodHistory R).
+                  else R value prodHistory ** this |-> ProducerRg prodHistory R).
   Locate sts.
-  cpp.spec "SPSCQueue::pop(int&)" as popq with (fun (this:ptr)=>
+  cpp.spec "SPSCQueue::pop(int&)" as popqg with (fun (this:ptr)=>
     \arg{valuep} "value" (Vptr valuep)
-    \pre{consumeHistory: list Z} this |-> ConsumerR consumeHistory
+    \pre{(consumeHistory: list Z) (R: Z -> list Z-> mpred)} this |-> ConsumerRg consumeHistory R
     \pre valuep |-> anyR "int" 1  
-    \post Exists value:Z, valuep |-> primR "int" 1 value ** this |-> ConsumerR (value::consumeHistory)
+    \post Exists value:Z,
+         R value consumeHistory
+         ** valuep |-> primR "int" 1 value
+         ** this |-> ConsumerRg (value::consumeHistory) R
     ).
   
   Record spscqid :=
     {
       invId : gname;
+      (*
       producedListLoc: gname;
       consumedIndexLoc: gname;
+       *)
+      inProduce: gname;
+      inConsume: gname;
     }.
 
   Definition SPSCQueueInv1 : Rep :=
@@ -119,6 +126,32 @@ Section with_Sigma.
       (* ownership of to-be produced cell *)
       ** (if inProduceOp then emp else _field "buffer".["int" ! tail ] |-> anyR "int" 1).
    
+  Notation cinvr invId q R:=
+    (as_Rep (fun this:ptr => cinv invId q (this |-> R))).
+
+  Notation logicalR := (to_frac_ag).
+ Context {hsss: HasOwn mpredI (frac.fracR bool)}.
+  
+  Definition ProducerRw (cid: spscqid): Rep :=
+    cinvr (invId cid) (1/2) SPSCQueueInv1
+      ** pureR (inProduce cid |--> logicalR (1/2) false).
+  
+  Definition ConsumerRw : Rep. Admitted.
+  
+  cpp.spec "SPSCQueue::push(int)" as pushq with (fun (this:ptr)=>
+    \arg{value} "value" (Vint value)
+    \pre{prodHistory: list Z} this |-> ProducerR prodHistory
+    \post{retb:bool} [Vbool retb]
+                  if retb
+                  then this |-> ProducerR (value::prodHistory)
+                  else this |-> ProducerR prodHistory).
+  
+  cpp.spec "SPSCQueue::pop(int&)" as popq with (fun (this:ptr)=>
+    \arg{valuep} "value" (Vptr valuep)
+    \pre{consumeHistory: list Z} this |-> ConsumerR consumeHistory
+    \pre valuep |-> anyR "int" 1  
+    \post Exists value:Z, valuep |-> primR "int" 1 value ** this |-> ConsumerR (value::consumeHistory)
+    ).
   Definition SPSCQProducerR  (sid: spscqid) : Rep :=
     
     as_Rep (fun this => 
@@ -511,8 +544,6 @@ Parent: Child.join
 (** *cinv : concurrent invariants *)
   
 
-  Notation cinvr invId q R:=
-        (as_Rep (fun this:ptr => cinv invId q (this |-> R))).
 
   (*
   Definition cinvr (invId: gname) (q:Qp) (R:Rep) :Rep  :=
