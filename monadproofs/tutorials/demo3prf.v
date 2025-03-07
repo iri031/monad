@@ -112,7 +112,11 @@ Section with_Sigma.
   (* roles of logical locations:
      - track info not in c++ variables, e.g. progress towards an op (typicall more abstract that program counter)
      - expose a higher-level state to the client
-     - enforce complex protocols
+     - enforce complex protocols.
+
+so far in spscqueue, consumer has authorirative ownership of head and frag of tail , producer has authorirative over tail, fragmentary over head. same as last time.
+we can control what current values are.
+we cannot control how the values are updated: e.g numConsumed can only be incremented by the consumer  
    *)
   Record qlptr :=
     {
@@ -148,9 +152,10 @@ Section with_Sigma.
       ** _field "SPSCQueue::tail_" |-> atomicR uint 1 (numProduced `mod` cap)
       **
       (* ownership of active cells *)
-      ([∗ list] i↦  item ∈ currItems,  _field "buffer".["int" ! ((numConsumedAll + i) `mod` cap)] |-> primR "int"  1 (Vint item))
+      ([∗ list] i↦  item ∈ currItems,  _field "SPSCQueue::buffer_".["int" ! ((numConsumedAll + i) `mod` cap)] |-> primR "int"  1 (Vint item))
       (* ownership of inactive cells *)
-      ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFullyFree)),  _field "buffer".["int" ! (numProducedAll + i) `mod` cap ] |-> anyR "int" 1).
+      ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFullyFree)),  _field "SPSCQueue::buffer_".["int" ! (numProducedAll + i) `mod` cap ] |-> anyR "int" 1)
+      ** _field "SPSCQueue::buffer_".[ "int" ! cap ] |-> validR .
    
   Notation cinvr invId q R:=
     (as_Rep (fun this:ptr => cinv invId q (this |-> R))).
@@ -278,7 +283,7 @@ Qed.
                     ** uint_store_spec
                     ** uint_load_spec
                     |-- pushqw.
-  Proof using.
+  Proof using MODd with (fold cQpc; normalize_ptrs).
     verify_spec'.
     slauto.
     unfold ProducerRw. go.
@@ -292,7 +297,8 @@ Qed.
     { (* overflow *)
       closeCinvqs.
       go.
-      ego.
+      ego...
+      go.
       iModIntro.
       go.
       callAtomicCommitCinv.
@@ -310,7 +316,8 @@ Qed.
       wapply (logicalR_update (inProduceLoc lpp) true). eagerUnifyU. go.
       closeCinvqs.
       go.
-      ego.
+      ego...
+      go.
       IPM.perm_left ltac:(fun L n =>
         match L with
         | context [seqN 0 ?l] => 
@@ -346,65 +353,31 @@ Qed.
       ego.
       iModIntro.
       slauto.
+      callAtomicCommitCinv.
       go.
-      wp_if.
-      Ltac closedN := closed.norm closed.numeric_types .
-      1:{ intros. apply False_rect.
-
-fgptsto
-lia.
-go.
-work.
-Opaque has_type_prop.
-go.
-unfold bitsize.bound. simpl.
-go.
-Opaque valid..
-go.
-Locate zify_saturate.
-      Saturate
-      Arith.arith_solve
+      wapply (logicalR_update (inProduceLoc lpp) false). eagerUnifyU. go.
+      wapply (logicalR_update (producedListLoc lpp) (_v_3++[value])). eagerUnifyU. go.
+      closeCinvqs.
       go.
-    wapply (half_half_update (inProduceLoc lpp)). unfold fgptsto. eagerUnifyC.
-    Set Printing Coercions.
-    eagerUnifyUC.
-    Search fgptsto.
-    
-    
-    
-    go.
-    Set Printing Coercions.
-    instantiate (1:=1%Qp).
-    go.
-    Set Nested Proofs Allowed.
-    
-    #[global] Instance bool_0_refine2 y x : Refine1 true true (Vint (Z.of_nat x) = Vint y) [y = Z.to_nat x].
-    Proof using.
-      split; auto; intros; repeat constructor; try lia;
-        inversion H; try lia.
-      f_equal. lia.
-    Qed.
-    go.
-    go.
-    Search atomicR Learnable.
-
-    
-    
-    Search Refine1.
-    
-    work.
-    go.
-    
-      Search Forall.
-      - constructor.
-      aot
+      iExists ((_v_3++[value])).
+      ego. eagerUnifyU. go.
+      Search lengthN app.
+      Hint Rewrite @lengthN_app @lengthN_one: syntactic.
+      slauto.
+      simpl.
+      rename _v_4 into numConsumedAtStore.
+      rename _v_3 into producedL.
+      provePure.
+      { 
+        split; try nia.
+        rename numConsumed into numConsumedHeadAtLoad.
+        assert ((lengthN producedL + 1)%N - numConsumedHeadAtLoad ≤ 255) by lia.
+        Fail Arith.arith_solve.
+        assert (numConsumedHeadAtLoad <= numConsumedAtStore) by admit.  (* NOT PROVABLE *)
+        lia.
+      }
       go.
-  Proof.
-
-    Search 
-    Locate "`mod`".
-    
-    go.
+      
     
   cpp.spec "SPSCQueue::pop(int&)" as popq with (fun (this:ptr)=>
     \arg{valuep} "value" (Vptr valuep)
