@@ -227,69 +227,37 @@ Instance SatMod : Saturate Nat.modulo :=
     PRes  := fun _ y r => (r <y)%nat;
     SatOk := zifyModNat
   |}.
-    
-      Hint Rewrite Z2N.id using lia: syntactic.
-  Lemma pushqprf: denoteModule module
-                    ** uint_store_spec
-                    ** uint_load_spec
-                    |-- pushqw.
-  Proof using.
-    verify_spec'.
-    slauto.
-    unfold ProducerRw. go.
-    unfold SPSCQueueInv1. go.
-    callAtomicCommitCinv.
-    ren_hyp producedL (list Z).
-    ren_hyp numConsumed N.
-    normalize_ptrs. go.
-    destruct (decide (lengthN producedL = Z.to_N (numConsumed + (cap-1)))).
-    { (* overflow *)
-      closeCinvqs.
-      go.
-      ego.
-      iModIntro.
-      go.
-      callAtomicCommitCinv.
-      go.
-      closeCinvqs.
-      go.
-      ego.
-      eagerUnifyU.
-      iModIntro.
-      name_locals.
-      slauto.
-      wp_if;[go|].
-      intros.
-      apply False_rect.
-      rewrite e in q.
-      apply q.
-      Set Printing Coercions.
-      autorewrite with syntactic.
-      Arith.arith_solve.
-    }
-    {
-      go.
-      wapply (logicalR_update (inProduceLoc lpp) true). eagerUnifyU. go.
-      closeCinvqs.
-      go.
-      ego.
-      IPM.perm_left ltac:(fun L n =>
-                            match L with
-                            | context [seqN 0 ?l] => 
-                                IPM.perm_right ltac:(fun R n =>
-                                     match R with
-                                     | context [seqN 0 ?r] => assert (l=1+r)%N as Heq
-                                                                     by Arith.arith_solve
-                                     end
-                                     )
-                            end
-                         ).
-      rewrite Heq.
-      rewrite N.add_1_l.
-      rewrite seqN_S_start.
-      go.
-      closed.norm closed.numeric_types.
-      Search seq map.
+
+Lemma add_mod_both_sides (c a b d:Z) :
+  0 < d
+  -> a `mod` d = b `mod` d
+  -> (a+c) `mod` d = (b+c) `mod` d.
+Proof using.
+  intros Ha Hb.
+  rewrite Zplus_mod.
+  symmetry.
+  rewrite Zplus_mod.
+  rewrite Hb.
+  reflexivity.
+Qed.
+          
+Hint Rewrite Z2N.id using lia: syntactic.
+Lemma spsc_mod_iff (len numConsumed:N):
+  (numConsumed <= len /\ len - numConsumed <= cap - 1) ->
+  len = Z.to_N (Z.of_N numConsumed + 255)
+  <-> (len `mod` 256 + 1) `mod` 256 = Z.of_N numConsumed `mod` 256.
+Proof using.
+  intros.
+  split; intros Hyp.
+  -  subst. autorewrite with syntactic. Arith.arith_solve.
+  -   apply (add_mod_both_sides 255) in Hyp; try lia.
+      replace (len `mod` 256 + 1 + 255) with (len `mod` 256 + 256) in Hyp by lia.
+      revert Hyp.
+      mod_simpl_aux faster_lia.
+      intros Hyp.
+      apply modulo.zmod_inj in Hyp; try nia.
+Qed.
+
       Lemma seqN_shift: ∀ start len : N, map N.succ (seqN start len) = seqN (N.succ start) len.
       Proof using.
         intros.
@@ -305,17 +273,70 @@ Instance SatMod : Saturate Nat.modulo :=
         f_equiv.
         hnf. intros. lia.
       Qed.
-      rewrite <- (seqN_shift 0).
-      rewrite big_opL_map.
+
+  Lemma pushqprf: denoteModule module
+                    ** uint_store_spec
+                    ** uint_load_spec
+                    |-- pushqw.
+  Proof using.
+    verify_spec'.
+    slauto.
+    unfold ProducerRw. go.
+    unfold SPSCQueueInv1. go.
+    callAtomicCommitCinv.
+    ren_hyp producedL (list Z).
+    ren_hyp numConsumed N.
+    normalize_ptrs. go.
+    pose proof (spsc_mod_iff (lengthN producedL) numConsumed ltac:(auto)).
+    destruct (decide (lengthZ producedL = (numConsumed + (cap-1)))).
+    { (* overflow *)
+      closeCinvqs.
       go.
-      simpl.
+      ego.
+      iModIntro.
+      go.
+      callAtomicCommitCinv.
+      go.
+      closeCinvqs.
+      go.
+      ego.
+      eagerUnifyU.
+      iModIntro.
+      name_locals.
+      slauto.
+    }
+    {
+      go.
+      wapply (logicalR_update (inProduceLoc lpp) true). eagerUnifyU. go.
+      closeCinvqs.
+      go.
+      ego.
+      IPM.perm_left ltac:(fun L n =>
+        match L with
+        | context [seqN 0 ?l] => 
+            IPM.perm_right ltac:(fun R n =>
+                 match R with
+                 | context [seqN 0 ?r] => assert (l=1+r)%N as Heq
+                                                 by Arith.arith_solve
+                 end
+                 )
+        end).
+      rewrite Heq.
+      rewrite N.add_1_l.
+      rewrite seqN_S_start.
+      go.
+      closed.norm closed.numeric_types.
+      rewrite <- (seqN_shift 0).
+      work.
+      rewrite big_opL_map.
       icancel (cancel_at this).
       {
         do 7 (f_equiv; intros; hnf).
         lia.
       }
-      autorewrite with syntactic.
+      Arguments cinvq {_} {_} {_} {_} {_} {_} {_}.
       go...
+      autorewrite with syntactic.
       iModIntro.
       go.
       callAtomicCommitCinv.
@@ -325,27 +346,10 @@ Instance SatMod : Saturate Nat.modulo :=
       ego.
       iModIntro.
       slauto.
+      go.
       wp_if.
-      autorewrite with syntactic in *.
-      2:{ intros. apply False_rect.
-          apply q.
-          revert n.
-          Lemma foo (len:N):
-              len ≠ Z.to_N (Z.of_N numConsumed + 255)
-  → (lengthZ _v_0 `mod` 256 + 1) `mod` 256 = Z.of_N numConsumed `mod` 256
-      
-        
-      simpl
-      Search seqN.
-      autorewrite with syntactic.
-      Set Printing Coercions.
-      Print lengthZ.
-      nia.
-      lia.
-      Arith.arith_solve.
-     eagerUnifyU.
-    fracG bool
-  Qed.
+      Ltac closedN := closed.norm closed.numeric_types .
+      1:{ intros. apply False_rect.
 
 fgptsto
 lia.
