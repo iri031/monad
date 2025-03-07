@@ -123,11 +123,11 @@ Section with_Sigma.
       inConsumeLoc: gname;
     }.
   Notation logicalR := (to_frac_ag).
-  Context {hsssb: HasOwn mpredI (frac.fracR bool)}.
-  Context {hssslz: HasOwn mpredI (frac.fracR (list Z))}.
-  Context {hsssln: HasOwn mpredI (frac.fracR N)}.
+  Context {hsssb: fracG bool _}.
+  Context {hssslz: fracG (list Z) _}.
+  Context {hsssln: fracG N _}.
 
-  Definition bool_to_nat (b: bool) : Z := if b then 0 else 1.
+  Definition bool_to_nat (b: bool) : Z := if b then 1 else 0.
 
   Notation cap := (256).
   Definition SPSCQueueInv1 (cid: qlptr) : Rep :=
@@ -148,9 +148,9 @@ Section with_Sigma.
       ** _field "SPSCQueue::tail_" |-> atomicR uint 1 (numProduced `mod` cap)
       **
       (* ownership of active cells *)
-      [∗ list] i↦  item ∈ currItems,  _field "buffer".["int" ! ((numConsumedAll + i) `mod` cap)] |-> primR "int"  1 (Vint item)
+      ([∗ list] i↦  item ∈ currItems,  _field "buffer".["int" ! ((numConsumedAll + i) `mod` cap)] |-> primR "int"  1 (Vint item))
       (* ownership of inactive cells *)
-      ** [∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFullyFree)),  _field "buffer".["int" ! (numProducedAll + i) `mod` cap ] |-> anyR "int" 1.
+      ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFullyFree)),  _field "buffer".["int" ! (numProducedAll + i) `mod` cap ] |-> anyR "int" 1).
    
   Notation cinvr invId q R:=
     (as_Rep (fun this:ptr => cinv invId q (this |-> R))).
@@ -188,7 +188,7 @@ Section with_Sigma.
   Opaque Nat.modulo.
 
   Section Hints.
-    Context {T:Type} {ff : HasOwn mpredI (frac.fracR T)}. (* {fff: fracG T   _Σ} *)
+    Context {T:Type} {ff : fracG T _}. (* {fff: fracG T   _Σ} *)
   (* Move and generalize colocate with [fgptsto_update]*)
   Lemma half_combine  (m1 m2:T) g q:
 ((g |--> logicalR (q / 2) m1):mpred) ∗ g |--> logicalR (q / 2) m2 ⊢ (g |--> logicalR q m1) ∗ [| m2 = m1 |].    
@@ -198,6 +198,8 @@ Section with_Sigma.
     g |--> logicalR q m |-- ((g |--> logicalR (q / 2) m):mpred) ** ((g |--> logicalR (q / 2) m)).
   Proof.
   Admitted.
+  Lemma logicalR_update (l : gname) (v' v : T) : l |--> logicalR 1 v |-- |==> l |--> logicalR 1 v'.
+  Proof. apply @own_update; try exact _. apply cmra_update_exclusive. done. Qed.
 
   Definition ownhalf_combineF := [FWD->] half_combine.
   Definition ownhalf_splitC := [CANCEL] half_split.
@@ -226,6 +228,7 @@ Instance SatMod : Saturate Nat.modulo :=
     SatOk := zifyModNat
   |}.
     
+      Hint Rewrite Z2N.id using lia: syntactic.
   Lemma pushqprf: denoteModule module
                     ** uint_store_spec
                     ** uint_load_spec
@@ -258,15 +261,90 @@ Instance SatMod : Saturate Nat.modulo :=
       wp_if;[go|].
       intros.
       apply False_rect.
-      Arith.remove_useless_mod_a.
       rewrite e in q.
       apply q.
       Set Printing Coercions.
-      Hint Rewrite Z2N.id using lia: syntactic.
       autorewrite with syntactic.
       Arith.arith_solve.
     }
-    
+    {
+      go.
+      wapply (logicalR_update (inProduceLoc lpp) true). eagerUnifyU. go.
+      closeCinvqs.
+      go.
+      ego.
+      IPM.perm_left ltac:(fun L n =>
+                            match L with
+                            | context [seqN 0 ?l] => 
+                                IPM.perm_right ltac:(fun R n =>
+                                     match R with
+                                     | context [seqN 0 ?r] => assert (l=1+r)%N as Heq
+                                                                     by Arith.arith_solve
+                                     end
+                                     )
+                            end
+                         ).
+      rewrite Heq.
+      rewrite N.add_1_l.
+      rewrite seqN_S_start.
+      go.
+      closed.norm closed.numeric_types.
+      Search seq map.
+      Lemma seqN_shift: ∀ start len : N, map N.succ (seqN start len) = seqN (N.succ start) len.
+      Proof using.
+        intros.
+        unfold seqN.
+        rewrite map_fmap.
+        rewrite N2Nat.inj_succ.
+        rewrite <- seq_shift.
+        Search list_fmap map.
+        rewrite map_fmap.
+        Search fmap.
+        repeat rewrite <- list_fmap_compose.
+        unfold compose.
+        f_equiv.
+        hnf. intros. lia.
+      Qed.
+      rewrite <- (seqN_shift 0).
+      rewrite big_opL_map.
+      go.
+      simpl.
+      icancel (cancel_at this).
+      {
+        do 7 (f_equiv; intros; hnf).
+        lia.
+      }
+      autorewrite with syntactic.
+      go...
+      iModIntro.
+      go.
+      callAtomicCommitCinv.
+      go.
+      closeCinvqs.
+      go.
+      ego.
+      iModIntro.
+      slauto.
+      wp_if.
+      autorewrite with syntactic in *.
+      2:{ intros. apply False_rect.
+          apply q.
+          revert n.
+          Lemma foo (len:N):
+              len ≠ Z.to_N (Z.of_N numConsumed + 255)
+  → (lengthZ _v_0 `mod` 256 + 1) `mod` 256 = Z.of_N numConsumed `mod` 256
+      
+        
+      simpl
+      Search seqN.
+      autorewrite with syntactic.
+      Set Printing Coercions.
+      Print lengthZ.
+      nia.
+      lia.
+      Arith.arith_solve.
+     eagerUnifyU.
+    fracG bool
   Qed.
 
 fgptsto
