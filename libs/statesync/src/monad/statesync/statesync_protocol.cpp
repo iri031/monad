@@ -148,7 +148,8 @@ MONAD_ANONYMOUS_NAMESPACE_END
 MONAD_NAMESPACE_BEGIN
 
 void StatesyncProtocolV1::send_request(
-    monad_statesync_client_context *const ctx, uint64_t const prefix) const
+    monad_statesync_client_context *const ctx, uint64_t const prefix,
+    bool const is_retry) const
 {
     auto const tgrt = ctx->tgrt.number;
     auto const &[progress, old_target] = ctx->progress[prefix];
@@ -160,6 +161,7 @@ void StatesyncProtocolV1::send_request(
         monad_sync_request{
             .prefix = prefix,
             .prefix_bytes = monad_statesync_client_prefix_bytes(),
+            .is_retry = is_retry,
             .target = tgrt,
             .from = from,
             .until = from >= (tgrt * 99 / 100) ? tgrt : tgrt * 99 / 100,

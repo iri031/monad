@@ -51,8 +51,33 @@ size_t monad_statesync_client_prefixes()
     return 1 << (8 * monad_statesync_client_prefix_bytes());
 }
 
+Result<void> monad_statesync_client_verify_prefix(
+    monad_statesync_client_context *const ctx, NibblesView const key,
+    byte_string const &encoded_proof)
+{
+    BOOST_OUTCOME_TRY(
+        monad::mpt2::verify_proof(key, ctx->tgrt.state_root, encoded_proof));
+
+    auto version = ctx->db.get_latest_block_id();
+    auto root = ctx->db.load_root_for_version(version);
+    MONAD_ASSERT(root.is_valid());
+    auto res =
+        ctx->db.find(root, concat(finalized_nibbles, STATE_NIBBLE), version);
+    MONAD_ASSERT(res.has_value());
+    auto state_root = res.value();
+    return ctx->db.verify_prefix_blocking(
+        state_root, key, ComputeAccountLeaf::compute, encoded_proof);
+}
+
+void monad_statesync_client_restore_prefix(
+    monad_statesync_client_context *const ctx, uint64_t const prefix)
+{
+    auto bytes = from_prefix(prefix, monad_statesync_client_prefix_bytes());
+    ctx->restore_prefix(bytes);
+}
+
 bool monad_statesync_client_has_reached_target(
-    monad_statesync_client_context const *const ctx)
+    monad_statesync_client_context *const ctx)
 {
     if (ctx->tgrt.number == INVALID_BLOCK_ID) {
         return false;
@@ -64,6 +89,31 @@ bool monad_statesync_client_has_reached_target(
             return false;
         }
     }
+
+    std::vector<uint64_t> failures;
+    // if not syncing to genesis, verify all prefixes
+    if (ctx->tgrt.number != 0 &&
+        ctx->tgrt.number != ctx->db.get_latest_block_id()) {
+        for (auto i = 0ul; i < monad_statesync_client_prefixes(); ++i) {
+            auto bytes = from_prefix(i, monad_statesync_client_prefix_bytes());
+            auto key = NibblesView{bytes};
+            if (monad_statesync_client_verify_prefix(ctx, key, ctx->proofs[i])
+                    .has_error()) {
+                LOG_ERROR("prefix {} failed verification", i);
+                failures.push_back(i);
+            }
+        }
+    }
+    if (!failures.empty()) {
+        for (auto const i : failures) {
+            monad_statesync_client_restore_prefix(ctx, i);
+            ctx->progress[i] = {
+                ctx->db.get_latest_block_id(), ctx->db.get_latest_block_id()};
+            ctx->protocol.at(i)->send_request(ctx, i, true);
+        }
+        return false;
+    }
+
     return true;
 }
 
@@ -118,24 +168,6 @@ void monad_statesync_client_handle_target(
     }
 }
 
-Result<void> monad_statesync_client_verify_prefix(
-    monad_statesync_client_context *const ctx, NibblesView const key,
-    byte_string const &encoded_proof)
-{
-    BOOST_OUTCOME_TRY(
-        monad::mpt2::verify_proof(key, ctx->tgrt.state_root, encoded_proof));
-
-    auto version = ctx->db.get_latest_block_id();
-    auto root = ctx->db.load_root_for_version(version);
-    MONAD_ASSERT(root.is_valid());
-    auto res =
-        ctx->db.find(root, concat(finalized_nibbles, STATE_NIBBLE), version);
-    MONAD_ASSERT(res.has_value());
-    auto state_root = res.value();
-    return ctx->db.verify_prefix_blocking(
-        state_root, key, ComputeAccountLeaf::compute, encoded_proof);
-}
-
 bool monad_statesync_client_handle_upsert(
     monad_statesync_client_context *const ctx, uint64_t const prefix,
     monad_sync_type const type, unsigned char const *const val,
@@ -144,7 +176,7 @@ bool monad_statesync_client_handle_upsert(
     return ctx->protocol.at(prefix)->handle_upsert(ctx, type, val, size);
 }
 
-bool monad_statesync_client_handle_done(
+void monad_statesync_client_handle_done(
     monad_statesync_client_context *const ctx, monad_sync_done const msg)
 {
     MONAD_ASSERT(msg.success);
@@ -159,8 +191,6 @@ bool monad_statesync_client_handle_done(
     }
 
     ctx->commit();
-
-    return true;
 }
 
 void monad_statesync_client_handle_proof(
@@ -168,13 +198,6 @@ void monad_statesync_client_handle_proof(
     unsigned char const *const data, uint64_t const size)
 {
     ctx->proofs[prefix] = {data, data + size};
-}
-
-void monad_statesync_client_restore_prefix(
-    monad_statesync_client_context *const ctx, uint64_t const prefix)
-{
-    auto bytes = from_prefix(prefix, monad_statesync_client_prefix_bytes());
-    ctx->restore_prefix(bytes);
 }
 
 bool monad_statesync_client_finalize(monad_statesync_client_context *const ctx)
@@ -188,23 +211,6 @@ bool monad_statesync_client_finalize(monad_statesync_client_context *const ctx)
     }
     else if (!ctx->pending.empty()) {
         // missing code
-        return false;
-    }
-
-    auto failures = 0;
-    // if not syncing to genesis, verify all prefixes
-    if (tgrt.number != 0 && tgrt.number != ctx->db.get_latest_block_id()) {
-        for (auto i = 0ul; i < monad_statesync_client_prefixes(); ++i) {
-            auto bytes = from_prefix(i, monad_statesync_client_prefix_bytes());
-            auto key = NibblesView{bytes};
-            if (monad_statesync_client_verify_prefix(ctx, key, ctx->proofs[i])
-                    .has_error()) {
-                LOG_ERROR("prefix {} failed verification", i);
-                ++failures;
-            }
-        }
-    }
-    if (failures != 0) {
         return false;
     }
 

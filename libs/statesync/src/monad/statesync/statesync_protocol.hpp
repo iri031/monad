@@ -12,8 +12,9 @@ struct StatesyncProtocol
 {
     virtual ~StatesyncProtocol() = default;
 
-    virtual void
-    send_request(monad_statesync_client_context *, uint64_t prefix) const = 0;
+    virtual void send_request(
+        monad_statesync_client_context *, uint64_t prefix,
+        bool is_retry = false) const = 0;
 
     virtual bool handle_upsert(
         monad_statesync_client_context *, monad_sync_type,
@@ -22,8 +23,11 @@ struct StatesyncProtocol
 
 struct StatesyncProtocolV1 : StatesyncProtocol
 {
+    // if is_retry is true, the prefix transfer is retried and new server should
+    // be selected
     virtual void send_request(
-        monad_statesync_client_context *, uint64_t prefix) const override;
+        monad_statesync_client_context *, uint64_t prefix,
+        bool is_retry = false) const override;
 
     virtual bool handle_upsert(
         monad_statesync_client_context *, monad_sync_type,
