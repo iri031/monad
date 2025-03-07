@@ -307,6 +307,19 @@ Qed.
     slauto.
     unfold ProducerRw. go.
     unfold SPSCQueueInv1. go.
+    repeat (iExists _);
+      callAtomicCommit.
+  repeat openCinvq.
+  repeat removeLater.
+  repeat rewrite _at_exists.
+  work.
+  Search _at bi_exist.
+  repeat 
+  work.
+  iApply fupd_mask_intro;[set_solver |]; (* openRest *)
+  iIntrosDestructs.
+    
+    
     callAtomicCommitCinv.
     ren_hyp producedL (list Z).
     ren_hyp numConsumed N.
