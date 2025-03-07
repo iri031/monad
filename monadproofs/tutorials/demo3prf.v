@@ -125,32 +125,32 @@ Section with_Sigma.
   Notation logicalR := (to_frac_ag).
   Context {hsssb: HasOwn mpredI (frac.fracR bool)}.
   Context {hssslz: HasOwn mpredI (frac.fracR (list Z))}.
-  Context {hsssln: HasOwn mpredI (frac.fracR nat)}.
+  Context {hsssln: HasOwn mpredI (frac.fracR N)}.
 
-  Definition bool_to_nat (b: bool) : nat := if b then 0%nat else 1%nat.
+  Definition bool_to_nat (b: bool) : Z := if b then 0 else 1.
 
-  Notation cap := (256)%nat.
+  Notation cap := (256).
   Definition SPSCQueueInv1 (cid: qlptr) : Rep :=
-    Exists (producedL: list Z) (numConsumed: nat) (inProduce inConsume: bool),
-      let numProduced : nat  := length producedL in
-      let numConsumedAll: nat := (numConsumed + bool_to_nat inConsume)%nat in
-      let numProducedAll: nat := (numProduced + bool_to_nat inProduce)%nat in
-      let numNotFullyConsumed : nat := (length producedL - numConsumed)%nat in
-      let numFullyFree: nat := (cap-numNotFullyConsumed- bool_to_nat inProduce)%nat in
-      let currItems := skipn numConsumedAll producedL in
+    Exists (producedL: list Z) (numConsumed: N) (inProduce inConsume: bool),
+      let numProduced : N  := lengthN producedL in
+      let numConsumedAll: Z := (numConsumed + bool_to_nat inConsume) in
+      let numProducedAll: Z := (numProduced + bool_to_nat inProduce) in
+      let numNotFullyConsumed : Z := (lengthN producedL - numConsumed) in
+      let numFullyFree: Z := (cap- numNotFullyConsumed- bool_to_nat inProduce) in
+      let currItems := dropN (Z.to_N numConsumedAll) producedL in
       pureR (inProduceLoc cid |--> logicalR (1/2) inProduce)
          (* actual capacity is 1 less than cap (the size of the array) because we need to distinguish empty and full *)
       ** [| numConsumed <= numProduced /\ numProduced - numConsumed <= cap - 1 |]
       ** pureR (inConsumeLoc cid |--> logicalR (1/2) inConsume)
       ** pureR (producedListLoc cid |--> logicalR (1/2) producedL)
       ** pureR (numConsumedLoc cid |--> logicalR (1/2) numConsumed)
-      ** _field "SPSCQueue::head_" |-> atomicR uint 1 (numConsumed `mod` cap)%nat
-      ** _field "SPSCQueue::tail_" |-> atomicR uint 1 (numProduced `mod` cap)%nat
+      ** _field "SPSCQueue::head_" |-> atomicR uint 1 (numConsumed `mod` cap)
+      ** _field "SPSCQueue::tail_" |-> atomicR uint 1 (numProduced `mod` cap)
       **
       (* ownership of active cells *)
       [∗ list] i↦  item ∈ currItems,  _field "buffer".["int" ! ((numConsumedAll + i) `mod` cap)] |-> primR "int"  1 (Vint item)
       (* ownership of inactive cells *)
-      ** [∗ list] i↦  _ ∈ (seq 0 numFullyFree),  _field "buffer".["int" ! (numProducedAll + i) `mod` cap ] |-> anyR "int" 1.
+      ** [∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFullyFree)),  _field "buffer".["int" ! (numProducedAll + i) `mod` cap ] |-> anyR "int" 1.
    
   Notation cinvr invId q R:=
     (as_Rep (fun this:ptr => cinv invId q (this |-> R))).
@@ -161,7 +161,7 @@ Section with_Sigma.
       ** pureR (inProduceLoc cid |--> logicalR (1/2) false)
       ** pureR (producedListLoc cid |--> logicalR (1/2) produced).
   
-  Definition ConsumerRw (cid: qlptr) (numConsumed:nat): Rep :=
+  Definition ConsumerRw (cid: qlptr) (numConsumed:N): Rep :=
     cinvr (invId cid) (1/2) (SPSCQueueInv1 cid)
       ** pureR (inConsumeLoc cid |--> logicalR (1/2) false)
       ** pureR (numConsumedLoc cid |--> logicalR (1/2) numConsumed).
@@ -176,7 +176,7 @@ Section with_Sigma.
   
   cpp.spec "SPSCQueue::pop(int&)" as popqw with (fun (this:ptr)=>
     \arg{valuep} "value" (Vptr valuep)
-    \pre{(lpp: qlptr) (numConsumed: nat)} this |-> ConsumerRw lpp numConsumed
+    \pre{(lpp: qlptr) (numConsumed: N)} this |-> ConsumerRw lpp numConsumed
     \pre valuep |-> anyR "int" 1
     \post{retb:bool} [Vbool retb]
         if retb
@@ -205,8 +205,27 @@ Section with_Sigma.
   Hint Resolve ownhalf_combineF : br_opacity.
   Hint Resolve ownhalf_splitC : br_opacity.
     Existing Instance learn_atomic_val_UNSAFE.
-    Definition qFull (producedL: list Z) (numConsumed: nat) :=
-      length producedL = (numConsumed + (cap-1))%nat.
+    Definition qFull (producedL: list Z) (numConsumed: N) :=
+      lengthN producedL = Z.to_N (numConsumed + (cap-1)).
+
+      Import ZifyClasses.
+      Set Nested Proofs Allowed.
+Lemma zifyModNat: ∀ x y : nat, True →  y ≠ 0%nat → (x `mod` y < y)%nat.
+Proof using.
+  intros.
+  apply Nat.mod_upper_bound.
+  assumption.
+Qed.
+        
+#[global]
+Instance SatMod : Saturate Nat.modulo :=
+  {|
+    PArg1 := fun x => True;
+    PArg2 := fun y => y ≠ 0%nat;
+    PRes  := fun _ y r => (r <y)%nat;
+    SatOk := zifyModNat
+  |}.
+    
   Lemma pushqprf: denoteModule module
                     ** uint_store_spec
                     ** uint_load_spec
@@ -218,9 +237,9 @@ Section with_Sigma.
     unfold SPSCQueueInv1. go.
     callAtomicCommitCinv.
     ren_hyp producedL (list Z).
-    ren_hyp numConsumed nat.
+    ren_hyp numConsumed N.
     normalize_ptrs. go.
-    destruct (decide (length producedL = (numConsumed + (cap-1))%nat)).
+    destruct (decide (lengthN producedL = Z.to_N (numConsumed + (cap-1)))).
     { (* overflow *)
       closeCinvqs.
       go.
@@ -240,33 +259,14 @@ Section with_Sigma.
       intros.
       apply False_rect.
       Arith.remove_useless_mod_a.
-      Import ZifyClasses.
-      Set Nested Proofs Allowed.
-Lemma zifyModNat: ∀ x y : nat, True →  y ≠ 0%nat → (x `mod` y < y)%nat.
-Proof using.
-  intros.
-  apply Nat.mod_upper_bound.
-  assumption.
-Qed.
-        
-#[global]
-Instance SatMod : Saturate Nat.modulo :=
-  {|
-    PArg1 := fun x => True;
-    PArg2 := fun y => y ≠ 0%nat;
-    PRes  := fun _ y r => (r <y)%nat;
-    SatOk := zifyModNat
-  |}.
-Add Zify Saturate SatMod.
-      Arith.remove_useless_mod_a.
-Zify.zify_saturate.
-Arith.remove_useless_mod_a.
-assert (length producedL <=length _v_0)%nat.
-admit.
-
-
-    reflexivity.
-    rewrite bi.sep_comm. by apply bi.sep_mono_r, fgptsto_update.
+      rewrite e in q.
+      apply q.
+      Set Printing Coercions.
+      Hint Rewrite Z2N.id using lia: syntactic.
+      autorewrite with syntactic.
+      Arith.arith_solve.
+    }
+    
   Qed.
 
 fgptsto
