@@ -134,7 +134,7 @@ we cannot control how the values are updated: e.g numConsumed can only be increm
   Definition boolZ (b: bool) : Z := if b then 1 else 0.
 
   Notation cap := (256).
-  Definition SPSCQueueInv1 (cid: qlptr) : Rep :=
+  Definition SPSCQueueInv1 (cid: qlptr) (P: Z -> mpred) : Rep :=
     Exists (producedL: list Z) (numConsumed: N) (inProduce inConsume: bool),
       let numProduced : N  := lengthN producedL in
       let numConsumedAll: Z := (numConsumed + boolZ inConsume) in
@@ -152,7 +152,9 @@ we cannot control how the values are updated: e.g numConsumed can only be increm
       ** _field "SPSCQueue::tail_" |-> atomicR uint 1 (numProduced `mod` cap)
       **
       (* ownership of active cells *)
-      ([∗ list] i↦  item ∈ currItems,  _field "SPSCQueue::buffer_".["int" ! ((numConsumedAll + i) `mod` cap)] |-> primR "int"  1 (Vint item))
+      ([∗ list] i↦  item ∈ currItems,
+        pureR (P item) **
+        _field "SPSCQueue::buffer_".["int" ! ((numConsumedAll + i) `mod` cap)] |-> primR "int"  1 (Vint item))
       (* ownership of inactive cells *)
       ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFreeSlotsInCinv)),  _field "SPSCQueue::buffer_".["int" ! (numProducedAll + i) `mod` cap ] |-> anyR "int" 1)
       ** _field "SPSCQueue::buffer_".[ "int" ! cap ] |-> validR .
@@ -161,33 +163,36 @@ we cannot control how the values are updated: e.g numConsumed can only be increm
     (as_Rep (fun this:ptr => cinv invId q (this |-> R))).
 
   
-  Definition ProducerRw (cid: qlptr) (produced: list Z): Rep :=
-    cinvr (invId cid) (1/2) (SPSCQueueInv1 cid)
+  Definition ProducerRw (cid: qlptr) (P: Z -> mpred) (produced: list Z): Rep :=
+    cinvr (invId cid) (1/2) (SPSCQueueInv1 cid P)
       ** pureR (inProduceLoc cid |--> logicalR (1/2) false)
       ** pureR (producedListLoc cid |--> logicalR (1/2) produced).
   
-  Definition ConsumerRw (cid: qlptr) (numConsumed:N): Rep :=
-    cinvr (invId cid) (1/2) (SPSCQueueInv1 cid)
+  Definition ConsumerRw (cid: qlptr) (P: Z -> mpred) (numConsumed:N): Rep :=
+    cinvr (invId cid) (1/2) (SPSCQueueInv1 cid P)
       ** pureR (inConsumeLoc cid |--> logicalR (1/2) false)
       ** pureR (numConsumedLoc cid |--> logicalR (1/2) numConsumed).
   
   cpp.spec "SPSCQueue::push(int)" as pushqw with (fun (this:ptr)=>
     \arg{value} "value" (Vint value)
-    \pre{(lpp: qlptr) (produced: list Z)} this |-> ProducerRw lpp produced
+    \pre{(lpp: qlptr) (produced: list Z) (P: Z -> mpred)} this |-> ProducerRw lpp P produced
+    \pre [| Timeless1 P |]
+    \pre P value
     \post{retb:bool} [Vbool retb]
            if retb
-           then this |-> ProducerRw lpp (produced++[value])
-           else this |-> ProducerRw lpp produced).
+           then this |-> ProducerRw lpp P (produced++[value])
+           else this |-> ProducerRw lpp P produced ** P value).
   
   cpp.spec "SPSCQueue::pop(int&)" as popqw with (fun (this:ptr)=>
     \arg{valuep} "value" (Vptr valuep)
-    \pre{(lpp: qlptr) (numConsumed: N)} this |-> ConsumerRw lpp numConsumed
+    \pre{(lpp: qlptr) (P: Z -> mpred) (numConsumed: N) } this |-> ConsumerRw lpp P numConsumed
+    \pre [| Timeless1 P |]
     \pre valuep |-> anyR "int" 1
     \post{retb:bool} [Vbool retb]
         if retb
-        then this |-> ConsumerRw lpp (1+numConsumed)
-             ** Exists popv:Z, valuep |-> primR "int" 1 popv
-        else valuep |-> anyR "int" 1 ** this |-> ConsumerRw lpp numConsumed).
+        then this |-> ConsumerRw lpp P (1+numConsumed)
+             ** Exists popv:Z, valuep |-> primR "int" 1 popv ** P popv
+        else valuep |-> anyR "int" 1 ** this |-> ConsumerRw lpp P numConsumed).
 
   Opaque atomicR.
   Opaque Nat.modulo.
@@ -495,8 +500,7 @@ Qed.
       simpl. go.
       icancel (cancel_at this).
       {
-        do 7 (f_equiv; intros; hnf).
-        lia.
+        repeat (f_equiv; intros; hnf; try lia).
       }
       go...
       progress autorewrite with syntactic.
