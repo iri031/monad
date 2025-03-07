@@ -519,39 +519,50 @@ work using xxx.
         | context [seqN 0 ?l] => 
             IPM.perm_right ltac:(fun R n =>
                  match R with
-                 | context [seqN 0 ?r] => assert (l=1+r)%N as Heq
+                 | context [seqN 0 ?r] => assert (1+l=r)%N as Heq by lia
                  end
                  )
         end).
       {
-        simpl in *.
-        apply N2Z.inj.
-        ntozinj.
-        autorewrite with syntactic.
+        rewrite <- Heq.
         simpl.
-        ring_simplify.
-(*   - lengthZ _v_3 + Z.of_N _v_4 - boolZ _v_5 + 256 = - lengthZ _v_3 + Z.of_N _v_4 - boolZ _v_5 + 258 *)        
-        f_equiv.
-        (*  256 ≡ 258 *)
-        
-        nia.
-        destruct _v_5,_v_2; simpl in *; try Arith.arith_solve.
+        go.
+        autorewrite with syntactic.
+        repeat rewrite N.add_1_l.
+        rewrite seqN_S_start.
+        simpl. go.
+        normalize_ptrs.
+      IPM.perm_left_spatial ltac:(fun L n =>
+        match L with
+        | context [.["int"! ?li]] => 
+            IPM.perm_right ltac:(fun R n =>
+                 match R with
+                 | context [.["int"! ?ri]] => assert (li=ri) as Heqq
+                 end
+                 )
+        end).
+      {
+        rename _v_3 into produceLAtStore.
+        rename _v_4 into numConsumed.
+        rename _v_5 into inProduceAtStore.
+        simpl in *.
+      Ltac closedN := closed.norm closed.numeric_types .
+      closedN.
 
-icancel (@big_sepL_monoeq).
-3:{ eagerUnifyU.
+      (* this goal looks like the empty condition: so not true. it seems we are equalting the seqN parts in a mismatched way
+  Z.of_N numConsumed `mod` 256 = (lengthZ produceLAtStore + boolZ inProduceAtStore + 0) `mod` 256
+*)      
+      destruct inProduceAtStore; 
+        try Arith.arith_solve.
+        nia.
+        
+      icancel (cancel_at this).
       {
         repeat (f_equiv; intros; hnf; try lia).
       }
-
-      
-      icancel (cancel_at this).
-        
-        
-      go.
-      rename _v_4 into numConsumedAtStore.
-      rename _v_3 into producedL.
-      rename numConsumed into numConsumedHeadAtLoad.
-      go.
+        cancel
+        closedN.
+        Search seqN (N.succ)%N.
       Hint Rewrite @dropN_app: syntactic.
       autorewrite with syntactic.
       rewrite big_opL_app. go.
