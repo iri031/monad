@@ -49,6 +49,17 @@ Hint Resolve learn_atomic_val : br_opacity.
        InvOut y).
     
     #[ignore_errors]
+    cpp.spec "std::__atomic_base<unsigned int>::load(enum std::memory_order) const"  as uint_load_spec with
+            (λ this : ptr,
+       \let pd := this ,, o_derived CU "std::__atomic_base<unsigned int>" "std::atomic<unsigned int>"  
+       \arg "order" (Vint memory_order_seq_cst)
+       \pre{ (q:Qp) (InvOut : Z → mpred)}
+         AC1 << ∀ y : Z, pd |-> atomicR "unsigned int" q (Vint y)>> @ ⊤, ∅
+                      << pd |-> atomicR "unsigned int" q (Vint y), COMM InvOut y >> 
+       \post{y : Z}[Vint y]
+       InvOut y).
+    
+    #[ignore_errors]
     cpp.spec "std::atomic<bool>::exchange(bool, enum std::memory_order)"  as exchange_spec with
             (λ this : ptr,
        \arg{(x : bool)} "v" (Vbool x)
@@ -80,4 +91,14 @@ Hint Resolve learn_atomic_val : br_opacity.
             << pd |-> atomicR "int" 1 (Vint x), COMM Q >> 
        \post Q).
 
+    #[ignore_errors]
+    cpp.spec "std::__atomic_base<unsigned int>::store(unsigned int, enum std::memory_order)"  as uint_store_spec with
+        (λ this : ptr,
+       \arg{(Q : mpred) (x : Z)} "v" (Vint x)
+       \let pd := this ,, o_derived CU "std::__atomic_base<unsigned int>" "std::atomic<unsigned int>"  
+       \arg "memorder" (Vint 5)
+       \pre
+         AC1 << ∀ y : Z, pd |-> atomicR "unsigned int" 1 (Vint y)>> @ ⊤, ∅
+            << pd |-> atomicR "unsigned int" 1 (Vint x), COMM Q >> 
+       \post Q).
 End with_Sigma.

@@ -15,6 +15,11 @@ Import Instances.Z.
 Import cQp_compat.
 Import Verbose.
 Import linearity.
+  Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo)); try iPureIntro.
+
+  (* TODO: upstream? *)
+    Opaque coPset_difference.
+
 (* Agnostic to how many producers/consumers there are *)
 Module QueueModel.
   Section Cap. Variable (capacity: nat).
@@ -103,49 +108,222 @@ Section with_Sigma.
          ** valuep |-> primR "int" 1 value
          ** this |-> ConsumerRg (value::consumeHistory) R
     ).
-  
-  Record spscqid :=
+
+  (* roles of logical locations:
+     - track info not in c++ variables, e.g. progress towards an op (typicall more abstract that program counter)
+     - expose a higher-level state to the client
+     - enforce complex protocols
+   *)
+  Record qlptr :=
     {
       invId : gname;
-      (*
       producedListLoc: gname;
-      consumedIndexLoc: gname;
-       *)
-      inProduce: gname;
-      inConsume: gname;
+      numConsumedLoc: gname;
+      inProduceLoc: gname;
+      inConsumeLoc: gname;
     }.
+  Notation logicalR := (to_frac_ag).
+  Context {hsssb: HasOwn mpredI (frac.fracR bool)}.
+  Context {hssslz: HasOwn mpredI (frac.fracR (list Z))}.
+  Context {hsssln: HasOwn mpredI (frac.fracR nat)}.
 
-  Definition SPSCQueueInv1 : Rep :=
-    Exists (items: list Z) (head: nat) (tail:nat) (inProduceOp inConsumeOp: bool),
+  Definition bool_to_nat (b: bool) : nat := if b then 0%nat else 1%nat.
+
+  Notation cap := (256)%nat.
+  Definition SPSCQueueInv1 (cid: qlptr) : Rep :=
+    Exists (producedL: list Z) (numConsumed: nat) (inProduce inConsume: bool),
+      let numProduced : nat  := length producedL in
+      let numConsumedAll: nat := (numConsumed + bool_to_nat inConsume)%nat in
+      let numProducedAll: nat := (numProduced + bool_to_nat inProduce)%nat in
+      let numNotFullyConsumed : nat := (length producedL - numConsumed)%nat in
+      let numFullyFree: nat := (cap-numNotFullyConsumed- bool_to_nat inProduce)%nat in
+      let currItems := skipn numConsumedAll producedL in
+      pureR (inProduceLoc cid |--> logicalR (1/2) inProduce)
+         (* actual capacity is 1 less than cap (the size of the array) because we need to distinguish empty and full *)
+      ** [| numConsumed <= numProduced /\ numProduced - numConsumed <= cap - 1 |]
+      ** pureR (inConsumeLoc cid |--> logicalR (1/2) inConsume)
+      ** pureR (producedListLoc cid |--> logicalR (1/2) producedL)
+      ** pureR (numConsumedLoc cid |--> logicalR (1/2) numConsumed)
+      ** _field "SPSCQueue::head_" |-> atomicR uint 1 (numConsumed `mod` cap)%nat
+      ** _field "SPSCQueue::tail_" |-> atomicR uint 1 (numProduced `mod` cap)%nat
+      **
       (* ownership of active cells *)
-      [∗ list] i↦  item ∈ (skipn 1 items),  _field "bufer".["int" ! ((1+head + i) `mod` 256)] |-> primR "int"  1 (Vint item)
-      (* ownership of to-be consumed cell *)
-      ** (if inConsumeOp then emp else _field "buffer".["int" ! head ] |->  primR "int"  1 (hd 0 items))
+      [∗ list] i↦  item ∈ currItems,  _field "buffer".["int" ! ((numConsumedAll + i) `mod` cap)] |-> primR "int"  1 (Vint item)
       (* ownership of inactive cells *)
-      ** [∗ list] i↦  _ ∈ (seq 0 (256-length items-2)),  _field "bufer".["int" ! (1+tail + i) `mod` 256 ] |-> anyR "int" 1
-      (* ownership of to-be produced cell *)
-      ** (if inProduceOp then emp else _field "buffer".["int" ! tail ] |-> anyR "int" 1).
+      ** [∗ list] i↦  _ ∈ (seq 0 numFullyFree),  _field "buffer".["int" ! (numProducedAll + i) `mod` cap ] |-> anyR "int" 1.
    
   Notation cinvr invId q R:=
     (as_Rep (fun this:ptr => cinv invId q (this |-> R))).
 
-  Notation logicalR := (to_frac_ag).
- Context {hsss: HasOwn mpredI (frac.fracR bool)}.
   
-  Definition ProducerRw (cid: spscqid): Rep :=
-    cinvr (invId cid) (1/2) SPSCQueueInv1
-      ** pureR (inProduce cid |--> logicalR (1/2) false).
+  Definition ProducerRw (cid: qlptr) (produced: list Z): Rep :=
+    cinvr (invId cid) (1/2) (SPSCQueueInv1 cid)
+      ** pureR (inProduceLoc cid |--> logicalR (1/2) false)
+      ** pureR (producedListLoc cid |--> logicalR (1/2) produced).
   
-  Definition ConsumerRw : Rep. Admitted.
+  Definition ConsumerRw (cid: qlptr) (numConsumed:nat): Rep :=
+    cinvr (invId cid) (1/2) (SPSCQueueInv1 cid)
+      ** pureR (inConsumeLoc cid |--> logicalR (1/2) false)
+      ** pureR (numConsumedLoc cid |--> logicalR (1/2) numConsumed).
   
-  cpp.spec "SPSCQueue::push(int)" as pushq with (fun (this:ptr)=>
+  cpp.spec "SPSCQueue::push(int)" as pushqw with (fun (this:ptr)=>
     \arg{value} "value" (Vint value)
-    \pre{prodHistory: list Z} this |-> ProducerR prodHistory
+    \pre{(lpp: qlptr) (produced: list Z)} this |-> ProducerRw lpp produced
     \post{retb:bool} [Vbool retb]
-                  if retb
-                  then this |-> ProducerR (value::prodHistory)
-                  else this |-> ProducerR prodHistory).
+           if retb
+           then this |-> ProducerRw lpp (produced++[value])
+           else this |-> ProducerRw lpp produced).
   
+  cpp.spec "SPSCQueue::pop(int&)" as popqw with (fun (this:ptr)=>
+    \arg{valuep} "value" (Vptr valuep)
+    \pre{(lpp: qlptr) (numConsumed: nat)} this |-> ConsumerRw lpp numConsumed
+    \pre valuep |-> anyR "int" 1
+    \post{retb:bool} [Vbool retb]
+        if retb
+        then this |-> ConsumerRw lpp (1+numConsumed)
+             ** Exists popv:Z, valuep |-> primR "int" 1 popv
+        else valuep |-> anyR "int" 1 ** this |-> ConsumerRw lpp numConsumed).
+
+  Opaque atomicR.
+  Opaque Nat.modulo.
+
+  Section Hints.
+    Context {T:Type} {ff : HasOwn mpredI (frac.fracR T)}. (* {fff: fracG T   _Σ} *)
+  (* Move and generalize colocate with [fgptsto_update]*)
+  Lemma half_combine  (m1 m2:T) g q:
+((g |--> logicalR (q / 2) m1):mpred) ∗ g |--> logicalR (q / 2) m2 ⊢ (g |--> logicalR q m1) ∗ [| m2 = m1 |].    
+  Proof.
+  Admitted.
+  Lemma half_split  (m:T) g q:
+    g |--> logicalR q m |-- ((g |--> logicalR (q / 2) m):mpred) ** ((g |--> logicalR (q / 2) m)).
+  Proof.
+  Admitted.
+
+  Definition ownhalf_combineF := [FWD->] half_combine.
+  Definition ownhalf_splitC := [CANCEL] half_split.
+  End Hints.
+  Hint Resolve ownhalf_combineF : br_opacity.
+  Hint Resolve ownhalf_splitC : br_opacity.
+    Existing Instance learn_atomic_val_UNSAFE.
+    Definition qFull (producedL: list Z) (numConsumed: nat) :=
+      length producedL = (numConsumed + (cap-1))%nat.
+  Lemma pushqprf: denoteModule module
+                    ** uint_store_spec
+                    ** uint_load_spec
+                    |-- pushqw.
+  Proof using.
+    verify_spec'.
+    slauto.
+    unfold ProducerRw. go.
+    unfold SPSCQueueInv1. go.
+    callAtomicCommitCinv.
+    ren_hyp producedL (list Z).
+    ren_hyp numConsumed nat.
+    normalize_ptrs. go.
+    destruct (decide (length producedL = (numConsumed + (cap-1))%nat)).
+    { (* overflow *)
+      closeCinvqs.
+      go.
+      ego.
+      iModIntro.
+      go.
+      callAtomicCommitCinv.
+      go.
+      closeCinvqs.
+      go.
+      ego.
+      eagerUnifyU.
+      iModIntro.
+      name_locals.
+      slauto.
+      wp_if;[go|].
+      intros.
+      apply False_rect.
+      Arith.remove_useless_mod_a.
+      Import ZifyClasses.
+      Set Nested Proofs Allowed.
+Lemma zifyModNat: ∀ x y : nat, True →  y ≠ 0%nat → (x `mod` y < y)%nat.
+Proof using.
+  intros.
+  apply Nat.mod_upper_bound.
+  assumption.
+Qed.
+        
+#[global]
+Instance SatMod : Saturate Nat.modulo :=
+  {|
+    PArg1 := fun x => True;
+    PArg2 := fun y => y ≠ 0%nat;
+    PRes  := fun _ y r => (r <y)%nat;
+    SatOk := zifyModNat
+  |}.
+Add Zify Saturate SatMod.
+      Arith.remove_useless_mod_a.
+Zify.zify_saturate.
+Arith.remove_useless_mod_a.
+assert (length producedL <=length _v_0)%nat.
+admit.
+
+
+    reflexivity.
+    rewrite bi.sep_comm. by apply bi.sep_mono_r, fgptsto_update.
+  Qed.
+
+fgptsto
+lia.
+go.
+work.
+Opaque has_type_prop.
+go.
+unfold bitsize.bound. simpl.
+go.
+Opaque valid..
+go.
+Locate zify_saturate.
+      Saturate
+      Arith.arith_solve
+      go.
+    wapply (half_half_update (inProduceLoc lpp)). unfold fgptsto. eagerUnifyC.
+    Set Printing Coercions.
+    eagerUnifyUC.
+    Search fgptsto.
+    
+    
+    
+    go.
+    Set Printing Coercions.
+    instantiate (1:=1%Qp).
+    go.
+    Set Nested Proofs Allowed.
+    
+    #[global] Instance bool_0_refine2 y x : Refine1 true true (Vint (Z.of_nat x) = Vint y) [y = Z.to_nat x].
+    Proof using.
+      split; auto; intros; repeat constructor; try lia;
+        inversion H; try lia.
+      f_equal. lia.
+    Qed.
+    go.
+    go.
+    Search atomicR Learnable.
+
+    
+    
+    Search Refine1.
+    
+    work.
+    go.
+    
+      Search Forall.
+      - constructor.
+      aot
+      go.
+  Proof.
+
+    Search 
+    Locate "`mod`".
+    
+    go.
+    
   cpp.spec "SPSCQueue::pop(int&)" as popq with (fun (this:ptr)=>
     \arg{valuep} "value" (Vptr valuep)
     \pre{consumeHistory: list Z} this |-> ConsumerR consumeHistory
@@ -160,436 +338,6 @@ Section with_Sigma.
   cpp.spec ""
   Set Nested Proofs Allowed.
 
-  (**  *Arrays
-    _global "x" |-> primR "int" q 5
-   *)
-  Definition gcdl_spec_core : WpSpec mpredI val val :=
-      \arg{numsp:ptr} "nums" (Vptr numsp)
-      \prepost{(l: list Z) (q:Qp)}
-             numsp |-> arrayR uint (fun i:Z => primR uint q i) l
-      \arg "length" (Vint (length l))
-      \post [Vint (fold_left Z.gcd l 0)] emp.
-  (* [c45,49] *)
-  
-  Example arrayR3 (p:ptr) (n1 n2 n3: Z) (q: Qp):
-    p |-> arrayR uint (fun i:Z => primR uint q i) [n1;n2;n3]
-      -|- ( valid_ptr (p .[ uint ! 3 ])
-              ** p |-> primR uint q n1
-              ** p .[ uint ! 1 ] |-> primR uint q n2
-              ** p .[ uint ! 2 ] |-> primR uint q n3).
-  Proof.
-    repeat rewrite arrayR_cons.
-    repeat rewrite arrayR_nil.
-    iSplit; go;
-    repeat rewrite o_sub_sub;
-    closed.norm closed.numeric_types; go.
-  Qed.
-
-  Example fold_left_gcd (n1 n2 n3: Z) :
-    fold_left Z.gcd [n1;n2;n3] 0 =  Z.gcd (Z.gcd (Z.gcd 0 n1) n2) n3.
-  Proof. reflexivity. Qed.
-  
-    
-  cpp.spec "gcdl(unsigned int*, unsigned int)" as gcdl_spec with (gcdl_spec_core).
-
-  (** * 2+ ways to split an arrays
-
-   +---+---+---+---+---+---+
-   | q | q | q | q | q | q |
-   +---+---+---+---+---+---+
-
-  +---+---+---+---+---+---+       +---+---+---+---+---+---+
-   |q/2|q/2|q/2|q/2|q/2|q/2|      |q/2|q/2|q/2|q/2|q/2|q/2|
-   +---+---+---+---+---+---+      +---+---+---+---+---+---+
-
-   *)
-  Lemma fractionalSplitArrayR (numsp:ptr) (l: list Z) (q:Qp):
-    numsp |-> arrayR uint (fun i:Z => primR uint q i) l |--
-      numsp |-> arrayR uint (fun i:Z => primR uint (q/2) i) l
-      ** numsp |-> arrayR uint (fun i:Z => primR uint (q/2) i) l.
-  Proof.
-    rewrite -> cfractional_split_half with (R := fun q => arrayR uint (fun i:Z => primR uint q i) l);
-      [| exact _].
-    rewrite _at_sep.
-    f_equiv; f_equiv; f_equiv;
-      simpl; rewrite cqpp2; auto.
-  Qed.
-
-  (** subarray partitioning: when threads concurrently read/write to disjoint segments.
-     demonstrated in next example, which also illustrates the power of commutativity
-   +---+---+---+---+---+---+
-   | q | q | q | q | q | q |
-   +---+---+---+---+---+---+
-
-
-   +---+---+---+                   +---+---+---+
-   | q | q | q |                    | q | q | q |
-   +---+---+---+                    +---+---+---+
-
-   *)
-  Lemma arrayR_split {T} ty (base:ptr) (i:nat) xs (R: T-> Rep):
-    (i <= length xs)%nat ->
-       base |-> arrayR ty R xs
-         |-- base |-> arrayR ty R (firstn i xs)
-             ** base .[ ty ! i ] |-> arrayR ty R (skipn i xs).
-  Proof.
-    intros.
-    rewrite arrayR_split; eauto. go. 
-  Qed.
-
-  (* [c204,218; c436,436] same spec, faster impl*)
-  cpp.spec "parallel_gcdl(unsigned int*, unsigned int)"
-    as parallel_gcdl_spec with (gcdl_spec_core).
-  
-  Hint Rewrite @fold_left_app: syntactic.
-  Existing Instance UNSAFE_read_prim_cancel.
-  
-  
-      Compute (Z.quot (-5) 4).
-      Compute (Z.div (-5) 4).
-      Set Default Goal Selector "!".
-  cpp.spec (Nscoped 
-              "parallel_gcdl(unsigned int*, unsigned int)::@0" Ndtor)  as lam2destr  inline.
-
-  Lemma pgcdl_proof: denoteModule module
-                       ** (thread_class_specs "parallel_gcdl(unsigned int*, unsigned int)::@0")
-                       ** gcd_spec
-                       ** gcdl_spec
-                       |-- parallel_gcdl_spec.
-  Proof using MODd with (fold cQpc).
-    unfold thread_class_specs.
-    verify_spec'.
-    name_locals.
-    wapplyObserve  obsUintArrayR.
-    eagerUnifyU. go.
-    rename a into lam.
-    aggregateRepPieces lam.
-    go.
-    hideP ps.
-    Opaque Nat.div.
-    assert ( (length l/ 2 <= length l)%nat) as Hle.
-    {
-      rewrite <- Nat.div2_div.
-      apply Nat.le_div2_diag_l.
-    }
-    nat2ZNLdup.
-    name_locals.
-    progress closed.norm closed.numeric_types.
-    rewrite -> arrayR_split with (i:=((length l)/2)%nat) (xs:=l) by lia;
-      go... (* array ownership spit into 2 pieces. [g1335,1409] [g1433,1443] [g1433,1443; g1497,1515],
-             [g1556,1563],  [g1556,1563; g1335,1409] [g1556,1563; g1335,1409; g1294,1330; c335,342] *)
-    revertAdrs constr:([numsp; resultl_addr]);
-      repeat rewrite bi.wand_curry;
-      intantiateWand.
-    (*
-    iExists (resultl_addr |-> uninitR "unsigned int" 1%Qp **
-               numsp |-> arrayR "unsigned int" (λ i : Z, primR "unsigned int" q i) (firstn (length l / 2) l))
-     *)
-    instWithPEvar taskPost.
-    go.
-    iSplitL "".
-    { verify_spec'.
-      go.
-      iExists _. eagerUnifyU.
-      autorewrite with syntactic. go.
-      erefl.
-    }
-    unhideAllFromWork.
-    autorewrite with syntactic. go. 
-    iExists _. eagerUnifyU. 
-    autorewrite with syntactic. go.
-    wapply @arrayR_combinep. eagerUnifyU.
-    autorewrite with syntactic. go... (* lemma below*)
-    (* [g1766,1844] [g1766,1844; g1910,1927]  *)
-    icancel (cancel_at p);[| go].
-    do 2 f_equiv.
-    symmetry.
-    apply fold_split_gcd.
-    auto.
-  Qed.
-  
-  (** o:=Z.gcd
-((((((i o a1) o a2) o a3) o a4) o a5) o a6)
-
-(((i o a1) o a2 ) o a3 )        (((i o a4) o a5 ) o a6 )
-                    \               /
-                      \           /
-                   left_result   right_result
-                          \       /
-                            \   /
-                        (left_result o right_result)
-*)
-
-  Lemma fold_split_gcd  (l: list Z) (pl: forall a, In a l -> 0 <= a)
-       (ls: nat):
-    Z.gcd
-      (fold_left Z.gcd (firstn ls l) 0)
-      (fold_left Z.gcd (skipn ls l) 0)
-   = fold_left Z.gcd l 0.
-  Proof using. symmetry. apply misc.fold_split_gcd; auto. Qed.
-
-  (** Quiz [c680,698] *)
-
-  #[ignore_errors]
-  cpp.spec "fold_left(unsigned int*, unsigned int, unsigned int(*)(unsigned int,unsigned int), unsigned int)" as fold_left_spec with (
-      \arg{numsp:ptr} "nums" (Vptr numsp)
-      \prepost{(l: list Z) (q:Qp)} numsp |-> arrayR uint (fun i:Z => primR uint q i) l
-      \arg "size" (Vint (length l))
-      \arg{fptr} "f" (Vptr fptr)
-      \arg{initv} "init" (Vint initv)
-      \pre{fm: Z->Z->Z} fptr |->
-          cpp_specR (tFunction "unsigned int" ["unsigned int"%cpp_type; "unsigned int"%cpp_type])
-            (
-              \arg{av:Z} "a" (Vint av)
-                \arg{bv:Z} "b" (Vint bv)
-                \post [Vint (fm av bv)] emp
-            )
-      \post [Vint (fold_left fm l initv)] emp).
-
-  #[ignore_errors]
-  cpp.spec "parallel_fold_left(unsigned int*, unsigned int, unsigned int(*)(unsigned int,unsigned int), unsigned int)" as par_fold_left_spec with (
-      \arg{numsp:ptr} "nums" (Vptr numsp)
-      \prepost{(l: list Z) (q:Qp)} numsp |-> arrayR uint (fun i:Z => primR uint q i) l
-      \arg "size" (Vint (length l))
-      \arg{fptr} "f" (Vptr fptr)
-      \pre{fm: Z->Z->Z} fptr |->
-          cpp_specR (tFunction "unsigned int" ["unsigned int"%cpp_type; "unsigned int"%cpp_type])
-            (
-              \arg{av:Z} "a" (Vint av)
-                \arg{bv:Z} "b" (Vint bv)
-                \post [Vint (fm av bv)] emp
-            )
-      \pre [| Associative (=) fm |]
-      \arg{initv} "init" (Vint initv)
-      \pre [| LeftId (=) initv fm |]
-      \pre [| RightId (=) initv fm |]
-      \post [Vint (fold_left fm l initv)] emp).
-  
-  Lemma fold_split {A:Type} (f: A->A->A)(asoc: Associative (=) f)
-    (id: A) (lid: LeftId (=) id f) (rid: RightId (=) id f) (l: list A) (lSplitSize: nat):
-    fold_left f l id =
-      f (fold_left f (firstn lSplitSize l) id)
-        (fold_left f (skipn  lSplitSize l) id).
-  Proof.
-    rewrite <- (take_drop lSplitSize) at 1.
-    rewrite fold_left_app.
-    rewrite fold_id2.
-    aac_reflexivity.
-  Qed.
-  (* generality: dont need to prove again and again, for each f  *)
-
-  (* Rep vs mpred *)
-  (** Structs: Node [c1032,1036] *)
-
-  Example addOffset (p: ptr) (o: offset) : ptr := p ,, o.
-  Example array2Offset : offset := (.["int" ! 2]).
-  Example fieldOffset : offset := _field "Node::data_".
-  
-  Definition NodeR  (q: cQp.t) (data: Z) (nextLoc: ptr): Rep :=
-    _field "Node::data_" |-> primR "int" q (Vint data)
-    ** _field "Node::next_" |-> primR "Node*" q (Vptr nextLoc)
-    ** structR "Node" q.
-
-  Definition NodeRf  (q: cQp.t) (data: Z) (nextLoc: ptr) : ptr -> mpred :=
-    fun (nodebase: ptr) =>
-    (* nodebase.data_ *)  
-    nodebase,, _field "Node::data_" |-> primR "int" q (Vint data)
-    ** nodebase,, _field "Node::next_" |-> primR "Node*" q (Vptr nextLoc)
-    ** nodebase |-> structR "Node" q.
-
-  cpp.spec "incdata(Node *)"  as incd_spec with (
-     \arg{np} "n" (Vptr np)
-     \pre{data nextLoc} NodeRf 1 data nextLoc np (* shorthand. unfold in prf *)
-     \pre [| data < 2^31 -1 |]
-     \post NodeRf 1 (1+data) nextLoc np
-      ).
-
-  cpp.spec "incdata(Node *)"  as incd_spec_idiomatic with (
-      \arg{np} "n" (Vptr np)
-      (* _global "x" |-> primR "int" 1 45 *)
-     \pre{data nextLoc} np |-> NodeR 1 data nextLoc
-     \pre [| data < 2^31 -1 |]
-     \post np |-> NodeR 1 (1+data) nextLoc
-      ).
-
-  Lemma eqv (data:Z) (nextLoc:ptr) (nodebase:ptr) q :
-    nodebase |-> NodeR q data nextLoc
-    -|- NodeRf q data nextLoc nodebase.
-  Proof. unfold NodeR, NodeRf. iSplit; go. Qed.
-  
-  Lemma incd_proof: denoteModule module |-- incd_spec.
-  Proof using MODd. verify_spec. unfold NodeRf. slauto. Qed.
-  
-  (** Structs: LinkedList *)
-
-  Fixpoint ListR (q : cQp.t) (l : list Z) : Rep :=
-    match l with
-    | [] => nullR
-    | hd :: tl =>
-        Exists (tlLoc: ptr),
-          NodeR q hd tlLoc
-          ** pureR (tlLoc |-> ListR q tl)
-    end.
-
-  Example listRUnfold (q:Qp) (head:ptr): head |-> ListR q [4;5;6] |--
-    Exists node5loc node6loc,
-       head |-> NodeR q 4 node5loc
-       ** node5loc |-> NodeR q 5 node6loc
-       ** node6loc |-> NodeR q 6 nullptr
-       (* ** [| node5loc <> node6loc <> head|] *).
-  Proof using. work. unfold NodeR.  go. Qed.
-
-  Example nullReq (p: ptr): p |-> nullR |-- [| p = nullptr |].
-  Proof. go. Qed.
-
-  cpp.spec "reverse(Node*)" as reverse_spec with
-    (\arg{lp} "l" (Vptr lp)
-     \pre{l: list Z} lp |-> ListR 1 l
-     \post{r}[Vptr r] r |-> ListR 1 (List.rev l)).
-
-  (** why trust [List.rev] *)
-  Search List.rev.
-  Check rev_app_distr.
-
-  Definition sort (l:list Z) : list Z. Proof. Admitted.
-  
-  cpp.spec "sort(Node*)" as sort_spec with
-    (\arg{lp} "l" (Vptr lp)
-     \pre{l} lp |-> ListR 1 l
-     \post{r}[Vptr r] r |-> ListR 1 (sort l)).
-
-  Fixpoint sorted (l: list Z) : Prop :=
-    match l with
-    | [] => True
-    | h::tl => sorted tl /\ forall t, t ∈ tl -> h <= t 
-    end.
-  
-  cpp.spec "sort(Node*)" as sort_spec2 with
-    (\arg{lp} "l" (Vptr lp)
-     \pre{l} lp |-> ListR 1 l
-     \post{r}[Vptr r]
-        Exists ls, r |-> ListR 1 ls ** [| sorted ls |]).
-  
-  (**  extensional spec
-     - simpler than writing a 
-     - the postcondition is too weak. why? *)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  cpp.spec "sort(Node*)" as sort_spec3 with
-    (\arg{lp} "l" (Vptr lp)
-     \pre{l} lp |-> ListR 1 l
-     \post{r}[Vptr r] Exists ls, r |-> ListR (1) ls ** [| sorted ls /\ l ≡ₚ ls|]).
-
-
-
-  (** 
-last session::
-- pass assertions to a new thread when starting it
-- get back its postcondition at t.join()
-
-  ┌──────────────────────────┐
-  │  Parent owns P:mpred     │
-  └──────────────────────────┘
-           |
-           | Split resources:  P -|- Pₖ ** C
-           v
-  ┌──────────────┬──────────────┐
-  │ Pₖ (Parent)  │  C (Child)   │
-  └──────────────┴──────────────┘
-           |                |
-           |     <-?->      |
-     Parent Thread       Child Thread (new)
-         runs with Pₖ        runs with C
-  ┌──────────────┬──────────────┐
-  │ Pₖ' (Parent) │  C'(Child)   │ child done executing
-  └──────────────┴──────────────┘
-           |                |
-Parent: Child.join 
-  ┌──────────────────────────┐
-  │ Parent owns Pk' ** C'    │
-  └──────────────────────────┘
-
-
-- not enough [c2989,2989]
-*)
-
-
-
-
-
-
-
-
-  
-(** *cinv : concurrent invariants *)
-  
-
-
-  (*
-  Definition cinvr (invId: gname) (q:Qp) (R:Rep) :Rep  :=
-    as_Rep (fun this:ptr => cinv invId q (this |-> R)).
-   *)
-  
-Example boxedResource (P:mpred) (invId: gname): mpred := cinv invId 1 P.
-  
-Lemma splitInv (P:mpred) (invId: gname) (q:Qp):
-  cinv invId q P |-- cinv invId (q/2) P ** cinv invId (q/2) P.
-Proof using.
-  apply splitcinvq.
-Qed.
-Lemma splitInv2  (invId: gname) (q:Qp):
-  let P := _global "x" |-> primR "int" 1 5 in
-  cinv invId q P |-- cinv invId (q/2) P ** cinv invId (q/2) P.
-Proof.   apply splitcinvq. Qed.
-
-  cpp.spec "bar()" as bar_spec with (
-      \prepost{q invId} cinv q invId (_global "z" |-> anyR "int" 1)
-      \post emp
-    ).
-  
-  Lemma bar_prf : denoteModule module |-- bar_spec.
-  Proof with (fold cQpc).
-    verify_spec.
-    go... (* [g262,284] [g262,284; g195,218] *)
-  Abort.
-
-  Opaque coPset_difference.
-  Opaque atomicR.
-    
-  Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo)); try iPureIntro.
-    
-  (*[c3638,3665] *)
-  cpp.spec "setU(int)" as setU_spec with (
-    \prepost{q invId} cinv q invId (∃ uv:Z, _global "u" |-> atomicR "int" 1 uv)
-    \arg{uvnew} "value" (Vint uvnew)
-    \post emp). 
-
-  cpp.spec "setThenGetU(int)" as setGetU_spec_wrong with (
-      \prepost{q invId} cinv q invId (∃ uv:Z, _global "u" |-> atomicR "int" 1 uv)
-      \arg{uvnew} "value" (Vint uvnew)
-      \post [Vint uvnew] emp
-        ).
-  (** [c4032,4043] why is the above spec unprovable? *)
   
   Lemma setGetU_prf:
     denoteModule module

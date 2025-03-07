@@ -1,11 +1,9 @@
 #include <atomic>
 using uint = unsigned int;
-
+#define CAPACITY 256
 class SPSCQueue
 {
 public:
-    static constexpr uint CAPACITY = 256;
-
     SPSCQueue()
         : head_(0), tail_(0)
     {
@@ -15,10 +13,11 @@ public:
     // Returns true on success, false if the buffer is full.
     bool push(int value)
     {
+        uint head = head_.load();
+	
         uint tail = tail_.load();
         uint nextTail = (tail + 1) % CAPACITY;
 
-        uint head = head_.load();
 
         if (nextTail == head)
         {
@@ -33,9 +32,8 @@ public:
 
     bool pop(int &value)
     {
-        uint head = head_.load();
-
         uint tail = tail_.load();
+        uint head = head_.load();
 
         if (head == tail)
         {

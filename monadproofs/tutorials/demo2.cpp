@@ -246,3 +246,4 @@ int testgcdl() {
 void incdata(Node * n){
   n->data_++;
 }
+std::atomic<uint> uldkjflkasj;// just to force clang to produce the ast of std::atomic<uint>. there is probably a better way to do it
