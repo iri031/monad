@@ -308,7 +308,7 @@ Qed.
     normalize_ptrs. go.
     pose proof (spsc_mod_iff1 (lengthN producedL) numConsumed false v ltac:(auto)).
     destruct (decide (lengthZ producedL = (numConsumed + (cap-1)))).
-    { (* overflow *)
+    { (* overflow . TODO: move the load of tail up so that both cases can share more proof *)
       closeCinvqs.
       go.
       ego...
@@ -380,7 +380,6 @@ Qed.
       Hint Rewrite @dropN_app: syntactic.
       autorewrite with syntactic.
       rewrite big_opL_app. go.
-        assert (numConsumedHeadAtLoad <= numConsumedAtStore) by admit.  (* NOT PROVABLE *)
       assert (Z.to_N(numConsumedAtStore + boolZ v) - lengthN producedL = 0)%N as Hle.
       destruct v; simpl; try (Arith.arith_solve; fail).
       rewrite Hle.
@@ -389,13 +388,197 @@ Qed.
       normalize_ptrs.
       go.
       go.
-      apply Z_to_N_eq_0 in Hle.
-      rewrite Hle.
-      Search (Z.to_N).
-      rewrite Hle.
-      nia.
+      autorewrite with syntactic.
+      rewrite length_dropN.
+      autorewrite with syntactic.
+      assert ((numConsumedAtStore + boolZ v +
+                                                      (length producedL -
+                                                         N.to_nat (Z.to_N (numConsumedAtStore + boolZ v)))%nat) = lengthZ producedL) as Hew by ( unfold lengthN in *; simpl in *;destruct v; try Arith.arith_solve).
+      rewrite Hew. go.
+
+      icancel (cancel_at this);[
+          (repeat (try f_equiv; intros; hnf; try lia)) |].
+      go.
+      iModIntro.
+      go.
+    }
+  Qed.
+  Set Default Goal Selector "!".
+Lemma skipnaddle {T} (def: T) (l: list T) (a:nat):
+  (1+a <= length l) -> skipn a l = (nth a l def)::(skipn (1+a) l).
+Proof using.
+  intros Hl.
+  rewrite <- skipn_skipn.
+  rewrite <- tail_drop.
+  erewrite -> drop_nth_head; try reflexivity.
+  apply nth_error_nth'.
+  lia.
+Qed.
+Lemma dropNaddle {T} (def: T) (l: list T) (i:N):
+  (1+i <= lengthN l) -> dropN i l = (nth (N.to_nat i) l def)::(dropN (i+1)%N l).
+Proof using.
+  unfold dropN.
+  intros.
+  unfold lengthN in *.
+  erewrite skipnaddle by lia.
+  do 2 f_equal.
+  lia.
+Qed.
+  
+  Lemma popqprf: denoteModule module
+                    ** uint_store_spec
+                    ** uint_load_spec
+                    |-- popqw.
+  Proof using MODd with (fold cQpc; normalize_ptrs).
+    verify_spec'.
+    slauto.
+    unfold ConsumerRw. go.
+    unfold SPSCQueueInv1. go.
+    callAtomicCommitCinv.
+    ren_hyp producedL (list Z).
+    ren_hyp numConsumed N.
+    progress normalize_ptrs. go.
+    destruct (decide (lengthZ producedL = (numConsumed))).
+    { (* queue is empty: exact same proof as before  *)
+      closeCinvqs.
+      go.
+      ego...
+      go.
+      iModIntro.
+      go.
+      callAtomicCommitCinv.
+      go.
+      closeCinvqs.
+      go.
+      iModIntro.
+      name_locals.
+      slauto.
+    }
+    {
+      go.
+      wapply (logicalR_update (inConsumeLoc lpp) true). eagerUnifyU. go.
+      closeCinvqs.
+      go...
+      go.
+      autorewrite with syntactic.
+      rewrite Z2N.inj_add; try nia.
       simpl.
+      autorewrite with syntactic.
+      simpl in *.
+      assert (numConsumed + 1 <= lengthN producedL) by lia.
+Set Printing Coercions.
+      rewrite (dropNaddle 0); try nia.
+      simpl. go.
+      icancel (cancel_at this).
+      {
+        do 7 (f_equiv; intros; hnf).
+        lia.
+      }
+      go...
+      progress autorewrite with syntactic.
+      iModIntro.
+      go.
+      callAtomicCommitCinv.
+      go.
+      closeCinvqs.
+      go.
+      iModIntro.
+      slauto.
+      wp_if.
+      1:{ intros. apply False_rect.
+          apply n.
+          apply modulo.zmod_inj in p; try nia.
+          destruct _v_1; simpl in *; try nia.
+      }
+      slauto.
+      callAtomicCommitCinv.
+      go.
+      wapply (logicalR_update (inConsumeLoc lpp) false). eagerUnifyU. go.
+      wapply (logicalR_update (numConsumedLoc lpp) (1+_v_4)%N). eagerUnifyC. go.
+      closeCinvqs.
+      go.
+      slauto.
+      simpl.
+      normalize_ptrs.
+      replace ((Z.to_N (Z.of_N _v_4 + 1))) with (1 + _v_4)%N by lia.
+      repeat rewrite _at_big_sepL.
+      icancel (@big_sepL_mono).
+      {
+        repeat (f_equiv; intros; hnf; try lia).
+      }
+      go.
+Lemma big_sepL_monoeq :
+∀ {PROP : bi} {A : Type} (Φ Ψ : nat → A → bi_car PROP) (l lb : list A) (p: l=lb),
+  (∀ (k : nat) (y : A), l !! k = Some y → Φ k y ⊢ Ψ k y) → ([∗ list] k↦y ∈ lb, Φ k y) ⊢ [∗ list] k↦y ∈ lb, Ψ k y.
+Proof using. intros. subst. apply big_sepL_mono. auto. Qed.
+
+Definition xxx:= [CANCEL] @big_sepL_monoeq.
+work using xxx.
+      IPM.perm_left ltac:(fun L n =>
+        match L with
+        | context [seqN 0 ?l] => 
+            IPM.perm_right ltac:(fun R n =>
+                 match R with
+                 | context [seqN 0 ?r] => assert (l=1+r)%N as Heq
+                 end
+                 )
+        end).
+      {
+        simpl in *.
+        apply N2Z.inj.
+        ntozinj.
+        autorewrite with syntactic.
+        simpl.
+        ring_simplify.
+(*   - lengthZ _v_3 + Z.of_N _v_4 - boolZ _v_5 + 256 = - lengthZ _v_3 + Z.of_N _v_4 - boolZ _v_5 + 258 *)        
+        f_equiv.
+        (*  256 ≡ 258 *)
+        
+        nia.
+        destruct _v_5,_v_2; simpl in *; try Arith.arith_solve.
+
+icancel (@big_sepL_monoeq).
+3:{ eagerUnifyU.
+      {
+        repeat (f_equiv; intros; hnf; try lia).
+      }
+
       
+      icancel (cancel_at this).
+        
+        
+      go.
+      rename _v_4 into numConsumedAtStore.
+      rename _v_3 into producedL.
+      rename numConsumed into numConsumedHeadAtLoad.
+      go.
+      Hint Rewrite @dropN_app: syntactic.
+      autorewrite with syntactic.
+      rewrite big_opL_app. go.
+      assert (Z.to_N(numConsumedAtStore + boolZ v) - lengthN producedL = 0)%N as Hle.
+      destruct v; simpl; try (Arith.arith_solve; fail).
+      rewrite Hle.
+      simpl.
+      go.
+      normalize_ptrs.
+      go.
+      go.
+      autorewrite with syntactic.
+      rewrite length_dropN.
+      autorewrite with syntactic.
+      assert ((numConsumedAtStore + boolZ v +
+                                                      (length producedL -
+                                                         N.to_nat (Z.to_N (numConsumedAtStore + boolZ v)))%nat) = lengthZ producedL) as Hew by ( unfold lengthN in *; simpl in *;destruct v; try Arith.arith_solve).
+      rewrite Hew. go.
+
+      icancel (cancel_at this);[
+          (repeat (try f_equiv; intros; hnf; try lia)) |].
+      go.
+      iModIntro.
+      go.
+    }
+  Qed.
+    
     
   cpp.spec "SPSCQueue::pop(int&)" as popq with (fun (this:ptr)=>
     \arg{valuep} "value" (Vptr valuep)
@@ -911,3 +1094,8 @@ Definition ConcLListR (q:Qp) (invId: gname) (base:ptr) : mpred :=
   Qed.
   
 End with_Sigma.
+(* TODO:
+add P value to the spsc specs
+do bitset.
+maybe do specs invariant of MPSCQueue
+*)
