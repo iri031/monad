@@ -131,20 +131,20 @@ we cannot control how the values are updated: e.g numConsumed can only be increm
   Context {hssslz: fracG (list Z) _}.
   Context {hsssln: fracG N _}.
 
-  Definition bool_to_nat (b: bool) : Z := if b then 1 else 0.
+  Definition boolZ (b: bool) : Z := if b then 1 else 0.
 
   Notation cap := (256).
   Definition SPSCQueueInv1 (cid: qlptr) : Rep :=
     Exists (producedL: list Z) (numConsumed: N) (inProduce inConsume: bool),
       let numProduced : N  := lengthN producedL in
-      let numConsumedAll: Z := (numConsumed + bool_to_nat inConsume) in
-      let numProducedAll: Z := (numProduced + bool_to_nat inProduce) in
-      let numNotFullyConsumed : Z := (lengthN producedL - numConsumed) in
-      let numFullyFree: Z := (cap- numNotFullyConsumed- bool_to_nat inProduce) in
+      let numConsumedAll: Z := (numConsumed + boolZ inConsume) in
+      let numProducedAll: Z := (numProduced + boolZ inProduce) in
+      let numConsumable : Z := (lengthN producedL - numConsumed) in
+      let numFreeSlotsInCinv: Z := (cap- numConsumable - boolZ inProduce) in
       let currItems := dropN (Z.to_N numConsumedAll) producedL in
       pureR (inProduceLoc cid |--> logicalR (1/2) inProduce)
          (* actual capacity is 1 less than cap (the size of the array) because we need to distinguish empty and full *)
-      ** [| numConsumed <= numProduced /\ numProduced - numConsumed <= cap - 1 |]
+      ** [| numConsumedAll <= numProduced /\ numProducedAll - numConsumed <= cap - 1 |]
       ** pureR (inConsumeLoc cid |--> logicalR (1/2) inConsume)
       ** pureR (producedListLoc cid |--> logicalR (1/2) producedL)
       ** pureR (numConsumedLoc cid |--> logicalR (1/2) numConsumed)
@@ -154,7 +154,7 @@ we cannot control how the values are updated: e.g numConsumed can only be increm
       (* ownership of active cells *)
       ([∗ list] i↦  item ∈ currItems,  _field "SPSCQueue::buffer_".["int" ! ((numConsumedAll + i) `mod` cap)] |-> primR "int"  1 (Vint item))
       (* ownership of inactive cells *)
-      ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFullyFree)),  _field "SPSCQueue::buffer_".["int" ! (numProducedAll + i) `mod` cap ] |-> anyR "int" 1)
+      ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFreeSlotsInCinv)),  _field "SPSCQueue::buffer_".["int" ! (numProducedAll + i) `mod` cap ] |-> anyR "int" 1)
       ** _field "SPSCQueue::buffer_".[ "int" ! cap ] |-> validR .
    
   Notation cinvr invId q R:=
@@ -205,6 +205,13 @@ we cannot control how the values are updated: e.g numConsumed can only be increm
   Admitted.
   Lemma logicalR_update (l : gname) (v' v : T) : l |--> logicalR 1 v |-- |==> l |--> logicalR 1 v'.
   Proof. apply @own_update; try exact _. apply cmra_update_exclusive. done. Qed.
+  
+  #[global] Instance learn_logicalR (l : gname) (v1 v2 : T) q q1 :
+    Learnable (l |--> logicalR q1 v1)  (l |--> logicalR q v2) [v1=v2] := ltac:(solve_learnable).
+
+  Definition  learn_logicalR_unsafe (l : gname) (v1 v2 : T) q1 q2 :
+    Learnable (l |--> logicalR q1 v1)  (l |--> logicalR q2 v2) [v1=v2; q1=q2] := ltac:(solve_learnable).
+  
 
   Definition ownhalf_combineF := [FWD->] half_combine.
   Definition ownhalf_splitC := [CANCEL] half_split.
@@ -262,22 +269,29 @@ Proof using.
       intros Hyp.
       apply modulo.zmod_inj in Hyp; try nia.
 Qed.
+Lemma spsc_mod_iff1 (len numConsumed:N) bl bc:
+  (numConsumed + boolZ bc <= len /\ len + boolZ bl  - numConsumed <= cap - 1) ->
+  len = Z.to_N (Z.of_N numConsumed + 255)
+  <-> (len `mod` 256 + 1) `mod` 256 = Z.of_N numConsumed `mod` 256.
+Proof using.
+  intros.
+  apply spsc_mod_iff.
+  destruct bc, bl;  simpl in *; try nia.
+Qed.
 
-      Lemma seqN_shift: ∀ start len : N, map N.succ (seqN start len) = seqN (N.succ start) len.
-      Proof using.
-        intros.
-        unfold seqN.
-        rewrite map_fmap.
-        rewrite N2Nat.inj_succ.
-        rewrite <- seq_shift.
-        Search list_fmap map.
-        rewrite map_fmap.
-        Search fmap.
-        repeat rewrite <- list_fmap_compose.
-        unfold compose.
-        f_equiv.
-        hnf. intros. lia.
-      Qed.
+Lemma seqN_shift: ∀ start len : N, map N.succ (seqN start len) = seqN (N.succ start) len.
+Proof using.
+  intros.
+  unfold seqN.
+  rewrite map_fmap.
+  rewrite N2Nat.inj_succ.
+  rewrite <- seq_shift.
+  rewrite map_fmap.
+  repeat rewrite <- list_fmap_compose.
+  unfold compose.
+  f_equiv.
+  hnf. intros. lia.
+Qed.
 
   Lemma pushqprf: denoteModule module
                     ** uint_store_spec
@@ -292,7 +306,7 @@ Qed.
     ren_hyp producedL (list Z).
     ren_hyp numConsumed N.
     normalize_ptrs. go.
-    pose proof (spsc_mod_iff (lengthN producedL) numConsumed ltac:(auto)).
+    pose proof (spsc_mod_iff1 (lengthN producedL) numConsumed false v ltac:(auto)).
     destruct (decide (lengthZ producedL = (numConsumed + (cap-1)))).
     { (* overflow *)
       closeCinvqs.
@@ -305,8 +319,6 @@ Qed.
       go.
       closeCinvqs.
       go.
-      ego.
-      eagerUnifyU.
       iModIntro.
       name_locals.
       slauto.
@@ -315,8 +327,7 @@ Qed.
       go.
       wapply (logicalR_update (inProduceLoc lpp) true). eagerUnifyU. go.
       closeCinvqs.
-      go.
-      ego...
+      go...
       go.
       IPM.perm_left ltac:(fun L n =>
         match L with
@@ -359,24 +370,31 @@ Qed.
       wapply (logicalR_update (producedListLoc lpp) (_v_3++[value])). eagerUnifyU. go.
       closeCinvqs.
       go.
-      iExists ((_v_3++[value])).
-      ego. eagerUnifyU. go.
-      Search lengthN app.
       Hint Rewrite @lengthN_app @lengthN_one: syntactic.
       slauto.
       simpl.
       rename _v_4 into numConsumedAtStore.
       rename _v_3 into producedL.
-      provePure.
-      { 
-        split; try nia.
-        rename numConsumed into numConsumedHeadAtLoad.
-        assert ((lengthN producedL + 1)%N - numConsumedHeadAtLoad ≤ 255) by lia.
-        Fail Arith.arith_solve.
-        assert (numConsumedHeadAtLoad <= numConsumedAtStore) by admit.  (* NOT PROVABLE *)
-        lia.
-      }
+      rename numConsumed into numConsumedHeadAtLoad.
       go.
+      Hint Rewrite @dropN_app: syntactic.
+      autorewrite with syntactic.
+      rewrite big_opL_app. go.
+        assert (numConsumedHeadAtLoad <= numConsumedAtStore) by admit.  (* NOT PROVABLE *)
+      assert (Z.to_N(numConsumedAtStore + boolZ v) - lengthN producedL = 0)%N as Hle.
+      destruct v; simpl; try (Arith.arith_solve; fail).
+      rewrite Hle.
+      simpl.
+      go.
+      normalize_ptrs.
+      go.
+      go.
+      apply Z_to_N_eq_0 in Hle.
+      rewrite Hle.
+      Search (Z.to_N).
+      rewrite Hle.
+      nia.
+      simpl.
       
     
   cpp.spec "SPSCQueue::pop(int&)" as popq with (fun (this:ptr)=>
