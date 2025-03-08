@@ -75,6 +75,7 @@ Set Default Proof Using "Type".
 Local Arguments valid _ _ !_ /.
 Local Arguments op _ _ !_ !_ /.
 Local Arguments core _ _ !_ /.
+Notation "a |--> r" := (own a r) (at level 80).
 
 (** * Definition of STSs *)
 Module sts.
@@ -518,6 +519,15 @@ Section stsRA.
     move=>/=[?[? ?]]. split_and!; [set_solver..|constructor; set_solver].
   Qed.
 
+  Lemma sts_op_auth_fragg s S T Ta :
+    Ta ## T->  s ∈ S → closed S T → sts_auth s Ta ⋅ sts_frag S T ≡ sts_auth s (T ∪ Ta).
+  Proof.
+    intros; split; [split|constructor; set_solver]; simpl.
+    - tauto.
+    - firstorder. hnf.
+      constructor; auto.
+  Qed.
+  
   (* Notice that the following does *not* hold -- the composition of the
     two closures is weaker than the closure with the itnersected token
     set.  Also see up_op.
@@ -613,6 +623,8 @@ Section stsRA.
     intros. apply sts_frag_included; split_and?; auto.
     exists ∅; split_and?; done || set_solver+.
   Qed. *)
+
+  
 End stsRA.
 
 (*

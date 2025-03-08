@@ -17,6 +17,7 @@ Import Verbose.
 Import linearity.
   Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo)); try iPureIntro.
 
+
   (* TODO: upstream? *)
     Opaque coPset_difference.
 
@@ -27,33 +28,38 @@ Module QueueModel.
   Record State :=
     {
       produced: list Z;
-      consumedPrefixLen: nat;
+      numConsumed: N;
     }.
 
   Definition full (s: State) : Prop :=
-    length (produced s) - consumedPrefixLen s < capacity.
+    lengthZ (produced s) - numConsumed s = capacity.
   
   Definition empty (s: State) : Prop :=
-    length (produced s) = consumedPrefixLen s.
+    lengthZ (produced s) = numConsumed s.
 
-  Inductive step : State -> State -> Prop :=
+  Inductive Token := Producer | Consumer.
+  
+  Inductive step : State -> Token -> State -> Prop :=
   | produce: forall (newItem:Z) (prev: State),
-      (¬ full prev) -> step prev
-                            {| produced := newItem::(produced prev);
-                                    consumedPrefixLen := consumedPrefixLen prev |}
+      (¬ full prev) -> step
+                         prev
+                         Producer
+                         {| produced := (produced prev) ++ [newItem];
+                           numConsumed := numConsumed prev |}
   | consume: forall (newItem:Z) (prev: State),
-      (¬ empty prev) -> step prev
-                             {| produced := produced prev;
-                                 consumedPrefixLen := 1+ consumedPrefixLen prev |}.
+      (¬ empty prev) -> step
+                          prev
+                          Consumer
+                          {| produced := produced prev;
+                            numConsumed := 1+ numConsumed prev |}.
     
 (* when we do MPSC queues, the simulation will become the main spec *)
 
-  Definition sts : stsT :=
-    @stsg.Sts State Empty_set 
-      (fun keys_owned_by_transition_initiator init_state final_state =>
-         step init_state final_state).
+  Definition spsc : stsT :=
+    @stsg.Sts State Token
+      (fun tokens_owned init_state final_state =>
+         ∃ role, role ∈ tokens_owned /\  step init_state role final_state).
 
-  
   End Cap.
 End QueueModel.
       
@@ -61,62 +67,28 @@ End QueueModel.
 Section with_Sigma.
   Context `{Sigma:cpp_logic}  {CU: genv}.
   Context  {MODd : demo3.module ⊧ CU}.
+  Notation cinvr invId q R:=
+    (as_Rep (fun this:ptr => cinv invId q (this |-> R))).
 
-  Context (capacity:nat) `{sss: !stsG (QueueModel.sts capacity)}.
-  Notation qsts := (QueueModel.sts capacity).
+  Context `{sss: !stsG (QueueModel.spsc 255)}.
+  Notation spsc255 := (QueueModel.spsc 255).
   Notation "a |--> r" := (own a r) (at level 80).
-  Definition auth (g:gname) (s: sts.state qsts): mpred:=
+  Definition auth (g:gname) (s: sts.state spsc255): mpred:=
     g |--> sts_auth s ∅.
-  
-  Definition ProducerR (l: list Z) : Rep. Admitted.
-  Definition ConsumerR (l: list Z) : Rep. Admitted.
-  
-  cpp.spec "SPSCQueue::push(int)" as pushq with (fun (this:ptr)=>
-    \arg{value} "value" (Vint value)
-    \pre{prodHistory: list Z} this |-> ProducerR prodHistory
-    \post{retb:bool} [Vbool retb]
-                  if retb
-                  then this |-> ProducerR (value::prodHistory)
-                  else this |-> ProducerR prodHistory).
-  
-  cpp.spec "SPSCQueue::pop(int&)" as popq with (fun (this:ptr)=>
-    \arg{valuep} "value" (Vptr valuep)
-    \pre{consumeHistory: list Z} this |-> ConsumerR consumeHistory
-    \pre valuep |-> anyR "int" 1  
-    \post Exists value:Z, valuep |-> primR "int" 1 value ** this |-> ConsumerR (value::consumeHistory)
-    ).
+  Locate "**".
+  Locate only_provable.
 
-  (* transfer extra resource. only cover this if we have time *)
-  Definition ProducerRg (l: list Z) (R: Z -> list Z-> mpred) : Rep. Admitted.
-  Definition ConsumerRg (l: list Z) (R: Z -> list Z-> mpred) : Rep. Admitted.
   
-  cpp.spec "SPSCQueue::push(int)" as pushqg with (fun (this:ptr)=>
-    \arg{value} "value" (Vint value)
-    \pre{(prodHistory: list Z) (R: Z -> list Z-> mpred)} this |-> ProducerRg prodHistory R
-    \pre R value prodHistory
-    \post{retb:bool} [Vbool retb]
-                  if retb
-                  then this |-> ProducerRg (value::prodHistory) R
-                  else R value prodHistory ** this |-> ProducerRg prodHistory R).
-  Locate sts.
-  cpp.spec "SPSCQueue::pop(int&)" as popqg with (fun (this:ptr)=>
-    \arg{valuep} "value" (Vptr valuep)
-    \pre{(consumeHistory: list Z) (R: Z -> list Z-> mpred)} this |-> ConsumerRg consumeHistory R
-    \pre valuep |-> anyR "int" 1  
-    \post Exists value:Z,
-         R value consumeHistory
-         ** valuep |-> primR "int" 1 value
-         ** this |-> ConsumerRg (value::consumeHistory) R
-    ).
-
   (* roles of logical locations:
      - track info not in c++ variables, e.g. progress towards an op (typicall more abstract that program counter)
      - expose a higher-level state to the client
      - enforce complex protocols.
 
-so far in spscqueue, consumer has authorirative ownership of head and frag of tail , producer has authorirative over tail, fragmentary over head. same as last time.
+so far in spscqueue, consumer has authoritative ownership of head and frag of tail , producer has authorirative over tail, fragmentary over head. same as last time.
 we can control what current values are.
-we cannot control how the values are updated: e.g numConsumed can only be incremented by the consumer  
+we cannot control how the values are updated: e.g numConsumed can only be incremented by the consumer
+
+
    *)
   Record qlptr :=
     {
@@ -133,67 +105,351 @@ we cannot control how the values are updated: e.g numConsumed can only be increm
 
   Definition boolZ (b: bool) : Z := if b then 1 else 0.
 
-  Notation cap := (256).
+  Notation bufsize := (255).
   Definition SPSCQueueInv1 (cid: qlptr) (P: Z -> mpred) : Rep :=
     Exists (producedL: list Z) (numConsumed: N) (inProduce inConsume: bool),
       let numProduced : N  := lengthN producedL in
       let numConsumedAll: Z := (numConsumed + boolZ inConsume) in
       let numProducedAll: Z := (numProduced + boolZ inProduce) in
       let numConsumable : Z := (lengthN producedL - numConsumed) in
-      let numFreeSlotsInCinv: Z := (cap- numConsumable - boolZ inProduce) in
+      let numFreeSlotsInCinv: Z := (bufsize- numConsumable - boolZ inProduce) in
       let currItems := dropN (Z.to_N numConsumedAll) producedL in
       pureR (inProduceLoc cid |--> logicalR (1/2) inProduce)
-         (* actual capacity is 1 less than cap (the size of the array) because we need to distinguish empty and full *)
-      ** [| numConsumedAll <= numProduced /\ numProducedAll - numConsumed <= cap - 1 |]
+         (* actual capacity is 1 less than bufsize (the size of the array) because we need to distinguish empty and full *)
+      ** [| numConsumedAll <= numProduced /\ numProducedAll - numConsumed <= bufsize - 1 |]
       ** pureR (inConsumeLoc cid |--> logicalR (1/2) inConsume)
       ** pureR (producedListLoc cid |--> logicalR (1/2) producedL)
       ** pureR (numConsumedLoc cid |--> logicalR (1/2) numConsumed)
-      ** _field "SPSCQueue::head_" |-> atomicR uint 1 (numConsumed `mod` cap)
-      ** _field "SPSCQueue::tail_" |-> atomicR uint 1 (numProduced `mod` cap)
+      ** _field "SPSCQueue::head_" |-> atomicR uint 1 (numConsumed `mod` bufsize)
+      ** _field "SPSCQueue::tail_" |-> atomicR uint 1 (numProduced `mod` bufsize)
       **
       (* ownership of active cells *)
       ([∗ list] i↦  item ∈ currItems,
         pureR (P item) **
-        _field "SPSCQueue::buffer_".["int" ! ((numConsumedAll + i) `mod` cap)] |-> primR "int"  1 (Vint item))
+        _field "SPSCQueue::buffer_".["int" ! ((numConsumedAll + i) `mod` bufsize)] |-> primR "int"  1 (Vint item))
       (* ownership of inactive cells *)
-      ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFreeSlotsInCinv)),  _field "SPSCQueue::buffer_".["int" ! (numProducedAll + i) `mod` cap ] |-> anyR "int" 1)
-      ** _field "SPSCQueue::buffer_".[ "int" ! cap ] |-> validR .
+      ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFreeSlotsInCinv)),  _field "SPSCQueue::buffer_".["int" ! (numProducedAll + i) `mod` bufsize ] |-> anyR "int" 1)
+      ** _field "SPSCQueue::buffer_".[ "int" ! bufsize ] |-> validR .
    
-  Notation cinvr invId q R:=
-    (as_Rep (fun this:ptr => cinv invId q (this |-> R))).
 
   
-  Definition ProducerRw (cid: qlptr) (P: Z -> mpred) (produced: list Z): Rep :=
+  Definition ProducerR (cid: qlptr) (P: Z -> mpred) (produced: list Z): Rep :=
     cinvr (invId cid) (1/2) (SPSCQueueInv1 cid P)
       ** pureR (inProduceLoc cid |--> logicalR (1/2) false)
       ** pureR (producedListLoc cid |--> logicalR (1/2) produced).
   
-  Definition ConsumerRw (cid: qlptr) (P: Z -> mpred) (numConsumed:N): Rep :=
+  Definition ConsumerR (cid: qlptr) (P: Z -> mpred) (numConsumed:N): Rep :=
     cinvr (invId cid) (1/2) (SPSCQueueInv1 cid P)
       ** pureR (inConsumeLoc cid |--> logicalR (1/2) false)
       ** pureR (numConsumedLoc cid |--> logicalR (1/2) numConsumed).
   
   cpp.spec "SPSCQueue::push(int)" as pushqw with (fun (this:ptr)=>
     \arg{value} "value" (Vint value)
-    \pre{(lpp: qlptr) (produced: list Z) (P: Z -> mpred)} this |-> ProducerRw lpp P produced
+    \pre{(lpp: qlptr) (produced: list Z) (P: Z -> mpred)} this |-> ProducerR lpp P produced
     \pre [| Timeless1 P |]
     \pre P value
     \post{retb:bool} [Vbool retb]
            if retb
-           then this |-> ProducerRw lpp P (produced++[value])
-           else this |-> ProducerRw lpp P produced ** P value).
+           then this |-> ProducerR lpp P (produced++[value])
+           else this |-> ProducerR lpp P produced ** P value).
   
   cpp.spec "SPSCQueue::pop(int&)" as popqw with (fun (this:ptr)=>
     \arg{valuep} "value" (Vptr valuep)
-    \pre{(lpp: qlptr) (P: Z -> mpred) (numConsumed: N) } this |-> ConsumerRw lpp P numConsumed
+    \pre{(lpp: qlptr) (P: Z -> mpred) (numConsumed: N) } this |-> ConsumerR lpp P numConsumed
     \pre [| Timeless1 P |]
     \pre valuep |-> anyR "int" 1
     \post{retb:bool} [Vbool retb]
         if retb
-        then this |-> ConsumerRw lpp P (1+numConsumed)
+        then this |-> ConsumerR lpp P (1+numConsumed)
              ** Exists popv:Z, valuep |-> primR "int" 1 popv ** P popv
-        else valuep |-> anyR "int" 1 ** this |-> ConsumerRw lpp P numConsumed).
+        else valuep |-> anyR "int" 1 ** this |-> ConsumerR lpp P numConsumed).
 
+  cpp.spec "SPSCQueue::pop(int&)" as popqw2 with (fun (this:ptr)=>
+    \arg{valuep} "value" (Vptr valuep)
+    \pre{(lpp: qlptr) (P: Z -> mpred) (numConsumed: N) } this |-> ConsumerR lpp P numConsumed
+    \pre [| Timeless1 P |]
+    \pre valuep |-> anyR "int" 1
+    (* despite ∃, the value remains constant during the call unless the callee chooses to change it *)
+    \pre ∃ (producedL: list Z),
+            (producedListLoc lpp |--> logicalR (1/4) producedL)
+            ** [| numConsumed < length producedL  |]
+    \post [Vbool true]
+          this |-> ConsumerR lpp P (1+numConsumed)
+             ** Exists popv:Z, valuep |-> primR "int" 1 popv ** P popv).
+
+  (** need a way for even the consumer to make "stable assertions about producedL, the produced list"
+       current producedL = [1,2,3] : not stable for consumer
+        [1,2,3] is a prefix of current producedL  : stable for everyone
+        4< length current producedL  : stable for everyone
+        current numConsumed < length of current producedL  : stable for the consumer 
+   *)
+
+  (** ownership of ghost locations can be custom-defined: CMRA (commutative monoid resource algebra)
+
+Iris: Monoids and Invariants as an Orthogonal Basis for Concurrent Reasoning
+   *)
+  Locate "|-->".
+  Check @own.
+  Print cmra. (* Commutative Monoid Resource Algebra *)
+  Check @logicalR. (* iris paper, section 3.2. TODO: copy annottated pdf to mac *)
+
+  Print sts.car.
+  Check sts_frag_valid.
+  (* TODO: move *)
+  Lemma observePure g (a: (stsR spsc255)) : Observe [| ✓ a |] (own g a).
+  Proof.  apply observe_intro. exact _. go. Qed.
+
+  Import sts.
+  Check QueueModel.step.
+  Notation stable := valid.
+  Lemma stable_frag (g: gname) (S: states spsc255) (T: tokens spsc255):
+    g |--> sts_frag S T |-- [|stable (sts_frag S T) |] ** (g |--> sts_frag S T).
+  Proof using. go. Qed.
+
+  Import QueueModel.
+Lemma frame_step_if {sts} (myTokens : tokens sts) (s1 s2 : state sts):
+  (∃ otherToken, stepr {[ otherToken]} s1 s2 /\  otherToken ∉ myTokens) ->
+  frame_step myTokens s1 s2.
+Proof.
+  clear.
+  intros.
+  forward_reason.
+  hnf.
+  exists {[otherToken]}.
+  split; [| set_solver].
+  hnf.
+  exists {[otherToken]}.
+  split; auto.
+Qed.
+
+Lemma auth_frag_together (g: gname) (sa: state spsc255) (Sf : states spsc255) (Ta Tf: tokens spsc255):
+  (g |--> sts_auth sa Ta) ** (g |--> sts_frag Sf Tf)
+  -|- g |--> sts_frag Sf Tf ** [| Ta ## Tf /\ sa ∈ Sf |].
+Proof.
+  simpl.
+  iIntrosDestructs.
+  wapplyObserve (@own_2_valid _ _ _ _ _ _ (stsR spsc255)).
+  eagerUnifyC.
+  go.
+  hnf in H.
+  forward_reason.
+  simpl in *.
+  hnf in Hrr.
+  inverts Hrr.
+  forward_reason.
+  auto.
+Qed.
+
+Lemma frag_frag_together (g: gname) (S1 S2 : states spsc255) (T1 T2: tokens spsc255):
+  let m := (g |--> sts_frag S1 T1) ** (g |--> sts_frag S2 T2)  in
+  m |-- m ** [| T1 ## T2  /\ stable (sts_frag S2 T2) |].
+Proof.
+  simpl.
+  iIntrosDestructs.
+  wapplyObserve (@own_2_valid _ _ _ _ _ _ (stsR spsc255)).
+  eagerUnifyC.
+  go.
+  hnf in H.
+  forward_reason.
+  simpl in *.
+  hnf in Hrr.
+  inverts Hrr.
+  forward_reason.
+  auto.
+Qed.
+
+Lemma frag_frag_combine (g: gname) (S1 S2 : states spsc255) (T1 T2: tokens spsc255):
+  (g |--> sts_frag S1 T1) ** (g |--> sts_frag S2 T2)
+    |-- (g |--> sts_frag (S1 ∩ S2) (T1 ∪ T2)) ** [| T1 ## T2  /\ stable (sts_frag S2 T2) |].
+Proof.
+  simpl. go.
+  wapplyObserve (@own_2_valid _ _ _ _ _ _ (stsR spsc255)).
+  eagerUnifyC.
+  go.
+  hnf in H.
+  forward_reason.
+  hnf in Hrr.
+  inverts Hrr.
+  hnf in Hl, Hrl.
+  forward_reason.
+  rewrite sts_op_frag; try auto.
+  rewrite own_op. go.
+  auto.
+  iPureIntro.
+  split;eauto.
+  hnf.
+  split; eauto.
+Qed.
+
+Check atomicR_combine_half.
+
+
+Lemma auth_frag_combine (g: gname) (sa: state spsc255) (Sf : states spsc255) (Ta Tf: tokens spsc255):
+  Ta ## Tf ->  sa ∈ Sf -> stable (sts_frag Sf Tf) ->
+  (g |--> sts_auth sa Ta) ** (g |--> sts_frag Sf Tf)
+    -|- (g |--> sts_auth sa (Ta ∪ Tf)).
+Proof.
+  Search sts_auth.
+  simpl.
+Abort.
+
+
+Lemma multiple_frag_together (g: gname) (sa: state spsc255) (S1 S2: states spsc255) (Ta T1 T2: tokens spsc255):
+  let m := (g |--> sts_auth sa Ta) ** (g |--> sts_frag S1 T2) ** (g |--> sts_frag S2 T2) in
+  m |-- m ** [| Ta ## T1 /\ T2 ## T1 /\ Ta ## T2 /\ sa ∈ S1 /\ sa ∈ S2 /\ closed S1 T1 /\ closed S2 T2|].
+Proof using.
+
+ 
+      |-- [|stable (sts_frag S T) |] ** (g |--> sts_frag S T).
+
+  Example  instable_prod1: stable (sts_frag
+                                {[s: state spsc255 | produced s =[] ]}
+                                {[Consumer]}
+                         )
+                       -> False.
+  Proof.
+    clear.
+    intros Hc.
+    hnf in Hc.
+    apply proj1 in Hc.
+    hnf in Hc.
+    specialize (Hc
+                  {| produced :=[]; numConsumed := 0 |}
+                  {| produced :=[2]; numConsumed := 0 |}
+                  ltac:(set_solver)
+               ).
+    lapply Hc.
+    { set_solver. }
+    {
+      apply frame_step_if.
+      exists Producer.
+      split; try set_solver.
+      hnf.
+      exists Producer.
+      split; try set_solver.
+      apply (produce 255 2).
+      unfold full. simpl in *. lia.
+    }
+  Qed.
+  
+Set Nested Proofs Allowed.
+Lemma head_app {T} (l lb: list T) (t:T) :
+  head l = Some t -> head (l++lb) = head l.
+Proof.
+  clear.
+  destruct l; simpl;  auto.
+  intros. discriminate.
+Qed.
+
+  Example  stable_prod1:
+    stable (sts_frag
+             {[s: state spsc255 | produced s = [] ]}
+             {[Producer]}
+      ).
+  Proof.
+    clear.
+    hnf.
+    split;[ | exists {| produced :=[]; numConsumed := 0 |}; set_solver].
+    hnf.
+    intros ? ? Hc.
+    rewrite elem_of_PropSet in Hc.
+    intros Hf.
+    hnf in Hf.
+    forward_reason.
+    inverts Hfl.
+    inverts H.
+    inverts H0.
+    forward_reason.
+    inverts Hr; try set_solver.
+  Qed.
+
+  Example  stable_prod2:
+    stable (sts_frag
+             {[s: state spsc255 | head (produced s) = Some 2  ]}
+             {[Consumer]}
+      ).
+  Proof.
+    clear.
+    hnf.
+    split;[ | exists {| produced :=[2]; numConsumed := 0 |}; set_solver].
+    hnf.
+    intros ? ? Hc.
+    rewrite elem_of_PropSet in Hc.
+    intros Hf.
+    hnf in Hf.
+    forward_reason.
+    inverts Hfl.
+    inverts H.
+    inverts H0.
+    forward_reason.
+    inverts Hr; try set_solver.
+    simpl.
+    apply elem_of_PropSet.
+    simpl...
+    erewrite head_app; eauto.
+  Qed.
+
+  Example  stable_prod3:
+    stable (sts_frag
+             {[s: state spsc255 | 1<= numConsumed s ]}
+             {[Producer]}
+      ).
+  Proof.
+    clear.
+    hnf.
+    split;[ | exists {| produced :=[2]; numConsumed := 1 |}; set_solver].
+    hnf.
+    intros ? ? Hc.
+    rewrite elem_of_PropSet in Hc.
+    intros Hf.
+    hnf in Hf.
+    forward_reason.
+    inverts Hfl.
+    inverts H.
+    inverts H0.
+    forward_reason.
+    inverts Hr; try set_solver.
+    simpl.
+    apply elem_of_PropSet.
+    simpl...
+    lia.
+  Qed.
+
+  Search sts_auth.
+  Locate "⋅".
+  Search op cmra bi_sep.
+(** closed S T := ∀ s∈S, if s can transition to s' using a token NOT in T, s' ∈ S *)
+  Lemma stable_frag (g: gname) (S: sts.states spsc) (T: sts.tokens spsc):
+    g |--> sts_frag S T |-- [| sts.closed S T |] ** [| ∃ s, s ∈ S|] ** (g |--> sts_frag S T).
+  Proof using.
+    iIntrosDestructs.
+    wapplyObserve test.
+    eagerUnifyU. go.
+    hnf in H.
+    forward_reason.
+    go.
+    iPureIntro.
+    eauto.
+  Qed.
+
+  
+  (* need tokens so that each party can assert the authorirative parts of their state:
+
+   next : +ve and -ve examples of sts_frag/validity
+   3 valid facts- 2 auth parts, 1 non-tokem frag: show it is duplicable 
+
+   *)
+  
+  Definition ProducerRbad (cid: qlptr) (P: Z -> mpred) (producedL: list Z): Rep :=
+    cinvr (invId cid) (1/2) (SPSCQueueInv1 cid P)
+      ** pureR (inProduceLoc cid |--> logicalR (1/2) false)
+      ** pureR (producedListLoc cid |--> logicalR (1/4) producedL).
+  
+  Definition ConsumerRbad (cid: qlptr) (P: Z -> mpred) (numConsumed:N): Rep :=
+    cinvr (invId cid) (1/2) (SPSCQueueInv1 cid P)
+      ** pureR (inConsumeLoc cid |--> logicalR (1/2) false)
+      ** pureR (numConsumedLoc cid |--> logicalR (1/2) numConsumed).
+  
   Opaque atomicR.
   Opaque Nat.modulo.
 
@@ -225,7 +481,7 @@ we cannot control how the values are updated: e.g numConsumed can only be increm
   Hint Resolve ownhalf_splitC : br_opacity.
     Existing Instance learn_atomic_val_UNSAFE.
     Definition qFull (producedL: list Z) (numConsumed: N) :=
-      lengthN producedL = Z.to_N (numConsumed + (cap-1)).
+      lengthN producedL = Z.to_N (numConsumed + (bufsize-1)).
 
       Import ZifyClasses.
       Set Nested Proofs Allowed.
@@ -260,7 +516,7 @@ Qed.
           
 Hint Rewrite Z2N.id using lia: syntactic.
 Lemma spsc_mod_iff (len numConsumed:N):
-  (numConsumed <= len /\ len - numConsumed <= cap - 1) ->
+  (numConsumed <= len /\ len - numConsumed <= bufsize - 1) ->
   len = Z.to_N (Z.of_N numConsumed + 255)
   <-> (len `mod` 256 + 1) `mod` 256 = Z.of_N numConsumed `mod` 256.
 Proof using.
@@ -275,7 +531,7 @@ Proof using.
       apply modulo.zmod_inj in Hyp; try nia.
 Qed.
 Lemma spsc_mod_iff1 (len numConsumed:N) bl bc:
-  (numConsumed + boolZ bc <= len /\ len + boolZ bl  - numConsumed <= cap - 1) ->
+  (numConsumed + boolZ bc <= len /\ len + boolZ bl  - numConsumed <= bufsize - 1) ->
   len = Z.to_N (Z.of_N numConsumed + 255)
   <-> (len `mod` 256 + 1) `mod` 256 = Z.of_N numConsumed `mod` 256.
 Proof using.
@@ -305,14 +561,14 @@ Qed.
   Proof using MODd with (fold cQpc; normalize_ptrs).
     verify_spec'.
     slauto.
-    unfold ProducerRw. go.
+    unfold ProducerR. go.
     unfold SPSCQueueInv1. go.
     callAtomicCommitCinv.
     ren_hyp producedL (list Z).
     ren_hyp numConsumed N.
     normalize_ptrs. go.
     pose proof (spsc_mod_iff1 (lengthN producedL) numConsumed false v ltac:(auto)).
-    destruct (decide (lengthZ producedL = (numConsumed + (cap-1)))).
+    destruct (decide (lengthZ producedL = (numConsumed + (bufsize-1)))).
     { (* overflow . TODO: move the load of tail up so that both cases can share more proof *)
       closeCinvqs.
       go.
@@ -462,7 +718,7 @@ Qed.
   Proof using MODd with (fold cQpc; normalize_ptrs).
     verify_spec'.
     slauto.
-    unfold ConsumerRw. go.
+    unfold ConsumerR. go.
     unfold SPSCQueueInv1. go.
     callAtomicCommitCinv.
     ren_hyp producedL (list Z).
@@ -576,7 +832,14 @@ Qed.
   
 End with_Sigma.
 (* TODO:
-add P value to the spsc specs
+animation of resource transfer of SPSCqueue.
+emphasize how the picture is trickly to encode in logic
+ask GPT to draw a circular Q tikz. then nmanually add overlays
+
 do bitset.
-maybe do specs invariant of MPSCQueue
+maybe do specs invariant of MPSCQueue: just put the ProducerR in a spinlock
+
+done
+add P value to the spsc specs
+
 *)

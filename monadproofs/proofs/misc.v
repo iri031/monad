@@ -983,7 +983,15 @@ End atomicR.
   Definition atomicrC := [CANCEL] atomicr_split.
   Definition lcinvqg_unsafe a1 g1 q1 P1 a2 g2 q2 P2:
     Learnable (cinvq a1 g1 q1 P1) (cinvq a2 g2 q2 P2) [g1=g2] := ltac:(solve_learnable).
-    
+
+
+  Section stsg.
+  Require Import monad.proofs.stsg.
+    Lemma auth_frag_together (g: gname) sa Sf Ta Tf:
+  (g |--> sts_auth sa Ta) ∗ (g |--> sts_frag Sf Tf)
+   ≡ (g |--> sts_frag Sf Tf) ∗ [| Ta ## Tf /\ sa ∈ Sf |].
+
+  
 End cp.
 Opaque parrayR.
 (*  Hint Resolve fwd_later_exist fwd_later_sep bwd_later_exist

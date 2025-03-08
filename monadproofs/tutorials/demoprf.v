@@ -86,9 +86,10 @@ Section with_Sigma.
               ** _global "x" |-> primR uint (1/2)  xv
     ).
   (* fractions ∈ (0,1], write needs 1, read any*)
-  
+
   (* what is wrong with the spec above? *)
 
+   
   Example anyR_if : _global "y" |-> uninitR uint 1
                    \\// (Exists xv:Z, _global "y" |-> primR uint 1 xv)
                  |--  _global "y" |-> anyR uint 1.
