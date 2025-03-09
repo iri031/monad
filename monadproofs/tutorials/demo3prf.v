@@ -47,7 +47,7 @@ Module QueueModel.
                          Producer
                          {| produced := (produced prev) ++ [newItem];
                            numConsumed := numConsumed prev |}
-  | consume: forall (newItem:Z) (prev: State),
+  | consume: forall (prev: State),
       (¬ empty prev) -> step
                           prev
                           Consumer
@@ -103,7 +103,7 @@ we cannot control how the values are updated: e.g numConsumed can only be increm
 
   Definition boolZ (b: bool) : Z := if b then 1 else 0.
 
-  Notation bufsize := (255).
+  Notation bufsize := 256.
   Definition SPSCQueueInv1 (cid: qlptr) (P: Z -> mpred) : Rep :=
     Exists (producedL: list Z) (numConsumed: N) (inProduce inConsume: bool),
       let numProduced : N  := lengthN producedL in
@@ -251,38 +251,51 @@ Iris: Monoids and Invariants as an Orthogonal Basis for Concurrent Reasoning
     assumption.
   Qed.
 
-  Example update_lloc2 (g:gname) :
-      g |--> sts_auth {| produced:= [];  numConsumed :=0 |}  {[ Producer ]} |-- |==>
-      g |--> sts_auth {| produced:= [9]; numConsumed :=0 |}  {[ Producer ]}.
+  (* move *)
+  Corollary update_lloc_1step (g:gname) (s sf: State) (toks: tokens spsc255) tok:
+    step s tok sf -> tok ∈ toks ->
+      g |--> sts_auth s  toks |-- |==>
+      g |--> sts_auth sf toks.
   Proof using.
+    intros.
     apply update_lloc.
     eapply rtc_l;[| apply rtc_refl].
     hnf. eexists _; split; [| reflexivity].
     hnf. eexists _.
-    split.
-    2:{ apply: produce. unfold full. simpl. lia. }
-    set_solver.
+    eauto.
+  Qed.
+  
+  Example update_lloc2 (g:gname) :
+      g |--> sts_auth {| produced:= [];  numConsumed :=0 |}  {[ Producer ]} |-- |==>
+      g |--> sts_auth {| produced:= [9]; numConsumed :=0 |}  {[ Producer ]}.
+  Proof using.
+    apply update_lloc_1step with (tok:=Producer);[| set_solver].
+    apply: produce. unfold full. simpl. lia.
   Qed.
   
   Example update_lloc_false (g:gname) :
      g |--> sts_auth {| produced:= [9]; numConsumed :=0 |}  ⊤ |-- |==>
      g |--> sts_auth {| produced:= [];  numConsumed :=0 |}  ⊤.
   Abort.
+
+  Hint Rewrite @lengthN_app: syntactic.
   
-  Lemma closede3 : closed {[ s : state spsc255 | 2<= length (produced s) /\ 1<= numConsumed s ]} ∅.
+  (* stable is formalized as closed *)
+  Lemma closedb lp nc : closed {[ s : state spsc255 | lp <= lengthN (produced s) /\ nc<= numConsumed s ]} ∅.
   Proof using.
     apply closed_if.
     intros ? ? ? Hdis Hin Hstep.
     rewrite -> elem_of_PropSet in *.
     inverts Hstep; simpl; try lia.
-    autorewrite with syntactic. lia.
+    autorewrite with syntactic.
+    lia.
   Qed.
 
   (** example of frag: *)
   Example gen_frag_out_of_thin_air toks g:
     (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} toks) |--
     (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} toks)
-    ** (g |--> sts_frag {[ s | 2<= length (produced s) /\ 1<= numConsumed s ]} ∅).
+    ** (g |--> sts_frag {[ s | 2<= lengthN (produced s) /\ 1<= numConsumed s ]} ∅).
   Proof using.
     iIntrosDestructs.
     hideRhs.
@@ -301,13 +314,163 @@ Iris: Monoids and Invariants as an Orthogonal Basis for Concurrent Reasoning
       simpl. lia.
     }
     simpl...
-    apply closede3.
+    apply closedb.
   Qed.
 
-  (* general form: *)
+  Example dupl_tokenfree_frag g:
+    let m:= (g |--> sts_frag {[ s | 2<= lengthN (produced s) /\ 1<= numConsumed s ]} ∅) in
+    m |-- m ** m.
+  Proof using.
+    simpl.
+    rewrite frag_frag_combine2.
+    go.
+    iPureIntro.
+    apply closedb.
+  Qed.
+  
+  (* general form:*)
   Check auth_frag_together.
+  (* -> opening inv, <- closing inv  *)
+  Check auth_frag_together2.
 
+  Example  unstable_prod1: stable (sts_frag
+                                {[s: state spsc255 | produced s =[] ]}
+                                {[Consumer]}
+                         )
+                       -> False.
+  Proof.
+    clear.
+    intros Hc.
+    hnf in Hc.
+    apply proj1 in Hc.
+    rewrite <- closed_iff in Hc.
+    setoid_rewrite elem_of_PropSet in Hc.
+    (* conterexample: *)
+    specialize (Hc
+                  {| produced :=[]; numConsumed := 0 |}
+                  {| produced :=[2]; numConsumed := 0 |}
+                  {[Producer ]}
+                  ltac:(set_solver)
+                  ltac:(auto)
+               ).
+    lapply Hc.
+    { set_solver. }
+    {
+      hnf.
+      exists {[Producer ]}.
+      split; try set_solver.
+      hnf.
+      exists Producer.
+      split; try set_solver.
+      apply (produce 255 2).
+      unfold full. simpl in *. lia.
+    }
+  Qed.
+  
+  Example closed2: closed {[ s : state spsc255 | produced s =  [9;8] ]} {[ Producer ]}.
+  Proof using.
+    clear.
+    apply closed_if.
+    intros ? ? ? Hdis Hin Hstep.
+    rewrite -> elem_of_PropSet in *.
+    inverts Hstep; simpl; try lia; try set_solver.
+  Qed.
     
+  (** example of frag: *)
+  Example gen_frag2 g:
+    (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} {[ Producer ]}) |--
+    (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} ∅)
+    ** (g |--> sts_frag {[ s | produced s =  [9;8] ]} {[ Producer ]}).
+  Proof using.
+    rewrite auth_frag_together2.
+    go.
+    rewrite -> elem_of_PropSet. simpl.
+    iPureIntro.
+    split; auto.
+    apply closed2.
+  Qed.
+    
+  Example gen_frag3 g:
+    (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} {[ Producer ]}) |--
+    (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} ∅)
+    ** (g |--> sts_frag {[ s | produced s =  [9;8] ]} {[ Producer ]})
+    ** (g |--> sts_frag {[ s | 2<= lengthN (produced s) /\ 1<= numConsumed s ]} ∅).
+  Proof using.
+    rewrite gen_frag2.
+    rewrite -> gen_frag_out_of_thin_air at 1.
+    go.
+  Qed.
+
+Example consumer_open_cinv g s:
+  (g |--> sts_auth s ∅)
+  ** (g |--> sts_frag {[ s | numConsumed s  =  1%N ]} {[ Consumer ]})
+  ** (g |--> sts_frag {[ s | 2<= lengthN (produced s) /\ 1<= numConsumed s ]} ∅)
+  |--
+    (g |--> sts_auth s {[ Consumer ]}) ** [| numConsumed s = 1%N /\ 2<= lengthN (produced s)|].
+Proof using.
+  rewrite frag_frag_combine.
+  go.
+  iStopProof.
+  rewrite auth_frag_together.
+  repeat rewrite right_id.
+  repeat rewrite elem_of_intersection.
+  repeat rewrite -> elem_of_PropSet. simpl.
+  go.
+Qed.
+(* the consumer can now guarantee success as now it knows there is atleast 1 consumed element *)  
+
+(* update during the store to head in consumer, before closing inv *)
+Example consumer_upd g s (learned: numConsumed s = 1%N /\ 2<= length (produced s)):
+  (g |--> sts_auth s {[ Consumer ]}) |-- |==>
+  (g |--> sts_auth
+            {| produced := produced s;
+               numConsumed := 2 |}
+            {[ Consumer ]}).
+Proof using.
+  intros.
+  apply update_lloc_1step with (tok := Consumer);[|set_solver].
+  destruct s; simpl in *.
+  forward_reason.
+  subst.
+  constructor.
+  unfold empty.
+  unfold lengthN.
+  simpl.
+  lia.
+Qed.
+
+  Example gen_frag4 g p (learned: 2<= lengthN p):
+  (g |--> sts_auth {| produced := p; numConsumed := 2 |} {[ Consumer ]})  |--
+  (g |--> sts_auth {| produced := p; numConsumed := 2 |} ∅)
+    ** (g |--> sts_frag {[ s | numConsumed s =  2%N ]} {[ Consumer ]})
+    ** (g |--> sts_frag {[ s | 2<= lengthN (produced s) /\ 2 <= numConsumed s ]} ∅).
+  Proof using.
+    clear MODd.
+    rewrite assoc.
+    rewrite auth_frag_together2.
+    rewrite -> auth_frag_together_dupl2 at 1.
+    {
+      go.
+      eagerUnifyC.
+      rewrite -> elem_of_PropSet. simpl.
+      iPureIntro.
+      split; auto.
+      apply closed_if.
+      intros.
+      rewrite -> elem_of_PropSet in *. simpl in *.
+      inverts H1; auto; set_solver.
+    }
+    {
+      rewrite -> elem_of_PropSet. simpl.
+      lia.
+    }
+    {
+      apply closedb.
+    }
+  Qed.
+      
+        
+
   Example e2 (g:gname) : mpred :=
     g |--> sts_frag
             {[ s | numConsumed s = 0%N ]} (* produced can be anything *)
@@ -368,43 +531,6 @@ Iris: Monoids and Invariants as an Orthogonal Basis for Concurrent Reasoning
     }
   Qed.
 
-  Example  unstable_prod1: stable (sts_frag
-                                {[s: state spsc255 | produced s =[] ]}
-                                {[Consumer]}
-                         )
-                       -> False.
-  Proof.
-    clear.
-    intros Hc.
-    hnf in Hc.
-    apply proj1 in Hc.
-    rewrite <- closed_iff in Hc.
-    setoid_rewrite elem_of_PropSet in Hc.
-    specialize (Hc
-                  {| produced :=[]; numConsumed := 0 |}
-                  {| produced :=[2]; numConsumed := 0 |}
-                  {[Producer ]}
-                  ltac:(set_solver)
-                  ltac:(auto)
-               ).
-    lapply Hc.
-    { set_solver. }
-    {
-      hnf.
-      exists {[Producer ]}.
-      split; try set_solver.
-      hnf.
-      exists Producer.
-      split; try set_solver.
-      apply (produce 255 2).
-      unfold full. simpl in *. lia.
-    }
-  Qed.
-  Example  stable_prod2:
-    stable (sts_frag
-             {[s: state spsc255 | firstn 3 (produced s) =[4;5;6] /\ 2<=numConsumed s]}
-             ∅).
-  Proof 
 Set Nested Proofs Allowed.
 Lemma head_app {T} (l lb: list T) (t:T) :
   head l = Some t -> head (l++lb) = head l.
@@ -414,7 +540,7 @@ Proof.
   intros. discriminate.
 Qed.
 
-  Example  stable_prod1:
+  Example  stable_prod3:
     stable (sts_frag
              {[s: state spsc255 | produced s = [] ]}
              {[Producer]}
@@ -462,7 +588,7 @@ Qed.
     erewrite head_app; eauto.
   Qed.
 
-  Example  stable_prod3:
+  Example  stable_prod38:
     stable (sts_frag
              {[s: state spsc255 | 1<= numConsumed s ]}
              {[Producer]}
@@ -492,11 +618,11 @@ Qed.
   Locate "⋅".
   Search op cmra bi_sep.
 (** closed S T := ∀ s∈S, if s can transition to s' using a token NOT in T, s' ∈ S *)
-  Lemma stable_frag (g: gname) (S: sts.states spsc) (T: sts.tokens spsc):
+  Lemma stable_frag34 (g: gname) (S: sts.states spsc255) (T: sts.tokens spsc255):
     g |--> sts_frag S T |-- [| sts.closed S T |] ** [| ∃ s, s ∈ S|] ** (g |--> sts_frag S T).
   Proof using.
     iIntrosDestructs.
-    wapplyObserve test.
+    wapplyObserve observePure.
     eagerUnifyU. go.
     hnf in H.
     forward_reason.
@@ -506,12 +632,6 @@ Qed.
   Qed.
 
   
-  (* need tokens so that each party can assert the authorirative parts of their state:
-
-   next : +ve and -ve examples of sts_frag/validity
-   3 valid facts- 2 auth parts, 1 non-tokem frag: show it is duplicable 
-
-   *)
   
   Definition ProducerRbad (cid: qlptr) (P: Z -> mpred) (producedL: list Z): Rep :=
     cinvr (invId cid) (1/2) (SPSCQueueInv1 cid P)
@@ -600,6 +720,8 @@ Proof using.
   f_equiv.
   hnf. intros. lia.
 Qed.
+Hint Resolve ownhalf_combineF : br_opacity.
+Hint Resolve ownhalf_splitC : br_opacity.
 
   Lemma pushqprf: denoteModule module
                     ** uint_store_spec

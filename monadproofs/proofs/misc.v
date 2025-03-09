@@ -14,6 +14,16 @@ Proof using.
 Qed.
 Notation logicalR := (to_frac_ag).
 
+  Ltac wapplyRev lemma:=
+    try intros;
+  idtac;
+  [
+    wapply (@bi.equiv_entails_1_2 _ _ _ (lemma)) || wapply (@bi.equiv_entails_1_2 _ _ _ (lemma _))
+    || wapply (@bi.equiv_entails_1_2 _ _ _ (lemma _ _)) || wapply (@bi.equiv_entails_1_2 _ _ _ (lemma _ _ _))
+    || wapply (@bi.equiv_entails_1_2 _ _ _ (lemma _ _ _ _)) || wapply (@bi.equiv_entails_1_2 _ _ _ (lemma _ _ _ _ _))
+    || wapply (@bi.equiv_entails_1_2 _ _ _ (lemma _ _ _ _ _ _)) || wapply (@bi.equiv_entails_1_2 _ _ _ (lemma _ _ _ _ _ _ _))
+    || wapply (@bi.equiv_entails_1_2 _ _ _ (lemma _ _ _ _ _ _ _ _)) || wapply (@bi.equiv_entails_1_2 _ _ _ (lemma _ _ _ _ _ _ _ _ _)) ].
+
 Lemma cinvq_alloc `{cpp_logic} (E : coPset) (N : namespace) (P : mpred) :
   WeaklyObjective P → ▷ P |-- |={E}=> ∃ γ : gname, cinvq N γ 1 P.
 Proof.
@@ -1010,8 +1020,6 @@ End atomicR.
   Definition ownhalf_combineF := [FWD->] half_combine.
   Definition ownhalf_splitC := [CANCEL] half_split.
   End Hints.
-  Hint Resolve ownhalf_combineF : br_opacity.
-  Hint Resolve ownhalf_splitC : br_opacity.
 
   Section stsg.
   Context {sts: stsT}.
@@ -1072,6 +1080,30 @@ End atomicR.
     split; auto.
     set_solver.
   Qed.
+  
+  Lemma auth_frag_together_dupl (g: gname) s S Tf:
+  (g |--> sts_auth s Tf) ** (g |--> sts_frag S ∅)
+   -|- (g |--> sts_auth s Tf) ** [| s ∈ S /\ closed S ∅|].
+  Proof using.
+    rewrite auth_frag_together.
+    rewrite left_id.
+    iSplit; go.
+    iPureIntro.
+    split; auto.
+    set_solver.
+  Qed.
+  Search equiv bi_entails.
+
+  Lemma auth_frag_together_dupl2 (g: gname) s S Tf:
+    s ∈ S -> closed S ∅ ->
+  (g |--> sts_auth s Tf) |-- (g |--> sts_auth s Tf) ** (g |--> sts_frag S ∅).
+  Proof using.
+    intros. iIntrosDestructs.
+    wapplyRev  auth_frag_together_dupl.
+    eagerUnifyU.
+    go.
+  Qed.
+  
   (* sts_frag S ∅ is like knowledge: can be freely duplicated *)
     
   Lemma frag_frag_combine (g: gname) S1 S2 T1 T2:
@@ -1293,3 +1325,5 @@ Proof using.
   rewrite IHl.
   aac_reflexivity.
 Qed.
+#[export] Hint Resolve ownhalf_combineF : br_opacity.
+#[export] Hint Resolve ownhalf_splitC : br_opacity.
