@@ -14,6 +14,7 @@ From AAC_tactics Require Import Instances.
 Import Instances.Z.
 Import cQp_compat.
 Import Verbose.
+Notation stable := valid. 
 Import linearity.
   Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo)); try iPureIntro.
 
@@ -72,10 +73,8 @@ Section with_Sigma.
 
   Context `{sss: !stsG (QueueModel.spsc 255)}.
   Notation spsc255 := (QueueModel.spsc 255).
-  Notation "a |--> r" := (own a r) (at level 80).
   Definition auth (g:gname) (s: sts.state spsc255): mpred:=
     g |--> sts_auth s ∅.
-  Locate "**".
   Locate only_provable.
 
   
@@ -98,7 +97,6 @@ we cannot control how the values are updated: e.g numConsumed can only be increm
       inProduceLoc: gname;
       inConsumeLoc: gname;
     }.
-  Notation logicalR := (to_frac_ag).
   Context {hsssb: fracG bool _}.
   Context {hssslz: fracG (list Z) _}.
   Context {hsssln: fracG N _}.
@@ -195,114 +193,182 @@ Iris: Monoids and Invariants as an Orthogonal Basis for Concurrent Reasoning
 
   Print sts.car.
   Check sts_frag_valid.
-  (* TODO: move *)
-  Lemma observePure g (a: (stsR spsc255)) : Observe [| ✓ a |] (own g a).
-  Proof.  apply observe_intro. exact _. go. Qed.
 
   Import sts.
-  Check QueueModel.step.
-  Notation stable := valid.
+  Compute (state spsc255).
+  Import QueueModel.
+  Notation sts_auth := (@sts_auth spsc255).
+  Notation sts_frag := (@sts_frag spsc255).
+
+  (* move, generalize over spsc*)
+  Lemma closed_iff (S: states spsc255) (mytoks: tokens spsc255):
+    (∀ s1 s2 otherToks, mytoks ## otherToks → s1 ∈ S → sts.step otherToks s1 s2 ->  s2 ∈ S)
+    <-> closed S mytoks.
+  Proof using.
+    unfold closed, frame_step.
+    intuition; forward_reason; eauto.
+  Qed.
+  (* move, generalize over spsc*)
+  Lemma closed_if (S: states spsc255) (mytoks: tokens spsc255):
+    (∀ s1 s2 otherTok, otherTok ∉ mytoks → s1 ∈ S → step 255 s1 otherTok s2 ->  s2 ∈ S)
+    -> closed S mytoks.
+  Proof.
+    clear.
+    intros Hp.
+    apply closed_iff.
+    intros.
+    hnf in H1.
+    forward_reason.
+    hnf in H1l.
+    forward_reason.
+    specialize (Hp s1 s2 role ltac:(set_solver) ltac:(set_solver) ltac:(auto)).
+    auto.
+  Qed.
+    
+  (* goes into the invariant. *)
+  Example e0auth (g:gname) (s: State) (toks: tokens spsc255): mpred :=
+    g |--> sts_auth s toks. (* says: current state of g is s and ownership of toks *)
+  Example e0frag (g:gname) (S: propset State) (toks: tokens spsc255): mpred :=
+    g |--> sts_frag S toks. (* says: current state of g is ∈ S and ownership of toks *)
+
+  Example e1 (g:gname) : mpred :=
+    g |--> sts_auth {| produced := [4]; numConsumed:= 0 |} ∅.
+
+  Check logicalR_update.
+
+  (* move *)
+  Notation step := (step 255).
+  
+  Lemma update_lloc (g:gname) (s sf: State) (toks: tokens spsc255) :
+    rtc (sts.step toks) s sf ->
+      g |--> sts_auth s  toks |-- |==>
+      g |--> sts_auth sf toks.
+  Proof using.
+    intros.
+    forward_reason.
+    apply own_update.
+    apply sts_update_auth.
+    assumption.
+  Qed.
+
+  Example update_lloc2 (g:gname) :
+      g |--> sts_auth {| produced:= [];  numConsumed :=0 |}  {[ Producer ]} |-- |==>
+      g |--> sts_auth {| produced:= [9]; numConsumed :=0 |}  {[ Producer ]}.
+  Proof using.
+    apply update_lloc.
+    eapply rtc_l;[| apply rtc_refl].
+    hnf. eexists _; split; [| reflexivity].
+    hnf. eexists _.
+    split.
+    2:{ apply: produce. unfold full. simpl. lia. }
+    set_solver.
+  Qed.
+  
+  Example update_lloc_false (g:gname) :
+     g |--> sts_auth {| produced:= [9]; numConsumed :=0 |}  ⊤ |-- |==>
+     g |--> sts_auth {| produced:= [];  numConsumed :=0 |}  ⊤.
+  Abort.
+  
+  Lemma closede3 : closed {[ s : state spsc255 | 2<= length (produced s) /\ 1<= numConsumed s ]} ∅.
+  Proof using.
+    apply closed_if.
+    intros ? ? ? Hdis Hin Hstep.
+    rewrite -> elem_of_PropSet in *.
+    inverts Hstep; simpl; try lia.
+    autorewrite with syntactic. lia.
+  Qed.
+
+  (** example of frag: *)
+  Example gen_frag_out_of_thin_air toks g:
+    (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} toks) |--
+    (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} toks)
+    ** (g |--> sts_frag {[ s | 2<= length (produced s) /\ 1<= numConsumed s ]} ∅).
+  Proof using.
+    iIntrosDestructs.
+    hideRhs.
+    assert (toks ≡ ∅  ∪ toks) as Heq by (set_solver +).
+    rewrite Heq.
+    rewrite <- sts_op_auth_fragg; [ | try set_solver + | | ].
+    {
+      unhideAllFromWork.
+      rewrite own_op.
+      go.
+      eagerUnifyU.
+      go.
+    }
+    {
+      rewrite -> elem_of_PropSet in *.
+      simpl. lia.
+    }
+    simpl...
+    apply closede3.
+  Qed.
+
+  (* general form: *)
+  Check auth_frag_together.
+
+    
+  Example e2 (g:gname) : mpred :=
+    g |--> sts_frag
+            {[ s | numConsumed s = 0%N ]} (* produced can be anything *)
+            {[ Consumer ]}.
+
+  Example eFalse (g:gname) : mpred :=
+    g |--> sts_frag {[ s | 4 = length (produced s) ]} ∅.
+
+  Example eFalse2 (g:gname) : mpred :=
+    g |--> sts_frag {[ s | 4 = length (produced s) ]} {[ Consumer ]}.
+
+  Example e4 (g:gname) : mpred :=
+    g |--> sts_frag {[ s | 4 = length (produced s) ]} {[ Producer ]}.
+
+  
+  
+
+  (* move *)
+  Lemma observePure g (a: (stsR spsc255)) : Observe [| ✓ a |] (own g a).
+  Proof.  apply observe_intro. exact _. go. Qed.
+  
   Lemma stable_frag (g: gname) (S: states spsc255) (T: tokens spsc255):
-    g |--> sts_frag S T |-- [|stable (sts_frag S T) |] ** (g |--> sts_frag S T).
+    (g |--> sts_frag S T)
+|-- (g |--> sts_frag S T) ** [|stable (sts_frag S T) |].
   Proof using. go. Qed.
 
-  Import QueueModel.
-Lemma frame_step_if {sts} (myTokens : tokens sts) (s1 s2 : state sts):
-  (∃ otherToken, stepr {[ otherToken]} s1 s2 /\  otherToken ∉ myTokens) ->
-  frame_step myTokens s1 s2.
-Proof.
-  clear.
-  intros.
-  forward_reason.
-  hnf.
-  exists {[otherToken]}.
-  split; [| set_solver].
-  hnf.
-  exists {[otherToken]}.
-  split; auto.
-Qed.
+  Lemma stable_if S mytoks: stable (sts_frag S mytoks).
+  Proof using.
+    hnf.
+    split...
+    2:{ admit. }
+    {
+      apply closed_iff.
+      intros.
+  Abort.
+    
+  Example  stable_prod1:
+    stable (sts_frag
+             {[s: state spsc255 | produced s = [] ]}
+             {[Producer]}
+      ).
+  Proof.
+    clear.
+    hnf.
+    split;[ | exists {| produced :=[]; numConsumed := 0 |}; set_solver].
+    apply closed_if.
+    intros ? ? ? Hdisj Hc Hstep.
+    rewrite -> elem_of_PropSet in *.
+    inverts Hstep...
+    (* in cas1: new item added to produced. in case 2, numConsumed incremented *)
+    {
+      simpl.
+      set_solver.
+    }
+    {
+      simpl.
+      assumption.
+    }
+  Qed.
 
-Lemma auth_frag_together (g: gname) (sa: state spsc255) (Sf : states spsc255) (Ta Tf: tokens spsc255):
-  (g |--> sts_auth sa Ta) ** (g |--> sts_frag Sf Tf)
-  -|- g |--> sts_frag Sf Tf ** [| Ta ## Tf /\ sa ∈ Sf |].
-Proof.
-  simpl.
-  iIntrosDestructs.
-  wapplyObserve (@own_2_valid _ _ _ _ _ _ (stsR spsc255)).
-  eagerUnifyC.
-  go.
-  hnf in H.
-  forward_reason.
-  simpl in *.
-  hnf in Hrr.
-  inverts Hrr.
-  forward_reason.
-  auto.
-Qed.
-
-Lemma frag_frag_together (g: gname) (S1 S2 : states spsc255) (T1 T2: tokens spsc255):
-  let m := (g |--> sts_frag S1 T1) ** (g |--> sts_frag S2 T2)  in
-  m |-- m ** [| T1 ## T2  /\ stable (sts_frag S2 T2) |].
-Proof.
-  simpl.
-  iIntrosDestructs.
-  wapplyObserve (@own_2_valid _ _ _ _ _ _ (stsR spsc255)).
-  eagerUnifyC.
-  go.
-  hnf in H.
-  forward_reason.
-  simpl in *.
-  hnf in Hrr.
-  inverts Hrr.
-  forward_reason.
-  auto.
-Qed.
-
-Lemma frag_frag_combine (g: gname) (S1 S2 : states spsc255) (T1 T2: tokens spsc255):
-  (g |--> sts_frag S1 T1) ** (g |--> sts_frag S2 T2)
-    |-- (g |--> sts_frag (S1 ∩ S2) (T1 ∪ T2)) ** [| T1 ## T2  /\ stable (sts_frag S2 T2) |].
-Proof.
-  simpl. go.
-  wapplyObserve (@own_2_valid _ _ _ _ _ _ (stsR spsc255)).
-  eagerUnifyC.
-  go.
-  hnf in H.
-  forward_reason.
-  hnf in Hrr.
-  inverts Hrr.
-  hnf in Hl, Hrl.
-  forward_reason.
-  rewrite sts_op_frag; try auto.
-  rewrite own_op. go.
-  auto.
-  iPureIntro.
-  split;eauto.
-  hnf.
-  split; eauto.
-Qed.
-
-Check atomicR_combine_half.
-
-
-Lemma auth_frag_combine (g: gname) (sa: state spsc255) (Sf : states spsc255) (Ta Tf: tokens spsc255):
-  Ta ## Tf ->  sa ∈ Sf -> stable (sts_frag Sf Tf) ->
-  (g |--> sts_auth sa Ta) ** (g |--> sts_frag Sf Tf)
-    -|- (g |--> sts_auth sa (Ta ∪ Tf)).
-Proof.
-  Search sts_auth.
-  simpl.
-Abort.
-
-
-Lemma multiple_frag_together (g: gname) (sa: state spsc255) (S1 S2: states spsc255) (Ta T1 T2: tokens spsc255):
-  let m := (g |--> sts_auth sa Ta) ** (g |--> sts_frag S1 T2) ** (g |--> sts_frag S2 T2) in
-  m |-- m ** [| Ta ## T1 /\ T2 ## T1 /\ Ta ## T2 /\ sa ∈ S1 /\ sa ∈ S2 /\ closed S1 T1 /\ closed S2 T2|].
-Proof using.
-
- 
-      |-- [|stable (sts_frag S T) |] ** (g |--> sts_frag S T).
-
-  Example  instable_prod1: stable (sts_frag
+  Example  unstable_prod1: stable (sts_frag
                                 {[s: state spsc255 | produced s =[] ]}
                                 {[Consumer]}
                          )
@@ -312,17 +378,20 @@ Proof using.
     intros Hc.
     hnf in Hc.
     apply proj1 in Hc.
-    hnf in Hc.
+    rewrite <- closed_iff in Hc.
+    setoid_rewrite elem_of_PropSet in Hc.
     specialize (Hc
                   {| produced :=[]; numConsumed := 0 |}
                   {| produced :=[2]; numConsumed := 0 |}
+                  {[Producer ]}
                   ltac:(set_solver)
+                  ltac:(auto)
                ).
     lapply Hc.
     { set_solver. }
     {
-      apply frame_step_if.
-      exists Producer.
+      hnf.
+      exists {[Producer ]}.
       split; try set_solver.
       hnf.
       exists Producer.
@@ -331,7 +400,11 @@ Proof using.
       unfold full. simpl in *. lia.
     }
   Qed.
-  
+  Example  stable_prod2:
+    stable (sts_frag
+             {[s: state spsc255 | firstn 3 (produced s) =[4;5;6] /\ 2<=numConsumed s]}
+             ∅).
+  Proof 
 Set Nested Proofs Allowed.
 Lemma head_app {T} (l lb: list T) (t:T) :
   head l = Some t -> head (l++lb) = head l.
@@ -453,32 +526,6 @@ Qed.
   Opaque atomicR.
   Opaque Nat.modulo.
 
-  Section Hints.
-    Context {T:Type} {ff : fracG T _}. (* {fff: fracG T   _Σ} *)
-  (* Move and generalize colocate with [fgptsto_update]*)
-  Lemma half_combine  (m1 m2:T) g q:
-((g |--> logicalR (q / 2) m1):mpred) ∗ g |--> logicalR (q / 2) m2 ⊢ (g |--> logicalR q m1) ∗ [| m2 = m1 |].    
-  Proof.
-  Admitted.
-  Lemma half_split  (m:T) g q:
-    g |--> logicalR q m |-- ((g |--> logicalR (q / 2) m):mpred) ** ((g |--> logicalR (q / 2) m)).
-  Proof.
-  Admitted.
-  Lemma logicalR_update (l : gname) (v' v : T) : l |--> logicalR 1 v |-- |==> l |--> logicalR 1 v'.
-  Proof. apply @own_update; try exact _. apply cmra_update_exclusive. done. Qed.
-  
-  #[global] Instance learn_logicalR (l : gname) (v1 v2 : T) q q1 :
-    Learnable (l |--> logicalR q1 v1)  (l |--> logicalR q v2) [v1=v2] := ltac:(solve_learnable).
-
-  Definition  learn_logicalR_unsafe (l : gname) (v1 v2 : T) q1 q2 :
-    Learnable (l |--> logicalR q1 v1)  (l |--> logicalR q2 v2) [v1=v2; q1=q2] := ltac:(solve_learnable).
-  
-
-  Definition ownhalf_combineF := [FWD->] half_combine.
-  Definition ownhalf_splitC := [CANCEL] half_split.
-  End Hints.
-  Hint Resolve ownhalf_combineF : br_opacity.
-  Hint Resolve ownhalf_splitC : br_opacity.
     Existing Instance learn_atomic_val_UNSAFE.
     Definition qFull (producedL: list Z) (numConsumed: N) :=
       lengthN producedL = Z.to_N (numConsumed + (bufsize-1)).

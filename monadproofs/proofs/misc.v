@@ -1,6 +1,7 @@
 Require Import QArith.
 Require Import bedrock.auto.cpp.proof.
 
+Require Import monad.proofs.stsg.
 Require Import stdpp.gmap.
 Require Import bedrock.auto.cpp.tactics4.
 From AAC_tactics Require Import AAC.
@@ -11,6 +12,7 @@ Lemma lose_resources `{cpp_logic} (P:mpred): P |-- emp.
 Proof using.
   go.
 Qed.
+Notation logicalR := (to_frac_ag).
 
 Lemma cinvq_alloc `{cpp_logic} (E : coPset) (N : namespace) (P : mpred) :
   WeaklyObjective P → ▷ P |-- |={E}=> ∃ γ : gname, cinvq N γ 1 P.
@@ -984,14 +986,135 @@ End atomicR.
   Definition lcinvqg_unsafe a1 g1 q1 P1 a2 g2 q2 P2:
     Learnable (cinvq a1 g1 q1 P1) (cinvq a2 g2 q2 P2) [g1=g2] := ltac:(solve_learnable).
 
+  Section Hints.
+    Context {T:Type} {ff : fracG T _}. (* {fff: fracG T   _Σ} *)
+  (* Move and generalize colocate with [fgptsto_update]*)
+  Lemma half_combine  (m1 m2:T) g q:
+((g |--> logicalR (q / 2) m1):mpred) ∗ g |--> logicalR (q / 2) m2 ⊢ (g |--> logicalR q m1) ∗ [| m2 = m1 |].    
+  Proof.
+  Admitted.
+  Lemma half_split  (m:T) g q:
+    g |--> logicalR q m |-- ((g |--> logicalR (q / 2) m):mpred) ** ((g |--> logicalR (q / 2) m)).
+  Proof.
+  Admitted.
+  Lemma logicalR_update (l : gname) (v' v : T) : l |--> logicalR 1 v |-- |==> l |--> logicalR 1 v'.
+  Proof. apply @own_update; try exact _. apply cmra_update_exclusive. done. Qed.
+  
+  #[global] Instance learn_logicalR (l : gname) (v1 v2 : T) q q1 :
+    Learnable (l |--> logicalR q1 v1)  (l |--> logicalR q v2) [v1=v2] := ltac:(solve_learnable).
+
+  Definition  learn_logicalR_unsafe (l : gname) (v1 v2 : T) q1 q2 :
+    Learnable (l |--> logicalR q1 v1)  (l |--> logicalR q2 v2) [v1=v2; q1=q2] := ltac:(solve_learnable).
+  
+
+  Definition ownhalf_combineF := [FWD->] half_combine.
+  Definition ownhalf_splitC := [CANCEL] half_split.
+  End Hints.
+  Hint Resolve ownhalf_combineF : br_opacity.
+  Hint Resolve ownhalf_splitC : br_opacity.
 
   Section stsg.
-  Require Import monad.proofs.stsg.
-    Lemma auth_frag_together (g: gname) sa Sf Ta Tf:
-  (g |--> sts_auth sa Ta) ∗ (g |--> sts_frag Sf Tf)
-   ≡ (g |--> sts_frag Sf Tf) ∗ [| Ta ## Tf /\ sa ∈ Sf |].
+  Context {sts: stsT}.
+  Import sts.
+  Implicit Types s : state sts.
+  Implicit Types S : states sts.
+  Implicit Types T Tf: tokens sts.
+  Context `{sss: !stsG sts}.
 
-  
+  (* auto typically stays in the invariant. frag can be used to constrain it : s ∈ S *)
+  Lemma auth_frag_together (g: gname) s S T Tf:
+  (g |--> sts_auth s T) ** (g |--> sts_frag S Tf)
+   -|- (g |--> sts_auth s (Tf ∪ T)) ** [| T ## Tf /\ s ∈ S /\ closed S Tf|].
+  Proof using.
+    iSplit; go.
+    {
+      wapplyObserve (@own_2_valid _ _ _ _ _ _ (stsR sts)).
+      eagerUnifyC. go.
+      iStopProof.
+      rewrite comm.
+      rewrite <- own_op.
+      hnf in H.
+      forward_reason.
+      hnf in Hrr.
+      inverts Hrr.
+      hnf in Hl. 
+      forward_reason.
+      rewrite sts_op_auth_fragg; auto.
+    }
+    {
+      rewrite <- own_op.
+      rewrite sts_op_auth_fragg; auto.
+    }
+  Qed.
+  Check atomicR_combine.
+
+  (* typical step when closing invariant: <- *)
+  Lemma auth_frag_together2 (g: gname) s S Tf:
+  (g |--> sts_auth s ∅) ** (g |--> sts_frag S Tf)
+   -|- (g |--> sts_auth s Tf) ** [| s ∈ S /\ closed S Tf|].
+  Proof using.
+    rewrite auth_frag_together.
+    rewrite right_id.
+    iSplit; go.
+    iPureIntro.
+    split; auto.
+    set_solver.
+  Qed.
+
+  Example auth_frag_together3 (g: gname) s S:
+  (g |--> sts_auth s ∅) ** (g |--> sts_frag S ∅)
+   -|- (g |--> sts_auth s ∅) ** [| s ∈ S /\ closed S ∅|].
+  Proof using.
+    rewrite auth_frag_together.
+    rewrite right_id.
+    iSplit; go.
+    iPureIntro.
+    split; auto.
+    set_solver.
+  Qed.
+  (* sts_frag S ∅ is like knowledge: can be freely duplicated *)
+    
+  Lemma frag_frag_combine (g: gname) S1 S2 T1 T2:
+  (g |--> sts_frag S1 T1) ** (g |--> sts_frag S2 T2)
+    -|- (g |--> sts_frag (S1 ∩ S2) (T1 ∪ T2))
+          ** [| T1 ## T2  /\ closed S1 T1 /\ closed S2 T2 |].
+  Proof using.
+    iSplit; go.
+    {
+      wapplyObserve (@own_2_valid _ _ _ _ _ _ (stsR sts)).
+      eagerUnifyC.
+      go.
+      hnf in H.
+      forward_reason.
+      hnf in Hrr.
+      inverts Hrr.
+      hnf in Hl, Hrl.
+      forward_reason.
+      rewrite sts_op_frag; try auto.
+      rewrite own_op. go.
+      auto.
+    }
+    {
+      rewrite sts_op_frag; try auto.
+      rewrite <- own_op. go.
+    }
+  Qed.
+      
+  Example frag_frag_combine2 (g: gname) S:
+  (g |--> sts_frag S ∅) ** (g |--> sts_frag S ∅)
+    -|- (g |--> sts_frag S ∅) ** [| closed S ∅  |].
+  Proof using.
+    rewrite frag_frag_combine.
+    rewrite left_id.
+    autorewrite with syntactic.
+    assert (S ∩ S ≡ S) as Heq by set_solver.
+    rewrite Heq.
+    iSplit;go.
+    iPureIntro.
+    split_and !; auto.
+    set_solver +.
+  Qed.
+  End stsg.
 End cp.
 Opaque parrayR.
 (*  Hint Resolve fwd_later_exist fwd_later_sep bwd_later_exist
@@ -1144,6 +1267,7 @@ Lemma cinvq_alloc_no_shared_pages `{Σ : cpp_logic} (E : coPset) (N : namespace)
   
 Notation uint := "unsigned int"%cpp_type.
 
+(* this is currently needed at some method calls. it admits some reference_to obligations which can be proven with more bookkeeping. but the plan is anyway to tweak the method call derived rules to make it not produce these obligations *)
 Ltac solveRefereceTo :=
   IPM.perm_right ltac:(fun R _ =>
                              match R with
