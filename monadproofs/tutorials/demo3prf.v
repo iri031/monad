@@ -20,6 +20,9 @@ Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo));
 Hint Rewrite @lengthN_app @lengthN_one: syntactic.
 Hint Rewrite @dropN_app: syntactic.
 Notation bufsize := 256.
+Opaque atomicR.
+Opaque Nat.modulo.
+Existing Instance learn_atomic_val_UNSAFE.
 
 
 (* TODO: upstream? *)
@@ -175,11 +178,6 @@ cpp.spec "SPSCQueue::pop(int&)" as popqw with (fun (this:ptr)=>
            ** Exists popv:Z, valuep |-> primR "int" 1 popv ** P popv
       else valuep |-> anyR "int" 1 ** this |-> ConsumerR lpp P numConsumed).
 
-
-  Opaque atomicR.
-  Opaque Nat.modulo.
-
-    Existing Instance learn_atomic_val_UNSAFE.
 
 Lemma spsc_mod_iff (len numConsumed:N):
   (numConsumed <= len /\ len - numConsumed <= bufsize - 1) ->
@@ -968,6 +966,149 @@ cpp.spec "SPSCQueue::push(int)" as pushqw with (fun (this:ptr)=>
     then this |-> ProducerR lpp P (produced++[value]) numConsumedLb
     else this |-> ProducerR lpp P produced numConsumedLb ** P value ).
 
+Definition combineFwd:= [FWD->](@auth_frag_together2).
+Hint Resolve combineFwd: br_opacity.
+Hint Extern 100 [environments.envs_entails _ _]  =>
+  repeat match goal with
+  | [ H: _ ∈ (@PropSet _ _) |- _ ] =>
+      rewrite elem_of_PropSet in H
+    end.
+
+(** A lemma you want to use to rewrite in hypotheses. **)
+Lemma my_lemma : 0=1 -> 1=2.
+Proof. (* some proof *) Admitted.
+
+(** A custom hint that looks for any hypothesis of the form [P x] 
+    and rewrites it to [Q x] automatically. **)
+Hint Extern 3 =>
+  match goal with
+  | [ H :0=1 |- _ ] =>
+      rewrite (my_lemma) in H
+  end.
+
+Hint Rewrite @elem_of_PropSet: iff.
+Ltac slauto := (slautot ltac:(autorewrite with syntactic iff in *; try solveRefereceTo)); try iPureIntro.
+
+Lemma spsc_mod_iff1 (s:State) bl bc:
+  let len := lengthN (produced s) in
+  (numConsumed s + boolZ bc <= len /\ len + boolZ bl  - numConsumed s <= bufsize - 1) ->
+  len = Z.to_N (Z.of_N (numConsumed s) + 255)
+  <-> (len `mod` 256 + 1) `mod` 256 = Z.of_N (numConsumed s) `mod` 256.
+Proof using.
+  intros.
+  eapply spsc_mod_iff1; eauto.
+Qed.
+
+Lemma pushqprf: denoteModule module
+                  ** uint_store_spec
+                  ** uint_load_spec
+                  |-- pushqw.
+Proof using MODd with (fold cQpc; normalize_ptrs).
+  verify_spec'.
+  slauto.
+  unfold ProducerR. go.
+  unfold SPSCInv. go.
+  callAtomicCommitCinv.
+  slauto.
+  subst.
+  ren_hyp slh State.
+  simpl in *.
+  
+  pose proof (spsc_mod_iff1 slh false v ltac:(simpl; lia)).
+  destruct (decide (lengthZ (produced slh) = (numConsumed slh + (bufsize-1)))).
+  { (* overflow . TODO: move the load of tail up so that both cases can share more proof *)
+    closeCinvqs.
+    go.
+    ego...
+    go.
+    iModIntro.
+    go.
+    callAtomicCommitCinv.
+    go.
+    closeCinvqs.
+    go.
+    iModIntro.
+    name_locals.
+    slauto.
+  }
+  {
+    go.
+    wapply (logicalR_update (inProduceLoc lpp) true). eagerUnifyU. go.
+    closeCinvqs.
+    go...
+    go.
+    IPM.perm_left ltac:(fun L n =>
+      match L with
+      | context [seqN 0 ?l] => 
+          IPM.perm_right ltac:(fun R n =>
+               match R with
+               | context [seqN 0 ?r] => assert (l=1+r)%N as Heq
+                                               by Arith.arith_solve
+               end
+               )
+      end).
+    rewrite Heq.
+    rewrite N.add_1_l.
+    rewrite seqN_S_start.
+    go.
+    closed.norm closed.numeric_types.
+    rewrite <- (seqN_shift 0).
+    work.
+    rewrite big_opL_map.
+    icancel (cancel_at this).
+    {
+      do 7 (f_equiv; intros; hnf).
+      lia.
+    }
+    Arguments cinvq {_} {_} {_} {_} {_} {_} {_}.
+    go...
+    autorewrite with syntactic.
+    iModIntro.
+    go.
+    callAtomicCommitCinv.
+    go.
+    closeCinvqs.
+    go.
+    ego.
+    iModIntro.
+    slauto.
+    callAtomicCommitCinv.
+    go.
+    wapply (logicalR_update (inProduceLoc lpp) false). eagerUnifyU. go.
+    wapply (logicalR_update (producedListLoc lpp) (_v_3++[value])). eagerUnifyU. go.
+    closeCinvqs.
+    go.
+    slauto.
+    simpl.
+    rename _v_4 into numConsumedAtStore.
+    rename _v_3 into producedL.
+    rename numConsumed into numConsumedHeadAtLoad.
+    go.
+    autorewrite with syntactic.
+    rewrite big_opL_app. go.
+    assert (Z.to_N(numConsumedAtStore + boolZ v) - lengthN producedL = 0)%N as Hle.
+    destruct v; simpl; try (Arith.arith_solve; fail).
+    rewrite Hle.
+    simpl.
+    go.
+    normalize_ptrs.
+    go.
+    go.
+    autorewrite with syntactic.
+    rewrite length_dropN.
+    autorewrite with syntactic.
+    assert ((numConsumedAtStore + boolZ v +
+                                                    (length producedL -
+                                                       N.to_nat (Z.to_N (numConsumedAtStore + boolZ v)))%nat) = lengthZ producedL) as Hew by ( unfold lengthN in *; simpl in *;destruct v; try Arith.arith_solve).
+    rewrite Hew. go.
+
+    icancel (cancel_at this);[
+        (repeat (try f_equiv; intros; hnf; try lia)) |].
+    go.
+    iModIntro.
+    go.
+  }
+Qed.
 
 
 End with_Sigma.
