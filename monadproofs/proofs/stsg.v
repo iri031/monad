@@ -581,6 +581,14 @@ Section stsRA.
     constructor; split=> //= [[??]]. by rewrite /= sts.up_closed.
   Qed.
 
+  Lemma closed_iff (S: states sts) (mytoks: tokens sts):
+    (∀ s1 s2 otherToks, mytoks ## otherToks → s1 ∈ S → sts.step otherToks s1 s2 ->  s2 ∈ S)
+    <-> closed S mytoks.
+  Proof using.
+    unfold closed, frame_step.
+    intuition; forward_reason; eauto.
+  Qed.
+  
   (** Inclusion *)
   (* This is surprisingly different from to_validity_included. I am not sure
     whether this is because to_validity_included is non-canonical, or this

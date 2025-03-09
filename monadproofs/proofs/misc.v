@@ -13,6 +13,107 @@ Proof using.
   go.
 Qed.
 Notation logicalR := (to_frac_ag).
+#[global] Hint Rewrite @repeat_length: syntactic.
+#[global] Hint Rewrite @length_cons: syntactic.
+#[global] Hint Rewrite @firstn_0: syntactic.
+#[global] Hint Rewrite @lengthN_app: syntactic.
+#[global] Hint Rewrite length_seq: syntactic.
+#[global] Hint Rewrite Z2N.id using lia: syntactic.
+#[global] Hint Rewrite @inj_iff using (typeclasses eauto): iff.
+#[global] Hint Rewrite negb_if: syntactic.
+#[global] Hint Rewrite bool_decide_eq_true_2 using (auto; fail): syntactic.
+#[global] Hint Rewrite bool_decide_eq_false_2 using (auto; fail): syntactic.
+#[global] Hint Rewrite @elem_of_cons: iff.
+#[global] Hint Rewrite N.sub_diag : syntactic.
+#[global] Hint Rewrite seqN_lengthN @lengthN_nil @seqN_S_start: syntactic.
+#[global] Hint Rewrite orb_true_r: syntactic.
+#[global] Hint Rewrite N_nat_Z: syntactic.
+#[global] Hint Rewrite @left_id using (exact _): equiv.
+#[global] Hint Rewrite @right_id using (exact _): equiv.
+#[global] Hint Rewrite @elem_of_list_difference: iff.
+#[global] Hint Rewrite @propset_singleton_equiv: equiv.
+#[global] Hint Resolve array_combine_C: br_opacity.
+#[global] Hint Rewrite @length_drop: syntactic.
+
+Lemma head_app {T} (l lb: list T) (t:T) :
+  head l = Some t -> head (l++lb) = head l.
+Proof.
+  clear.
+  destruct l; simpl;  auto.
+  intros. discriminate.
+Qed.
+    
+Lemma skipnaddle {T} (def: T) (l: list T) (a:nat):
+  (1+a <= length l) -> skipn a l = (nth a l def)::(skipn (1+a) l).
+Proof using.
+  intros Hl.
+  rewrite <- skipn_skipn.
+  rewrite <- tail_drop.
+  erewrite -> drop_nth_head; try reflexivity.
+  apply nth_error_nth'.
+  lia.
+Qed.
+Lemma dropNaddle {T} (def: T) (l: list T) (i:N):
+  (1+i <= lengthN l) -> dropN i l = (nth (N.to_nat i) l def)::(dropN (i+1)%N l).
+Proof using.
+  unfold dropN.
+  intros.
+  unfold lengthN in *.
+  erewrite skipnaddle by lia.
+  do 2 f_equal.
+  lia.
+Qed.
+Lemma big_sepL_monoeq :
+∀ {PROP : bi} {A : Type} (Φ Ψ : nat → A → bi_car PROP) (l lb : list A) (p: l=lb),
+  (∀ (k : nat) (y : A), l !! k = Some y → Φ k y ⊢ Ψ k y) → ([∗ list] k↦y ∈ lb, Φ k y) ⊢ [∗ list] k↦y ∈ lb, Ψ k y.
+Proof using. intros. subst. apply big_sepL_mono. auto. Qed.
+
+Definition xxx:= [CANCEL] @big_sepL_monoeq.
+Lemma seqN_app (len1 len2 start : N): seqN start (len1 + len2) = seqN start len1 ++ seqN (start + len1)%N len2.
+Proof using.
+  unfold seqN.
+  repeat rewrite N2Nat.inj_add.
+  rewrite seq_app.
+  rewrite fmap_app.
+  reflexivity.
+Qed.
+Lemma add_mod_lhsc (a b d:Z) :
+  0 < d
+  -> (a+d) `mod` d = b `mod` d
+  -> (a) `mod` d = (b) `mod` d.
+Proof using.
+  intros Ha Hb.
+  rewrite <- Hb.
+  Arith.arith_solve.
+Qed.
+
+
+Lemma add_mod_both_sides (c a b d:Z) :
+  0 < d
+  -> a `mod` d = b `mod` d
+  -> (a+c) `mod` d = (b+c) `mod` d.
+Proof using.
+  intros Ha Hb.
+  rewrite Zplus_mod.
+  symmetry.
+  rewrite Zplus_mod.
+  rewrite Hb.
+  reflexivity.
+Qed.
+
+Lemma seqN_shift: ∀ start len : N, map N.succ (seqN start len) = seqN (N.succ start) len.
+Proof using.
+  intros.
+  unfold seqN.
+  rewrite map_fmap.
+  rewrite N2Nat.inj_succ.
+  rewrite <- seq_shift.
+  rewrite map_fmap.
+  repeat rewrite <- list_fmap_compose.
+  unfold compose.
+  f_equiv.
+  hnf. intros. lia.
+Qed.
 
   Ltac wapplyRev lemma:=
     try intros;
@@ -253,7 +354,7 @@ Section cp.
 
 
   Definition offsetR_only_fwd := ([BWD->] _offsetR_only_provable).
-  Hint Resolve offsetR_only_fwd: br_opacity.
+  Hint Resolve offsetR_only_fwd: br_opacity. (* repeat at the end *)
   Lemma parrayR_cons {T:Type} ty (R : nat -> T -> Rep) (x:T) (xs: list T) :
     parrayR ty R (x :: xs) -|- type_ptrR ty ** (.[ ty ! 0 ] |-> (R 0 x)) ** .[ ty ! 1 ] |-> parrayR ty (fun n => R (S n)) xs.
   Proof using.
@@ -1146,7 +1247,40 @@ End atomicR.
     split_and !; auto.
     set_solver +.
   Qed.
+  (*
+  Lemma update_lloc (g:gname) (s sf: State) (toks: tokens spsc) :
+    rtc (sts.step toks) s sf ->
+      g |--> sts_auth s  toks |-- |==>
+      g |--> sts_auth sf toks.
+  Proof using.
+    intros.
+    forward_reason.
+    apply own_update.
+    apply sts_update_auth.
+    assumption.
+  Qed.
+*)
+  Lemma update_lloc (g:gname) (s sf: sts.state sts) (toks: tokens sts) :
+    rtc (sts.step toks) s sf ->
+      g |--> sts_auth s  toks |-- |==>
+      g |--> sts_auth sf toks.
+  Proof using.
+    intros.
+    forward_reason.
+    apply own_update.
+    apply sts_update_auth.
+    assumption.
+  Qed.
+  (* move *)
+  Lemma observePure g (a: (stsR sts)) : Observe [| ✓ a |] (own g a).
+  Proof.  apply observe_intro. exact _. go. Qed.
+  
+  Lemma stable_frag (g: gname) (S: states sts) (T: tokens sts):
+    (g |--> sts_frag S T)
+|-- (g |--> sts_frag S T) ** [|valid (sts_frag S T) |].
+  Proof using. go. Qed.
   End stsg.
+  
 End cp.
 Opaque parrayR.
 (*  Hint Resolve fwd_later_exist fwd_later_sep bwd_later_exist
@@ -1163,9 +1297,6 @@ Proof using.
 Qed.
 Hint Opaque parrayR: br_opacity.
 Hint Rewrite @arrayR_nils: syntactic.
-Hint Rewrite @repeat_length: syntactic.
-Hint Rewrite @length_cons: syntactic.
-Hint Rewrite @firstn_0: syntactic.
 
 Lemma takesr2 {X} l n (x:X) : length l = n → take (S n) (l++[x]) = take n l ++ [x].
 Proof using. Admitted. (* easy *)
@@ -1182,30 +1313,9 @@ Hint Resolve primR_split_C : br_opacity.
 
 
 
-#[global] Hint Rewrite @inj_iff using (typeclasses eauto): iff.
-#[global] Hint Rewrite negb_if: syntactic.
-#[global] Hint Rewrite bool_decide_eq_true_2 using (auto; fail): syntactic.
-#[global] Hint Rewrite bool_decide_eq_false_2 using (auto; fail): syntactic.
-#[global] Hint Rewrite @elem_of_cons: iff.
-#[global] Hint Rewrite N.sub_diag : syntactic.
-#[global] Hint Rewrite seqN_lengthN @lengthN_nil @seqN_S_start: syntactic.
-#[global] Hint Rewrite orb_true_r: syntactic.
-#[global] Hint Rewrite N_nat_Z: syntactic.
-#[global] Hint Rewrite @left_id using (exact _): equiv.
-#[global] Hint Rewrite @right_id using (exact _): equiv.
-#[global] Hint Rewrite @elem_of_list_difference: iff.
 
 Require Import bedrock.prelude.propset.
 
-#[global] Hint Rewrite @propset_singleton_equiv: equiv.
-
-#[global] Hint Rewrite <- @spurious using exact _: slbwd.
-
-#[global] Hint Resolve arrayR_combineC : br_opacity.
-
-#[global] Hint Resolve primR2_anyRC: br_opacity.
-#[global] Hint Resolve array_combine_C: br_opacity.
-#[global] Hint Rewrite @length_drop: syntactic.
 
 Ltac erefl :=
   unhideAllFromWork;
@@ -1327,3 +1437,33 @@ Proof using.
 Qed.
 #[export] Hint Resolve ownhalf_combineF : br_opacity.
 #[export] Hint Resolve ownhalf_splitC : br_opacity.
+#[global] Hint Rewrite <- @spurious using exact _: slbwd.
+#[global] Hint Resolve arrayR_combineC : br_opacity.
+
+#[global] Hint Resolve primR2_anyRC: br_opacity.
+
+(* uncomment if it doesnt break proofs 
+#[global] Hint Resolve offsetR_only_fwd: br_opacity.
+*)
+
+(*
+uncomment if there is no significant performance regression:
+
+Import ZifyClasses.
+      
+Lemma zifyModNat: ∀ x y : nat, True →  y ≠ 0%nat → (x `mod` y < y)%nat.
+Proof using.
+  intros.
+  apply Nat.mod_upper_bound.
+  assumption.
+Qed.
+        
+#[global]
+Instance SatMod : Saturate Nat.modulo :=
+  {|
+    PArg1 := fun x => True;
+    PArg2 := fun y => y ≠ 0%nat;
+    PRes  := fun _ y r => (r <y)%nat;
+    SatOk := zifyModNat
+  |}.
+*)

@@ -16,16 +16,16 @@ Import cQp_compat.
 Import Verbose.
 Notation stable := valid. 
 Import linearity.
-  Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo)); try iPureIntro.
+Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo)); try iPureIntro.
 
 
-  (* TODO: upstream? *)
-    Opaque coPset_difference.
+(* TODO: upstream? *)
+Opaque coPset_difference.
 
 (* Agnostic to how many producers/consumers there are *)
 Module QueueModel.
-  Section Cap. Variable (capacity: nat).
-
+  Import sts.
+  Notation capacity := 255.
   Record State :=
     {
       produced: list Z;
@@ -61,7 +61,22 @@ Module QueueModel.
       (fun tokens_owned init_state final_state =>
          ∃ role, role ∈ tokens_owned /\  step init_state role final_state).
 
-  End Cap.
+  Lemma closed_if (S: states spsc) (mytoks: tokens spsc):
+    (∀ (s1 s2 : State) otherTok, otherTok ∉ mytoks → s1 ∈ S → step s1 otherTok s2 ->  s2 ∈ S)
+    -> closed S mytoks.
+  Proof.
+    clear.
+    intros Hp.
+    apply closed_iff.
+    intros.
+    hnf in H1.
+    forward_reason.
+    hnf in H1l.
+    forward_reason.
+    specialize (Hp s1 s2 role ltac:(set_solver) ltac:(set_solver) ltac:(auto)).
+    auto.
+  Qed.
+
 End QueueModel.
       
 
@@ -71,12 +86,7 @@ Section with_Sigma.
   Notation cinvr invId q R:=
     (as_Rep (fun this:ptr => cinv invId q (this |-> R))).
 
-  Context `{sss: !stsG (QueueModel.spsc 255)}.
-  Notation spsc255 := (QueueModel.spsc 255).
-  Definition auth (g:gname) (s: sts.state spsc255): mpred:=
-    g |--> sts_auth s ∅.
-  Locate only_provable.
-
+  Context `{sss: !stsG (QueueModel.spsc)}.
   
   (* roles of logical locations:
      - track info not in c++ variables, e.g. progress towards an op (typicall more abstract that program counter)
@@ -129,8 +139,6 @@ we cannot control how the values are updated: e.g numConsumed can only be increm
       ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFreeSlotsInCinv)),  _field "SPSCQueue::buffer_".["int" ! (numProducedAll + i) `mod` bufsize ] |-> anyR "int" 1)
       ** _field "SPSCQueue::buffer_".[ "int" ! bufsize ] |-> validR .
    
-
-  
   Definition ProducerR (cid: qlptr) (P: Z -> mpred) (produced: list Z): Rep :=
     cinvr (invId cid) (1/2) (SPSCQueueInv1 cid P)
       ** pureR (inProduceLoc cid |--> logicalR (1/2) false)
@@ -188,29 +196,19 @@ Iris: Monoids and Invariants as an Orthogonal Basis for Concurrent Reasoning
    *)
   Locate "|-->".
   Check @own.
-  Print cmra. (* Commutative Monoid Resource Algebra *)
-  Check @logicalR. (* iris paper, section 3.2. TODO: copy annottated pdf to mac *)
+  Print cmra. (** Commutative Monoid Resource Algebra *)
+  Check @logicalR. (** iris paper, section 3.2. TODO: copy annottated pdf to mac *)
 
   Print sts.car.
-  Check sts_frag_valid.
 
   Import sts.
-  Compute (state spsc255).
   Import QueueModel.
-  Notation sts_auth := (@sts_auth spsc255).
-  Notation sts_frag := (@sts_frag spsc255).
+  Compute (state spsc).
+  Notation sts_auth := (@sts_auth spsc).
+  Notation sts_frag := (@sts_frag spsc).
 
-  (* move, generalize over spsc*)
-  Lemma closed_iff (S: states spsc255) (mytoks: tokens spsc255):
-    (∀ s1 s2 otherToks, mytoks ## otherToks → s1 ∈ S → sts.step otherToks s1 s2 ->  s2 ∈ S)
-    <-> closed S mytoks.
-  Proof using.
-    unfold closed, frame_step.
-    intuition; forward_reason; eauto.
-  Qed.
-  (* move, generalize over spsc*)
-  Lemma closed_if (S: states spsc255) (mytoks: tokens spsc255):
-    (∀ s1 s2 otherTok, otherTok ∉ mytoks → s1 ∈ S → step 255 s1 otherTok s2 ->  s2 ∈ S)
+  Lemma closed_if (S: states spsc) (mytoks: tokens spsc):
+    (∀ s1 s2 otherTok, otherTok ∉ mytoks → s1 ∈ S → step s1 otherTok s2 ->  s2 ∈ S)
     -> closed S mytoks.
   Proof.
     clear.
@@ -226,33 +224,17 @@ Iris: Monoids and Invariants as an Orthogonal Basis for Concurrent Reasoning
   Qed.
     
   (* goes into the invariant. *)
-  Example e0auth (g:gname) (s: State) (toks: tokens spsc255): mpred :=
+  Example e0auth (g:gname) (s: State) (toks: tokens spsc): mpred :=
     g |--> sts_auth s toks. (* says: current state of g is s and ownership of toks *)
-  Example e0frag (g:gname) (S: propset State) (toks: tokens spsc255): mpred :=
+  Example e0frag (g:gname) (S: propset State) (toks: tokens spsc): mpred :=
     g |--> sts_frag S toks. (* says: current state of g is ∈ S and ownership of toks *)
 
   Example e1 (g:gname) : mpred :=
     g |--> sts_auth {| produced := [4]; numConsumed:= 0 |} ∅.
 
   Check logicalR_update.
-
-  (* move *)
-  Notation step := (step 255).
   
-  Lemma update_lloc (g:gname) (s sf: State) (toks: tokens spsc255) :
-    rtc (sts.step toks) s sf ->
-      g |--> sts_auth s  toks |-- |==>
-      g |--> sts_auth sf toks.
-  Proof using.
-    intros.
-    forward_reason.
-    apply own_update.
-    apply sts_update_auth.
-    assumption.
-  Qed.
-
-  (* move *)
-  Corollary update_lloc_1step (g:gname) (s sf: State) (toks: tokens spsc255) tok:
+  Corollary update_lloc_1step (g:gname) (s sf: State) (toks: tokens spsc) tok:
     step s tok sf -> tok ∈ toks ->
       g |--> sts_auth s  toks |-- |==>
       g |--> sts_auth sf toks.
@@ -273,15 +255,14 @@ Iris: Monoids and Invariants as an Orthogonal Basis for Concurrent Reasoning
     apply: produce. unfold full. simpl. lia.
   Qed.
   
-  Example update_lloc_false (g:gname) :
+  Example update_lloc_unprovable (g:gname) :
      g |--> sts_auth {| produced:= [9]; numConsumed :=0 |}  ⊤ |-- |==>
      g |--> sts_auth {| produced:= [];  numConsumed :=0 |}  ⊤.
   Abort.
 
-  Hint Rewrite @lengthN_app: syntactic.
   
   (* stable is formalized as closed *)
-  Lemma closedb lp nc : closed {[ s : state spsc255 | lp <= lengthN (produced s) /\ nc<= numConsumed s ]} ∅.
+  Lemma closedb lp nc : closed {[ s : state spsc | lp <= lengthN (produced s) /\ nc<= numConsumed s ]} ∅.
   Proof using.
     apply closed_if.
     intros ? ? ? Hdis Hin Hstep.
@@ -334,7 +315,7 @@ Iris: Monoids and Invariants as an Orthogonal Basis for Concurrent Reasoning
   Check auth_frag_together2.
 
   Example  unstable_prod1: stable (sts_frag
-                                {[s: state spsc255 | produced s =[] ]}
+                                {[s: state spsc | produced s =[] ]}
                                 {[Consumer]}
                          )
                        -> False.
@@ -362,12 +343,12 @@ Iris: Monoids and Invariants as an Orthogonal Basis for Concurrent Reasoning
       hnf.
       exists Producer.
       split; try set_solver.
-      apply (produce 255 2).
+      apply (produce 2).
       unfold full. simpl in *. lia.
     }
   Qed.
   
-  Example closed2: closed {[ s : state spsc255 | produced s =  [9;8] ]} {[ Producer ]}.
+  Example closed2: closed {[ s : state spsc | produced s =  [9;8] ]} {[ Producer ]}.
   Proof using.
     clear.
     apply closed_if.
@@ -468,8 +449,6 @@ Qed.
       apply closedb.
     }
   Qed.
-      
-        
 
   Example e2 (g:gname) : mpred :=
     g |--> sts_frag
@@ -485,31 +464,9 @@ Qed.
   Example e4 (g:gname) : mpred :=
     g |--> sts_frag {[ s | 4 = length (produced s) ]} {[ Producer ]}.
 
-  
-  
-
-  (* move *)
-  Lemma observePure g (a: (stsR spsc255)) : Observe [| ✓ a |] (own g a).
-  Proof.  apply observe_intro. exact _. go. Qed.
-  
-  Lemma stable_frag (g: gname) (S: states spsc255) (T: tokens spsc255):
-    (g |--> sts_frag S T)
-|-- (g |--> sts_frag S T) ** [|stable (sts_frag S T) |].
-  Proof using. go. Qed.
-
-  Lemma stable_if S mytoks: stable (sts_frag S mytoks).
-  Proof using.
-    hnf.
-    split...
-    2:{ admit. }
-    {
-      apply closed_iff.
-      intros.
-  Abort.
-    
   Example  stable_prod1:
     stable (sts_frag
-             {[s: state spsc255 | produced s = [] ]}
+             {[s: state spsc | produced s = [] ]}
              {[Producer]}
       ).
   Proof.
@@ -532,17 +489,10 @@ Qed.
   Qed.
 
 Set Nested Proofs Allowed.
-Lemma head_app {T} (l lb: list T) (t:T) :
-  head l = Some t -> head (l++lb) = head l.
-Proof.
-  clear.
-  destruct l; simpl;  auto.
-  intros. discriminate.
-Qed.
 
   Example  stable_prod3:
     stable (sts_frag
-             {[s: state spsc255 | produced s = [] ]}
+             {[s: state spsc | produced s = [] ]}
              {[Producer]}
       ).
   Proof.
@@ -564,7 +514,7 @@ Qed.
 
   Example  stable_prod2:
     stable (sts_frag
-             {[s: state spsc255 | head (produced s) = Some 2  ]}
+             {[s: state spsc | head (produced s) = Some 2  ]}
              {[Consumer]}
       ).
   Proof.
@@ -590,7 +540,7 @@ Qed.
 
   Example  stable_prod38:
     stable (sts_frag
-             {[s: state spsc255 | 1<= numConsumed s ]}
+             {[s: state spsc | 1<= numConsumed s ]}
              {[Producer]}
       ).
   Proof.
@@ -614,11 +564,8 @@ Qed.
     lia.
   Qed.
 
-  Search sts_auth.
-  Locate "⋅".
-  Search op cmra bi_sep.
 (** closed S T := ∀ s∈S, if s can transition to s' using a token NOT in T, s' ∈ S *)
-  Lemma stable_frag34 (g: gname) (S: sts.states spsc255) (T: sts.tokens spsc255):
+  Lemma stable_frag34 (g: gname) (S: sts.states spsc) (T: sts.tokens spsc):
     g |--> sts_frag S T |-- [| sts.closed S T |] ** [| ∃ s, s ∈ S|] ** (g |--> sts_frag S T).
   Proof using.
     iIntrosDestructs.
@@ -650,38 +597,7 @@ Qed.
     Definition qFull (producedL: list Z) (numConsumed: N) :=
       lengthN producedL = Z.to_N (numConsumed + (bufsize-1)).
 
-      Import ZifyClasses.
-      Set Nested Proofs Allowed.
-Lemma zifyModNat: ∀ x y : nat, True →  y ≠ 0%nat → (x `mod` y < y)%nat.
-Proof using.
-  intros.
-  apply Nat.mod_upper_bound.
-  assumption.
-Qed.
-        
-#[global]
-Instance SatMod : Saturate Nat.modulo :=
-  {|
-    PArg1 := fun x => True;
-    PArg2 := fun y => y ≠ 0%nat;
-    PRes  := fun _ y r => (r <y)%nat;
-    SatOk := zifyModNat
-  |}.
 
-Lemma add_mod_both_sides (c a b d:Z) :
-  0 < d
-  -> a `mod` d = b `mod` d
-  -> (a+c) `mod` d = (b+c) `mod` d.
-Proof using.
-  intros Ha Hb.
-  rewrite Zplus_mod.
-  symmetry.
-  rewrite Zplus_mod.
-  rewrite Hb.
-  reflexivity.
-Qed.
-          
-Hint Rewrite Z2N.id using lia: syntactic.
 Lemma spsc_mod_iff (len numConsumed:N):
   (numConsumed <= len /\ len - numConsumed <= bufsize - 1) ->
   len = Z.to_N (Z.of_N numConsumed + 255)
@@ -707,22 +623,10 @@ Proof using.
   destruct bc, bl;  simpl in *; try nia.
 Qed.
 
-Lemma seqN_shift: ∀ start len : N, map N.succ (seqN start len) = seqN (N.succ start) len.
-Proof using.
-  intros.
-  unfold seqN.
-  rewrite map_fmap.
-  rewrite N2Nat.inj_succ.
-  rewrite <- seq_shift.
-  rewrite map_fmap.
-  repeat rewrite <- list_fmap_compose.
-  unfold compose.
-  f_equiv.
-  hnf. intros. lia.
-Qed.
+(*
 Hint Resolve ownhalf_combineF : br_opacity.
 Hint Resolve ownhalf_splitC : br_opacity.
-
+*)
   Lemma pushqprf: denoteModule module
                     ** uint_store_spec
                     ** uint_load_spec
@@ -833,53 +737,8 @@ Hint Resolve ownhalf_splitC : br_opacity.
       go.
     }
   Qed.
-  Set Default Goal Selector "!".
-Lemma skipnaddle {T} (def: T) (l: list T) (a:nat):
-  (1+a <= length l) -> skipn a l = (nth a l def)::(skipn (1+a) l).
-Proof using.
-  intros Hl.
-  rewrite <- skipn_skipn.
-  rewrite <- tail_drop.
-  erewrite -> drop_nth_head; try reflexivity.
-  apply nth_error_nth'.
-  lia.
-Qed.
-Lemma dropNaddle {T} (def: T) (l: list T) (i:N):
-  (1+i <= lengthN l) -> dropN i l = (nth (N.to_nat i) l def)::(dropN (i+1)%N l).
-Proof using.
-  unfold dropN.
-  intros.
-  unfold lengthN in *.
-  erewrite skipnaddle by lia.
-  do 2 f_equal.
-  lia.
-Qed.
-Lemma big_sepL_monoeq :
-∀ {PROP : bi} {A : Type} (Φ Ψ : nat → A → bi_car PROP) (l lb : list A) (p: l=lb),
-  (∀ (k : nat) (y : A), l !! k = Some y → Φ k y ⊢ Ψ k y) → ([∗ list] k↦y ∈ lb, Φ k y) ⊢ [∗ list] k↦y ∈ lb, Ψ k y.
-Proof using. intros. subst. apply big_sepL_mono. auto. Qed.
-
-Definition xxx:= [CANCEL] @big_sepL_monoeq.
-Lemma seqN_app (len1 len2 start : N): seqN start (len1 + len2) = seqN start len1 ++ seqN (start + len1)%N len2.
-Proof using.
-  unfold seqN.
-  repeat rewrite N2Nat.inj_add.
-  rewrite seq_app.
-  rewrite fmap_app.
-  reflexivity.
-Qed.
-Lemma add_mod_lhsc (a b d:Z) :
-  0 < d
-  -> (a+d) `mod` d = b `mod` d
-  -> (a) `mod` d = (b) `mod` d.
-Proof using.
-  intros Ha Hb.
-  rewrite <- Hb.
-  Arith.arith_solve.
-Qed.
-         Hint Rewrite length_seq: syntactic.
-
   
+  Set Default Goal Selector "!".
   Lemma popqprf: denoteModule module
                     ** uint_store_spec
                     ** uint_load_spec
