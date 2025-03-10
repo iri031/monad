@@ -1170,6 +1170,7 @@ End atomicR.
     set_solver.
   Qed.
 
+  
   Example auth_frag_together3 (g: gname) s S:
   (g |--> sts_auth s ∅) ** (g |--> sts_frag S ∅)
    -|- (g |--> sts_auth s ∅) ** [| s ∈ S /\ closed S ∅|].
@@ -1247,6 +1248,25 @@ End atomicR.
     split_and !; auto.
     set_solver +.
   Qed.
+  
+  Lemma observePure g (a: (stsR sts)) : Observe [| ✓ a |] (own g a).
+  Proof.  apply observe_intro. exact _. go. Qed.
+  
+  Lemma stable_frag (g: gname) (S: states sts) (T: tokens sts):
+    (g |--> sts_frag S T)
+|-- (g |--> sts_frag S T) ** [|valid (sts_frag S T) |].
+  Proof using. go. Qed.
+  
+  Example frag_dupl (g: gname) S:
+  (g |--> sts_frag S ∅) |-- (g |--> sts_frag S ∅) ** (g |--> sts_frag S ∅).
+  Proof using.
+    rewrite -> stable_frag at 1.
+    rewrite frag_frag_combine2.
+    go.
+    hnf in H.
+    forward_reason.
+    work.
+  Qed.
   (*
   Lemma update_lloc (g:gname) (s sf: State) (toks: tokens spsc) :
     rtc (sts.step toks) s sf ->
@@ -1272,13 +1292,6 @@ End atomicR.
     assumption.
   Qed.
   (* move *)
-  Lemma observePure g (a: (stsR sts)) : Observe [| ✓ a |] (own g a).
-  Proof.  apply observe_intro. exact _. go. Qed.
-  
-  Lemma stable_frag (g: gname) (S: states sts) (T: tokens sts):
-    (g |--> sts_frag S T)
-|-- (g |--> sts_frag S T) ** [|valid (sts_frag S T) |].
-  Proof using. go. Qed.
   End stsg.
   
 End cp.

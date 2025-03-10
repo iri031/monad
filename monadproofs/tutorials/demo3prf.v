@@ -972,7 +972,7 @@ Hint Rewrite @elem_of_PropSet: iff.
 
 Lemma auth_close_inv_producer (g: gname) s:
   (g |--> sts_auth s {[Producer]})
-    |-- (g |--> sts_frag {[ sf | produced sf = produced s /\ numConsumed s <= numConsumed sf]} {[ Producer ]})
+    |-- (g |--> sts_frag {[ sf | produced sf = produced s]} {[ Producer ]})
         ** (g |--> sts_auth s ∅) .
 Proof using.
   clear.
@@ -992,10 +992,6 @@ Proof using.
   intros ? ? ? Hdis Hin Hstep.
   rewrite -> elem_of_PropSet in *.
   inverts Hstep; simpl; try lia; try set_solver.
-  autorewrite with syntactic.
-  forward_reason.
-  split; auto.
-  lia.
 Qed.
 
 Definition close_invstsg_C := [CANCEL] auth_close_inv_producer. 
@@ -1010,7 +1006,45 @@ Proof using.
   intros.
   eapply spsc_mod_iff1; eauto.
 Qed.
+  Ltac hideEmptyTokenFrag :=
+  IPM.perm_left ltac:(fun L n =>
+                        match L with
+                        | _ |--> sts_frag ?S ∅ => hideFromWork L
+                        end
+                     ).
+#[global] Instance ll g s1 s2 t1 t2: Learnable (g |--> sts_auth s1 t1) (g |--> sts_auth s2 t2) [s1=s2]
+                                                   := ltac:(solve_learnable).
+      Ltac closedN := closed.norm closed.numeric_types .
+Ltac bwdRev L :=
+  wapplyRev L; last (iSplitFrameL; [| iIntrosDestructs; eagerUnifyC ; maximallyInstantiateLhsEvar_nonpers]).
 
+Lemma hideWandL (L C: mpred) E:
+  (forall  (Lh:mpred), Hide.Hidden (Lh=L) ->  environments.envs_entails E (Lh -* C)) -> environments.envs_entails E (L -* C).
+  intros Hl.
+  specialize (Hl L).
+  apply Hl.
+  constructor.
+  reflexivity.
+Qed.
+
+Lemma hideDuplWandL (L C: mpred) E:
+  (L|--L**L) ->
+  (forall  (Lh:mpred), Hide.Hidden (Lh=L) ->  environments.envs_entails E (Lh ** L -* C)) -> environments.envs_entails E (L -* C).
+  intros Hd Hl.
+  specialize (Hl L).
+  rewrite Hd.
+  apply Hl.
+  constructor.
+  reflexivity.
+Qed.
+
+Ltac hideDuplFrag :=
+  IPM.perm_left ltac:(fun L n =>
+                        match L with
+                        | _ |--> sts_frag _ ∅  => iRevert n
+                        end
+                     );
+  apply hideDuplWandL; try apply: frag_dupl.
 Lemma pushqprf: denoteModule module
                   ** uint_store_spec
                   ** uint_load_spec
@@ -1020,7 +1054,20 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
   slauto.
   unfold ProducerR. go.
   unfold SPSCInv. go.
+  hideDuplFrag.
+  go.
   callAtomicCommitCinv.
+  go.
+  work using combineAuthFragFwd.
+
+  (* there is a bug in the automation.
+     only when doing hideDuplFrag, which duplicates an opaque copy of frag ∅,
+     work refuses to use combineAuthFragFwd to combine the no-opaque copy *)
+  
+  Search numConsumedLb.
+  go.
+  wapply auth_frag_together2. eagerUnifyC. go.
+  go.
   autorewrite with iff in *.
   normalize_ptrs. go.
   subst.
@@ -1039,60 +1086,21 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     go.
     rewrite -> elem_of_PropSet in *.
     closeCinvqs.
-#[global] Instance ll g s1 s2 t1 t2: Learnable (g |--> sts_auth s1 t1) (g |--> sts_auth s2 t2) [s1=s2]
-                                                   := ltac:(solve_learnable).
     go.
     iModIntro.
-      Ltac closedN := closed.norm closed.numeric_types .
       closedN.
     name_locals.
-        repeat  match goal with
-         | H: State |- _ => destruct H
-         end; simpl in *; forward_reason; subst; simpl in *.
-     slauto.
-     provePure.
-     {
-       case_decide; auto.
-       Arith.arith_solve.
-     }
-     work.
-Ltac bwdRev L :=
-  wapplyRev L; last (iSplitFrameL; [| iIntrosDestructs; eagerUnifyC ; maximallyInstantiateLhsEvar_nonpers]).
-bwdRev frag_frag_combine.
-rewrite right_id.
-
-Ltac combineFragR := 
-  bwdRev frag_frag_combine;
-  rewrite right_id.
-
-icancel (@own_proper).
-apply sts_frag_proper; auto.
-hnf.
-intros.
-rewrite elem_of_intersection.
-repeat rewrite -> elem_of_PropSet in *.
-split.
-intros; forward_reason; try split_and !; auto; try lia.
-Search included own.
-mono_list.
-split; intros; forward_reason; try split_and !; auto; try lia.
-destruct v; simpl in *; try nia.
-Search numConsumed0.
-Search bi_entails 
-firstorder.
-auto.
-go.
-
-
-
-Ltac cancelFrag 
-
-     2:{iIntrosDestructs. eagerUnifyC.  maximallyInstantiateLhsEvar_nonpers. 
-  wapply L; last (iSplitFrameL; [ progress eagerUnifyC | iIntrosDestructs; eagerUnifyC ; maximallyInstantiateLhsEvar_nonpers]).
-     
-     icancel
-     Definition frag_fragbwd:= [BWD] frag_frag_combine.
-     Search stsg.sts_frag.
+    unhideAllFromWork.
+    repeat  match goal with
+            | H: State |- _ => destruct H
+            end; simpl in *; forward_reason; subst; simpl in *.
+    slauto.
+    case_decide; auto.
+    destruct v; simpl in *;
+    try Arith.arith_solve.
+    apply False_rect.
+     hide_hyp
+     Search num 
   }
   {
     go.
