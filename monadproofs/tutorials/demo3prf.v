@@ -1474,7 +1474,7 @@ cpp.spec "MPMCQueue::push(int)" as mpmcpushseq with (fun (this:ptr)=>
     stateLoc lpp |--> logicalR (1/2) s
   \pre [| Timeless1 P |]
   \pre P value
-  \post [Vbool (bool_decide (full s))]
+  \post [Vbool (negb (bool_decide (empty s)))]
      (stateLoc lpp |--> logicalR (1/2) (pushFinalState s value))).
 
 cpp.spec "MPMCQueue::push(int)" as mpmcpushla with (fun (this:ptr)=>
@@ -1482,12 +1482,13 @@ cpp.spec "MPMCQueue::push(int)" as mpmcpushla with (fun (this:ptr)=>
   \prepost{(lpp: mpmcid) (P: Z -> mpred) (q:Qp)}
     this |-> mpmcRla lpp q P
   \pre{Q: State->mpred}
-    AC1 << ∀ s : State, (stateLoc lpp |--> logicalR (1/2) s)>> @ ⊤, ∅
+    AC << ∀ s : State, (stateLoc lpp |--> logicalR (1/2) s)>> @ ⊤, ∅
         << (stateLoc lpp |--> logicalR (1/2) (pushFinalState s value)), COMM Q s >>
   \pre [| Timeless1 P |]
   \pre P value
-  \post{sJustBeforeCommit} [Vbool (bool_decide (full sJustBeforeCommit))]
-  Q sJustBeforeCommit).
+  \post{sJustBeforeCommit} [Vbool (negb (bool_decide (full sJustBeforeCommit)))]
+  Q sJustBeforeCommit **
+  if decide (full sJustBeforeCommit) then P value else emp ).
 
 Opaque LockR.
 #[global] Instance learnLockEq: LearnEq3 (LockR):= ltac:(solve_learnable).
@@ -1520,59 +1521,27 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
   go.
   wapply (logicalR_update (stateLoc lpp) (pushFinalState x value)). eagerUnifyU. go.
   ghost.
-  rewrite bi.later_wand.
   use_wand.
-  iStopProof.
-  apply later.removeLaterRHS.
   go.
   resume_use_wand.
-  slauto.
   ghost.
-  Search (▷ fupd _ _  _)%I.
-  (*
-_ : stateLoc lpp
-      |--> logicalR (1 / 2) (pushFinalState x value)
-  _ : ▷ (|={∅,⊤}=> Q x)
-  --------------------------------------∗
-  |={∅,⊤}=>
-    branch.stmt module
-      [region:
-        "nextTail" @ nextTail_addr; "value" @ value_addr;
-        [this := this]; return {?: "bool"}]
-      (bool_decide
-         ((lengthZ (produced x) `mod` 256 + 1) `mod` 256 =
-          numConsumed x `mod` 256))
-*)
-  
-  Search 
-  icancel  later.removeLaterRHS.
-  removeLater
-  removeLater.
-  go.
-  Search (▷ (_ -* _))%I.
-  
-    unfold S.
-  useCommitter.
-  useAtomicCommit
+  iModIntro.
   wp_if.
   { (* full *)
+    assert (full x) as Hf by admit.
+    unfold pushFinalState.
+    destruct (decide (full x)); try tauto.
     slauto.
-    go...
-    go...
-    Set Printing Coercions.
-    
-    
- go.
-  go.
-  unfold SPSCInv. go.
-  callAtomicCommitCinv.
-  ren_hyp slh State.
-  progress normalize_ptrs. go.
-  rename numConsumed into nmConsumed.
-  destruct (decide (lengthZ (produced slh) = (numConsumed slh))).
-  { (* queue is empty: exact same proof as before  *)
-
-    callAtomicCommit
+    iModIntro.
+    go.
+    iExists x. go.
+    rewrite bool_decide_decide.
+    destruct (decide (full x)); try tauto.
+    simpl.
+    go.
+  }
+ Abort.
+  
 End with_Sigma.
 (* TODO:
 proof of pop
