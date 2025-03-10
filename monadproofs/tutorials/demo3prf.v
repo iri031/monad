@@ -961,33 +961,45 @@ cpp.spec "SPSCQueue::push(int)" as pushqw with (fun (this:ptr)=>
   \pre [| Timeless1 P |]
   \pre P value
   \post{retb:bool} [Vbool retb]
-    [| if decide (numConsumedLb + capacity < lengthN produced) then retb =true else Logic.True |] **
+    [| if decide (lengthN produced < numConsumedLb + capacity) then retb =true else Logic.True |] **
     if retb
     then this |-> ProducerR lpp P (produced++[value]) numConsumedLb
     else this |-> ProducerR lpp P produced numConsumedLb ** P value ).
 
-Definition combineFwd:= [FWD->](@auth_frag_together2).
-Hint Resolve combineFwd: br_opacity.
-Hint Extern 100 [environments.envs_entails _ _]  =>
-  repeat match goal with
-  | [ H: _ ∈ (@PropSet _ _) |- _ ] =>
-      rewrite elem_of_PropSet in H
-    end.
-
-(** A lemma you want to use to rewrite in hypotheses. **)
-Lemma my_lemma : 0=1 -> 1=2.
-Proof. (* some proof *) Admitted.
-
-(** A custom hint that looks for any hypothesis of the form [P x] 
-    and rewrites it to [Q x] automatically. **)
-Hint Extern 3 =>
-  match goal with
-  | [ H :0=1 |- _ ] =>
-      rewrite (my_lemma) in H
-  end.
-
+Definition combineAuthFragFwd:= [FWD->](@auth_frag_together2).
+Hint Resolve combineAuthFragFwd: br_opacity.
 Hint Rewrite @elem_of_PropSet: iff.
-Ltac slauto := (slautot ltac:(autorewrite with syntactic iff in *; try solveRefereceTo)); try iPureIntro.
+
+Lemma auth_close_inv_producer (g: gname) s:
+  (g |--> sts_auth s {[Producer]})
+    |-- (g |--> sts_frag {[ sf | produced sf = produced s /\ numConsumed s <= numConsumed sf]} {[ Producer ]})
+        ** (g |--> sts_auth s ∅) .
+Proof using.
+  clear.
+  go.
+  wapplyRev auth_frag_together2.
+  eagerUnifyU.
+  go.
+  provePure.
+  2:{ iSplitL. iPureIntro. eauto.
+      iIntrosDestructs.
+      eagerUnifyC.
+      go.
+  }
+  autorewrite with iff.
+  split_and !; try lia; try auto.
+  apply closed_if.
+  intros ? ? ? Hdis Hin Hstep.
+  rewrite -> elem_of_PropSet in *.
+  inverts Hstep; simpl; try lia; try set_solver.
+  autorewrite with syntactic.
+  forward_reason.
+  split; auto.
+  lia.
+Qed.
+
+Definition close_invstsg_C := [CANCEL] auth_close_inv_producer. 
+Hint Resolve close_invstsg_C: br_opacity.
 
 Lemma spsc_mod_iff1 (s:State) bl bc:
   let len := lengthN (produced s) in
@@ -1009,11 +1021,11 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
   unfold ProducerR. go.
   unfold SPSCInv. go.
   callAtomicCommitCinv.
-  slauto.
+  autorewrite with iff in *.
+  normalize_ptrs. go.
   subst.
   ren_hyp slh State.
   simpl in *.
-  
   pose proof (spsc_mod_iff1 slh false v ltac:(simpl; lia)).
   destruct (decide (lengthZ (produced slh) = (numConsumed slh + (bufsize-1)))).
   { (* overflow . TODO: move the load of tail up so that both cases can share more proof *)
@@ -1025,11 +1037,62 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     go.
     callAtomicCommitCinv.
     go.
+    rewrite -> elem_of_PropSet in *.
     closeCinvqs.
+#[global] Instance ll g s1 s2 t1 t2: Learnable (g |--> sts_auth s1 t1) (g |--> sts_auth s2 t2) [s1=s2]
+                                                   := ltac:(solve_learnable).
     go.
     iModIntro.
+      Ltac closedN := closed.norm closed.numeric_types .
+      closedN.
     name_locals.
-    slauto.
+        repeat  match goal with
+         | H: State |- _ => destruct H
+         end; simpl in *; forward_reason; subst; simpl in *.
+     slauto.
+     provePure.
+     {
+       case_decide; auto.
+       Arith.arith_solve.
+     }
+     work.
+Ltac bwdRev L :=
+  wapplyRev L; last (iSplitFrameL; [| iIntrosDestructs; eagerUnifyC ; maximallyInstantiateLhsEvar_nonpers]).
+bwdRev frag_frag_combine.
+rewrite right_id.
+
+Ltac combineFragR := 
+  bwdRev frag_frag_combine;
+  rewrite right_id.
+
+icancel (@own_proper).
+apply sts_frag_proper; auto.
+hnf.
+intros.
+rewrite elem_of_intersection.
+repeat rewrite -> elem_of_PropSet in *.
+split.
+intros; forward_reason; try split_and !; auto; try lia.
+Search included own.
+mono_list.
+split; intros; forward_reason; try split_and !; auto; try lia.
+destruct v; simpl in *; try nia.
+Search numConsumed0.
+Search bi_entails 
+firstorder.
+auto.
+go.
+
+
+
+Ltac cancelFrag 
+
+     2:{iIntrosDestructs. eagerUnifyC.  maximallyInstantiateLhsEvar_nonpers. 
+  wapply L; last (iSplitFrameL; [ progress eagerUnifyC | iIntrosDestructs; eagerUnifyC ; maximallyInstantiateLhsEvar_nonpers]).
+     
+     icancel
+     Definition frag_fragbwd:= [BWD] frag_frag_combine.
+     Search stsg.sts_frag.
   }
   {
     go.
