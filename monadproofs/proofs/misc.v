@@ -1233,6 +1233,7 @@ End atomicR.
       rewrite <- own_op. go.
     }
   Qed.
+
       
   Example frag_frag_combine2 (g: gname) S:
   (g |--> sts_frag S ∅) ** (g |--> sts_frag S ∅)

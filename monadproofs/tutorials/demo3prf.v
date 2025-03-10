@@ -1357,9 +1357,125 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     apply add_mod_lhsc; try lia.
     f_equiv.
     lia.
-    }
   }
  Qed.
+
+Record mpmcid :=
+  {
+    lockId : gname;
+    stateLoc: gname; 
+  }.
+
+Definition MPMCLockContent (cid: mpmcid) (P: Z -> mpred) : Rep :=
+  Exists (s: State),
+    let producedL := produced s in
+    let numConsumed := numConsumed s in
+    let numProduced : N  := lengthN producedL in
+    let numConsumable : Z := (lengthN producedL - numConsumed) in
+    let numFreeSlotsInCinv: Z := (bufsize- numConsumable) in
+    let currItems := dropN (Z.to_N numConsumed) producedL in
+       (* actual capacity is 1 less than bufsize (the size of the array) because we need to distinguish empty and full *)
+    [| numConsumed <= numProduced /\ numProduced - numConsumed <= bufsize - 1 |]
+    ** pureR (stateLoc cid  |--> sts_auth s ⊤)
+    ** _field "SPSCQueue::head_" |-> atomicR uint 1 (numConsumed `mod` bufsize)
+    ** _field "SPSCQueue::tail_" |-> atomicR uint 1 (numProduced `mod` bufsize)
+    **
+    (* ownership of active cells *)
+    ([∗ list] i↦  item ∈ currItems,
+      pureR (P item) **
+      _field "SPSCQueue::buffer_".["int" ! ((numConsumed + i) `mod` bufsize)] |-> primR "int"  1 (Vint item))
+    (* ownership of inactive cells *)
+    ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFreeSlotsInCinv)),  _field "SPSCQueue::buffer_".["int" ! (numProduced + i) `mod` bufsize ] |-> anyR "int" 1)
+    ** _field "SPSCQueue::buffer_".[ "int" ! bufsize ] |-> validR.
+
+Require Import monad.tutorials.demo2prf.
+
+(* no separate producerR or consumerR because they have the same limited knowledge/rights *)
+Definition mpmcR (cid: mpmcid) (q:Qp) (P: Z -> mpred): Rep :=
+  as_Rep( fun (this:ptr) =>
+ this |-> _field "lock" |-> LockR q (lockId cid) (this |-> MPMCLockContent cid P)).
+
+(* like blockchain: all the specs says that my transaction was recorded in the history *)
+cpp.spec "SPSCQueue::push(int)" as mpmcpush with (fun (this:ptr)=>
+  \arg{value} "value" (Vint value)
+  \prepost{(lpp: mpmcid) (P: Z -> mpred) (q:Qp)}
+    this |-> mpmcR lpp q P
+  \pre{producedPrefix: list Z}
+    stateLoc lpp |--> sts_frag {[ s | producedPrefix `prefix_of` (produced s) ]} ∅
+  \pre [| Timeless1 P |]
+  \pre P value
+  \post{retb:bool} [Vbool retb]
+    if retb
+    then Exists (newItems: list Z),
+      (stateLoc lpp |--> sts_frag
+         {[ s | producedPrefix++newItems++[value] `prefix_of` (produced s) ]} ∅)
+    else emp).
+
+cpp.spec "SPSCQueue::pop(int&)" as mpmcpop with (fun (this:ptr)=>
+  \arg{valuep} "value" (Vptr valuep)
+  \prepost{(lpp: mpmcid) (P: Z -> mpred) (q:Qp)}
+    this |-> mpmcR lpp q P
+  \pre{numConsumedLb: N}
+    stateLoc lpp |--> sts_frag {[ s | numConsumedLb <= numConsumed s]} ∅
+  \pre [| Timeless1 P |]
+  \pre valuep |-> anyR "int" 1
+  \post{retb:bool} [Vbool retb]
+    if retb
+    then (Exists popv:Z, valuep |-> primR "int" 1 popv ** P popv)
+         ** (stateLoc lpp |--> sts_frag {[ s | 1+numConsumedLb <= numConsumed s]} ∅)
+    else valuep |-> anyR "int" 1).
+
+(* the above spec is ok for clients who use push/pop in a maximallyy concurrent way and
+   follow no additional discipline.
+  what if a client wants to use it sequentially? postcond too weak !
+  next spec: grants the flexibility:
+  - can allow multiple threads to call push/pop concurrently
+  - yet, if the client chooses to not race, they get stronger postconditions
+  - almost anything in between
+
+Logical atomic triples
+ *)
+Context {hsssst: fracG State _}.
+
+
+Definition MPMCLockContentLa (cid: mpmcid) (P: Z -> mpred) : Rep :=
+  Exists (s: State),
+    let producedL := produced s in
+    let numConsumed := numConsumed s in
+    let numProduced : N  := lengthN producedL in
+    let numConsumable : Z := (lengthN producedL - numConsumed) in
+    let numFreeSlotsInCinv: Z := (bufsize- numConsumable) in
+    let currItems := dropN (Z.to_N numConsumed) producedL in
+    [| numConsumed <= numProduced /\ numProduced - numConsumed <= bufsize - 1 |]
+    ** pureR (stateLoc cid  |--> logicalR (1/2) s)
+    ** _field "SPSCQueue::head_" |-> atomicR uint 1 (numConsumed `mod` bufsize)
+    ** _field "SPSCQueue::tail_" |-> atomicR uint 1 (numProduced `mod` bufsize)
+    **
+    (* ownership of active cells *)
+    ([∗ list] i↦  item ∈ currItems,
+      pureR (P item) **
+      _field "SPSCQueue::buffer_".["int" ! ((numConsumed + i) `mod` bufsize)] |-> primR "int"  1 (Vint item))
+    (* ownership of inactive cells *)
+    ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFreeSlotsInCinv)),  _field "SPSCQueue::buffer_".["int" ! (numProduced + i) `mod` bufsize ] |-> anyR "int" 1)
+    ** _field "SPSCQueue::buffer_".[ "int" ! bufsize ] |-> validR.
+
+Definition mpmcRla (cid: mpmcid) (q:Qp) (P: Z -> mpred): Rep :=
+  as_Rep( fun (this:ptr) =>
+  this |-> _field "lock" |-> LockR q (lockId cid) (this |-> MPMCLockContentLa cid P)).
+
+Definition pushFinalState (s: State)  (newItem: Z): State :=
+  if decide (full s) then s else {| produced := (produced s) ++ [newItem];
+                                   numConsumed := numConsumed s |}.
+cpp.spec "SPSCQueue::push(int)" as mpmcpushla with (fun (this:ptr)=>
+  \arg{value} "value" (Vint value)
+  \prepost{(lpp: mpmcid) (P: Z -> mpred) (q:Qp)}
+    this |-> mpmcRla lpp q P
+  \pre{s: State}
+    stateLoc lpp |--> logicalR (1/2) s
+  \pre [| Timeless1 P |]
+  \pre P value
+  \post [Vbool (bool_decide (full s))]
+     (stateLoc lpp |--> logicalR (1/2) (pushFinalState s value))).
 
 End with_Sigma.
 (* TODO:
@@ -1396,5 +1512,10 @@ sequence:
 done
 add P value to the spsc specs
 
+
+broad goals:
+- how specs make it precise what kind of concurrency is allowed
+- set expectations for concurrent spec
+- rich vocabulary for writing concurrent specs 
 *)
 
