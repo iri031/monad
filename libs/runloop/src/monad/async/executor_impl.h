@@ -10,6 +10,7 @@
 #include <monad/util/ticks_count_impl.h>
 
 #include <assert.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 #include <threads.h>
@@ -1314,6 +1315,58 @@ static inline void monad_async_executor_free_file_index(
 {
     assert(ex->file_indices[file_index] != -1);
     ex->file_indices[file_index] = -1;
+}
+
+// WARNING: Make sure task is original task NOT task->io_recipient_task
+static inline void
+monad_async_executor_immediately_complete_iostatus_with_error(
+    struct monad_async_task_impl *task, monad_async_io_status *iostatus,
+    monad_c_result result)
+{
+    iostatus->cancel_ = nullptr;
+    iostatus->result = result;
+    iostatus->ticks_when_initiated = iostatus->ticks_when_completed =
+        get_ticks_count(memory_order_relaxed);
+    bool const need_to_manually_wake_task =
+        (&task->head != task->head.io_recipient_task);
+    task = (struct monad_async_task_impl *)
+               task->head.io_recipient_task; // WARNING: task may not be task!
+    LIST_APPEND(
+        task->io_completed, iostatus, &task->head.io_completed_not_reaped);
+    if (need_to_manually_wake_task) {
+        if (atomic_load_explicit(
+                &task->head.is_suspended_awaiting, memory_order_acquire) &&
+            task->completed != nullptr) {
+            // We're going to need to simulate the executor resuming this due to
+            // an i/o completing
+            assert(atomic_load_explicit(
+                &task->head.is_suspended_for_io, memory_order_acquire));
+            struct monad_async_executor_impl *ex =
+                (struct monad_async_executor_impl *)atomic_load_explicit(
+                    &task->head.current_executor, memory_order_acquire);
+            assert(ex != nullptr);
+            *task->completed = iostatus;
+            task->completed = nullptr;
+            task->head.ticks_when_suspended_completed =
+                get_ticks_count(memory_order_relaxed);
+            task->head.derived.result =
+                monad_c_make_success(task->head.io_completed_not_reaped);
+            atomic_store_explicit(
+                &task->head.is_suspended_awaiting, false, memory_order_release);
+            LIST_REMOVE(
+                ex->tasks_suspended_awaiting
+                    [monad_async_task_effective_cpu_priority(task)],
+                task,
+                (size_t *)nullptr);
+            atomic_store_explicit(
+                &task->head.is_suspended_completed, true, memory_order_release);
+            LIST_APPEND(
+                ex->tasks_suspended_completed
+                    [monad_async_task_effective_cpu_priority(task)],
+                task,
+                (size_t *)nullptr);
+        }
+    }
 }
 
 #endif

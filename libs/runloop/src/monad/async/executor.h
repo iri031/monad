@@ -47,7 +47,8 @@ typedef struct monad_async_executor_head
 } *monad_async_executor;
 
 //! \brief Returns true if an executor has work before it
-static inline bool monad_async_executor_has_work(monad_async_executor ex)
+MONAD_CONTEXT_EMITTED_INLINE bool
+monad_async_executor_has_work(monad_async_executor ex)
 {
 #ifdef __cplusplus
     return ex->current_task.load(std::memory_order_acquire) != nullptr ||
@@ -69,7 +70,8 @@ static inline bool monad_async_executor_has_work(monad_async_executor ex)
 }
 
 //! \brief Returns total number of tasks in an executor
-static inline size_t monad_async_executor_task_count(monad_async_executor ex)
+MONAD_CONTEXT_EMITTED_INLINE size_t
+monad_async_executor_task_count(monad_async_executor ex)
 {
 #ifdef __cplusplus
     return ex->tasks_pending_launch.load(std::memory_order_relaxed) +
@@ -120,7 +122,9 @@ struct monad_async_executor_attr
             //! small and large buffer sizes are.
             unsigned small_multiplier, large_multiplier;
             /*! \brief Number of small and large buffers to have io_uring
-            allocate during read operations.
+            allocate during read operations. THIS IS A SUBSET OF `small_count`
+            AND `large_count`, IF YOU SET BOTH TO THE SAME VALUE YOU GET ZERO
+            USERSPACE AVAILABLE REGISTERED BUFFERS.
 
             io_uring can allocate i/o buffers at the point of successful read
             which is obviously much more efficient than userspace allocating

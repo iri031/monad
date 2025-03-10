@@ -520,6 +520,69 @@ impl Default for msghdr {
         }
     }
 }
+pub type in_addr_t = u32;
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct in_addr {
+    pub s_addr: in_addr_t,
+}
+pub type in_port_t = u16;
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct in6_addr {
+    pub __in6_u: in6_addr__bindgen_ty_1,
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union in6_addr__bindgen_ty_1 {
+    pub __u6_addr8: [u8; 16usize],
+    pub __u6_addr16: [u16; 8usize],
+    pub __u6_addr32: [u32; 4usize],
+}
+impl Default for in6_addr__bindgen_ty_1 {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl Default for in6_addr {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct sockaddr_in {
+    pub sin_family: sa_family_t,
+    pub sin_port: in_port_t,
+    pub sin_addr: in_addr,
+    pub sin_zero: [::std::os::raw::c_uchar; 8usize],
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct sockaddr_in6 {
+    pub sin6_family: sa_family_t,
+    pub sin6_port: in_port_t,
+    pub sin6_flowinfo: u32,
+    pub sin6_addr: in6_addr,
+    pub sin6_scope_id: u32,
+}
+impl Default for sockaddr_in6 {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
 pub type __u32 = ::std::os::raw::c_uint;
 pub type __u64 = ::std::os::raw::c_ulonglong;
 #[repr(C)]
@@ -639,6 +702,14 @@ impl Default for monad_async_io_status {
         }
     }
 }
+unsafe extern "C" {
+    #[doc = "! \\brief True if the i/o is currently in progress"]
+    pub fn monad_async_is_io_in_progress(iostatus: *const monad_async_io_status) -> bool;
+}
+unsafe extern "C" {
+    #[doc = "! \\brief Number of the i/o is currently in progress"]
+    pub fn monad_async_io_in_progress(iostatus: *const monad_async_io_status, len: usize) -> usize;
+}
 #[doc = "! \\brief The public attributes of a task"]
 #[repr(C)]
 pub struct monad_async_task_head {
@@ -689,6 +760,16 @@ impl Default for monad_async_task_head {
             s.assume_init()
         }
     }
+}
+unsafe extern "C" {
+    #[doc = "! \\brief True if the task has completed executing and has exited"]
+    pub fn monad_async_task_has_exited(task: monad_async_task) -> bool;
+}
+unsafe extern "C" {
+    #[doc = "! \\brief If the i/o is currently in progress, returns the task which initiated\n! the i/o. Otherwise returns nullptr."]
+    pub fn monad_async_io_status_owning_task(
+        iostatus: *const monad_async_io_status,
+    ) -> monad_async_task;
 }
 #[doc = "! \\brief Attributes by which to construct a task"]
 #[repr(C)]
@@ -772,6 +853,14 @@ pub const monad_async_duration_infinite_cancelling: u64 = 31536000000000000;
 unsafe extern "C" {
     #[doc = " \\brief OPTIONAL CANCELLATION POINT Suspend execution of a task for a given\nduration, which can be zero (which equates \"yield\"). If `completed` is not\nnull, if any i/o which the task has initiated completes during the\nsuspension, resume the task setting `completed` to which i/o has just\ncompleted. This i/o is NOT REAPED, you must separately call\n`monad_async_task_completed_io()` to reap that i/o.\n\nIf `ns` is the special duration `monad_async_duration_infinite_non_cancelling`,\nthat makes this function (and all those based upon it) not a cancellation\npoint. This lets you tear down any initiated i/o etc before exiting your task.\nIf you want infinity but it should be a cancellation point, use\n`monad_async_duration_infinite_cancelling`."]
     pub fn monad_async_task_suspend_for_duration(
+        completed: *mut *mut monad_async_io_status,
+        task: monad_async_task,
+        ns: u64,
+    ) -> monad_c_result;
+}
+unsafe extern "C" {
+    #[doc = "! \\brief CANCELLATION POINT Combines `monad_async_task_completed_io()` and\n! `monad_async_task_suspend_for_duration()` to conveniently reap completed\n! i/o, suspending the task until more i/o completes. Returns zero when no more\n! i/o, otherwise returns i/o initiated plus i/o completed not reaped including\n! i/o returned i.e. how much i/o work remains before the task, and when it\n! becomes zero there is none remaining."]
+    pub fn monad_async_task_suspend_until_completed_io(
         completed: *mut *mut monad_async_io_status,
         task: monad_async_task,
         ns: u64,
@@ -947,6 +1036,14 @@ impl Default for monad_async_executor_head {
         }
     }
 }
+unsafe extern "C" {
+    #[doc = "! \\brief Returns true if an executor has work before it"]
+    pub fn monad_async_executor_has_work(ex: monad_async_executor) -> bool;
+}
+unsafe extern "C" {
+    #[doc = "! \\brief Returns total number of tasks in an executor"]
+    pub fn monad_async_executor_task_count(ex: monad_async_executor) -> usize;
+}
 #[doc = "! \\brief Attributes by which to construct an executor"]
 #[repr(C)]
 #[derive(Debug, Default)]
@@ -976,9 +1073,9 @@ pub struct monad_async_executor_attr__bindgen_ty_1__bindgen_ty_1 {
     pub small_multiplier: ::std::os::raw::c_uint,
     #[doc = "! \\brief How many of each of small pages and of large pages the\n! small and large buffer sizes are."]
     pub large_multiplier: ::std::os::raw::c_uint,
-    #[doc = " \\brief Number of small and large buffers to have io_uring\nallocate during read operations.\n\nio_uring can allocate i/o buffers at the point of successful read\nwhich is obviously much more efficient than userspace allocating\nread i/o buffers prior to initiating the read, which ties up i/o\nbuffers. However, socket i/o doesn't use the write ring, so if all\nbuffers are allocated for read then you would have no buffers for\nwriting to sockets. Therefore you may want some of the buffers\navailable for userspace allocation, and some for kernel allocation\ndepending on use case.\n\nA further complication is that if you enable this facility, if\nio_uring receives i/o and no buffers remain available to it, it\nwill fail the read i/o with a result equivalent to `ENOBUFS`. It\nis 100% on you to free up some buffers and reschedule the read if\nthis occurs. io_uring is much keener to return `ENOBUFS` than if\nyou don't use this facility where we use a timeout to detect i/o\nbuffer deadlock, and we only issue `ENOBUFS` in that circumstance\nonly."]
+    #[doc = " \\brief Number of small and large buffers to have io_uring\nallocate during read operations. THIS IS A SUBSET OF `small_count`\nAND `large_count`, IF YOU SET BOTH TO THE SAME VALUE YOU GET ZERO\nUSERSPACE AVAILABLE REGISTERED BUFFERS.\n\nio_uring can allocate i/o buffers at the point of successful read\nwhich is obviously much more efficient than userspace allocating\nread i/o buffers prior to initiating the read, which ties up i/o\nbuffers. However, socket i/o doesn't use the write ring, so if all\nbuffers are allocated for read then you would have no buffers for\nwriting to sockets. Therefore you may want some of the buffers\navailable for userspace allocation, and some for kernel allocation\ndepending on use case.\n\nA further complication is that if you enable this facility, if\nio_uring receives i/o and no buffers remain available to it, it\nwill fail the read i/o with a result equivalent to `ENOBUFS`. It\nis 100% on you to free up some buffers and reschedule the read if\nthis occurs. io_uring is much keener to return `ENOBUFS` than if\nyou don't use this facility where we use a timeout to detect i/o\nbuffer deadlock, and we only issue `ENOBUFS` in that circumstance\nonly."]
     pub small_kernel_allocated_count: ::std::os::raw::c_uint,
-    #[doc = " \\brief Number of small and large buffers to have io_uring\nallocate during read operations.\n\nio_uring can allocate i/o buffers at the point of successful read\nwhich is obviously much more efficient than userspace allocating\nread i/o buffers prior to initiating the read, which ties up i/o\nbuffers. However, socket i/o doesn't use the write ring, so if all\nbuffers are allocated for read then you would have no buffers for\nwriting to sockets. Therefore you may want some of the buffers\navailable for userspace allocation, and some for kernel allocation\ndepending on use case.\n\nA further complication is that if you enable this facility, if\nio_uring receives i/o and no buffers remain available to it, it\nwill fail the read i/o with a result equivalent to `ENOBUFS`. It\nis 100% on you to free up some buffers and reschedule the read if\nthis occurs. io_uring is much keener to return `ENOBUFS` than if\nyou don't use this facility where we use a timeout to detect i/o\nbuffer deadlock, and we only issue `ENOBUFS` in that circumstance\nonly."]
+    #[doc = " \\brief Number of small and large buffers to have io_uring\nallocate during read operations. THIS IS A SUBSET OF `small_count`\nAND `large_count`, IF YOU SET BOTH TO THE SAME VALUE YOU GET ZERO\nUSERSPACE AVAILABLE REGISTERED BUFFERS.\n\nio_uring can allocate i/o buffers at the point of successful read\nwhich is obviously much more efficient than userspace allocating\nread i/o buffers prior to initiating the read, which ties up i/o\nbuffers. However, socket i/o doesn't use the write ring, so if all\nbuffers are allocated for read then you would have no buffers for\nwriting to sockets. Therefore you may want some of the buffers\navailable for userspace allocation, and some for kernel allocation\ndepending on use case.\n\nA further complication is that if you enable this facility, if\nio_uring receives i/o and no buffers remain available to it, it\nwill fail the read i/o with a result equivalent to `ENOBUFS`. It\nis 100% on you to free up some buffers and reschedule the read if\nthis occurs. io_uring is much keener to return `ENOBUFS` than if\nyou don't use this facility where we use a timeout to detect i/o\nbuffer deadlock, and we only issue `ENOBUFS` in that circumstance\nonly."]
     pub large_kernel_allocated_count: ::std::os::raw::c_uint,
 }
 unsafe extern "C" {
@@ -1061,6 +1158,18 @@ unsafe extern "C" {
         task: monad_async_task,
         fd: ::std::os::raw::c_int,
     ) -> monad_c_result;
+}
+#[doc = "! \\brief See `monad_async_task_file_indices()`."]
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct monad_async_task_file_indices {
+    #[doc = "!< NOT a POSIX file descriptor! All bits one if invalid."]
+    pub read_index: ::std::os::raw::c_uint,
+    #[doc = "!< NOT a POSIX file descriptor! All bits one if invalid."]
+    pub write_index: ::std::os::raw::c_uint,
+}
+unsafe extern "C" {
+    pub fn monad_async_task_file_indices(file: monad_async_file) -> monad_async_task_file_indices;
 }
 unsafe extern "C" {
     #[doc = "! \\brief Suspend execution of the task until the file has been closed"]
@@ -1174,6 +1283,9 @@ unsafe extern "C" {
         task: monad_async_task,
         fd: ::std::os::raw::c_int,
     ) -> monad_c_result;
+}
+unsafe extern "C" {
+    pub fn monad_async_task_socket_index(sock: monad_async_socket) -> ::std::os::raw::c_uint;
 }
 unsafe extern "C" {
     #[doc = "! \\brief Suspend execution of the task until the socket has been closed"]

@@ -1756,18 +1756,28 @@ monad_c_result monad_async_executor_submit(
     if (ex->ring.ring_fd != 0 && (0 == max_items_in_nonwrite_submission_queue ||
                                   io_uring_sq_ready(&ex->ring) >=
                                       max_items_in_nonwrite_submission_queue)) {
-        int r = io_uring_submit(&ex->ring);
-        if (r < 0 && r != -EINTR) {
-            return monad_c_make_failure(-r);
+        if ((ex->ring.flags & IORING_SETUP_SQPOLL) != 0) {
+            io_uring_sqring_wait(&ex->ring);
+        }
+        else {
+            int r = io_uring_submit(&ex->ring);
+            if (r < 0 && r != -EINTR) {
+                return monad_c_make_failure(-r);
+            }
         }
         ret++;
     }
     if (ex->wr_ring.ring_fd != 0 && (0 == max_items_in_write_submission_queue ||
                                      io_uring_sq_ready(&ex->wr_ring) >=
                                          max_items_in_write_submission_queue)) {
-        int r = io_uring_submit(&ex->wr_ring);
-        if (r < 0 && r != -EINTR) {
-            return monad_c_make_failure(-r);
+        if ((ex->wr_ring.flags & IORING_SETUP_SQPOLL) != 0) {
+            io_uring_sqring_wait(&ex->wr_ring);
+        }
+        else {
+            int r = io_uring_submit(&ex->wr_ring);
+            if (r < 0 && r != -EINTR) {
+                return monad_c_make_failure(-r);
+            }
         }
         ret++;
     }

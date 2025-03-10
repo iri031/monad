@@ -45,6 +45,20 @@ BOOST_OUTCOME_C_NODISCARD extern monad_c_result
 monad_async_task_file_create_from_existing_fd(
     monad_async_file *file, monad_async_task task, int fd);
 
+//! \brief See `monad_async_task_file_indices()`.
+struct monad_async_task_file_indices
+{
+    unsigned
+        read_index; //!< NOT a POSIX file descriptor! All bits one if invalid.
+    unsigned
+        write_index; //!< NOT a POSIX file descriptor! All bits one if invalid.
+};
+/* \brief The io_uring internal descriptor indices for the read and write
+handles of this file. These will be unique per executor instance.
+*/
+extern struct monad_async_task_file_indices
+monad_async_task_file_indices(monad_async_file file);
+
 //! \brief Suspend execution of the task until the file has been closed
 BOOST_OUTCOME_C_NODISCARD extern monad_c_result
 monad_async_task_file_destroy(monad_async_task task, monad_async_file file);

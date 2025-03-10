@@ -3,6 +3,8 @@
 #include <monad/context/config.h>
 #include <monad/context/context_switcher.h>
 
+#include <netinet/in.h> // for struct sockaddr_in*
+
 #include "executor.h"
 #include "file_io.h"
 #include "socket_io.h"

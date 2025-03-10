@@ -112,9 +112,11 @@ AsyncIOContext::AsyncIOContext(ReadOnlyOnDiskDbConfig const &options)
     , buffers{io::make_buffers_for_read_only(
           read_ring, options.rd_buffers,
           async::AsyncIO::MONAD_IO_BUFFERS_READ_SIZE)}
-    , io{pool, buffers, options.concurrent_read_io_limit}
+    , io{pool, buffers}
 {
     io.set_capture_io_latencies(options.capture_io_latencies);
+    io.set_concurrent_read_io_limit(options.concurrent_read_io_limit);
+    io.set_eager_completions(options.eager_completions);
 }
 
 AsyncIOContext::AsyncIOContext(OnDiskDbConfig const &options)
@@ -151,9 +153,11 @@ AsyncIOContext::AsyncIOContext(OnDiskDbConfig const &options)
           read_ring, *write_ring, options.rd_buffers, options.wr_buffers,
           async::AsyncIO::MONAD_IO_BUFFERS_READ_SIZE,
           async::AsyncIO::MONAD_IO_BUFFERS_WRITE_SIZE)}
-    , io{pool, buffers, options.concurrent_read_io_limit}
+    , io{pool, buffers}
 {
     io.set_capture_io_latencies(options.capture_io_latencies);
+    io.set_concurrent_read_io_limit(options.concurrent_read_io_limit);
+    io.set_eager_completions(options.eager_completions);
 }
 
 class Db::ROOnDiskBlocking final : public Db::Impl

@@ -183,7 +183,7 @@ extern void monad_context_reparent_switcher(
     monad_context context, monad_context_switcher new_switcher);
 
 //! \brief Destroys any context switcher
-BOOST_OUTCOME_C_NODISCARD inline monad_c_result
+BOOST_OUTCOME_C_NODISCARD MONAD_CONTEXT_EMITTED_INLINE monad_c_result
 monad_context_switcher_destroy(monad_context_switcher switcher)
 {
     return switcher->self_destroy(switcher);

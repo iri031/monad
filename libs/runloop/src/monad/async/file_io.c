@@ -242,6 +242,16 @@ monad_c_result monad_async_task_file_create_from_existing_fd(
     return monad_c_make_success(0);
 }
 
+struct monad_async_task_file_indices
+monad_async_task_file_indices(monad_async_file file_)
+{
+    struct monad_async_file_impl *file = (struct monad_async_file_impl *)file_;
+    struct monad_async_task_file_indices ret = {
+        .read_index = file->io_uring_file_index_read,
+        .write_index = file->io_uring_file_index_write};
+    return ret;
+}
+
 static monad_c_result monad_async_task_file_destroy_impl(
     struct monad_async_task_impl *task, struct monad_async_file_impl *file)
 {
@@ -550,10 +560,8 @@ void monad_async_task_file_read(
     if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
         assert(tofill->index == 0);
         // Put straight onto completed i/o list
-        iostatus->cancel_ = nullptr;
-        iostatus->result = r;
-        iostatus->ticks_when_initiated = iostatus->ticks_when_completed =
-            get_ticks_count(memory_order_relaxed);
+        monad_async_executor_immediately_complete_iostatus_with_error(
+            task, iostatus, r);
 #if MONAD_ASYNC_FILE_IO_PRINTING
         printf(
             "*** Task %p running on executor %p fails to initiate "
@@ -570,10 +578,6 @@ void monad_async_task_file_read(
                 : "success");
         fflush(stdout);
 #endif
-        task = (struct monad_async_task_impl *)
-                   task_->io_recipient_task; // WARNING: task may not be task!
-        LIST_APPEND(
-            task->io_completed, iostatus, &task->head.io_completed_not_reaped);
         return;
     }
     buffer_index = tofill->index - 1;
@@ -584,10 +588,8 @@ void monad_async_task_file_read(
         get_sqe_suspending_if_necessary(ex, task, sqeflags);
     if (sqe == nullptr) {
         // Put straight onto completed i/o list
-        iostatus->cancel_ = nullptr;
-        iostatus->result = monad_c_make_failure(ECANCELED);
-        iostatus->ticks_when_initiated = iostatus->ticks_when_completed =
-            get_ticks_count(memory_order_relaxed);
+        monad_async_executor_immediately_complete_iostatus_with_error(
+            task, iostatus, monad_c_make_failure(ECANCELED));
 #if MONAD_ASYNC_FILE_IO_PRINTING
         printf(
             "*** Task %p running on executor %p fails to initiate "
@@ -601,10 +603,6 @@ void monad_async_task_file_read(
             offset);
         fflush(stdout);
 #endif
-        task = (struct monad_async_task_impl *)
-                   task_->io_recipient_task; // WARNING: task may not be task!
-        LIST_APPEND(
-            task->io_completed, iostatus, &task->head.io_completed_not_reaped);
         if (tofill->index != 0) {
             MONAD_CHECK_RESULT(monad_async_task_release_registered_io_buffer(
                 task_, tofill->index));
@@ -662,10 +660,8 @@ void monad_async_task_file_readv(
         get_sqe_suspending_if_necessary(ex, task, flags_);
     if (sqe == nullptr) {
         // Put straight onto completed i/o list
-        iostatus->cancel_ = nullptr;
-        iostatus->result = monad_c_make_failure(ECANCELED);
-        iostatus->ticks_when_initiated = iostatus->ticks_when_completed =
-            get_ticks_count(memory_order_relaxed);
+        monad_async_executor_immediately_complete_iostatus_with_error(
+            task, iostatus, monad_c_make_failure(ECANCELED));
 #if MONAD_ASYNC_FILE_IO_PRINTING
         printf(
             "*** Task %p running on executor %p fails to initiate "
@@ -677,10 +673,6 @@ void monad_async_task_file_readv(
             offset);
         fflush(stdout);
 #endif
-        task = (struct monad_async_task_impl *)
-                   task_->io_recipient_task; // WARNING: task may not be task!
-        LIST_APPEND(
-            task->io_completed, iostatus, &task->head.io_completed_not_reaped);
         return;
     }
     task = (struct monad_async_task_impl *)
@@ -763,10 +755,8 @@ void monad_async_task_file_write(
         get_wrsqe_suspending_if_necessary(ex, task, flags_);
     if (sqe == nullptr) {
         // Put straight onto completed i/o list
-        iostatus->cancel_ = nullptr;
-        iostatus->result = monad_c_make_failure(ECANCELED);
-        iostatus->ticks_when_initiated = iostatus->ticks_when_completed =
-            get_ticks_count(memory_order_relaxed);
+        monad_async_executor_immediately_complete_iostatus_with_error(
+            task, iostatus, monad_c_make_failure(ECANCELED));
 #if MONAD_ASYNC_FILE_IO_PRINTING
         printf(
             "*** Task %p running on executor %p fails to initiate "
@@ -779,10 +769,6 @@ void monad_async_task_file_write(
             offset);
         fflush(stdout);
 #endif
-        task = (struct monad_async_task_impl *)
-                   task_->io_recipient_task; // WARNING: task may not be task!
-        LIST_APPEND(
-            task->io_completed, iostatus, &task->head.io_completed_not_reaped);
         return;
     }
     task = (struct monad_async_task_impl *)
@@ -862,10 +848,8 @@ void monad_async_task_file_range_sync(
         get_wrsqe_suspending_if_necessary(ex, task, flags_);
     if (sqe == nullptr) {
         // Put straight onto completed i/o list
-        iostatus->cancel_ = nullptr;
-        iostatus->result = monad_c_make_failure(ECANCELED);
-        iostatus->ticks_when_initiated = iostatus->ticks_when_completed =
-            get_ticks_count(memory_order_relaxed);
+        monad_async_executor_immediately_complete_iostatus_with_error(
+            task, iostatus, monad_c_make_failure(ECANCELED));
 #if MONAD_ASYNC_FILE_IO_PRINTING
         printf(
             "*** Task %p running on executor %p fails to initiate "
@@ -877,10 +861,6 @@ void monad_async_task_file_range_sync(
             offset);
         fflush(stdout);
 #endif
-        task = (struct monad_async_task_impl *)
-                   task_->io_recipient_task; // WARNING: task may not be task!
-        LIST_APPEND(
-            task->io_completed, iostatus, &task->head.io_completed_not_reaped);
         return;
     }
     task = (struct monad_async_task_impl *)
@@ -922,10 +902,8 @@ void monad_async_task_file_durable_sync(
         get_wrsqe_suspending_if_necessary(ex, task, flags);
     if (sqe == nullptr) {
         // Put straight onto completed i/o list
-        iostatus->cancel_ = nullptr;
-        iostatus->result = monad_c_make_failure(ECANCELED);
-        iostatus->ticks_when_initiated = iostatus->ticks_when_completed =
-            get_ticks_count(memory_order_relaxed);
+        monad_async_executor_immediately_complete_iostatus_with_error(
+            task, iostatus, monad_c_make_failure(ECANCELED));
 #if MONAD_ASYNC_FILE_IO_PRINTING
         printf(
             "*** Task %p running on executor %p fails to initiate "
@@ -935,10 +913,6 @@ void monad_async_task_file_durable_sync(
             (void *)iostatus);
         fflush(stdout);
 #endif
-        task = (struct monad_async_task_impl *)
-                   task_->io_recipient_task; // WARNING: task may not be task!
-        LIST_APPEND(
-            task->io_completed, iostatus, &task->head.io_completed_not_reaped);
         return;
     }
     task = (struct monad_async_task_impl *)

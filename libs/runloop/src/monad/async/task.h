@@ -102,14 +102,14 @@ static_assert(alignof(monad_async_io_status) == 8);
 #endif
 
 //! \brief True if the i/o is currently in progress
-static inline bool
+MONAD_CONTEXT_EMITTED_INLINE bool
 monad_async_is_io_in_progress(monad_async_io_status const *iostatus)
 {
     return iostatus->ticks_when_completed == 1;
 }
 
 //! \brief Number of the i/o is currently in progress
-static inline size_t
+MONAD_CONTEXT_EMITTED_INLINE size_t
 monad_async_io_in_progress(monad_async_io_status const *iostatus, size_t len)
 {
     size_t ret = 0;
@@ -193,7 +193,8 @@ static_assert(alignof(struct monad_async_task_head) == 8);
 #endif
 
 //! \brief True if the task has completed executing and has exited
-static inline bool monad_async_task_has_exited(monad_async_task const task)
+MONAD_CONTEXT_EMITTED_INLINE bool
+monad_async_task_has_exited(monad_async_task const task)
 {
 #ifdef __cplusplus
     return task->is_awaiting_dispatch.load(std::memory_order_acquire) ==
@@ -209,7 +210,7 @@ static inline bool monad_async_task_has_exited(monad_async_task const task)
 
 //! \brief If the i/o is currently in progress, returns the task which initiated
 //! the i/o. Otherwise returns nullptr.
-static inline monad_async_task
+MONAD_CONTEXT_EMITTED_INLINE monad_async_task
 monad_async_io_status_owning_task(monad_async_io_status const *iostatus)
 {
     if (!monad_async_is_io_in_progress(iostatus)) {
@@ -347,7 +348,8 @@ monad_async_task_suspend_for_duration(
 //! i/o, otherwise returns i/o initiated plus i/o completed not reaped including
 //! i/o returned i.e. how much i/o work remains before the task, and when it
 //! becomes zero there is none remaining.
-static inline monad_c_result monad_async_task_suspend_until_completed_io(
+MONAD_CONTEXT_EMITTED_INLINE monad_c_result
+monad_async_task_suspend_until_completed_io(
     monad_async_io_status **completed, monad_async_task task, uint64_t ns)
 {
     *completed = monad_async_task_completed_io(task);

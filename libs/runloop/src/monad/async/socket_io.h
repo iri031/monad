@@ -49,6 +49,13 @@ BOOST_OUTCOME_C_NODISCARD extern monad_c_result
 monad_async_task_socket_create_from_existing_fd(
     monad_async_socket *sock, monad_async_task task, int fd);
 
+/* \brief The io_uring internal descriptor index for this socket. This will be
+unique per executor instance and will be all bits one if invalid.
+
+Note that until io_uring takes control of the socket, this will be invalid.
+*/
+extern unsigned monad_async_task_socket_index(monad_async_socket sock);
+
 //! \brief Suspend execution of the task until the socket has been closed
 BOOST_OUTCOME_C_NODISCARD extern monad_c_result
 monad_async_task_socket_destroy(monad_async_task task, monad_async_socket sock);

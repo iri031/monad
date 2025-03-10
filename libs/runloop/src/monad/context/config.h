@@ -17,6 +17,10 @@ extern "C"
 
 #define MONAD_CONTEXT_CHECK_RESULT(...) MONAD_CHECK_RESULT(__VA_ARGS__)
 
+#ifndef MONAD_CONTEXT_EMITTED_INLINE
+    #define MONAD_CONTEXT_EMITTED_INLINE static inline
+#endif
+
 #ifdef __cplusplus
 }
 #endif
