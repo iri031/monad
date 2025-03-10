@@ -138,3 +138,24 @@ private:
     uint tail_;
     int buffer_[CAPACITY];
 };
+
+class MPMCClient{
+    public:
+        MPMCClient(MPMCQueue &queue) : mpmc(queue) {}
+    
+    bool push(int value) {
+        return mpmc.push(value);
+    }
+
+    bool pop(int &value) {
+        return mpmc.pop(value);
+    }
+
+    bool isEmpty() {
+        return mpmc.isEmpty();
+    }
+
+    private:
+        MPMCQueue &mpmc;
+};
+

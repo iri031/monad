@@ -1226,7 +1226,7 @@ Ltac destructStates :=
 Definition close_invstsgc_C := [CANCEL] auth_close_inv_consumer. 
 Hint Resolve close_invstsgc_C: br_opacity.
 
-Ltac callAtomicCommitCinv := misc.callAtomicCommitCinv;  rewrite -> elem_of_PropSet in *.
+Ltac callAtomicCommitCinv := misc.callAtomicCommitCinv;  try rewrite -> elem_of_PropSet in *.
 
 Lemma popqprf: denoteModule module
                   ** uint_store_spec
@@ -1474,8 +1474,9 @@ cpp.spec "MPMCQueue::push(int)" as mpmcpushseq with (fun (this:ptr)=>
     stateLoc lpp |--> logicalR (1/2) s
   \pre [| Timeless1 P |]
   \pre P value
-  \post [Vbool (negb (bool_decide (empty s)))]
-     (stateLoc lpp |--> logicalR (1/2) (pushFinalState s value))).
+  \post [Vbool (negb (bool_decide (full s)))]
+     (if decide (full s) then P value else emp)
+     ** (stateLoc lpp |--> logicalR (1/2) (pushFinalState s value))).
 
 cpp.spec "MPMCQueue::push(int)" as mpmcpushla with (fun (this:ptr)=>
   \arg{value} "value" (Vint value)
@@ -1487,8 +1488,8 @@ cpp.spec "MPMCQueue::push(int)" as mpmcpushla with (fun (this:ptr)=>
   \pre [| Timeless1 P |]
   \pre P value
   \post{sJustBeforeCommit} [Vbool (negb (bool_decide (full sJustBeforeCommit)))]
-  Q sJustBeforeCommit **
-  if decide (full sJustBeforeCommit) then P value else emp ).
+     Q sJustBeforeCommit **
+     if decide (full sJustBeforeCommit) then P value else emp ).
 
 Opaque LockR.
 #[global] Instance learnLockEq: LearnEq3 (LockR):= ltac:(solve_learnable).
@@ -1541,7 +1542,63 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     go.
   }
  Abort.
-  
+
+cpp.spec "MPMCQueue::push(int)" as mpmcpushseqorig with (fun (this:ptr)=>
+  \arg{value} "value" (Vint value)
+  \prepost{(lpp: mpmcid) (P: Z -> mpred) (q:Qp)}
+    this |-> mpmcRla lpp q P
+  \pre{s: State}
+    stateLoc lpp |--> logicalR (1/2) s
+  \pre [| Timeless1 P |]
+  \pre P value
+  \post [Vbool (negb (bool_decide (empty s)))]
+     (stateLoc lpp |--> logicalR (1/2) (pushFinalState s value))).
+
+Lemma derv: mpmcpushla  |--   mpmcpushseq.
+Proof using.
+  clear MODd.
+  unfold mpmcpushla,  mpmcpushseq.
+  unfold specify.
+  apply _at_mono.
+  apply cpp_specR_mono.
+  go. ego.
+  callAtomicCommitCinv.
+  go.
+  ghost.
+  iModIntro.
+  go.
+Qed.
+
+Record balancedId :=
+  {
+    mpid : mpmcid;
+    unmatchedPushCounter: bool -> gname;
+    binvId: gname;
+  }.
+
+Arguments cinvq {_} {_} {_} {_}.
+Context {hsssln: fracG N _}.
+
+Definition BalancedProtocol (bid: balancedId) : mpred :=
+  cinv (binvId bid) (1/2) (Exists (ss: State) (unmatchedPushCounts: bool -> N),
+    (stateLoc (mpid bid) |--> logicalR (1/2) ss)
+    ** ([∗list] tid ∈ [true; false], unmatchedPushCounter bid tid  |--> logicalR (1/2) (unmatchedPushCounts tid))
+    ** [| forall tid, unmatchedPushCounts tid <= capacity/2|]   
+    ).
+
+cpp.spec "MPMCQueue::push(int)" as mpmcpushprot with (fun (this:ptr)=>
+  \arg{value} "value" (Vint value)
+  \prepost{(bid: balancedId) (P: Z -> mpred) (q:Qp)}
+     this |-> mpmcRla (mpid bid) q P
+  \prepost{bid: balancedId} BalancedProtocol bid
+  \pre{(tid: bool) (unmatchedPushCount:N)}
+    (unmatchedPushCounter bid tid  |--> logicalR (1/2) unmatchedPushCount)
+  \pre [| unmatchedPushCount < capacity/2 |]
+  \pre [| Timeless1 P |]
+  \pre P value
+  \post [Vbool true]
+  (unmatchedPushCounter bid tid  |--> logicalR (1/2) (1+unmatchedPushCount)%N)).
+
 End with_Sigma.
 (* TODO:
 proof of pop
