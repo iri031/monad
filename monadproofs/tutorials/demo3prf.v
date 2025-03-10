@@ -1448,25 +1448,25 @@ Definition MPMCLockContentLa (cid: mpmcid) (P: Z -> mpred) : Rep :=
     let currItems := dropN (Z.to_N numConsumed) producedL in
     [| numConsumed <= numProduced /\ numProduced - numConsumed <= bufsize - 1 |]
     ** pureR (stateLoc cid  |--> logicalR (1/2) s)
-    ** _field "SPSCQueue::head_" |-> atomicR uint 1 (numConsumed `mod` bufsize)
-    ** _field "SPSCQueue::tail_" |-> atomicR uint 1 (numProduced `mod` bufsize)
+    ** _field "MPMCQueue::head_" |-> primR uint 1 (numConsumed `mod` bufsize)
+    ** _field "MPMCQueue::tail_" |-> primR uint 1 (numProduced `mod` bufsize)
     **
     (* ownership of active cells *)
     ([∗ list] i↦  item ∈ currItems,
       pureR (P item) **
-      _field "SPSCQueue::buffer_".["int" ! ((numConsumed + i) `mod` bufsize)] |-> primR "int"  1 (Vint item))
+      _field "MPMCQueue::buffer_".["int" ! ((numConsumed + i) `mod` bufsize)] |-> primR "int"  1 (Vint item))
     (* ownership of inactive cells *)
-    ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFreeSlotsInCinv)),  _field "SPSCQueue::buffer_".["int" ! (numProduced + i) `mod` bufsize ] |-> anyR "int" 1)
-    ** _field "SPSCQueue::buffer_".[ "int" ! bufsize ] |-> validR.
+    ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFreeSlotsInCinv)),  _field "MPMCQueue::buffer_".["int" ! (numProduced + i) `mod` bufsize ] |-> anyR "int" 1)
+    ** _field "MPMCQueue::buffer_".[ "int" ! bufsize ] |-> validR.
 
 Definition mpmcRla (cid: mpmcid) (q:Qp) (P: Z -> mpred): Rep :=
   as_Rep( fun (this:ptr) =>
-  this |-> _field "lock" |-> LockR q (lockId cid) (this |-> MPMCLockContentLa cid P)).
+  this |-> _field "MPMCQueue::lock" |-> LockR q (lockId cid) (this |-> MPMCLockContentLa cid P)).
 
 Definition pushFinalState (s: State)  (newItem: Z): State :=
   if decide (full s) then s else {| produced := (produced s) ++ [newItem];
                                    numConsumed := numConsumed s |}.
-cpp.spec "SPSCQueue::push(int)" as mpmcpushla with (fun (this:ptr)=>
+cpp.spec "MPMCQueue::push(int)" as mpmcpushseq with (fun (this:ptr)=>
   \arg{value} "value" (Vint value)
   \prepost{(lpp: mpmcid) (P: Z -> mpred) (q:Qp)}
     this |-> mpmcRla lpp q P
@@ -1477,6 +1477,102 @@ cpp.spec "SPSCQueue::push(int)" as mpmcpushla with (fun (this:ptr)=>
   \post [Vbool (bool_decide (full s))]
      (stateLoc lpp |--> logicalR (1/2) (pushFinalState s value))).
 
+cpp.spec "MPMCQueue::push(int)" as mpmcpushla with (fun (this:ptr)=>
+  \arg{value} "value" (Vint value)
+  \prepost{(lpp: mpmcid) (P: Z -> mpred) (q:Qp)}
+    this |-> mpmcRla lpp q P
+  \pre{Q: State->mpred}
+    AC1 << ∀ s : State, (stateLoc lpp |--> logicalR (1/2) s)>> @ ⊤, ∅
+        << (stateLoc lpp |--> logicalR (1/2) (pushFinalState s value)), COMM Q s >>
+  \pre [| Timeless1 P |]
+  \pre P value
+  \post{sJustBeforeCommit} [Vbool (bool_decide (full sJustBeforeCommit))]
+  Q sJustBeforeCommit).
+
+Opaque LockR.
+#[global] Instance learnLockEq: LearnEq3 (LockR):= ltac:(solve_learnable).
+
+(* eliminate a Step.committer in context *)
+Ltac useCommitter :=
+  work;
+  (rewrite -wp_shift || rewrite <- wp_stmt_shift);
+  unfold Step.committer; (* using the supplied committer is the only way we get the *)
+  rewrite atomic.aupd_aacc;
+  simpl;
+  unfold atomic.atomic_acc;
+  ego;
+  simpl.
+Lemma pushlaprf: denoteModule module
+                  ** lock_spec
+                  ** unlock_spec
+                  |-- mpmcpushla.
+Proof using MODd with (fold cQpc; normalize_ptrs).
+  verify_spec'.
+  unfold mpmcRla.
+  unfold MPMCLockContentLa.
+  slauto.
+  (rewrite -wp_shift || rewrite <- wp_stmt_shift).
+  rewrite atomic_commit_elim.
+  go.
+  unfold commit_acc.
+  go.
+  ghost.
+  go.
+  wapply (logicalR_update (stateLoc lpp) (pushFinalState x value)). eagerUnifyU. go.
+  ghost.
+  rewrite bi.later_wand.
+  use_wand.
+  iStopProof.
+  apply later.removeLaterRHS.
+  go.
+  resume_use_wand.
+  slauto.
+  ghost.
+  Search (▷ fupd _ _  _)%I.
+  (*
+_ : stateLoc lpp
+      |--> logicalR (1 / 2) (pushFinalState x value)
+  _ : ▷ (|={∅,⊤}=> Q x)
+  --------------------------------------∗
+  |={∅,⊤}=>
+    branch.stmt module
+      [region:
+        "nextTail" @ nextTail_addr; "value" @ value_addr;
+        [this := this]; return {?: "bool"}]
+      (bool_decide
+         ((lengthZ (produced x) `mod` 256 + 1) `mod` 256 =
+          numConsumed x `mod` 256))
+*)
+  
+  Search 
+  icancel  later.removeLaterRHS.
+  removeLater
+  removeLater.
+  go.
+  Search (▷ (_ -* _))%I.
+  
+    unfold S.
+  useCommitter.
+  useAtomicCommit
+  wp_if.
+  { (* full *)
+    slauto.
+    go...
+    go...
+    Set Printing Coercions.
+    
+    
+ go.
+  go.
+  unfold SPSCInv. go.
+  callAtomicCommitCinv.
+  ren_hyp slh State.
+  progress normalize_ptrs. go.
+  rename numConsumed into nmConsumed.
+  destruct (decide (lengthZ (produced slh) = (numConsumed slh))).
+  { (* queue is empty: exact same proof as before  *)
+
+    callAtomicCommit
 End with_Sigma.
 (* TODO:
 proof of pop
