@@ -929,69 +929,74 @@ Definition ProducerR (cid: spscid) (P: Z -> mpred) (produced: list Z): Rep :=
     ** pureR (producedListLoc cid |--> logicalR (1/2) produced).
     *)
 
-Definition ProducerR (cid: spscid) (P: Z -> mpred) (producedL: list Z) (numConsumedLb: N): Rep :=
+Definition ProducerR (cid: spscid) (P: Z -> mpred) (producedL: list Z): Rep :=
   cinvr (invId cid) (1/2) (SPSCInv cid P)
     ** pureR (inProduceLoc cid |--> logicalR (1/2) false)
-    ** pureR (stsLoc cid |--> sts_frag {[ s | produced s = producedL ]} {[ Producer ]}) (** equiv *)
-    ** pureR (stsLoc cid |--> sts_frag {[ s | numConsumedLb <= numConsumed s ]} ∅).
+    ** pureR (stsLoc cid |--> sts_frag {[ s | produced s = producedL ]} {[ Producer ]}). (** equiv *)
 
-Definition ConsumerR (cid: spscid) (P: Z -> mpred) (nmConsumed:N) (numProducedLb: N): Rep :=
+Definition ConsumerR (cid: spscid) (P: Z -> mpred) (nmConsumed:N): Rep :=
   cinvr (invId cid) (1/2) (SPSCInv cid P)
-    ** pureR (stsLoc cid |--> sts_frag {[ s | nmConsumed = numConsumed s ]} {[ Consumer ]})
-    ** pureR (stsLoc cid |--> sts_frag {[ s | numProducedLb <= length (produced s)]} ∅).
+    ** pureR (inConsumeLoc cid |--> logicalR (1/2) false)
+    ** pureR (stsLoc cid |--> sts_frag {[ s | nmConsumed = numConsumed s ]} {[ Consumer ]}).
 
 cpp.spec "SPSCQueue::pop(int&)" as popqw with (fun (this:ptr)=>
   \arg{valuep} "value" (Vptr valuep)
-  \pre{(lpp: spscid) (P: Z -> mpred) (numConsumed: N) (numProducedLb: N)}
-    this |-> ConsumerR lpp P numConsumed numProducedLb
+  \pre{(lpp: spscid) (P: Z -> mpred) (numConsumed: N) }
+    this |-> ConsumerR lpp P numConsumed
+  \pre{numProducedLb: N}
+    stsLoc lpp |--> sts_frag {[ s | numProducedLb <= lengthZ (produced s)]} ∅
+
   \pre [| Timeless1 P |]
   \pre valuep |-> anyR "int" 1
   \post{retb:bool} [Vbool retb]
     [| if decide (numConsumed < numProducedLb) then retb =true else Logic.True |] **
     if retb
-    then this |-> ConsumerR lpp P (1+numConsumed) numProducedLb
+    then this |-> ConsumerR lpp P (1+numConsumed)
          ** Exists popv:Z, valuep |-> primR "int" 1 popv ** P popv
     else valuep |-> anyR "int" 1
-         ** this |-> ConsumerR lpp P numConsumed numProducedLb).
+         ** this |-> ConsumerR lpp P numConsumed).
 
 cpp.spec "SPSCQueue::push(int)" as pushqw with (fun (this:ptr)=>
   \arg{value} "value" (Vint value)
-  \pre{(lpp: spscid) (produced: list Z) (numConsumedLb: N)
-           (P: Z -> mpred)} this |-> ProducerR lpp P produced numConsumedLb
+  \pre{(lpp: spscid) (P: Z -> mpred) (produced: list Z)}
+            this |-> ProducerR lpp P produced
+  \pre{numConsumedLb: N}
+    stsLoc lpp |--> sts_frag {[ s | numConsumedLb <= numConsumed s ]} ∅
   \pre [| Timeless1 P |]
   \pre P value
   \post{retb:bool} [Vbool retb]
     [| if decide (lengthN produced < numConsumedLb + capacity) then retb =true else Logic.True |] **
     if retb
-    then this |-> ProducerR lpp P (produced++[value]) numConsumedLb
-    else this |-> ProducerR lpp P produced numConsumedLb ** P value ).
+    then this |-> ProducerR lpp P (produced++[value])
+    else this |-> ProducerR lpp P produced ** P value ).
 
 Definition combineAuthFragFwd:= [FWD->](@auth_frag_together2).
 Hint Resolve combineAuthFragFwd: br_opacity.
 Hint Rewrite @elem_of_PropSet: iff.
 
+Ltac bwdRev L :=
+  wapplyRev L; last (iSplitFrameL; [| iIntrosDestructs; eagerUnifyC ; maximallyInstantiateLhsEvar_nonpers]).
+
+Ltac solveClosed:=
+  apply closed_if;
+  intros ? ? ? Hdis Hin Hstep;
+  rewrite -> elem_of_PropSet in *;
+  inverts Hstep; simpl in *; autorewrite with syntactic in *; simpl in *; try lia; try set_solver.
+
 Lemma auth_close_inv_producer (g: gname) s:
   (g |--> sts_auth s {[Producer]})
-    |-- (g |--> sts_frag {[ sf | produced sf = produced s]} {[ Producer ]})
+    |-- ((g |--> sts_frag {[ sf | produced sf = produced s]} {[ Producer ]})
+           ** (g |--> sts_frag {[ sf | numConsumed s <= numConsumed sf]} ∅))
         ** (g |--> sts_auth s ∅) .
 Proof using.
   clear.
   go.
-  wapplyRev auth_frag_together2.
-  eagerUnifyU.
-  go.
-  provePure.
-  2:{ iSplitL. iPureIntro. eauto.
-      iIntrosDestructs.
-      eagerUnifyC.
-      go.
-  }
-  autorewrite with iff.
-  split_and !; try lia; try auto.
-  apply closed_if.
-  intros ? ? ? Hdis Hin Hstep.
-  rewrite -> elem_of_PropSet in *.
-  inverts Hstep; simpl; try lia; try set_solver.
+  bwdRev auth_frag_together2.
+  bwdRev auth_frag_together.
+  rewrite left_id. go.
+  iPureIntro.
+  split_and !; try lia; try auto; try set_solver;
+  solveClosed.
 Qed.
 
 Definition close_invstsg_C := [CANCEL] auth_close_inv_producer. 
@@ -1006,6 +1011,19 @@ Proof using.
   intros.
   eapply spsc_mod_iff1; eauto.
 Qed.
+Lemma spsc_mod_iff2 (s:State) bl bc:
+  let len := lengthZ (produced s) in
+  (numConsumed s + boolZ bc <= len /\ len + boolZ bl  - numConsumed s <= bufsize - 1) ->
+  len = (Z.of_N (numConsumed s) + 255)
+  <-> (len `mod` 256 + 1) `mod` 256 = Z.of_N (numConsumed s) `mod` 256.
+Proof using.
+  simpl.
+  intros.
+  pose proof (spsc_mod_iff1 s bl bc H) as Hx.
+  simpl in Hx.
+  lia.
+Qed.
+
   Ltac hideEmptyTokenFrag :=
   IPM.perm_left ltac:(fun L n =>
                         match L with
@@ -1015,8 +1033,6 @@ Qed.
 #[global] Instance ll g s1 s2 t1 t2: Learnable (g |--> sts_auth s1 t1) (g |--> sts_auth s2 t2) [s1=s2]
                                                    := ltac:(solve_learnable).
       Ltac closedN := closed.norm closed.numeric_types .
-Ltac bwdRev L :=
-  wapplyRev L; last (iSplitFrameL; [| iIntrosDestructs; eagerUnifyC ; maximallyInstantiateLhsEvar_nonpers]).
 
 Lemma hideWandL (L C: mpred) E:
   (forall  (Lh:mpred), Hide.Hidden (Lh=L) ->  environments.envs_entails E (Lh -* C)) -> environments.envs_entails E (L -* C).
@@ -1038,6 +1054,11 @@ Lemma hideDuplWandL (L C: mpred) E:
   reflexivity.
 Qed.
 
+Lemma forget_empty_frag (g: gname) S:
+  (g |--> sts_frag S ∅) |-- (emp:mpred).
+Proof using Sigma. apply lose_resources. Qed.
+
+(*
 Ltac hideDuplFrag :=
   IPM.perm_left ltac:(fun L n =>
                         match L with
@@ -1045,6 +1066,11 @@ Ltac hideDuplFrag :=
                         end
                      );
   apply hideDuplWandL; try apply: frag_dupl.
+*)
+Arguments cinvq {_} {_} {_} {_} {_} {_} {_}.
+
+Set Default Goal Selector "!".
+
 Lemma pushqprf: denoteModule module
                   ** uint_store_spec
                   ** uint_load_spec
@@ -1054,26 +1080,15 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
   slauto.
   unfold ProducerR. go.
   unfold SPSCInv. go.
-  hideDuplFrag.
   go.
   callAtomicCommitCinv.
   go.
-  work using combineAuthFragFwd.
-
-  (* there is a bug in the automation.
-     only when doing hideDuplFrag, which duplicates an opaque copy of frag ∅,
-     work refuses to use combineAuthFragFwd to combine the no-opaque copy *)
-  
-  Search numConsumedLb.
-  go.
-  wapply auth_frag_together2. eagerUnifyC. go.
-  go.
-  autorewrite with iff in *.
+  rewrite -> elem_of_PropSet in *.
   normalize_ptrs. go.
   subst.
   ren_hyp slh State.
   simpl in *.
-  pose proof (spsc_mod_iff1 slh false v ltac:(simpl; lia)).
+  pose proof (spsc_mod_iff2 slh false v ltac:(simpl; lia)). simpl in *.
   destruct (decide (lengthZ (produced slh) = (numConsumed slh + (bufsize-1)))).
   { (* overflow . TODO: move the load of tail up so that both cases can share more proof *)
     closeCinvqs.
@@ -1088,19 +1103,15 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     closeCinvqs.
     go.
     iModIntro.
-      closedN.
+    closedN.
     name_locals.
     unhideAllFromWork.
+    repeat rewrite -> forget_empty_frag.
     repeat  match goal with
             | H: State |- _ => destruct H
             end; simpl in *; forward_reason; subst; simpl in *.
     slauto.
-    case_decide; auto.
-    destruct v; simpl in *;
-    try Arith.arith_solve.
-    apply False_rect.
-     hide_hyp
-     Search num 
+    case_decide; auto;    try Arith.arith_solve.
   }
   {
     go.
@@ -1138,27 +1149,36 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     go.
     callAtomicCommitCinv.
     go.
+    rewrite -> elem_of_PropSet in *.
     closeCinvqs.
     go.
     ego.
     iModIntro.
+      repeat  match goal with
+            | H: State |- _ => destruct H
+              end; simpl in *; forward_reason; subst; simpl in *.
     slauto.
     callAtomicCommitCinv.
     go.
+    rewrite -> elem_of_PropSet in *.
+    go.
     wapply (logicalR_update (inProduceLoc lpp) false). eagerUnifyU. go.
-    wapply (logicalR_update (producedListLoc lpp) (_v_3++[value])). eagerUnifyU. go.
+    wapply (update_lloc_1step);[ | | eagerUnifyU];
+        [reflexivity | apply (produce value) ; unfold full; Arith.arith_solve|].
+    go.
     closeCinvqs.
     go.
     slauto.
     simpl.
-    rename _v_4 into numConsumedAtStore.
-    rename _v_3 into producedL.
-    rename numConsumed into numConsumedHeadAtLoad.
+    ren_hyp stAtStore State.
+    destruct stAtStore as  [producedL numConsumedAtStore].
+    simpl in *.
+    rename numConsumed0 into numConsumedHeadAtLoad.
     go.
     autorewrite with syntactic.
     rewrite big_opL_app. go.
-    assert (Z.to_N(numConsumedAtStore + boolZ v) - lengthN producedL = 0)%N as Hle.
-    destruct v; simpl; try (Arith.arith_solve; fail).
+    assert (Z.to_N(numConsumedAtStore + boolZ v) - lengthN producedL = 0)%N as Hle by
+      (destruct v; simpl; try (Arith.arith_solve; fail)).
     rewrite Hle.
     simpl.
     go.
@@ -1168,8 +1188,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     autorewrite with syntactic.
     rewrite length_dropN.
     autorewrite with syntactic.
-    assert ((numConsumedAtStore + boolZ v +
-                                                    (length producedL -
+    assert ((numConsumedAtStore + boolZ v + (length producedL -
                                                        N.to_nat (Z.to_N (numConsumedAtStore + boolZ v)))%nat) = lengthZ producedL) as Hew by ( unfold lengthN in *; simpl in *;destruct v; try Arith.arith_solve).
     rewrite Hew. go.
 
@@ -1178,17 +1197,183 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     go.
     iModIntro.
     go.
+    rewrite forget_empty_frag.
+    case_decide; auto.
   }
 Qed.
 
+Lemma auth_close_inv_consumer (g: gname) s:
+  (g |--> sts_auth s {[Consumer]})
+    |-- ((g |--> sts_frag {[ sf | numConsumed s = numConsumed sf]} {[ Consumer ]})
+           ** (g |--> sts_frag {[ sf | lengthZ (produced s) <= lengthZ (produced sf)]} ∅))
+        ** (g |--> sts_auth s ∅) .
+Proof using.
+  clear.
+  go.
+  bwdRev auth_frag_together2.
+  bwdRev auth_frag_together.
+  rewrite left_id. go.
+  iPureIntro.
+  split_and !; try lia; try auto; try set_solver;
+    solveClosed.
+Qed.
+
+Ltac destructStates :=
+    repeat  match goal with
+            | H: State |- _ => destruct H
+      end; simpl in *; forward_reason; subst; simpl in *.
+
+Definition close_invstsgc_C := [CANCEL] auth_close_inv_consumer. 
+Hint Resolve close_invstsgc_C: br_opacity.
+
+Ltac callAtomicCommitCinv := misc.callAtomicCommitCinv;  rewrite -> elem_of_PropSet in *.
+
+Lemma popqprf: denoteModule module
+                  ** uint_store_spec
+                  ** uint_load_spec
+                  |-- popqw.
+Proof using MODd with (fold cQpc; normalize_ptrs).
+  verify_spec'.
+  slauto.
+  unfold ConsumerR. go.
+  unfold SPSCInv. go.
+  callAtomicCommitCinv.
+  ren_hyp slh State.
+  progress normalize_ptrs. go.
+  rename numConsumed into nmConsumed.
+  destruct (decide (lengthZ (produced slh) = (numConsumed slh))).
+  { (* queue is empty: exact same proof as before  *)
+    closeCinvqs.
+    go.
+    ego...
+    go.
+    iModIntro.
+    go.
+    callAtomicCommitCinv.
+    go.
+    closeCinvqs.
+    go.
+    iModIntro.
+    name_locals.
+    destructStates. simpl in *.
+    repeat rewrite -> forget_empty_frag.
+    slauto.
+    case_decide; auto;    try Arith.arith_solve.
+  }
+  {
+    go.
+    wapply (logicalR_update (inConsumeLoc lpp) true). eagerUnifyU. go.
+    closeCinvqs.
+    go...
+    go.
+    autorewrite with syntactic.
+    rewrite Z2N.inj_add; try nia.
+    simpl.
+    autorewrite with syntactic.
+    simpl in *.
+    destructStates.
+    rename numConsumed0 into numConsumed.
+    assert (numConsumed + 1 <= lengthN produced0) by lia.
+    rewrite (dropNaddle 0); try nia.
+    simpl. go.
+    icancel (cancel_at this).
+    {
+      repeat (f_equiv; intros; hnf; try lia).
+    }
+    go...
+    progress autorewrite with syntactic.
+    iModIntro.
+    go.
+    callAtomicCommitCinv.
+    go.
+    closeCinvqs.
+    go.
+    iModIntro.
+    slauto.
+    wp_if.
+    1:{ intros. apply False_rect.
+        apply n.
+        apply modulo.zmod_inj in p; try nia.
+        destruct _v_1; simpl in *; try nia.
+    }
+    slauto.
+    destructStates.
+    callAtomicCommitCinv.
+    go.
+    ren_hyp stAtStore State.
+    destruct stAtStore as  [numConsumed producedAtStore]. simpl in *.
+    wapply (logicalR_update (inConsumeLoc lpp) false). eagerUnifyU. go.
+    wapply (update_lloc_1step);[ | | eagerUnifyU];
+      [reflexivity | apply (consume) ; unfold empty; try Arith.arith_solve|].
+    go.
+    closeCinvqs.
+    go.
+    slauto.
+    simpl.
+    normalize_ptrs.
+    match goal with
+      [ |- context[((Z.to_N (Z.of_N ?v + 1)))]] =>
+        replace ((Z.to_N (Z.of_N v + 1))) with (1 + v)%N by lia
+    end.
+(*    replace ((Z.to_N (Z.of_N _v_4 + 1))) with (1 + _v_4)%N by lia. *)
+    repeat rewrite _at_big_sepL.
+    icancel (@big_sepL_mono).
+    {
+      repeat (f_equiv; intros; hnf; try lia).
+    }
+    go.
+    IPM.perm_left ltac:(fun L n =>
+      match L with
+      | context [seqN 0 ?l] => 
+          IPM.perm_right ltac:(fun R n =>
+               match R with
+               | context [seqN 0 ?r] => assert (l+1=r)%N as Heq by lia
+               end
+               )
+      end).
+    rewrite <- Heq.
+    simpl.
+    go.
+    autorewrite with syntactic.
+    rewrite seqN_app.
+    go.
+    rewrite big_opL_app. go.
+    unfold seqN. simpl.
+    unfold fmap.
+    simpl.
+    unfold lengthN in *.
+    autorewrite with syntactic.
+    repeat rewrite forget_empty_frag.
+    IPM.perm_left_spatial ltac:(fun L n =>
+      match L with
+      | context [.["int"! ?li]] => 
+          IPM.perm_right ltac:(fun R n =>
+               match R with
+               | context [_ .["int"! ?ri] |-> anyR _ _] => assert (li=ri) as Heqq
+               end
+               )
+      end);
+      [| repeat rewrite <- Heqq; slauto; iModIntro; case_decide; go].
+    apply add_mod_lhsc; try lia.
+    f_equiv.
+    lia.
+    }
+  }
+ Qed.
 
 End with_Sigma.
 (* TODO:
-animation of resource transfer of SPSCqueue.
-emphasize how the picture is trickly to encode in logic
-ask GPT to draw a circular Q tikz. then nmanually add overlays
+proof of pop
 
-maybe do specs invariant of MPSCQueue: just put the ProducerR in a spinlock
+animation of resource transfer of SPSCqueue. emphasize how the picture is trickly to encode in logic. ask GPT to draw a circular Q tikz. then nmanually add overlays
+
+just the code (locked imp) and specs of MPMC queue (emphasize specs same):
+- frag ∅ spec
+- logatom specs (optional, if time permits and people ask questions)
+try to compare the spes in terms of strength and usabulity: frag specs force MPMC concurrency.
+logatom allows sequential ownership.
+illustrate with 2 example wrappers
+
 
 
 sequence:
@@ -1212,3 +1397,4 @@ done
 add P value to the spsc specs
 
 *)
+
