@@ -607,7 +607,7 @@ Example e0frag (g:gname) (S: propset State) (toks: tokens spsc): mpred :=
 Example e1 (g:gname) : mpred :=
   g |--> sts_auth {| produced := [4]; numConsumed:= 0 |} ∅.
 
-Check logicalR_update (* arbitrary update allowed *)
+Check logicalR_update. (* arbitrary update allowed *)
 
 Corollary update_lloc_1step (g:gname) (s sf: State) (toks: tokens spsc) tok:
   step s tok sf -> tok ∈ toks ->
@@ -631,8 +631,11 @@ Proof using.
 Qed.
 
 Example update_lloc_unprovable (g:gname) :
-   g |--> sts_auth {| produced:= [9]; numConsumed :=0 |}  ⊤ |-- |==>
-   g |--> sts_auth {| produced:= [];  numConsumed :=0 |}  ⊤.
+    g |--> sts_auth {| produced:= [];  numConsumed :=0 |}  {[ Consumer ]} |-- |==>
+    g |--> sts_auth {| produced:= [9]; numConsumed :=0 |}  {[ Consumer ]}.
+Proof using.
+  eapply update_lloc_1step.
+  2: reflexivity.
 Abort.
 
 Example update_lloc_unprovable (g:gname) :
@@ -651,11 +654,20 @@ Proof using.
   lia.
 Qed.
 
+Hint Resolve prefix_app_r: list.
+Ltac solveClosed:=
+  apply closed_if;
+  intros ? ? ? Hdis Hin Hstep;
+  rewrite -> elem_of_PropSet in *;
+  forward_reason;
+  inverts Hstep; simpl in *; autorewrite with syntactic in *; simpl in *;
+  try split_and !; eauto with list; try lia; try set_solver +.
+
 (** example of frag: *)
-Example gen_frag_out_of_thin_air toks g:
+Example gen_frag_out_of_thin_air1 toks g:
   (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} toks) |--
   (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} toks)
-  ** (g |--> sts_frag {[ s | 2<= lengthN (produced s) /\ 1<= numConsumed s ]} ∅).
+  ** (g |--> sts_frag {[ s | [9;8] `prefix_of` (produced s) /\ 1<= numConsumed s ]} ∅).
 Proof using.
   iIntrosDestructs.
   hideRhs.
@@ -671,21 +683,48 @@ Proof using.
   }
   {
     rewrite -> elem_of_PropSet in *.
-    simpl. lia.
+    simpl. split; reflexivity.
   }
   simpl...
-  apply closedb.
+  solveClosed.
+Qed.
+
+Example gen_frag_out_of_thin_air toks g:
+  (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} toks) |--
+  (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} toks)
+  ** (g |--> sts_frag {[ s | 2 <= lengthN (produced s) /\ 1<= numConsumed s ]} ∅).
+Proof using.
+  iIntrosDestructs.
+  hideRhs.
+  assert (toks ≡ ∅  ∪ toks) as Heq by (set_solver +).
+  rewrite Heq.
+  rewrite <- sts_op_auth_fragg; [ | try set_solver + | | ].
+  {
+    unhideAllFromWork.
+    rewrite own_op.
+    go.
+    eagerUnifyU.
+    go.
+  }
+  {
+    rewrite -> elem_of_PropSet in *.
+    simpl. split; reflexivity.
+  }
+  simpl...
+  solveClosed.
 Qed.
 
 Example dupl_tokenfree_frag g:
-  let m:= (g |--> sts_frag {[ s | 2<= lengthN (produced s) /\ 1<= numConsumed s ]} ∅) in
+  let m:=
+    (g |--> sts_frag {[ s | [9;8] `prefix_of` (produced s)
+                            /\ 1<= numConsumed s ]} ∅) in
   m |-- m ** m.
 Proof using.
   simpl.
   rewrite frag_frag_combine2.
   go.
   iPureIntro.
-  apply closedb.
+  solveClosed.
 Qed.
 
 (* general form:*)
@@ -693,11 +732,12 @@ Check auth_frag_together.
 (* -> opening inv, <- closing inv  *)
 Check auth_frag_together2.
 
-Example  unstable_prod1: stable (sts_frag
-                              {[s: state spsc | produced s =[] ]}
-                              {[Consumer]}
-                       )
-                     -> False.
+Example  unstable_prod1:
+  stable (sts_frag
+            {[s: state spsc | produced s =[] ]}
+            {[Consumer]}
+    )
+  -> False.
 Proof.
   clear.
   intros Hc.
@@ -730,12 +770,11 @@ Qed.
 Example closed2: closed {[ s : state spsc | produced s =  [9;8] ]} {[ Producer ]}.
 Proof using.
   clear.
-  apply closed_if.
-  intros ? ? ? Hdis Hin Hstep.
-  rewrite -> elem_of_PropSet in *.
-  inverts Hstep; simpl; try lia; try set_solver.
+  solveClosed.
+  set_solver.
 Qed.
   
+
 (** example of frag: *)
 Example gen_frag2 g:
   (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} {[ Producer ]}) |--
@@ -749,7 +788,7 @@ Proof using.
   split; auto.
   apply closed2.
 Qed.
-  
+
 Example gen_frag3 g:
   (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} {[ Producer ]}) |--
   (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} ∅)
@@ -1074,11 +1113,6 @@ Hint Rewrite @elem_of_PropSet: iff.
 Ltac bwdRev L :=
   wapplyRev L; last (iSplitFrameL; [| iIntrosDestructs; eagerUnifyC ; maximallyInstantiateLhsEvar_nonpers]).
 
-Ltac solveClosed:=
-  apply closed_if;
-  intros ? ? ? Hdis Hin Hstep;
-  rewrite -> elem_of_PropSet in *;
-  inverts Hstep; simpl in *; autorewrite with syntactic in *; simpl in *; try lia; try set_solver.
 
 Lemma auth_close_inv_producer (g: gname) s:
   (g |--> sts_auth s {[Producer]})
@@ -1093,7 +1127,8 @@ Proof using.
   rewrite left_id. go.
   iPureIntro.
   split_and !; try lia; try auto; try set_solver;
-  solveClosed.
+    solveClosed.
+  set_solver.
 Qed.
 
 Definition close_invstsg_C := [CANCEL] auth_close_inv_producer. 
@@ -1312,7 +1347,7 @@ Proof using.
   rewrite left_id. go.
   iPureIntro.
   split_and !; try lia; try auto; try set_solver;
-    solveClosed.
+    solveClosed. set_solver.
 Qed.
 
 Ltac destructStates :=
