@@ -1108,7 +1108,9 @@ End atomicR.
     g |--> logicalR q m |-- ((g |--> logicalR (q / 2) m):mpred) ** ((g |--> logicalR (q / 2) m)).
   Proof.
   Admitted.
-  Lemma logicalR_update (l : gname) (v' v : T) : l |--> logicalR 1 v |-- |==> l |--> logicalR 1 v'.
+  Lemma logicalR_update (l : gname) (v' v : T) :
+    l |--> logicalR 1 v |-- |==>
+    l |--> logicalR 1 v'.
   Proof. apply @own_update; try exact _. apply cmra_update_exclusive. done. Qed.
   
   #[global] Instance learn_logicalR (l : gname) (v1 v2 : T) q q1 :

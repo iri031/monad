@@ -35,8 +35,15 @@ Notation capacity := 255.
 Record State :=
   {
     produced: list Z;
-    numConsumed: N;
+    numConsumed: N; (* <= length produced *)
   }.
+(* we wanted to assert
+  numConsumedLb <= numConsumed
+
+  because the state is only updated in a certain way.
+  formally enforce that.
+  step defines the state can step.
+ *)
 
 Definition full (s: State) : Prop :=
   lengthZ (produced s) - numConsumed s = capacity.
@@ -50,13 +57,13 @@ Inductive step : State -> Token -> State -> Prop :=
 | produce: forall (newItem:Z) (prev: State),
     (¬ full prev) -> step
                        prev
-                       Producer
+                       Producer (* only producer can do this *)
                        {| produced := (produced prev) ++ [newItem];
                          numConsumed := numConsumed prev |}
 | consume: forall (prev: State),
     (¬ empty prev) -> step
                         prev
-                        Consumer
+                        Consumer (* only consumer can do this *)
                         {| produced := produced prev;
                           numConsumed := 1+ numConsumed prev |}.
   
@@ -98,16 +105,10 @@ Section with_Sigma.
     (as_Rep (fun this:ptr => cinv invId q (this |-> R))).
 
   
-  (* roles of logical locations:
-     - track info not in c++ variables, e.g. progress towards an op (typicall more abstract that program counter)
-     - expose a higher-level state to the client
-     - enforce complex protocols.
-
-so far in spscqueue, consumer has authoritative ownership of head and frag of tail , producer has authorirative over tail, fragmentary over head. same as last time.
-we can control what current values are.
-we cannot control how the values are updated: e.g numConsumed can only be incremented by the consumer
-
-
+(* roles of logical locations:
+ - track info not in c++ variables, e.g. progress towards an op (typicall more abstract that program counter)
+ - expose a higher-level state to the client
+ - enforce complex protocols.
    *)
   Record spscid :=
     {
@@ -129,7 +130,6 @@ Definition SPSCInv (cid: spscid) (P: Z -> mpred) : Rep :=
     let numFreeSlotsInCinv: Z := (bufsize- numConsumable - boolZ inProduce) in
     let currItems := dropN (Z.to_N numConsumedAll) producedL in
     pureR (inProduceLoc cid |--> logicalR (1/2) inProduce)
-       (* actual capacity is 1 less than bufsize (the size of the array) because we need to distinguish empty and full *)
     ** [| numConsumedAll <= numProduced
           /\ numProducedAll - numConsumed <= bufsize - 1 |]
     ** pureR (inConsumeLoc cid |--> logicalR (1/2) inConsume)
@@ -522,11 +522,7 @@ cpp.spec "SPSCQueue::consume(int&)" as consumeq2 with (fun (this:ptr)=>
   current producedL = [1,2,3] : stable for producer, not for consumer 
   [1,2,3] is a prefix of current producedL  : stable for everyone
  *)
-to_frac_agree
 (** ownership of ghost locations can be custom-defined: CMRA (commutative monoid resource algebra)
-
-Iris: Monoids and Invariants as an Orthogonal Basis for Concurrent Reasoning
-Monoids and Invariants are all you need.
  *)
 
 End with_Sigma.
@@ -545,13 +541,31 @@ Section with_Sigma.
 Locate "|-->".
 Check @own.
 Print cmra. (** Commutative Monoid Resource Algebra *)
-Check @logicalR. (** iris paper, section 3.2. TODO: copy annottated pdf to mac *)
+Check @logicalR.
 
-Print sts.car.
+(** Iris: Monoids and Invariants as an Orthogonal Basis for Concurrent Reasoning
+Monoids and Invariants are all you need.
+*)
+(** iris.pdf, section 3.2, then 3.7 *)
+
+(*
+State: Type
+stepRel: State -> State -> Prop
+
+State: Type
+Token: Type 
+stepRel: State -> Token ->  State -> Prop
+[QueueModel.step]
+[step]
+*)
+
 
 Import sts.
 Import QueueModel.
+Print sts.car.
 Compute (state spsc).
+
+(* todo : move these to the top of the file *)
 Notation sts_auth := (@sts_auth spsc).
 Notation sts_frag := (@sts_frag spsc).
 
@@ -571,16 +585,29 @@ Proof.
   auto.
 Qed.
   
-(* goes into the invariant. *)
+(* in prev cinv:
+   (inConsumeLoc cid |--> logicalR (1/2) inConsume)
+   (producedListLoc cid |--> logicalR (1/2) producedL)
+
+Record State :=
+  {
+    produced: list Z;
+    numConsumed: N; (* <= length produced *)
+  }.
+
+now, single ghost loc (g) stores both:
+
+ *)
 Example e0auth (g:gname) (s: State) (toks: tokens spsc): mpred :=
   g |--> sts_auth s toks. (* says: current state of g is s and ownership of toks *)
+
 Example e0frag (g:gname) (S: propset State) (toks: tokens spsc): mpred :=
   g |--> sts_frag S toks. (* says: current state of g is ∈ S and ownership of toks *)
 
 Example e1 (g:gname) : mpred :=
   g |--> sts_auth {| produced := [4]; numConsumed:= 0 |} ∅.
 
-Check logicalR_update.
+Check logicalR_update (* arbitrary update allowed *)
 
 Corollary update_lloc_1step (g:gname) (s sf: State) (toks: tokens spsc) tok:
   step s tok sf -> tok ∈ toks ->
@@ -608,6 +635,10 @@ Example update_lloc_unprovable (g:gname) :
    g |--> sts_auth {| produced:= [];  numConsumed :=0 |}  ⊤.
 Abort.
 
+Example update_lloc_unprovable (g:gname) :
+   g |--> sts_auth {| produced:= [9]; numConsumed :=0 |}  ⊤ |-- |==>
+   g |--> sts_auth {| produced:= [];  numConsumed :=0 |}  ⊤.
+Abort.
 
 (* stable is formalized as closed *)
 Lemma closedb lp nc : closed {[ s : state spsc | lp <= lengthN (produced s) /\ nc<= numConsumed s ]} ∅.
@@ -1735,6 +1766,7 @@ Proof using.
 Qed.
 
 End with_Sigma.
+End stsSpsc.
 (* TODO:
 proof of consume
 
