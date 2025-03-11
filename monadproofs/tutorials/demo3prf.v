@@ -157,7 +157,7 @@ Definition ConsumerR (cid: spscid) (P: Z -> mpred) (numConsumed:N): Rep :=
     ** pureR (inConsumeLoc cid |--> logicalR (1/2) false)
     ** pureR (numConsumedLoc cid |--> logicalR (1/2) numConsumed).
 
-cpp.spec "SPSCQueue::push(int)" as pushqw with (fun (this:ptr)=>
+cpp.spec "SPSCQueue::produce(int)" as produceqw with (fun (this:ptr)=>
   \arg{value} "value" (Vint value)
   \pre{(lpp: spscid) (produced: list Z) (P: Z -> mpred)} this |-> ProducerR lpp P produced
   \pre [| Timeless1 P |]
@@ -167,7 +167,7 @@ cpp.spec "SPSCQueue::push(int)" as pushqw with (fun (this:ptr)=>
          then this |-> ProducerR lpp P (produced++[value])
          else this |-> ProducerR lpp P produced ** P value).
 
-cpp.spec "SPSCQueue::pop(int&)" as popqw with (fun (this:ptr)=>
+cpp.spec "SPSCQueue::consume(int&)" as consumeqw with (fun (this:ptr)=>
   \arg{valuep} "value" (Vptr valuep)
   \pre{(lpp: spscid) (P: Z -> mpred) (numConsumed: N) } this |-> ConsumerR lpp P numConsumed
   \pre [| Timeless1 P |]
@@ -175,7 +175,7 @@ cpp.spec "SPSCQueue::pop(int&)" as popqw with (fun (this:ptr)=>
   \post{retb:bool} [Vbool retb]
       if retb
       then this |-> ConsumerR lpp P (1+numConsumed)
-           ** Exists popv:Z, valuep |-> primR "int" 1 popv ** P popv
+           ** Exists consumev:Z, valuep |-> primR "int" 1 consumev ** P consumev
       else valuep |-> anyR "int" 1 ** this |-> ConsumerR lpp P numConsumed).
 
 
@@ -209,10 +209,10 @@ Qed.
 Hint Resolve ownhalf_combineF : br_opacity.
 Hint Resolve ownhalf_splitC : br_opacity.
 *)
-Lemma pushqprf: denoteModule module
+Lemma produceqprf: denoteModule module
                   ** uint_store_spec
                   ** uint_load_spec
-                  |-- pushqw.
+                  |-- produceqw.
 Proof using MODd with (fold cQpc; normalize_ptrs).
   verify_spec'.
   slauto.
@@ -319,10 +319,10 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
 Qed.
 
 Set Default Goal Selector "!".
-Lemma popqprf: denoteModule module
+Lemma consumeqprf: denoteModule module
                   ** uint_store_spec
                   ** uint_load_spec
-                  |-- popqw.
+                  |-- consumeqw.
 Proof using MODd with (fold cQpc; normalize_ptrs).
   verify_spec'.
   slauto.
@@ -438,7 +438,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
   }
  Qed.
 
-cpp.spec "SPSCQueue::pop(int&)" as popqw2 with (fun (this:ptr)=>
+cpp.spec "SPSCQueue::consume(int&)" as consumeqw2 with (fun (this:ptr)=>
   \arg{valuep} "value" (Vptr valuep)
   \pre{(lpp: spscid) (P: Z -> mpred) (numConsumed: N) } this |-> ConsumerR lpp P numConsumed
   \pre [| Timeless1 P |]
@@ -449,7 +449,7 @@ cpp.spec "SPSCQueue::pop(int&)" as popqw2 with (fun (this:ptr)=>
           ** [| numConsumed < length producedL  |]
   \post [Vbool true]
         this |-> ConsumerR lpp P (1+numConsumed)
-           ** Exists popv:Z, valuep |-> primR "int" 1 popv ** P popv).
+           ** Exists consumev:Z, valuep |-> primR "int" 1 consumev ** P consumev).
 
 (** need a way for even the consumer to make "stable assertions about producedL, the produced list"
      current producedL = [1,2,3] : not stable for consumer
@@ -939,7 +939,7 @@ Definition ConsumerR (cid: spscid) (P: Z -> mpred) (nmConsumed:N): Rep :=
     ** pureR (inConsumeLoc cid |--> logicalR (1/2) false)
     ** pureR (stsLoc cid |--> sts_frag {[ s | nmConsumed = numConsumed s ]} {[ Consumer ]}).
 
-cpp.spec "SPSCQueue::pop(int&)" as popqw with (fun (this:ptr)=>
+cpp.spec "SPSCQueue::consume(int&)" as consumeqw with (fun (this:ptr)=>
   \arg{valuep} "value" (Vptr valuep)
   \pre{(lpp: spscid) (P: Z -> mpred) (numConsumed: N) }
     this |-> ConsumerR lpp P numConsumed
@@ -952,11 +952,11 @@ cpp.spec "SPSCQueue::pop(int&)" as popqw with (fun (this:ptr)=>
     [| if decide (numConsumed < numProducedLb) then retb =true else Logic.True |] **
     if retb
     then this |-> ConsumerR lpp P (1+numConsumed)
-         ** Exists popv:Z, valuep |-> primR "int" 1 popv ** P popv
+         ** Exists consumev:Z, valuep |-> primR "int" 1 consumev ** P consumev
     else valuep |-> anyR "int" 1
          ** this |-> ConsumerR lpp P numConsumed).
 
-cpp.spec "SPSCQueue::push(int)" as pushqw with (fun (this:ptr)=>
+cpp.spec "SPSCQueue::produce(int)" as produceqw with (fun (this:ptr)=>
   \arg{value} "value" (Vint value)
   \pre{(lpp: spscid) (P: Z -> mpred) (produced: list Z)}
             this |-> ProducerR lpp P produced
@@ -1071,10 +1071,10 @@ Arguments cinvq {_} {_} {_} {_} {_} {_} {_}.
 
 Set Default Goal Selector "!".
 
-Lemma pushqprf: denoteModule module
+Lemma produceqprf: denoteModule module
                   ** uint_store_spec
                   ** uint_load_spec
-                  |-- pushqw.
+                  |-- produceqw.
 Proof using MODd with (fold cQpc; normalize_ptrs).
   verify_spec'.
   slauto.
@@ -1228,10 +1228,10 @@ Hint Resolve close_invstsgc_C: br_opacity.
 
 Ltac callAtomicCommitCinv := misc.callAtomicCommitCinv;  try rewrite -> elem_of_PropSet in *.
 
-Lemma popqprf: denoteModule module
+Lemma consumeqprf: denoteModule module
                   ** uint_store_spec
                   ** uint_load_spec
-                  |-- popqw.
+                  |-- consumeqw.
 Proof using MODd with (fold cQpc; normalize_ptrs).
   verify_spec'.
   slauto.
@@ -1396,7 +1396,7 @@ Definition mpmcR (cid: mpmcid) (q:Qp) (P: Z -> mpred): Rep :=
  this |-> _field "lock" |-> LockR q (lockId cid) (this |-> MPMCLockContent cid P)).
 
 (* like blockchain: all the specs says that my transaction was recorded in the history *)
-cpp.spec "SPSCQueue::push(int)" as mpmcpush with (fun (this:ptr)=>
+cpp.spec "SPSCQueue::produce(int)" as mpmcproduce with (fun (this:ptr)=>
   \arg{value} "value" (Vint value)
   \prepost{(lpp: mpmcid) (P: Z -> mpred) (q:Qp)}
     this |-> mpmcR lpp q P
@@ -1411,7 +1411,7 @@ cpp.spec "SPSCQueue::push(int)" as mpmcpush with (fun (this:ptr)=>
          {[ s | producedPrefix++newItems++[value] `prefix_of` (produced s) ]} ∅)
     else emp).
 
-cpp.spec "SPSCQueue::pop(int&)" as mpmcpop with (fun (this:ptr)=>
+cpp.spec "SPSCQueue::consume(int&)" as mpmcconsume with (fun (this:ptr)=>
   \arg{valuep} "value" (Vptr valuep)
   \prepost{(lpp: mpmcid) (P: Z -> mpred) (q:Qp)}
     this |-> mpmcR lpp q P
@@ -1421,15 +1421,15 @@ cpp.spec "SPSCQueue::pop(int&)" as mpmcpop with (fun (this:ptr)=>
   \pre valuep |-> anyR "int" 1
   \post{retb:bool} [Vbool retb]
     if retb
-    then (Exists popv:Z, valuep |-> primR "int" 1 popv ** P popv)
+    then (Exists consumev:Z, valuep |-> primR "int" 1 consumev ** P consumev)
          ** (stateLoc lpp |--> sts_frag {[ s | 1+numConsumedLb <= numConsumed s]} ∅)
     else valuep |-> anyR "int" 1).
 
-(* the above spec is ok for clients who use push/pop in a maximallyy concurrent way and
+(* the above spec is ok for clients who use produce/consume in a maximallyy concurrent way and
    follow no additional discipline.
   what if a client wants to use it sequentially? postcond too weak !
   next spec: grants the flexibility:
-  - can allow multiple threads to call push/pop concurrently
+  - can allow multiple threads to call produce/consume concurrently
   - yet, if the client chooses to not race, they get stronger postconditions
   - almost anything in between
 
@@ -1463,10 +1463,10 @@ Definition mpmcRla (cid: mpmcid) (q:Qp) (P: Z -> mpred): Rep :=
   as_Rep( fun (this:ptr) =>
   this |-> _field "MPMCQueue::lock" |-> LockR q (lockId cid) (this |-> MPMCLockContentLa cid P)).
 
-Definition pushFinalState (s: State)  (newItem: Z): State :=
+Definition produceFinalState (s: State)  (newItem: Z): State :=
   if decide (full s) then s else {| produced := (produced s) ++ [newItem];
                                    numConsumed := numConsumed s |}.
-cpp.spec "MPMCQueue::push(int)" as mpmcpushseq with (fun (this:ptr)=>
+cpp.spec "MPMCQueue::produce(int)" as mpmcproduceseq with (fun (this:ptr)=>
   \arg{value} "value" (Vint value)
   \prepost{(lpp: mpmcid) (P: Z -> mpred) (q:Qp)}
     this |-> mpmcRla lpp q P
@@ -1476,15 +1476,15 @@ cpp.spec "MPMCQueue::push(int)" as mpmcpushseq with (fun (this:ptr)=>
   \pre P value
   \post [Vbool (negb (bool_decide (full s)))]
      (if decide (full s) then P value else emp)
-     ** (stateLoc lpp |--> logicalR (1/2) (pushFinalState s value))).
+     ** (stateLoc lpp |--> logicalR (1/2) (produceFinalState s value))).
 
-cpp.spec "MPMCQueue::push(int)" as mpmcpushla with (fun (this:ptr)=>
+cpp.spec "MPMCQueue::produce(int)" as mpmcproducela with (fun (this:ptr)=>
   \arg{value} "value" (Vint value)
   \prepost{(lpp: mpmcid) (P: Z -> mpred) (q:Qp)}
     this |-> mpmcRla lpp q P
   \pre{Q: State->mpred}
     AC << ∀ s : State, (stateLoc lpp |--> logicalR (1/2) s)>> @ ⊤, ∅
-        << (stateLoc lpp |--> logicalR (1/2) (pushFinalState s value)), COMM Q s >>
+        << (stateLoc lpp |--> logicalR (1/2) (produceFinalState s value)), COMM Q s >>
   \pre [| Timeless1 P |]
   \pre P value
   \post{sJustBeforeCommit} [Vbool (negb (bool_decide (full sJustBeforeCommit)))]
@@ -1504,10 +1504,10 @@ Ltac useCommitter :=
   unfold atomic.atomic_acc;
   ego;
   simpl.
-Lemma pushlaprf: denoteModule module
+Lemma producelaprf: denoteModule module
                   ** lock_spec
                   ** unlock_spec
-                  |-- mpmcpushla.
+                  |-- mpmcproducela.
 Proof using MODd with (fold cQpc; normalize_ptrs).
   verify_spec'.
   unfold mpmcRla.
@@ -1520,7 +1520,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
   go.
   ghost.
   go.
-  wapply (logicalR_update (stateLoc lpp) (pushFinalState x value)). eagerUnifyU. go.
+  wapply (logicalR_update (stateLoc lpp) (produceFinalState x value)). eagerUnifyU. go.
   ghost.
   use_wand.
   go.
@@ -1530,7 +1530,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
   wp_if.
   { (* full *)
     assert (full x) as Hf by admit.
-    unfold pushFinalState.
+    unfold produceFinalState.
     destruct (decide (full x)); try tauto.
     slauto.
     iModIntro.
@@ -1544,11 +1544,13 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
   {
     go.
     iModIntro.
-    slauto.
-    (* take out the ownership of this cell from the *list *)
+    destruct x as [producedL numConsumed]. simpl in *.
+
+    assert (Z.to_N (256 - (lengthZ producedL - numConsumed)) = (1 + Z.to_N (256 - (lengthZ producedL - numConsumed) - 1))%N) as Heq by lia.
+    rewrite Heq.
  Abort.
 
-cpp.spec "MPMCQueue::push(int)" as mpmcpushseqorig with (fun (this:ptr)=>
+cpp.spec "MPMCQueue::produce(int)" as mpmcproduceseqorig with (fun (this:ptr)=>
   \arg{value} "value" (Vint value)
   \prepost{(lpp: mpmcid) (P: Z -> mpred) (q:Qp)}
     this |-> mpmcRla lpp q P
@@ -1557,12 +1559,12 @@ cpp.spec "MPMCQueue::push(int)" as mpmcpushseqorig with (fun (this:ptr)=>
   \pre [| Timeless1 P |]
   \pre P value
   \post [Vbool (negb (bool_decide (empty s)))]
-     (stateLoc lpp |--> logicalR (1/2) (pushFinalState s value))).
+     (stateLoc lpp |--> logicalR (1/2) (produceFinalState s value))).
 
-Lemma derv: mpmcpushla  |--   mpmcpushseq.
+Lemma derv: mpmcproducela  |--   mpmcproduceseq.
 Proof using.
   clear MODd.
-  unfold mpmcpushla,  mpmcpushseq.
+  unfold mpmcproducela,  mpmcproduceseq.
   unfold specify.
   apply _at_mono.
   apply cpp_specR_mono.
@@ -1577,7 +1579,7 @@ Qed.
 Record balancedId :=
   {
     mpid : mpmcid;
-    unmatchedPushCounter: bool -> gname;
+    unmatchedProduceCounter: bool -> gname;
     binvId: gname;
   }.
 
@@ -1585,30 +1587,30 @@ Arguments cinvq {_} {_} {_} {_}.
 Context {hsssln: fracG N _}.
 
 Definition BalancedProtocol (bid: balancedId) : mpred :=
-  cinv (binvId bid) (1/2) (Exists (ss: State) (unmatchedPushCounts: bool -> N),
+  cinv (binvId bid) (1/2) (Exists (ss: State) (unmatchedProduceCounts: bool -> N),
     (stateLoc (mpid bid) |--> logicalR (1/2) ss)
-    ** ([∗list] tid ∈ [true; false], unmatchedPushCounter bid tid  |--> logicalR (1/2) (unmatchedPushCounts tid))
-    ** [| forall tid, unmatchedPushCounts tid <= capacity/2|]
-    ** [| lengthZ (produced ss) - numConsumed ss = (unmatchedPushCounts true) + (unmatchedPushCounts false) |]
+    ** ([∗list] tid ∈ [true; false], unmatchedProduceCounter bid tid  |--> logicalR (1/2) (unmatchedProduceCounts tid))
+    ** [| forall tid, unmatchedProduceCounts tid <= capacity/2|]
+    ** [| lengthZ (produced ss) - numConsumed ss = (unmatchedProduceCounts true) + (unmatchedProduceCounts false) |]
     ).
 
-cpp.spec "MPMCQueue::push(int)" as mpmcpushprot with (fun (this:ptr)=>
+cpp.spec "MPMCQueue::produce(int)" as mpmcproduceprot with (fun (this:ptr)=>
   \arg{value} "value" (Vint value)
   \prepost{(bid: balancedId) (P: Z -> mpred) (q:Qp)}
      this |-> mpmcRla (mpid bid) q P
   \prepost BalancedProtocol bid
-  \pre{(tid: bool) (unmatchedPushCount:N)}
-    (unmatchedPushCounter bid tid  |--> logicalR (1/2) unmatchedPushCount)
-  \pre [| unmatchedPushCount < capacity/2 |]
+  \pre{(tid: bool) (unmatchedProduceCount:N)}
+    (unmatchedProduceCounter bid tid  |--> logicalR (1/2) unmatchedProduceCount)
+  \pre [| unmatchedProduceCount < capacity/2 |]
   \pre [| Timeless1 P |]
   \pre P value
   \post [Vbool true]
-  (unmatchedPushCounter bid tid  |--> logicalR (1/2) (1+unmatchedPushCount)%N)).
+  (unmatchedProduceCounter bid tid  |--> logicalR (1/2) (1+unmatchedProduceCount)%N)).
 
-Lemma derv2: mpmcpushla  |-- mpmcpushprot.
+Lemma derv2: mpmcproducela  |-- mpmcproduceprot.
 Proof using.
   clear MODd.
-  unfold mpmcpushla, mpmcpushprot.
+  unfold mpmcproducela, mpmcproduceprot.
   unfold specify.
   apply _at_mono.
   apply cpp_specR_mono.
@@ -1619,8 +1621,8 @@ Proof using.
   pose proof (_H_1 true).
   pose proof (_H_1 false).
   destruct tid; go;
-    [wapply (logicalR_update (unmatchedPushCounter bid true) (1+unmatchedPushCounts true)%N)
-    | wapply (logicalR_update (unmatchedPushCounter bid false) (1+unmatchedPushCounts false)%N)];
+    [wapply (logicalR_update (unmatchedProduceCounter bid true) (1+unmatchedProduceCounts true)%N)
+    | wapply (logicalR_update (unmatchedProduceCounter bid false) (1+unmatchedProduceCounts false)%N)];
     eagerUnifyU; go;
     closeCinvqs;
     go;
@@ -1636,7 +1638,7 @@ Proof using.
       intros. destruct tid; auto; try lia.
     }
     go.
-    unfold pushFinalState.
+    unfold produceFinalState.
     simpl.
     unfold full in *.
     case_decide;[Arith.arith_solve|].
@@ -1650,7 +1652,7 @@ Proof using.
       intros. destruct tid; auto; try lia.
     }
     go.
-    unfold pushFinalState.
+    unfold produceFinalState.
     simpl.
     unfold full in *.
     case_decide;[Arith.arith_solve|].
@@ -1662,7 +1664,7 @@ Qed.
 
 End with_Sigma.
 (* TODO:
-proof of pop
+proof of consume
 
 animation of resource transfer of SPSCqueue. emphasize how the picture is trickly to encode in logic. ask GPT to draw a circular Q tikz. then nmanually add overlays
 
@@ -1681,7 +1683,7 @@ sequence:
 - spscqueue proof animation
 - spsc inv
 - spsc proof: new things: ghost update before closing invariant. 1-2 array/mod manip steps
-- weakness in pop spec : return false
+- weakness in consume spec : return false
 - iris monoids: paper
 - sts setup
 - new specs and proofs.

@@ -11,33 +11,25 @@ public:
 
     // Push a value into the buffer (from the producer thread).
     // Returns true on success, false if the buffer is full.
-    bool push(int value)
+    bool produce(int value)
     {
         uint head = head_.load();
-	
         uint tail = tail_.load();
         uint nextTail = (tail + 1) % CAPACITY;
-
-
-        if (nextTail == head)
-        {
-	  return false;// full
-        }
-
+        if (nextTail == head) return false;
         buffer_[tail] = value;
-
         tail_.store(nextTail);
         return true;
     }
 
-    bool pop(int &value)
+    bool consume(int &value)
     {
         uint tail = tail_.load();
         uint head = head_.load();
 
         if (head == tail)
         {
-	  return false;// empty
+	        return false;// empty
         }
 
         value = buffer_[head];
@@ -85,7 +77,7 @@ public:
 
     // Push a value into the buffer (from the producer thread).
     // Returns true on success, false if the buffer is full.
-    bool push(int value)
+    bool produce(int value)
     {
         lock.lock();
         uint nextTail = (tail_ + 1) % CAPACITY;
@@ -104,7 +96,7 @@ public:
         return true;
     }
 
-    bool pop(int &value)
+    bool consume(int &value)
     {
         lock.lock();
 
