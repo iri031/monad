@@ -63,7 +63,7 @@ bool send_deletion(
         return true;
     }
 
-    auto const fn = [sync, prefix = from_prefix(rq.prefix, rq.prefix_bytes)](
+    auto const fn = [sync, prefix = from_prefix(rq.prefix, rq.prefix_len)](
                         Deletion const &deletion) {
         auto const &[addr, key] = deletion;
         auto const hash = keccak256(addr.bytes);
@@ -266,7 +266,7 @@ bool statesync_server_handle_request(
         return false;
     }
 
-    auto const bytes = from_prefix(rq.prefix, rq.prefix_bytes);
+    auto const bytes = from_prefix(rq.prefix, rq.prefix_len);
     auto const root = db.load_root_for_version(rq.target);
     if (!root.is_valid()) {
         return false;
@@ -289,11 +289,11 @@ bool statesync_server_handle_request(
     [[maybe_unused]] auto const end = std::chrono::steady_clock::now();
 
     LOG_INFO(
-        "processed request prefix={} prefix_bytes={} target={} from={} "
+        "processed request prefix={} prefix_len={} target={} from={} "
         "until={} "
         "old_target={} overall={} traverse={}",
         rq.prefix,
-        rq.prefix_bytes,
+        rq.prefix_len,
         rq.target,
         rq.from,
         rq.until,

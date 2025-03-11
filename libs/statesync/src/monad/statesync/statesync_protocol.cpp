@@ -159,7 +159,7 @@ void StatesyncProtocolV1::send_request(
         ctx->sync,
         monad_sync_request{
             .prefix = prefix,
-            .prefix_bytes = monad_statesync_client_prefix_bytes(),
+            .prefix_len = monad_statesync_client_prefix_len(),
             .target = tgrt,
             .from = from,
             .until = from >= (tgrt * 99 / 100) ? tgrt : tgrt * 99 / 100,
