@@ -1541,6 +1541,11 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     simpl.
     go.
   }
+  {
+    go.
+    iModIntro.
+    slauto.
+    (* take out the ownership of this cell from the *list *)
  Abort.
 
 cpp.spec "MPMCQueue::push(int)" as mpmcpushseqorig with (fun (this:ptr)=>
@@ -1583,14 +1588,15 @@ Definition BalancedProtocol (bid: balancedId) : mpred :=
   cinv (binvId bid) (1/2) (Exists (ss: State) (unmatchedPushCounts: bool -> N),
     (stateLoc (mpid bid) |--> logicalR (1/2) ss)
     ** ([∗list] tid ∈ [true; false], unmatchedPushCounter bid tid  |--> logicalR (1/2) (unmatchedPushCounts tid))
-    ** [| forall tid, unmatchedPushCounts tid <= capacity/2|]   
+    ** [| forall tid, unmatchedPushCounts tid <= capacity/2|]
+    ** [| lengthZ (produced ss) - numConsumed ss = (unmatchedPushCounts true) + (unmatchedPushCounts false) |]
     ).
 
 cpp.spec "MPMCQueue::push(int)" as mpmcpushprot with (fun (this:ptr)=>
   \arg{value} "value" (Vint value)
   \prepost{(bid: balancedId) (P: Z -> mpred) (q:Qp)}
      this |-> mpmcRla (mpid bid) q P
-  \prepost{bid: balancedId} BalancedProtocol bid
+  \prepost BalancedProtocol bid
   \pre{(tid: bool) (unmatchedPushCount:N)}
     (unmatchedPushCounter bid tid  |--> logicalR (1/2) unmatchedPushCount)
   \pre [| unmatchedPushCount < capacity/2 |]
@@ -1598,6 +1604,61 @@ cpp.spec "MPMCQueue::push(int)" as mpmcpushprot with (fun (this:ptr)=>
   \pre P value
   \post [Vbool true]
   (unmatchedPushCounter bid tid  |--> logicalR (1/2) (1+unmatchedPushCount)%N)).
+
+Lemma derv2: mpmcpushla  |-- mpmcpushprot.
+Proof using.
+  clear MODd.
+  unfold mpmcpushla, mpmcpushprot.
+  unfold specify.
+  apply _at_mono.
+  apply cpp_specR_mono.
+  unfold BalancedProtocol.
+  go. ego.
+  callAtomicCommitCinv.
+  go.
+  pose proof (_H_1 true).
+  pose proof (_H_1 false).
+  destruct tid; go;
+    [wapply (logicalR_update (unmatchedPushCounter bid true) (1+unmatchedPushCounts true)%N)
+    | wapply (logicalR_update (unmatchedPushCounter bid false) (1+unmatchedPushCounts false)%N)];
+    eagerUnifyU; go;
+    closeCinvqs;
+    go;
+    evar (bt: N);
+    evar (bf: N);
+    iExists (fun b:bool => if b then bt else bf);
+    go; 
+    unfold bf, bt; go;
+    closedN.
+  {
+    provePure.
+    {
+      intros. destruct tid; auto; try lia.
+    }
+    go.
+    unfold pushFinalState.
+    simpl.
+    unfold full in *.
+    case_decide;[Arith.arith_solve|].
+    slauto.
+    iModIntro.
+    go.
+  }
+  {
+    provePure.
+    {
+      intros. destruct tid; auto; try lia.
+    }
+    go.
+    unfold pushFinalState.
+    simpl.
+    unfold full in *.
+    case_decide;[Arith.arith_solve|].
+    slauto.
+    iModIntro.
+    go.
+  }
+Qed.
 
 End with_Sigma.
 (* TODO:
