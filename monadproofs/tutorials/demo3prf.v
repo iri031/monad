@@ -1685,17 +1685,17 @@ sequence:
 - spsc proof: new things: ghost update before closing invariant. 1-2 array/mod manip steps
 - weakness in consume spec : return false
 - iris monoids: paper
-- sts setup
+- sts setup: closed, frag dupl
 - new specs and proofs.
-- maybe: MPSCqueue specs  with lock for producer: nice exercise on stability
+- MPMC specs
+- MPMC logatom specs
+- MPMC derived specs
+- read_storage_specs: can use sts to tighten
+optional:
 - review no || execute block proof animation from last time
 - ask folks for promise specs
 - discuss promise specs
 - discuss execute_transaction specs
-
-
-done
-add P value to the spsc specs
 
 
 broad goals:
