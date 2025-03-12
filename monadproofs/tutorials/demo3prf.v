@@ -1,4 +1,7 @@
- (*specs/proofs of /root/fv-workspace/monad/proofs/demo2.cpp *)
+(*specs/proofs of /root/fv-workspace/monad/proofs/demo2.cpp *)
+
+(* font +- : C-x C -, then - or + many times,
+                | release all here*) 
 
 Require Import monad.tutorials.demo3.
 Require Import bedrock.auto.invariants.
@@ -16,7 +19,9 @@ Import cQp_compat.
 Import Verbose.
 Notation stable := valid. 
 Import linearity.
-Ltac slauto := (slautot ltac:(autorewrite with syntactic; try solveRefereceTo)); try iPureIntro.
+Ltac slauto := misc.slauto1.
+(*
+  (slautot ltac:(autorewrite with syntactic; try solveRefereceTo)); try iPureIntro. *)
 Hint Rewrite @lengthN_app @lengthN_one: syntactic.
 Hint Rewrite @dropN_app: syntactic.
 Notation bufsize := 256.
@@ -149,17 +154,20 @@ Definition SPSCInv (cid: spscid) (P: Z -> mpred) : Rep :=
      ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFreeSlotsInCinv)),
         _field "SPSCQueue::buffer_".["int" ! (numProducedAll + i) `mod` bufsize ]
         |-> anyR "int" 1)
-    ** _field "SPSCQueue::buffer_".[ "int" ! bufsize ] |-> validR .
+.
  
 Definition ProducerR (cid: spscid) (P: Z -> mpred) (produced: list Z): Rep :=
   cinvr (invId cid) (1/2) (SPSCInv cid P)
-    ** pureR (inProduceLoc cid |--> logicalR (1/2) false)
-    ** pureR (producedListLoc cid |--> logicalR (1/2) produced).
+  ** pureR (inProduceLoc cid |--> logicalR (1/2) false)
+  ** pureR (producedListLoc cid |--> logicalR (1/2) produced)
+  ** structR "SPSCQueue" (1/2).
 
 Definition ConsumerR (cid: spscid) (P: Z -> mpred) (numConsumed:N): Rep :=
   cinvr (invId cid) (1/2) (SPSCInv cid P)
-    ** pureR (inConsumeLoc cid |--> logicalR (1/2) false)
-    ** pureR (numConsumedLoc cid |--> logicalR (1/2) numConsumed).
+  ** pureR (inConsumeLoc cid |--> logicalR (1/2) false)
+  ** pureR (numConsumedLoc cid |--> logicalR (1/2) numConsumed)
+  ** structR "SPSCQueue" (1/2).
+
 
 (** e.g. P := fun v:Z => packetArrP.["Packet" ! v] |-> PacketR 1 nwPacket *) 
 cpp.spec "SPSCQueue::produce(int)" as produceqw with (fun (this:ptr)=>
@@ -230,13 +238,15 @@ Tactic Notation "renValAtLoc" open_constr(loc) "into" ident(name) :=
   renValAtLoc' loc name.
 
 Remove Hints ownhalf_combineF: br_opacity.
+Hint Resolve UNSAFE_read_prim_cancel: br_opacity.
+
 Lemma produceqprf: denoteModule module
                   ** uint_store_spec
                   ** uint_load_spec
                   |-- produceqw.
 Proof using MODd with (fold cQpc; normalize_ptrs).
   verify_spec'.
-  slauto.
+  go.
   unfold ProducerR. go.
   unfold SPSCInv. go.
   callAtomicCommitCinv.
@@ -264,7 +274,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     go.
     iModIntro.
     name_locals.
-    slauto.
+    go.
   }
   { (* not full. STABLE. consumer can only make it less full *)
     go... (* need to close cinv after head.load() *)
@@ -312,7 +322,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     go.
     ego.
     iModIntro.
-    slauto...
+    go.
     (* wrote to the cell *)
     
     (* tail.store ((1+oldTail))%cap *)
@@ -330,7 +340,8 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     eagerUnifyU. go.
     closeCinvqs.
     go.
-    slauto.
+    autorewrite with syntactic.
+    go.
     simpl.
     rename _v_4 into numConsumedAtStore.
     rename numConsumed into numConsumedHeadAtLoad.
@@ -367,7 +378,7 @@ Lemma consumeqprf: denoteModule module
                   |-- consumeqw.
 Proof using MODd with (fold cQpc; normalize_ptrs).
   verify_spec'.
-  slauto.
+  go.
   unfold ConsumerR. go.
   unfold SPSCInv. go.
   callAtomicCommitCinv.
@@ -388,7 +399,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     go.
     iModIntro.
     name_locals.
-    slauto.
+    go.
   }
   {
     go.
@@ -417,23 +428,21 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     closeCinvqs.
     go.
     iModIntro.
-    slauto.
+    go.
     wp_if.
     1:{ intros. apply False_rect.
         apply n.
         apply modulo.zmod_inj in p; try nia.
         destruct _v_1; simpl in *; try nia.
     }
-    slauto.
+    go.
     callAtomicCommitCinv.
     go.
     wapply (logicalR_update (inConsumeLoc lpp) false). eagerUnifyU. go.
     wapply (logicalR_update (numConsumedLoc lpp) (1+_v_4)%N). eagerUnifyC. go.
     closeCinvqs.
     go.
-    slauto.
-    simpl.
-    normalize_ptrs.
+    misc.slauto1.
     replace ((Z.to_N (Z.of_N _v_4 + 1))) with (1 + _v_4)%N by lia.
     repeat rewrite _at_big_sepL.
     icancel (@big_sepL_mono).
@@ -472,7 +481,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
                end
                )
       end);
-      [| repeat rewrite <- Heqq; slauto; iModIntro; go].
+      [| repeat rewrite <- Heqq; misc.slauto1; iModIntro; go].
        apply add_mod_lhsc; try lia.
        f_equiv.
        lia.
@@ -1081,8 +1090,7 @@ Definition SPSCInv (cid: spscid) (P: Z -> mpred) : Rep :=
     (* ownership of inactive cells *)
     ** ([∗ list] i ↦ _ ∈ [0,..,numFreeSlotsInCinv],
          _field "SPSCQueue::buffer_".["int" ! (numProducedAll + i) `mod` bufsize ]
-            |-> anyR "int" 1)
-    ** _field "SPSCQueue::buffer_".[ "int" ! bufsize ] |-> validR.
+            |-> anyR "int" 1).
 
 (*
 Definition ProducerR (cid: spscid) (P: Z -> mpred) (produced: list Z): Rep :=
@@ -1094,12 +1102,14 @@ Definition ProducerR (cid: spscid) (P: Z -> mpred) (produced: list Z): Rep :=
 Definition ProducerR (cid: spscid) (P: Z -> mpred) (producedL: list Z): Rep :=
   cinvr (invId cid) (1/2) (SPSCInv cid P)
   ∗ pureR (inProduceLoc cid |--> logicalR (1/2) false)
-  ∗ pureR (stsLoc cid |--> sts_frag {[s | produced s = producedL]} {[ Producer ]}). (* ^ *)
+  ∗ pureR (stsLoc cid |--> sts_frag {[s | produced s = producedL]} {[ Producer ]})
+  ∗ structR "SPSCQueue" (1/2).
 
 Definition ConsumerR (cid: spscid) (P: Z -> mpred) (nmConsumed:N): Rep :=
   cinvr (invId cid) (1/2) (SPSCInv cid P)
   ∗ pureR (inConsumeLoc cid |--> logicalR (1/2) false)
-  ∗ pureR (stsLoc cid |--> sts_frag {[s | nmConsumed = numConsumed s]} {[Consumer]}).
+  ∗ pureR (stsLoc cid |--> sts_frag {[s | nmConsumed = numConsumed s]} {[Consumer]})
+  ∗ structR "SPSCQueue" (1/2).
 
 cpp.spec "SPSCQueue::consume(int&)" as consumests with (fun (this:ptr)=>
   \arg{valuep} "value" (Vptr valuep)
@@ -1236,7 +1246,7 @@ Lemma produceqprf: denoteModule module
                   |-- producests.
 Proof using MODd with (fold cQpc; normalize_ptrs).
   verify_spec'.
-  slauto.
+  misc.slauto.
   unfold ProducerR. go.
   unfold SPSCInv. go.
   go.
@@ -1269,7 +1279,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     repeat  match goal with
             | H: State |- _ => destruct H
             end; simpl in *; forward_reason; subst; simpl in *.
-    slauto.
+    misc.slauto.
     case_decide; auto;    try Arith.arith_solve.
   }
   {
@@ -1316,7 +1326,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
       repeat  match goal with
             | H: State |- _ => destruct H
               end; simpl in *; forward_reason; subst; simpl in *.
-    slauto.
+    misc.slauto.
     callAtomicCommitCinv.
     go.
     rewrite -> elem_of_PropSet in *.
@@ -1327,7 +1337,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     go.
     closeCinvqs.
     go.
-    slauto.
+    misc.slauto.
     simpl.
     ren_hyp stAtStore State.
     destruct stAtStore as  [producedL numConsumedAtStore].
@@ -1406,7 +1416,7 @@ Lemma consumeqprf: denoteModule module
                   |-- consumests.
 Proof using MODd with (fold cQpc; normalize_ptrs).
   verify_spec'.
-  slauto.
+  misc.slauto.
   unfold ConsumerR. go.
   unfold SPSCInv. go.
   callAtomicCommitCinv.
@@ -1437,7 +1447,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     name_locals.
     destructStates. simpl in *.
     repeat rewrite -> forget_empty_frag.
-    slauto... (* cannot fail if lb *)
+    misc.slauto... (* cannot fail if lb *)
     case_decide; auto.
     apply False_rect.
     revert H.
@@ -1478,14 +1488,14 @@ Hint Resolve close_invstsgc_C: br_opacity.
     closeCinvqs.
     go.
     iModIntro.
-    slauto.
+    misc.slauto.
     wp_if.
     1:{ intros. apply False_rect.
         apply n.
         apply modulo.zmod_inj in p; try nia.
         destruct _v_1; simpl in *; try nia.
     }
-    slauto.
+    misc.slauto.
     destructStates.
     callAtomicCommitCinv.
     go.
@@ -1497,7 +1507,7 @@ Hint Resolve close_invstsgc_C: br_opacity.
     go.
     closeCinvqs.
     go.
-    slauto.
+    misc.slauto1.
     simpl.
     normalize_ptrs.
     match goal with
@@ -1541,7 +1551,7 @@ Hint Resolve close_invstsgc_C: br_opacity.
                end
                )
       end);
-      [| repeat rewrite <- Heqq; slauto; iModIntro; case_decide; go].
+      [| repeat rewrite <- Heqq; misc.slauto1; iModIntro; case_decide; go].
     apply add_mod_lhsc; try lia.
     f_equiv.
     lia.
@@ -1562,7 +1572,6 @@ Definition MPMCLockContent (cid: mpmcid) (P: Z -> mpred) : Rep :=
     let numConsumable : Z := (lengthN producedL - numConsumed) in
     let numFreeSlotsInCinv: Z := (bufsize- numConsumable) in
     let currItems := dropN (Z.to_N numConsumed) producedL in
-       (* actual capacity is 1 less than bufsize (the size of the array) because we need to distinguish empty and full *)
     [| numConsumed <= numProduced /\ numProduced - numConsumed <= bufsize - 1 |]
     ** pureR (stateLoc cid  |--> sts_auth s ⊤)
     ** _field "SPSCQueue::head_" |-> atomicR uint 1 (numConsumed `mod` bufsize)
@@ -1570,21 +1579,25 @@ Definition MPMCLockContent (cid: mpmcid) (P: Z -> mpred) : Rep :=
     **
     (* ownership of active cells *)
     ([∗ list] i↦  item ∈ currItems,
-      pureR (P item) **
-      _field "SPSCQueue::buffer_".["int" ! ((numConsumed + i) `mod` bufsize)] |-> primR "int"  1 (Vint item))
+        pureR (P item)
+        ** _field "SPSCQueue::buffer_".["int" ! ((numConsumed + i) `mod` bufsize)]
+                                         |-> primR "int"  1 (Vint item))
     (* ownership of inactive cells *)
-    ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFreeSlotsInCinv)),  _field "SPSCQueue::buffer_".["int" ! (numProduced + i) `mod` bufsize ] |-> anyR "int" 1)
-    ** _field "SPSCQueue::buffer_".[ "int" ! bufsize ] |-> validR.
+    ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFreeSlotsInCinv)),
+           _field "SPSCQueue::buffer_".["int" ! (numProduced + i) `mod` bufsize ]
+                                         |-> anyR "int" 1).
 
 Require Import monad.tutorials.demo2prf.
 
 (* no separate producerR or consumerR because they have the same limited knowledge/rights *)
-Definition mpmcR (cid: mpmcid) (q:Qp) (P: Z -> mpred): Rep :=
-  as_Rep( fun (this:ptr) =>
- this |-> _field "lock" |-> LockR q (lockId cid) (this |-> MPMCLockContent cid P)).
+Definition mpmcR (cid: mpmcid) (q:Qp) (P: Z -> mpred): Rep := as_Rep( fun (this:ptr) =>
+    this ,, _field "MPMCQueue::lock"
+      |-> LockR q (lockId cid) (this |-> MPMCLockContent cid P))
+  ** structR "MPMCQueue" q.
+
 
 (* like blockchain: all the specs says that my transaction was recorded in the history *)
-cpp.spec "SPSCQueue::produce(int)" as mpmcproduce with (fun (this:ptr)=>
+cpp.spec "MPMCQueue::produce(int)" as mpmcproduce with (fun (this:ptr)=>
   \arg{value} "value" (Vint value)
   \prepost{(lpp: mpmcid) (P: Z -> mpred) (q:Qp)}
     this |-> mpmcR lpp q P
@@ -1599,7 +1612,7 @@ cpp.spec "SPSCQueue::produce(int)" as mpmcproduce with (fun (this:ptr)=>
          {[ s | producedPrefix++newItems++[value] `prefix_of` (produced s) ]} ∅)
     else emp).
 
-cpp.spec "SPSCQueue::consume(int&)" as mpmcconsume with (fun (this:ptr)=>
+cpp.spec "MPMCQueue::consume(int&)" as mpmcconsume with (fun (this:ptr)=>
   \arg{valuep} "value" (Vptr valuep)
   \prepost{(lpp: mpmcid) (P: Z -> mpred) (q:Qp)}
     this |-> mpmcR lpp q P
@@ -1649,7 +1662,8 @@ Definition MPMCLockContentLa (cid: mpmcid) (P: Z -> mpred) : Rep :=
 
 Definition mpmcRla (cid: mpmcid) (q:Qp) (P: Z -> mpred): Rep :=
   as_Rep( fun (this:ptr) =>
-  this |-> _field "MPMCQueue::lock" |-> LockR q (lockId cid) (this |-> MPMCLockContentLa cid P)).
+  this |-> _field "MPMCQueue::lock" |-> LockR q (lockId cid) (this |-> MPMCLockContentLa cid P))
+  ** structR "MPMCQueue" q.
 
 Definition produceFinalState (s: State)  (newItem: Z): State :=
   if decide (full s) then s else {| produced := (produced s) ++ [newItem];
@@ -1707,7 +1721,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
   verify_spec'.
   unfold mpmcRla.
   unfold MPMCLockContentLa.
-  slauto.
+  misc.slauto.
   (rewrite -wp_shift || rewrite <- wp_stmt_shift).
   rewrite atomic_commit_elim.
   go.
@@ -1727,7 +1741,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     assert (full x) as Hf by admit.
     unfold produceFinalState.
     destruct (decide (full x)); try tauto.
-    slauto.
+    misc.slauto.
     iModIntro.
     go.
     iExists x. go.
@@ -1763,6 +1777,7 @@ Proof using.
   unfold specify.
   apply _at_mono.
   apply cpp_specR_mono.
+  unfold mpmcRla.
   go. ego.
   callAtomicCommitCinv.
   go.
@@ -1809,15 +1824,19 @@ Proof using.
   unfold specify.
   apply _at_mono.
   apply cpp_specR_mono.
-  unfold BalancedProtocol.
+  unfold BalancedProtocol, mpmcRla.
   go. ego.
   callAtomicCommitCinv.
   go.
   pose proof (_H_1 true).
   pose proof (_H_1 false).
   destruct tid; go;
-    [wapply (logicalR_update (unmatchedProduceCounter bid true) (1+unmatchedProduceCounts true)%N)
-    | wapply (logicalR_update (unmatchedProduceCounter bid false) (1+unmatchedProduceCounts false)%N)];
+    [wapply (logicalR_update
+               (unmatchedProduceCounter bid true)
+               (1+unmatchedProduceCounts true)%N)
+    | wapply (logicalR_update
+                (unmatchedProduceCounter bid false)
+                (1+unmatchedProduceCounts false)%N)];
     eagerUnifyU; go;
     closeCinvqs;
     go;
@@ -1837,7 +1856,7 @@ Proof using.
     simpl.
     unfold full in *.
     case_decide;[Arith.arith_solve|].
-    slauto.
+    misc.slauto1.
     iModIntro.
     go.
   }
@@ -1851,7 +1870,7 @@ Proof using.
     simpl.
     unfold full in *.
     case_decide;[Arith.arith_solve|].
-    slauto.
+    misc.slauto1.
     iModIntro.
     go.
   }
