@@ -1431,7 +1431,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
   (* token gets deposited in auth, we get 2 facts *)
   ren_hyp slh State.
   normalize_ptrs. go.
-  destruct (decide (lengthZ (produced slh) = (numConsumed slh))).
+   destruct (decide (lengthZ (produced slh) = (numConsumed slh))).
   { (* queue is empty: exact same proof as before  *)
     closeCinvqs.
     go.
@@ -1564,6 +1564,9 @@ Record mpmcid :=
     stateLoc: gname; 
   }.
 
+(* state ∃ quantified, just like cinv, no need for inProduce, inConsume:
+  cinv holds always.
+  lockcontent assertions need not hold between lock and unlock *)
 Definition MPMCLockContent (cid: mpmcid) (P: Z -> mpred) : Rep :=
   Exists (s: State),
     let producedL := produced s in
@@ -1573,7 +1576,7 @@ Definition MPMCLockContent (cid: mpmcid) (P: Z -> mpred) : Rep :=
     let numFreeSlotsInCinv: Z := (bufsize- numConsumable) in
     let currItems := dropN (Z.to_N numConsumed) producedL in
     [| numConsumed <= numProduced /\ numProduced - numConsumed <= bufsize - 1 |]
-    ** pureR (stateLoc cid  |--> sts_auth s ⊤)
+    ** pureR (stateLoc cid  |--> sts_auth s ⊤) (* all tokens in lock *)
     ** _field "SPSCQueue::head_" |-> atomicR uint 1 (numConsumed `mod` bufsize)
     ** _field "SPSCQueue::tail_" |-> atomicR uint 1 (numProduced `mod` bufsize)
     **
@@ -1591,7 +1594,7 @@ Require Import monad.tutorials.demo2prf.
 
 (* no separate producerR or consumerR because they have the same limited knowledge/rights *)
 Definition mpmcR (cid: mpmcid) (q:Qp) (P: Z -> mpred): Rep := as_Rep( fun (this:ptr) =>
-    this ,, _field "MPMCQueue::lock"
+  this ,, _field "MPMCQueue::lock"
       |-> LockR q (lockId cid) (this |-> MPMCLockContent cid P))
   ** structR "MPMCQueue" q.
 
@@ -1628,7 +1631,11 @@ cpp.spec "MPMCQueue::consume(int&)" as mpmcconsume with (fun (this:ptr)=>
 
 (* the above spec is ok for clients who use produce/consume in a maximallyy concurrent way and
    follow no additional discipline.
+
   what if a client wants to use it sequentially? postcond too weak !
+    even if we have [mpmcR lpp 1 P], and push just after the constructor, the postcondition does not guarantee success
+
+
   next spec: grants the flexibility:
   - can allow multiple threads to call produce/consume concurrently
   - yet, if the client chooses to not race, they get stronger postconditions
@@ -1638,7 +1645,7 @@ Logical atomic triples
  *)
 Context {hsssst: fracG State _}.
 
-
+(** back to logicalR from sts_auth, client chooses the protocol  *)
 Definition MPMCLockContentLa (cid: mpmcid) (P: Z -> mpred) : Rep :=
   Exists (s: State),
     let producedL := produced s in
@@ -1666,8 +1673,11 @@ Definition mpmcRla (cid: mpmcid) (q:Qp) (P: Z -> mpred): Rep :=
   ** structR "MPMCQueue" q.
 
 Definition produceFinalState (s: State)  (newItem: Z): State :=
-  if decide (full s) then s else {| produced := (produced s) ++ [newItem];
-                                   numConsumed := numConsumed s |}.
+  if decide (full s)
+  then s
+  else {| produced := (produced s) ++ [newItem];
+         numConsumed := numConsumed s |}.
+
 cpp.spec "MPMCQueue::produce(int)" as mpmcproduceseq with (fun (this:ptr)=>
   \arg{value} "value" (Vint value)
   \prepost{(lpp: mpmcid) (P: Z -> mpred) (q:Qp)}
@@ -1693,7 +1703,8 @@ cpp.spec "MPMCQueue::produce(int)" as mpmcproducela with (fun (this:ptr)=>
     this |-> mpmcRla lpp q P
   \pre{Q: State->mpred}
     AC << ∀ s : State, (stateLoc lpp |--> logicalR (1/2) s)>> @ ⊤, ∅
-        << (stateLoc lpp |--> logicalR (1/2) (produceFinalState s value)), COMM Q s >>
+       << (stateLoc lpp |--> logicalR (1/2) (produceFinalState s value)),
+           COMM Q s >>
   \pre [| Timeless1 P |]
   \pre P value
   \post{sJustBeforeCommit} [Vbool (negb (bool_decide (full sJustBeforeCommit)))]
@@ -1736,6 +1747,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
   resume_use_wand.
   ghost.
   iModIntro.
+  pose proof (spsc_mod_iff (lengthN (produced x)) (numConsumed x)  ltac:(lia)).
   wp_if.
   { (* full *)
     assert (full x) as Hf by admit.
@@ -1753,11 +1765,86 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
   {
     go.
     iModIntro.
+    assert (not (full x)) as Hf by admit.
     destruct x as [producedL numConsumed]. simpl in *.
 
     assert (Z.to_N (256 - (lengthZ producedL - numConsumed)) = (1 + Z.to_N (256 - (lengthZ producedL - numConsumed) - 1))%N) as Heq by lia.
     rewrite Heq.
- Abort.
+    slauto.
+    rewrite N.add_1_l.
+    rewrite seqN_S_start.
+    go.
+    closedN.
+    rewrite <- (seqN_shift 0).
+    work.
+    rewrite big_opL_map.
+    normalize_ptrs.
+    slauto.
+    unfold produceFinalState.
+    simpl.
+    resolveDecide tauto.
+    slauto.
+    autorewrite with syntactic.
+    (*
+    match goal with
+      [ |- context[((Z.to_N (Z.of_N ?v + 1)))]] =>
+        replace ((Z.to_N (Z.of_N v + 1))) with (1 + v)%N by lia
+    end. *)
+    repeat rewrite _at_big_sepL.
+    IPM.perm_left ltac:(fun L n =>
+      match L with
+      | context [seqN 0 ?l] => 
+          IPM.perm_right ltac:(fun R n =>
+               match R with
+               | context [seqN 0 ?r] => assert (l=r)%N as Heqw by lia
+               end
+               )
+      end).
+    rewrite <- Heqw.
+    icancel (@big_sepL_mono).
+    {
+      repeat (f_equiv; intros; hnf; try lia).
+    }
+    go.
+    simpl.
+    autorewrite with syntactic.
+    rewrite big_opL_app.
+    unfold seqN. simpl.
+    unfold fmap.
+    simpl.
+    go.
+    assert ((numConsumed - lengthN producedL) = 0)%N as Hle by lia.
+    rewrite Hle.
+    simpl.
+    go.
+    normalize_ptrs.
+    go.
+    autorewrite with syntactic.
+    rewrite length_dropN.
+    
+    IPM.perm_left_spatial ltac:(fun L n =>
+      match L with
+      | context [.["int"! ?li]] => 
+          IPM.perm_right ltac:(fun R n =>
+               match R with
+               | context [_ .["int"! ?ri] |-> _] => assert (li=ri) as Heqq
+               end
+               )
+      end).
+    {
+      f_equiv.
+      unfold lengthN in *.
+      lia.
+    }
+    rewrite <- Heqq.
+    go.
+    ego.
+    eagerUnifyU. go.
+    rewrite bool_decide_decide.
+    resolveDecide tauto.
+    simpl. go.
+  }
+  Admitted.
 
 cpp.spec "MPMCQueue::produce(int)" as mpmcproduceseqorig with (fun (this:ptr)=>
   \arg{value} "value" (Vint value)
@@ -1799,9 +1886,12 @@ Context {hsssln: fracG N _}.
 Definition BalancedProtocol (bid: balancedId) : mpred :=
   cinv (binvId bid) (1/2) (Exists (ss: State) (unmatchedProduceCounts: bool -> N),
     (stateLoc (mpid bid) |--> logicalR (1/2) ss)
-    ** ([∗list] tid ∈ [true; false], unmatchedProduceCounter bid tid  |--> logicalR (1/2) (unmatchedProduceCounts tid))
-    ** [| forall tid, unmatchedProduceCounts tid <= capacity/2|]
-    ** [| lengthZ (produced ss) - numConsumed ss = (unmatchedProduceCounts true) + (unmatchedProduceCounts false) |]
+  ** ([∗list] tid ∈ [true; false],
+        unmatchedProduceCounter bid tid
+        |--> logicalR (1/2) (unmatchedProduceCounts tid))
+  ** [| forall tid, unmatchedProduceCounts tid <= capacity/2|]
+  ** [| lengthZ (produced ss) - numConsumed ss
+        = (unmatchedProduceCounts true) + (unmatchedProduceCounts false) |]
     ).
 
 cpp.spec "MPMCQueue::produce(int)" as mpmcproduceprot with (fun (this:ptr)=>
@@ -1875,6 +1965,14 @@ Proof using.
     go.
   }
 Qed.
+
+(*
+steps:
+- connect c++ state to logical loc state
+- all results of c++ functions must be described in terms of logical state
+- write a sequential spec
+- convert to AC spec by moving pre/post to appropriate boxes and adding Q
+*)
 
 End with_Sigma.
 End stsSpsc.
