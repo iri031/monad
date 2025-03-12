@@ -342,6 +342,7 @@ Ltac wapplyObserveRep lemma:=
     || wapply (@observe_2_elim_rep _ _ _ _ _ _ _ (lemma _ _ _ _ _ _ _ _ _ _)) || wapply (@observe_2_elim_rep _ _ _ _ _ _ _ (lemma _ _ _ _ _ _ _ _ _ _ _))
     
   ].
+Opaque coPset_difference.
 
 Section cp.
   Context `{Sigma:cpp_logic} {CU: genv} {hh: HasOwn mpredI algebra.frac.fracR}. (* some standard assumptions about the c++ logic *)
@@ -1294,10 +1295,79 @@ End atomicR.
     apply sts_update_auth.
     assumption.
   Qed.
-  (* move *)
+
+  
+#[global] Instance ll g s1 s2 t1 t2: Learnable (g |--> sts_auth s1 t1) (g |--> sts_auth s2 t2) [s1=s2]
+                                                   := ltac:(solve_learnable).
+Lemma hideWandL (L C: mpred) E:
+  (forall  (Lh:mpred), Hide.Hidden (Lh=L) ->  environments.envs_entails E (Lh -* C)) -> environments.envs_entails E (L -* C).
+  intros Hl.
+  specialize (Hl L).
+  apply Hl.
+  constructor.
+  reflexivity.
+Qed.
+
+Lemma hideDuplWandL (L C: mpred) E:
+  (L|--L**L) ->
+  (forall  (Lh:mpred), Hide.Hidden (Lh=L) ->  environments.envs_entails E (Lh ** L -* C)) -> environments.envs_entails E (L -* C).
+  intros Hd Hl.
+  specialize (Hl L).
+  rewrite Hd.
+  apply Hl.
+  constructor.
+  reflexivity.
+Qed.
+
+Lemma forget_empty_frag (g: gname) S:
+  (g |--> sts_frag S ∅) |-- (emp:mpred).
+Proof using Sigma. apply lose_resources. Qed.
+  
   End stsg.
   
 End cp.
+
+Ltac hideEmptyTokenFrag :=
+  IPM.perm_left ltac:(fun L n =>
+                        match L with
+                        | _ |--> sts_frag ?S ∅ => hideFromWork L
+                        end
+                     ).
+Ltac closedN := closed.norm closed.numeric_types .
+
+Hint Resolve prefix_app_r: list.
+
+Ltac bwdRev L :=
+  wapplyRev L; last (iSplitFrameL; [| iIntrosDestructs; eagerUnifyC ; maximallyInstantiateLhsEvar_nonpers]).
+
+Ltac renValAtLoc' loc name:=
+  IPM.perm_left ltac:( fun L _ =>
+    match L with
+    | loc |--> logicalR _ ?v =>
+        rename v into name
+    | loc |--> stsg.sts_auth ?v _ =>
+        rename v into name
+    end).
+Tactic Notation "renValAtLoc" open_constr(loc) "into" ident(name) :=
+  renValAtLoc' loc name.
+(* eliminate a Step.committer in context *)
+Ltac useCommitter :=
+  work;
+  (rewrite -wp_shift || rewrite <- wp_stmt_shift);
+  unfold Step.committer;
+  rewrite atomic.aupd_aacc;
+  simpl;
+  unfold atomic.atomic_acc;
+  ego;
+  simpl.
+Ltac useAC :=
+  work;
+  (rewrite -wp_shift || rewrite <- wp_stmt_shift);
+  unfold Step.committer;
+  rewrite atomic_commit_elim;
+  work; (* unnecesary? *)
+  unfold commit_acc.
+
 Opaque parrayR.
 (*  Hint Resolve fwd_later_exist fwd_later_sep bwd_later_exist
     bwd_later_sep : br_opacity. *)

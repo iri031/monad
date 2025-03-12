@@ -956,4 +956,7 @@ Definition ConcLListR (q:Qp) (invId: gname) (base:ptr) : mpred :=
     slauto.
   Qed.
   
+#[global] Instance learnLockEq: LearnEq3 (LockR):= ltac:(solve_learnable).
 End with_Sigma.
+
+#[global] Opaque LockR.

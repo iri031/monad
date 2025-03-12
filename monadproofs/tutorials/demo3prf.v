@@ -28,12 +28,9 @@ Notation bufsize := 256.
 Opaque atomicR.
 Opaque Nat.modulo.
 Existing Instance learn_atomic_val_UNSAFE.
-  (* todo: upstream *)
-  Notation cinvr invId q R:=
-    (as_Rep (fun this:ptr => cinv invId q (this |-> R))).
 
 
-(* TODO: upstream? *)
+(* TODO: delete? *)
 Opaque coPset_difference.
 
 (* Agnostic to how many producers/consumers there are *)
@@ -80,9 +77,15 @@ Definition spsc : stsT :=
     (fun tokens_owned init_state final_state =>
        ∃ role, role ∈ tokens_owned /\  step init_state role final_state).
 
-Lemma closed_if (S: states spsc) (mytoks: tokens spsc):
-  (∀ (s1 s2 : State) otherTok, otherTok ∉ mytoks → s1 ∈ S → step s1 otherTok s2 ->  s2 ∈ S)
-  -> closed S mytoks.
+
+End QueueModel.
+Notation sts_auth := (@sts_auth QueueModel.spsc).
+Notation sts_frag := (@sts_frag QueueModel.spsc).
+
+Import QueueModel.
+Lemma closed_if (S: sts.states spsc) (mytoks: sts.tokens spsc):
+  (∀ s1 s2 otherTok, otherTok ∉ mytoks → s1 ∈ S → step s1 otherTok s2 ->  s2 ∈ S)
+  -> sts.closed S mytoks.
 Proof.
   clear.
   intros Hp.
@@ -96,10 +99,13 @@ Proof.
   auto.
 Qed.
 
-End QueueModel.
-(* todo : move these to the top of the file *)
-Notation sts_auth := (@sts_auth QueueModel.spsc).
-Notation sts_frag := (@sts_frag QueueModel.spsc).
+Ltac solveClosed:=
+  apply closed_if;
+  intros ? ? ? Hdis Hin Hstep;
+  rewrite -> elem_of_PropSet in *;
+  forward_reason;
+  inverts Hstep; simpl in *; autorewrite with syntactic in *; simpl in *;
+  try split_and !; eauto with list; try lia; try set_solver +.
 
 Module t1.
 Section with_Sigma.
@@ -227,7 +233,6 @@ Qed.
 (*
 Hint Resolve ownhalf_combineF : br_opacity.
 Hint Resolve ownhalf_splitC : br_opacity.
- *)
 Ltac renValAtLoc' loc name:=
   IPM.perm_left ltac:( fun L _ =>
     match L with
@@ -236,6 +241,7 @@ Ltac renValAtLoc' loc name:=
     end).
 Tactic Notation "renValAtLoc" open_constr(loc) "into" ident(name) :=
   renValAtLoc' loc name.
+ *)
 
 Remove Hints ownhalf_combineF: br_opacity.
 Hint Resolve UNSAFE_read_prim_cancel: br_opacity.
@@ -640,23 +646,6 @@ Example update_lloc_unprovable (g:gname) :
    g |--> sts_auth {| produced:= [9]; numConsumed :=0 |}  ⊤ |-- |==>
    g |--> sts_auth {| produced:= [];  numConsumed :=0 |}  ⊤.
 Abort.
-
-(* TODO: move and generalize *)
-Lemma closed_if (S: states spsc) (mytoks: tokens spsc):
-  (∀ s1 s2 otherTok, otherTok ∉ mytoks → s1 ∈ S → step s1 otherTok s2 ->  s2 ∈ S)
-  -> closed S mytoks.
-Proof.
-  clear.
-  intros Hp.
-  apply closed_iff.
-  intros.
-  hnf in H1.
-  forward_reason.
-  hnf in H1l.
-  forward_reason.
-  specialize (Hp s1 s2 role ltac:(set_solver) ltac:(set_solver) ltac:(auto)).
-  auto.
-Qed.
   
 (* stable is formalized as closed *)
 Lemma closedb lp nc : closed {[ s : state spsc | lp <= lengthN (produced s) /\ nc<= numConsumed s ]} ∅.
@@ -669,14 +658,6 @@ Proof using.
   lia.
 Qed.
 
-Hint Resolve prefix_app_r: list.
-Ltac solveClosed:=
-  apply closed_if;
-  intros ? ? ? Hdis Hin Hstep;
-  rewrite -> elem_of_PropSet in *;
-  forward_reason;
-  inverts Hstep; simpl in *; autorewrite with syntactic in *; simpl in *;
-  try split_and !; eauto with list; try lia; try set_solver +.
 
 (** example of frag: *)
 Example gen_frag_out_of_thin_air1 toks g:
@@ -1060,7 +1041,7 @@ Definition SPSCInv2 (cid: spscid) (P: Z -> mpred) : Rep :=
     ** _field "SPSCQueue::buffer_".[ "int" ! bufsize ] |-> validR .
     *)
 
-  (* TODO: move to top *)
+  (* TODO: move to top and use everywhere *)
   Notation "[0 ,.., n ]" := (seqN 0 (Z.to_N n)).
   Example simplList {T} (P: Z-> T-> mpred) (a b c: T):
     ([∗ list] i ↦ v ∈ [a;b;c], P i v)%I |-- P 0 a ** P 1 b ** P 2 c.
@@ -1146,9 +1127,6 @@ Definition combineAuthFragFwd:= [FWD->](@auth_frag_together2).
 Hint Resolve combineAuthFragFwd: br_opacity.
 Hint Rewrite @elem_of_PropSet: iff.
 
-(* TODO: upstream *)
-Ltac bwdRev L :=
-  wapplyRev L; last (iSplitFrameL; [| iIntrosDestructs; eagerUnifyC ; maximallyInstantiateLhsEvar_nonpers]).
 
 
 Lemma auth_close_inv_producer (g: gname) s:
@@ -1194,51 +1172,15 @@ Proof using.
   lia.
 Qed.
 
-(* TODO: upstream *)
-  Ltac hideEmptyTokenFrag :=
-  IPM.perm_left ltac:(fun L n =>
-                        match L with
-                        | _ |--> sts_frag ?S ∅ => hideFromWork L
-                        end
-                     ).
-(* TODO: upstream *)
-#[global] Instance ll g s1 s2 t1 t2: Learnable (g |--> sts_auth s1 t1) (g |--> sts_auth s2 t2) [s1=s2]
-                                                   := ltac:(solve_learnable).
-(* TODO: upstream *)
-Ltac closedN := closed.norm closed.numeric_types .
-
-(* TODO: upstream *)
-Lemma hideWandL (L C: mpred) E:
-  (forall  (Lh:mpred), Hide.Hidden (Lh=L) ->  environments.envs_entails E (Lh -* C)) -> environments.envs_entails E (L -* C).
-  intros Hl.
-  specialize (Hl L).
-  apply Hl.
-  constructor.
-  reflexivity.
-Qed.
-
-(* TODO: upstream *)
-Lemma hideDuplWandL (L C: mpred) E:
-  (L|--L**L) ->
-  (forall  (Lh:mpred), Hide.Hidden (Lh=L) ->  environments.envs_entails E (Lh ** L -* C)) -> environments.envs_entails E (L -* C).
-  intros Hd Hl.
-  specialize (Hl L).
-  rewrite Hd.
-  apply Hl.
-  constructor.
-  reflexivity.
-Qed.
-
-(* TODO: upstream *)
-Lemma forget_empty_frag (g: gname) S:
-  (g |--> sts_frag S ∅) |-- (emp:mpred).
-Proof using Sigma. apply lose_resources. Qed.
-
 
 (* TODO: upstream *)
 Arguments cinvq {_} {_} {_} {_} {_} {_} {_}.
 
 Set Default Goal Selector "!".
+
+Lemma forget_empty_frag (g: gname) S:
+  (g |--> sts_frag S ∅) |-- (emp:mpred).
+Proof using Sigma. apply lose_resources. Qed.
 
 Lemma produceqprf: denoteModule module
                   ** uint_store_spec
@@ -1259,7 +1201,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
   simpl in *.
   pose proof (spsc_mod_iff2 slh false v ltac:(simpl; lia)). simpl in *.
   destruct (decide (lengthZ (produced slh) = (numConsumed slh + (bufsize-1)))).
-  { (* overflow . TODO: move the load of tail up so that both cases can share more proof *)
+  {
     closeCinvqs.
     go.
     ego. normalize_ptrs.
@@ -1397,17 +1339,6 @@ Hint Resolve close_invstsgc_C: br_opacity.
 
 Ltac callAtomicCommitCinv := misc.callAtomicCommitCinv;  try rewrite -> elem_of_PropSet in *.
 
-(* TODO: move up *)
-Ltac renValAtLoc' loc name:=
-  IPM.perm_left ltac:( fun L _ =>
-    match L with
-    | loc |--> logicalR _ ?v =>
-        rename v into name
-    | loc |--> sts_auth ?v _ =>
-        rename v into name
-    end).
-Tactic Notation "renValAtLoc" open_constr(loc) "into" ident(name) :=
-  renValAtLoc' loc name.
 
 Remove Hints combineAuthFragFwd: br_opacity.
 Lemma consumeqprf: denoteModule module
@@ -1672,7 +1603,7 @@ Definition mpmcRla (cid: mpmcid) (q:Qp) (P: Z -> mpred): Rep :=
   this |-> _field "MPMCQueue::lock" |-> LockR q (lockId cid) (this |-> MPMCLockContentLa cid P))
   ** structR "MPMCQueue" q.
 
-Definition produceFinalState (s: State)  (newItem: Z): State :=
+Definition produceFinalState (s: State) (newItem: Z): State :=
   if decide (full s)
   then s
   else {| produced := (produced s) ++ [newItem];
@@ -1711,19 +1642,8 @@ cpp.spec "MPMCQueue::produce(int)" as mpmcproducela with (fun (this:ptr)=>
      Q sJustBeforeCommit **
      if decide (full sJustBeforeCommit) then P value else emp ).
 
-Opaque LockR.
-#[global] Instance learnLockEq: LearnEq3 (LockR):= ltac:(solve_learnable).
 
-(* eliminate a Step.committer in context *)
-Ltac useCommitter :=
-  work;
-  (rewrite -wp_shift || rewrite <- wp_stmt_shift);
-  unfold Step.committer; (* using the supplied committer is the only way we get the *)
-  rewrite atomic.aupd_aacc;
-  simpl;
-  unfold atomic.atomic_acc;
-  ego;
-  simpl.
+Opaque LockR.
 Lemma producelaprf: denoteModule module
                   ** lock_spec
                   ** unlock_spec
@@ -1733,11 +1653,8 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
   unfold mpmcRla.
   unfold MPMCLockContentLa.
   misc.slauto.
-  (rewrite -wp_shift || rewrite <- wp_stmt_shift).
-  rewrite atomic_commit_elim.
-  go.
-  unfold commit_acc.
-  go.
+  useAC.
+  progress go.
   ghost.
   go.
   wapply (logicalR_update (stateLoc lpp) (produceFinalState x value)). eagerUnifyU. go.
@@ -2031,4 +1948,3 @@ broad goals:
 - set expectations for concurrent spec
 - rich vocabulary for writing concurrent specs 
 *)
-
