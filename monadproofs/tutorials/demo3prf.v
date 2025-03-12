@@ -23,6 +23,9 @@ Notation bufsize := 256.
 Opaque atomicR.
 Opaque Nat.modulo.
 Existing Instance learn_atomic_val_UNSAFE.
+  (* todo: upstream *)
+  Notation cinvr invId q R:=
+    (as_Rep (fun this:ptr => cinv invId q (this |-> R))).
 
 
 (* TODO: upstream? *)
@@ -89,7 +92,9 @@ Proof.
 Qed.
 
 End QueueModel.
-      
+(* todo : move these to the top of the file *)
+Notation sts_auth := (@sts_auth QueueModel.spsc).
+Notation sts_frag := (@sts_frag QueueModel.spsc).
 
 Module t1.
 Section with_Sigma.
@@ -99,11 +104,6 @@ Section with_Sigma.
   Context {hssslz: fracG (list Z) _}.
   Context {hsssln: fracG N _}.
   Context `{sss: !stsG (QueueModel.spsc)}.
-
-  (* todo: upstream *)
-  Notation cinvr invId q R:=
-    (as_Rep (fun this:ptr => cinv invId q (this |-> R))).
-
   
 (* roles of logical locations:
  - track info not in c++ variables, e.g. progress towards an op (typicall more abstract that program counter)
@@ -161,6 +161,7 @@ Definition ConsumerR (cid: spscid) (P: Z -> mpred) (numConsumed:N): Rep :=
     ** pureR (inConsumeLoc cid |--> logicalR (1/2) false)
     ** pureR (numConsumedLoc cid |--> logicalR (1/2) numConsumed).
 
+(** e.g. P := fun v:Z => packetArrP.["Packet" ! v] |-> PacketR 1 nwPacket *) 
 cpp.spec "SPSCQueue::produce(int)" as produceqw with (fun (this:ptr)=>
   \arg{value} "value" (Vint value)
   \pre{(lpp: spscid) (produced: list Z) (P: Z -> mpred)}
@@ -219,6 +220,15 @@ Qed.
 Hint Resolve ownhalf_combineF : br_opacity.
 Hint Resolve ownhalf_splitC : br_opacity.
  *)
+Ltac renValAtLoc' loc name:=
+  IPM.perm_left ltac:( fun L _ =>
+    match L with
+    | loc |--> logicalR _ ?v =>
+        rename v into name
+    end).
+Tactic Notation "renValAtLoc" open_constr(loc) "into" ident(name) :=
+  renValAtLoc' loc name.
+
 Remove Hints ownhalf_combineF: br_opacity.
 Lemma produceqprf: denoteModule module
                   ** uint_store_spec
@@ -230,11 +240,8 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
   unfold ProducerR. go.
   unfold SPSCInv. go.
   callAtomicCommitCinv.
-  IPM.perm_left ltac:( fun L _ =>
-    match L with
-    | inProduceLoc _ |--> logicalR _ ?v =>
-        rename v into inProduceAtLoadHead
-    end)... (* inProduceAtLoadHead must be false because of \pre, imp: mentioned in array cell ownership *)
+  renValAtLoc (inProduceLoc _) into inProduceAtLoadHead...
+  (* inProduceAtLoadHead must be false because of \pre, imp: mentioned in array cell ownership *)
   Hint Resolve ownhalf_combineF: br_opacity.
   go... (* substituted by false everywhere, 0 *)
   ren_hyp producedL (list Z).
@@ -242,7 +249,8 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
   normalize_ptrs. go.
   pose proof (spsc_mod_iff1 (lengthN producedL) numConsumed false v ltac:(auto)).
   (* now we already know whether queue is full *)
-  destruct (decide (lengthZ producedL = (numConsumed + (bufsize-1))))...
+  destruct (decide (lengthZ producedL
+                    = (numConsumed + (bufsize-1))))...
   { (* overflow . TODO: move the load of tail up so that both cases can share more proof *)
     closeCinvqs.
     go.
@@ -309,15 +317,17 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     
     (* tail.store ((1+oldTail))%cap *)
     callAtomicCommitCinv.
-    IPM.perm_left ltac:( fun L _ =>
-    match L with
-    |  producedListLoc _ |--> logicalR _ ?v =>
-        rename v into producedL
-    end).
+    renValAtLoc (producedListLoc _) into producedL.
     
     go... (* physical loc (tail) updated. update logical locs and close inv *)
-    wapply (logicalR_update (inProduceLoc lpp) false). eagerUnifyU. go.
-    wapply (logicalR_update (producedListLoc lpp) (producedL++[value])). eagerUnifyU. go.
+    wapply (logicalR_update
+              (inProduceLoc lpp)
+              false).
+    eagerUnifyU. go.
+    wapply (logicalR_update
+              (producedListLoc lpp)
+              (producedL++[value])).
+    eagerUnifyU. go.
     closeCinvqs.
     go.
     slauto.
@@ -472,17 +482,19 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
 
 cpp.spec "SPSCQueue::consume(int&)" as consumeqw2 with (fun (this:ptr)=>
   \arg{valuep} "value" (Vptr valuep)
-  \pre{(lpp: spscid) (P: Z -> mpred) (numConsumed: N) } this |-> ConsumerR lpp P numConsumed
+  \pre{(lpp: spscid) (P: Z -> mpred) (numConsumed: N) }
+    this |-> ConsumerR lpp P numConsumed
   \pre [| Timeless1 P |]
   \pre valuep |-> anyR "int" 1
   \pre{numProducedCurrent:N} emp
   \post{retb} [Vbool retb]
-    [| if decide (numConsumed < numProducedCurrent) then retb =true else Logic.True |] **
-    if retb
-    then this |-> ConsumerR lpp P (1+numConsumed)
-         ** Exists consumev:Z, valuep |-> primR "int" 1 consumev ** P consumev
-    else valuep |-> anyR "int" 1
-         ** this |-> ConsumerR lpp P numConsumed).
+    [| if decide (numConsumed < numProducedCurrent)
+       then retb =true else Logic.True |]
+    ** if retb
+       then this |-> ConsumerR lpp P (1+numConsumed)
+            ** Exists consumev:Z, valuep |-> primR "int" 1 consumev ** P consumev
+       else valuep |-> anyR "int" 1
+            ** this |-> ConsumerR lpp P numConsumed).
 
 cpp.spec "SPSCQueue::consume(int&)" as consumeq3 with (fun (this:ptr)=>
   \arg{valuep} "value" (Vptr valuep)
@@ -492,19 +504,20 @@ cpp.spec "SPSCQueue::consume(int&)" as consumeq3 with (fun (this:ptr)=>
   (* despite ∃, the value remains constant during the call unless the callee chooses to change it *)
   \pre{numProducedLb:N} emp (* numProducedLb <= number of items produced so far *)
   \post{retb} [Vbool retb]
-    [| if decide (numConsumed < numProducedLb) then retb =true else Logic.True |] **
-    if retb
-    then this |-> ConsumerR lpp P (1+numConsumed)
-         ** Exists consumev:Z, valuep |-> primR "int" 1 consumev ** P consumev
-    else valuep |-> anyR "int" 1
-         ** this |-> ConsumerR lpp P numConsumed).
+    [| if decide (numConsumed < numProducedLb) then retb =true else Logic.True |]
+    ** if retb
+       then this |-> ConsumerR lpp P (1+numConsumed)
+            ** Exists consumev:Z, valuep |-> primR "int" 1 consumev ** P consumev
+       else valuep |-> anyR "int" 1
+            ** this |-> ConsumerR lpp P numConsumed).
 
 cpp.spec "SPSCQueue::consume(int&)" as consumeq2 with (fun (this:ptr)=>
   \arg{valuep} "value" (Vptr valuep)
-  \pre{(lpp: spscid) (P: Z -> mpred) (numConsumed: N) } this |-> ConsumerR lpp P numConsumed
+  \pre{(lpp: spscid) (P: Z -> mpred) (numConsumed: N) }
+    this |-> ConsumerR lpp P numConsumed
   \pre [| Timeless1 P |]
   \pre valuep |-> anyR "int" 1
-  (* despite ∃, the value remains constant during the call unless the callee chooses to change it *)
+  (* despite ∃, producedL constant during the call unless the callee chooses to change it *)
   \pre{numProducedLb:N} ∃ (producedL: list Z),
           (producedListLoc lpp |--> logicalR (1/4) producedL)
           ** [| numProducedLb < length producedL  |]
@@ -534,15 +547,12 @@ Section with_Sigma.
   Context {hsssb: fracG bool _}.
   Context `{sss: !stsG (QueueModel.spsc)}.
 
-  (* todo: upstream *)
-  Notation cinvr invId q R:=
-    (as_Rep (fun this:ptr => cinv invId q (this |-> R))).
 
 Locate "|-->".
 Check @own.
 Print cmra. (** Commutative Monoid Resource Algebra *)
 Check @logicalR.
-
+Check frac.fracR.
 (** Iris: Monoids and Invariants as an Orthogonal Basis for Concurrent Reasoning
 Monoids and Invariants are all you need.
 *)
@@ -562,28 +572,7 @@ stepRel: State -> Token ->  State -> Prop
 
 Import sts.
 Import QueueModel.
-Print sts.car.
-Compute (state spsc).
-
-(* todo : move these to the top of the file *)
-Notation sts_auth := (@sts_auth spsc).
-Notation sts_frag := (@sts_frag spsc).
-
-Lemma closed_if (S: states spsc) (mytoks: tokens spsc):
-  (∀ s1 s2 otherTok, otherTok ∉ mytoks → s1 ∈ S → step s1 otherTok s2 ->  s2 ∈ S)
-  -> closed S mytoks.
-Proof.
-  clear.
-  intros Hp.
-  apply closed_iff.
-  intros.
-  hnf in H1.
-  forward_reason.
-  hnf in H1l.
-  forward_reason.
-  specialize (Hp s1 s2 role ltac:(set_solver) ltac:(set_solver) ltac:(auto)).
-  auto.
-Qed.
+Print sts.car. (* After [step] *)
   
 (* in prev cinv:
    (inConsumeLoc cid |--> logicalR (1/2) inConsume)
@@ -643,6 +632,23 @@ Example update_lloc_unprovable (g:gname) :
    g |--> sts_auth {| produced:= [];  numConsumed :=0 |}  ⊤.
 Abort.
 
+(* TODO: move and generalize *)
+Lemma closed_if (S: states spsc) (mytoks: tokens spsc):
+  (∀ s1 s2 otherTok, otherTok ∉ mytoks → s1 ∈ S → step s1 otherTok s2 ->  s2 ∈ S)
+  -> closed S mytoks.
+Proof.
+  clear.
+  intros Hp.
+  apply closed_iff.
+  intros.
+  hnf in H1.
+  forward_reason.
+  hnf in H1l.
+  forward_reason.
+  specialize (Hp s1 s2 role ltac:(set_solver) ltac:(set_solver) ltac:(auto)).
+  auto.
+Qed.
+  
 (* stable is formalized as closed *)
 Lemma closedb lp nc : closed {[ s : state spsc | lp <= lengthN (produced s) /\ nc<= numConsumed s ]} ∅.
 Proof using.
@@ -775,7 +781,7 @@ Proof using.
 Qed.
   
 
-(** example of frag: *)
+(** example of frag:
 Example gen_frag2 g:
   (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} {[ Producer ]}) |--
   (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} ∅)
@@ -788,6 +794,7 @@ Proof using.
   split; auto.
   apply closed2.
 Qed.
+ *)
 
 Example gen_frag3 g:
   (g |--> sts_auth {| produced:= [9;8]; numConsumed :=1 |} {[ Producer ]}) |--
@@ -795,17 +802,25 @@ Example gen_frag3 g:
   ** (g |--> sts_frag {[ s | produced s =  [9;8] ]} {[ Producer ]})
   ** (g |--> sts_frag {[ s | 2<= lengthN (produced s) /\ 1<= numConsumed s ]} ∅).
 Proof using.
-  rewrite gen_frag2.
   rewrite -> gen_frag_out_of_thin_air at 1.
   go.
+  rewrite auth_frag_together2.
+  go.
+  rewrite -> elem_of_PropSet. simpl.
+  iPureIntro.
+  split; auto.
+  apply closed2.
 Qed.
 
+
+Open Scope bi_scope.
 Example consumer_open_cinv g s:
   (g |--> sts_auth s ∅)
-  ** (g |--> sts_frag {[ s | numConsumed s  =  1%N ]} {[ Consumer ]})
-  ** (g |--> sts_frag {[ s | 2<= lengthN (produced s) /\ 1<= numConsumed s ]} ∅)
-  |--
-    (g |--> sts_auth s {[ Consumer ]}) ** [| numConsumed s = 1%N /\ 2<= lengthN (produced s)|].
+  ∗ (g |--> sts_frag {[ s | numConsumed s  =  1%N ]} {[ Consumer ]})
+  ∗ (g |--> sts_frag {[ s | 2<= lengthN (produced s) /\ 1<= numConsumed s ]} ∅)
+  ⊢
+    (g |--> sts_auth s {[ Consumer ]})
+    ∗ [| numConsumed s = 1%N /\ 2<= lengthN (produced s)|].
 Proof using.
   rewrite frag_frag_combine.
   go.
@@ -820,10 +835,11 @@ Qed.
 
 (* update during the store to head in consumer, before closing inv *)
 Example consumer_upd g s (learned: numConsumed s = 1%N /\ 2<= length (produced s)):
-  (g |--> sts_auth s {[ Consumer ]}) |-- |==>
   (g |--> sts_auth
-            {| produced := produced s;
-               numConsumed := 2 |}
+            s
+            {[ Consumer ]}) |-- |==>
+  (g |--> sts_auth
+            {| produced := produced s; numConsumed := 2 |}
             {[ Consumer ]}).
 Proof using.
   intros.
@@ -868,6 +884,7 @@ Proof using.
   }
 Qed.
 
+(*
 Example e2 (g:gname) : mpred :=
   g |--> sts_frag
           {[ s | numConsumed s = 0%N ]} (* produced can be anything *)
@@ -996,6 +1013,7 @@ Proof using.
   iPureIntro.
   eauto.
 Qed.
+ *)
 
 Import t1.
   Record spscid :=
@@ -1031,7 +1049,14 @@ Definition SPSCInv2 (cid: spscid) (P: Z -> mpred) : Rep :=
     (* ownership of inactive cells *)
     ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFreeSlotsInCinv)),  _field "SPSCQueue::buffer_".["int" ! (numProducedAll + i) `mod` bufsize ] |-> anyR "int" 1)
     ** _field "SPSCQueue::buffer_".[ "int" ! bufsize ] |-> validR .
-  *)
+    *)
+
+  (* TODO: move to top *)
+  Notation "[0 ,.., n ]" := (seqN 0 (Z.to_N n)).
+  Example simplList {T} (P: Z-> T-> mpred) (a b c: T):
+    ([∗ list] i ↦ v ∈ [a;b;c], P i v)%I |-- P 0 a ** P 1 b ** P 2 c.
+  Proof. go. Qed.
+  
 Definition SPSCInv (cid: spscid) (P: Z -> mpred) : Rep :=
   Exists (s: State) (inProduce inConsume: bool),
     let producedL := produced s in
@@ -1043,19 +1068,20 @@ Definition SPSCInv (cid: spscid) (P: Z -> mpred) : Rep :=
     let numFreeSlotsInCinv: Z := (bufsize- numConsumable - boolZ inProduce) in
     let currItems := dropN (Z.to_N numConsumedAll) producedL in
     pureR (inProduceLoc cid |--> logicalR (1/2) inProduce)
-       (* actual capacity is 1 less than bufsize (the size of the array) because we need to distinguish empty and full *)
     ** [| numConsumedAll <= numProduced /\ numProducedAll - numConsumed <= bufsize - 1 |]
     ** pureR (inConsumeLoc cid |--> logicalR (1/2) inConsume)
-    ** pureR (stsLoc cid |--> sts_auth s ∅ )
+    ** pureR (stsLoc cid |--> sts_auth s ∅) (* no tokens *) 
     ** _field "SPSCQueue::head_" |-> atomicR uint 1 (numConsumed `mod` bufsize)
     ** _field "SPSCQueue::tail_" |-> atomicR uint 1 (numProduced `mod` bufsize)
     **
     (* ownership of active cells *)
-    ([∗ list] i↦  item ∈ currItems,
-      pureR (P item) **
-      _field "SPSCQueue::buffer_".["int" ! ((numConsumedAll + i) `mod` bufsize)] |-> primR "int"  1 (Vint item))
+      ([∗ list] i↦ item ∈ currItems, pureR (P item)
+          ** _field "SPSCQueue::buffer_".["int" ! ((numConsumedAll + i) `mod` bufsize)]
+              |-> primR "int"  1 (Vint item))
     (* ownership of inactive cells *)
-    ** ([∗ list] i↦  _ ∈ (seqN 0 (Z.to_N numFreeSlotsInCinv)),  _field "SPSCQueue::buffer_".["int" ! (numProducedAll + i) `mod` bufsize ] |-> anyR "int" 1)
+    ** ([∗ list] i ↦ _ ∈ [0,..,numFreeSlotsInCinv],
+         _field "SPSCQueue::buffer_".["int" ! (numProducedAll + i) `mod` bufsize ]
+            |-> anyR "int" 1)
     ** _field "SPSCQueue::buffer_".[ "int" ! bufsize ] |-> validR.
 
 (*
@@ -1067,32 +1093,32 @@ Definition ProducerR (cid: spscid) (P: Z -> mpred) (produced: list Z): Rep :=
 
 Definition ProducerR (cid: spscid) (P: Z -> mpred) (producedL: list Z): Rep :=
   cinvr (invId cid) (1/2) (SPSCInv cid P)
-    ** pureR (inProduceLoc cid |--> logicalR (1/2) false)
-    ** pureR (stsLoc cid |--> sts_frag {[ s | produced s = producedL ]} {[ Producer ]}). (** equiv *)
+  ∗ pureR (inProduceLoc cid |--> logicalR (1/2) false)
+  ∗ pureR (stsLoc cid |--> sts_frag {[s | produced s = producedL]} {[ Producer ]}). (* ^ *)
 
 Definition ConsumerR (cid: spscid) (P: Z -> mpred) (nmConsumed:N): Rep :=
   cinvr (invId cid) (1/2) (SPSCInv cid P)
-    ** pureR (inConsumeLoc cid |--> logicalR (1/2) false)
-    ** pureR (stsLoc cid |--> sts_frag {[ s | nmConsumed = numConsumed s ]} {[ Consumer ]}).
+  ∗ pureR (inConsumeLoc cid |--> logicalR (1/2) false)
+  ∗ pureR (stsLoc cid |--> sts_frag {[s | nmConsumed = numConsumed s]} {[Consumer]}).
 
-cpp.spec "SPSCQueue::consume(int&)" as consumeqw with (fun (this:ptr)=>
+cpp.spec "SPSCQueue::consume(int&)" as consumests with (fun (this:ptr)=>
   \arg{valuep} "value" (Vptr valuep)
-  \pre{(lpp: spscid) (P: Z -> mpred) (numConsumed: N) }
-    this |-> ConsumerR lpp P numConsumed
+  \pre{(lpp: spscid) (P: Z -> mpred) (nConsumed: N) }
+    this |-> ConsumerR lpp P nConsumed
   \pre{numProducedLb: N}
     stsLoc lpp |--> sts_frag {[ s | numProducedLb <= lengthZ (produced s)]} ∅
 
   \pre [| Timeless1 P |]
   \pre valuep |-> anyR "int" 1
   \post{retb:bool} [Vbool retb]
-    [| if decide (numConsumed < numProducedLb) then retb =true else Logic.True |] **
+    [| if decide (nConsumed < numProducedLb) then retb =true else Logic.True |] **
     if retb
-    then this |-> ConsumerR lpp P (1+numConsumed)
+    then this |-> ConsumerR lpp P (1+nConsumed)
          ** Exists consumev:Z, valuep |-> primR "int" 1 consumev ** P consumev
     else valuep |-> anyR "int" 1
-         ** this |-> ConsumerR lpp P numConsumed).
+         ** this |-> ConsumerR lpp P nConsumed).
 
-cpp.spec "SPSCQueue::produce(int)" as produceqw with (fun (this:ptr)=>
+cpp.spec "SPSCQueue::produce(int)" as producests with (fun (this:ptr)=>
   \arg{value} "value" (Vint value)
   \pre{(lpp: spscid) (P: Z -> mpred) (produced: list Z)}
             this |-> ProducerR lpp P produced
@@ -1110,6 +1136,7 @@ Definition combineAuthFragFwd:= [FWD->](@auth_frag_together2).
 Hint Resolve combineAuthFragFwd: br_opacity.
 Hint Rewrite @elem_of_PropSet: iff.
 
+(* TODO: upstream *)
 Ltac bwdRev L :=
   wapplyRev L; last (iSplitFrameL; [| iIntrosDestructs; eagerUnifyC ; maximallyInstantiateLhsEvar_nonpers]).
 
@@ -1134,6 +1161,7 @@ Qed.
 Definition close_invstsg_C := [CANCEL] auth_close_inv_producer. 
 Hint Resolve close_invstsg_C: br_opacity.
 
+(* TODO move up *)
 Lemma spsc_mod_iff1 (s:State) bl bc:
   let len := lengthN (produced s) in
   (numConsumed s + boolZ bc <= len /\ len + boolZ bl  - numConsumed s <= bufsize - 1) ->
@@ -1156,16 +1184,20 @@ Proof using.
   lia.
 Qed.
 
+(* TODO: upstream *)
   Ltac hideEmptyTokenFrag :=
   IPM.perm_left ltac:(fun L n =>
                         match L with
                         | _ |--> sts_frag ?S ∅ => hideFromWork L
                         end
                      ).
+(* TODO: upstream *)
 #[global] Instance ll g s1 s2 t1 t2: Learnable (g |--> sts_auth s1 t1) (g |--> sts_auth s2 t2) [s1=s2]
                                                    := ltac:(solve_learnable).
-      Ltac closedN := closed.norm closed.numeric_types .
+(* TODO: upstream *)
+Ltac closedN := closed.norm closed.numeric_types .
 
+(* TODO: upstream *)
 Lemma hideWandL (L C: mpred) E:
   (forall  (Lh:mpred), Hide.Hidden (Lh=L) ->  environments.envs_entails E (Lh -* C)) -> environments.envs_entails E (L -* C).
   intros Hl.
@@ -1175,6 +1207,7 @@ Lemma hideWandL (L C: mpred) E:
   reflexivity.
 Qed.
 
+(* TODO: upstream *)
 Lemma hideDuplWandL (L C: mpred) E:
   (L|--L**L) ->
   (forall  (Lh:mpred), Hide.Hidden (Lh=L) ->  environments.envs_entails E (Lh ** L -* C)) -> environments.envs_entails E (L -* C).
@@ -1186,19 +1219,13 @@ Lemma hideDuplWandL (L C: mpred) E:
   reflexivity.
 Qed.
 
+(* TODO: upstream *)
 Lemma forget_empty_frag (g: gname) S:
   (g |--> sts_frag S ∅) |-- (emp:mpred).
 Proof using Sigma. apply lose_resources. Qed.
 
-(*
-Ltac hideDuplFrag :=
-  IPM.perm_left ltac:(fun L n =>
-                        match L with
-                        | _ |--> sts_frag _ ∅  => iRevert n
-                        end
-                     );
-  apply hideDuplWandL; try apply: frag_dupl.
-*)
+
+(* TODO: upstream *)
 Arguments cinvq {_} {_} {_} {_} {_} {_} {_}.
 
 Set Default Goal Selector "!".
@@ -1206,7 +1233,7 @@ Set Default Goal Selector "!".
 Lemma produceqprf: denoteModule module
                   ** uint_store_spec
                   ** uint_load_spec
-                  |-- produceqw.
+                  |-- producests.
 Proof using MODd with (fold cQpc; normalize_ptrs).
   verify_spec'.
   slauto.
@@ -1225,7 +1252,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
   { (* overflow . TODO: move the load of tail up so that both cases can share more proof *)
     closeCinvqs.
     go.
-    ego...
+    ego. normalize_ptrs.
     go.
     iModIntro.
     go.
@@ -1249,7 +1276,7 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     go.
     wapply (logicalR_update (inProduceLoc lpp) true). eagerUnifyU. go.
     closeCinvqs.
-    go...
+    go. normalize_ptrs.
     go.
     IPM.perm_left ltac:(fun L n =>
       match L with
@@ -1360,19 +1387,40 @@ Hint Resolve close_invstsgc_C: br_opacity.
 
 Ltac callAtomicCommitCinv := misc.callAtomicCommitCinv;  try rewrite -> elem_of_PropSet in *.
 
+(* TODO: move up *)
+Ltac renValAtLoc' loc name:=
+  IPM.perm_left ltac:( fun L _ =>
+    match L with
+    | loc |--> logicalR _ ?v =>
+        rename v into name
+    | loc |--> sts_auth ?v _ =>
+        rename v into name
+    end).
+Tactic Notation "renValAtLoc" open_constr(loc) "into" ident(name) :=
+  renValAtLoc' loc name.
+
+Remove Hints combineAuthFragFwd: br_opacity.
 Lemma consumeqprf: denoteModule module
                   ** uint_store_spec
                   ** uint_load_spec
-                  |-- consumeqw.
+                  |-- consumests.
 Proof using MODd with (fold cQpc; normalize_ptrs).
   verify_spec'.
   slauto.
   unfold ConsumerR. go.
   unfold SPSCInv. go.
   callAtomicCommitCinv.
+  renValAtLoc (stsLoc _) into sAtLoad.
+  Search sAtLoad.
+  (* 2 frags *)
+  Hint Resolve combineAuthFragFwd: br_opacity.
+  go.
+  rewrite -> elem_of_PropSet in *.
+  Search sAtLoad.
+  (* the main use of frag is to constrain the auth *)
+  (* token gets deposited in auth, we get 2 facts *)
   ren_hyp slh State.
-  progress normalize_ptrs. go.
-  rename numConsumed into nmConsumed.
+  normalize_ptrs. go.
   destruct (decide (lengthZ (produced slh) = (numConsumed slh))).
   { (* queue is empty: exact same proof as before  *)
     closeCinvqs.
@@ -1389,14 +1437,23 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
     name_locals.
     destructStates. simpl in *.
     repeat rewrite -> forget_empty_frag.
-    slauto.
-    case_decide; auto;    try Arith.arith_solve.
+    slauto... (* cannot fail if lb *)
+    case_decide; auto.
+    apply False_rect.
+    revert H.
+    fold (not (numConsumed0 < numProducedLb)).
+    apply Zge_not_lt.
+    nia. (* too many variables: each time we open invariant *)
   }
   {
+    (*
+Remove Hints close_invstsgc_C: br_opacity.
+Hint Resolve close_invstsgc_C: br_opacity.
+*)
     go.
     wapply (logicalR_update (inConsumeLoc lpp) true). eagerUnifyU. go.
     closeCinvqs.
-    go...
+    go. normalize_ptrs.
     go.
     autorewrite with syntactic.
     rewrite Z2N.inj_add; try nia.
@@ -1447,7 +1504,6 @@ Proof using MODd with (fold cQpc; normalize_ptrs).
       [ |- context[((Z.to_N (Z.of_N ?v + 1)))]] =>
         replace ((Z.to_N (Z.of_N v + 1))) with (1 + v)%N by lia
     end.
-(*    replace ((Z.to_N (Z.of_N _v_4 + 1))) with (1 + _v_4)%N by lia. *)
     repeat rewrite _at_big_sepL.
     icancel (@big_sepL_mono).
     {
@@ -1610,11 +1666,12 @@ cpp.spec "MPMCQueue::produce(int)" as mpmcproduceseq with (fun (this:ptr)=>
      (if decide (full s) then P value else emp)
      ** (stateLoc lpp |--> logicalR (1/2) (produceFinalState s value))).
 
-(* SL: what is in the current state.
+(** SL: what is in the current state.
    extensional:
-     how you use atomic updates to physical locations.
-     this spec gives you the same power for logical locations
-   []
+     the reasoning principle for physically atomic updates
+     is made available for logical locations
+
+   Quiz: what special reasoning does a physically atomic op allow?
  *)
 cpp.spec "MPMCQueue::produce(int)" as mpmcproducela with (fun (this:ptr)=>
   \arg{value} "value" (Vint value)
@@ -1803,6 +1860,21 @@ Qed.
 End with_Sigma.
 End stsSpsc.
 (* TODO:
+emacs reduce font shortcut. and reduce a bit in docker.
+compare speed in m vs docker
+cleanup proofs: lpp -> cid
+sts_auth --> sauth
+frag
+SPSCQueue --> SPSC
+buffer_ --> buf
+** -> *
+|-- -> ⊢
+just before tut: comment out proofs that are not planned to show
+
+make the proofs earlier in file faster, in case accidental rewind happens
+investigate why company-coq does not autocomplete lemma names. the dockerbins coqtop script has the name of the /tmp file coq uses
+
+
 proof of consume
 
 animation of resource transfer of SPSCqueue. emphasize how the picture is trickly to encode in logic. ask GPT to draw a circular Q tikz. then nmanually add overlays
