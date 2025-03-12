@@ -75,4 +75,4 @@ Ltac hideLoc l :=
 Notation cinv := (cinvq (nroot .@@ "::demo2")).
 Notation cinvr invId q R:=
   (as_Rep (fun this:ptr => cinv invId q (this |-> R))).
-Opaque coPset_difference. (* delete? already in misc.v *)
+#[global]Opaque coPset_difference. (* delete? already in misc.v make sure that one is global too*)
