@@ -98,11 +98,11 @@ void log_tps(
         monad_procfs_self_resident() / (1L << 20));
 };
 
-void parseCodeHashes(std::unordered_map<Address, bytes32_t> &code_hashes) {
-    std::ifstream file("/home/abhishek/contracts0m/hashes.txt");
+void parseCodeHashes(std::unordered_map<Address, bytes32_t> &code_hashes, const std::string &file_path) {
+    std::ifstream file(file_path);
     
     if (!file.is_open()) {
-        LOG_ERROR("Could not open code hashes file");
+        LOG_ERROR("Could not open code hashes file: {}", file_path);
         return;
     }
 
@@ -185,11 +185,26 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     uint64_t ntxs = 0;
 
     CalleePredInfo cinfo;
-    parseCodeHashes(cinfo.code_hashes);
-    cinfo.epool.deserialize("/home/abhishek/contracts5m/epool.bin");
-    unserializePredictions(cinfo.predictions, "/home/abhishek/contracts5m/predictions.bin");
-    // printPredictions(cinfo.epool, cinfo.predictions, "predictions.txt");
-    // std::terminate();
+
+    // Use the environment variable, or fallback if it's not set:
+    const char* envDir = std::getenv("STATIC_ANALYSIS_DIR");
+    if (!envDir) {
+        std::cout << "STATIC_ANALYSIS_DIR is not set" << std::endl;
+        std::terminate();
+        // envDir = "/home/abhishek/contracts5m";
+    }
+
+    // Construct the paths based on the environment variable (or fallback)
+    auto codeHashesFile = std::string(envDir) + "/hashes.txt";
+    auto ePoolFile      = std::string(envDir) + "/epool.bin";
+    auto predictionsFile= std::string(envDir) + "/predictions.bin";
+
+    // Call parseCodeHashes with the path from environment variable
+    parseCodeHashes(cinfo.code_hashes, codeHashesFile);
+    
+    // Deserialize epool and predictions using environment-based paths
+    cinfo.epool.deserialize(ePoolFile);
+    unserializePredictions(cinfo.predictions, predictionsFile);
     
     uint64_t const end_block_num =
         (std::numeric_limits<uint64_t>::max() - block_num + 1) <= nblocks
