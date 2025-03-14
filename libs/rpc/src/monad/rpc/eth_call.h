@@ -57,7 +57,7 @@ typedef struct monad_eth_call_result
 void monad_eth_call_result_release(monad_eth_call_result *);
 
 struct monad_eth_call_executor *
-monad_eth_call_executor_create(unsigned num_fibers, char const *dbpath);
+monad_eth_call_executor_create(unsigned const num_threads, unsigned const num_fibers, char const *dbpath);
 
 void monad_eth_call_executor_destroy(struct monad_eth_call_executor *);
 

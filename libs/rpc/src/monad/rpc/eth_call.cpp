@@ -367,8 +367,14 @@ struct monad_eth_call_executor
 {
     using BlockHashCache = static_lru_cache<uint64_t, bytes32_t>;
 
-    using DbGetPromise =
-        boost::fibers::promise<std::variant<byte_string, std::string>>;
+    using DbGetVariant = std::variant<byte_string, bytes32_t, std::string>;
+    using DbGetPromise = boost::fibers::promise<DbGetVariant>;
+    using DbGetFuture = boost::fibers::future<DbGetVariant>;
+
+    struct DbGetResult {
+        uint64_t block_num;
+        DbGetFuture fut;
+    };
 
     fiber::PriorityPool pool_;
 
@@ -385,8 +391,9 @@ struct monad_eth_call_executor
     std::optional<uint64_t> last_block_number_{};
 
     monad_eth_call_executor(
+        unsigned const num_threads,
         unsigned const num_fibers, std::string const &triedb_path)
-        : pool_{1, num_fibers}
+        : pool_{num_threads, num_fibers}
     {
         std::vector<std::filesystem::path> paths;
         if (std::filesystem::is_directory(triedb_path)) {
@@ -453,18 +460,22 @@ struct monad_eth_call_executor
     std::shared_ptr<BlockHashBufferFinalized const>
     create_blockhash_buffer(uint64_t const block_number)
     {
+        auto db_results = std::vector<DbGetResult>();
+
         if (!last_block_number_ || *last_block_number_ != block_number) {
             last_buffer_.reset(new BlockHashBufferFinalized{});
             BlockHashCache::ConstAccessor acc;
             for (uint64_t b = block_number < 256 ? 0 : block_number - 256;
                  b < block_number;
                  ++b) {
+                auto const promise = std::make_shared<DbGetPromise>();
+
                 if (blockhash_cache_.find(acc, b)) {
-                    last_buffer_->set(b, acc->second->val);
+                    promise->set_value(acc->second->val);
+                    db_results.emplace_back(b, promise->get_future());
                     continue;
                 }
 
-                auto const promise = std::make_shared<DbGetPromise>();
                 pool_.submit(0, [db = db_, b = b, promise = promise] {
                     auto const h = db->get(
                         mpt::concat(
@@ -479,15 +490,22 @@ struct monad_eth_call_executor
                             std::string{h.error().message().c_str()});
                     }
                 });
-                auto const header_result = promise->get_future().get();
+                db_results.emplace_back(b, promise->get_future());
+            }
 
+            for (auto& r: db_results) {
+                uint64_t b = r.block_num;
+                auto const header_result = r.fut.get();
                 if (auto const header = std::get_if<0>(&header_result)) {
                     auto const h = to_bytes(keccak256(*header));
                     last_buffer_->set(b, h);
                     blockhash_cache_.insert(b, h);
                 }
+                else if (auto const header_bytes = std::get_if<1>(&header_result)) {
+                    last_buffer_->set(b, *header_bytes);
+                }
                 else {
-                    auto const err = std::get<1>(header_result);
+                    auto const err = std::get<2>(header_result);
                     LOG_WARNING(
                         "Could not query block header {} from TrieDb -- {}",
                         b,
@@ -599,13 +617,14 @@ struct monad_eth_call_executor
 };
 
 monad_eth_call_executor *monad_eth_call_executor_create(
+    unsigned const num_threads,
     unsigned const num_fibers, char const *const dbpath)
 {
     MONAD_ASSERT(dbpath);
     std::string const triedb_path{dbpath};
 
     monad_eth_call_executor *const e =
-        new monad_eth_call_executor(num_fibers, triedb_path);
+        new monad_eth_call_executor(num_threads, num_fibers, triedb_path);
 
     return e;
 }
