@@ -7,7 +7,9 @@
 
 #include <boost/fiber/context.hpp>
 
-#include <oneapi/tbb/concurrent_priority_queue.h>
+#include <mutex>
+#include <queue>
+#include <vector>
 
 MONAD_FIBER_NAMESPACE_BEGIN
 
@@ -15,13 +17,15 @@ using boost::fibers::context;
 
 class PriorityQueue final
 {
+    mutable std::mutex mutex_{};
+
     struct Compare
     {
         static constexpr uint64_t get_priority(context const *const ctx)
         {
             auto const *const properties =
                 static_cast<PriorityProperties const *>(ctx->get_properties());
-            MONAD_ASSERT(properties); // TODO debug assert
+            MONAD_ASSERT(properties);
             return properties->get_priority();
         }
 
@@ -32,7 +36,7 @@ class PriorityQueue final
         }
     };
 
-    oneapi::tbb::concurrent_priority_queue<context *, Compare> queue_;
+    std::priority_queue<context *, std::vector<context *>, Compare> queue_;
 
 public:
     bool empty() const;
