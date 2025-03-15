@@ -464,34 +464,21 @@ struct monad_eth_call_executor
                     continue;
                 }
 
-                auto const promise = std::make_shared<DbGetPromise>();
-                pool_.submit(0, [db = db_, b = b, promise = promise] {
-                    auto const h = db->get(
-                        mpt::concat(
-                            FINALIZED_NIBBLE,
-                            mpt::NibblesView{block_header_nibbles}),
-                        b);
-                    if (h.has_value()) {
-                        promise->set_value(byte_string{h.value()});
-                    }
-                    else {
-                        promise->set_value(
-                            std::string{h.error().message().c_str()});
-                    }
-                });
-                auto const header_result = promise->get_future().get();
-
-                if (auto const header = std::get_if<0>(&header_result)) {
-                    auto const h = to_bytes(keccak256(*header));
+                auto const header = db_->get(
+                    mpt::concat(
+                        FINALIZED_NIBBLE,
+                        mpt::NibblesView{block_header_nibbles}),
+                    b);
+                if (header.has_value()) {
+                    auto const h = to_bytes(keccak256(header.value()));
                     last_buffer_->set(b, h);
                     blockhash_cache_.insert(b, h);
                 }
                 else {
-                    auto const err = std::get<1>(header_result);
                     LOG_WARNING(
                         "Could not query block header {} from TrieDb -- {}",
                         b,
-                        err.c_str());
+                        header.error().message().c_str());
                     return nullptr;
                 }
             }
@@ -513,27 +500,16 @@ struct monad_eth_call_executor
 
         monad_eth_call_result *const result = new monad_eth_call_result();
 
-        auto const blk_hash_buffer = create_blockhash_buffer(block_number);
-        if (blk_hash_buffer == nullptr) {
-            result->status_code = EVMC_REJECTED;
-            constexpr auto len = BLOCKHASH_ERR_MSG.size();
-            result->message = new char[len + 1];
-            std::strncpy(result->message, BLOCKHASH_ERR_MSG.data(), len);
-            result->message[len] = 0;
-            complete(result, user);
-            return;
-        }
-
         pool_.submit(
             0,
-            [chain_config = chain_config,
+            [this,
+             chain_config = chain_config,
              transaction = txn,
              block_header = block_header,
              block_number = block_number,
              block_round = block_round,
              sender = sender,
              tdb = block_number == last_latest_version_ ? latest_tdb_ : tdb_,
-             block_hash_buffer = blk_hash_buffer,
              result = result,
              complete = complete,
              user = user,
@@ -552,6 +528,17 @@ struct monad_eth_call_executor
 
                 evmc_revision const rev = chain->get_revision(
                     block_header.number, block_header.timestamp);
+
+                auto const block_hash_buffer = this->create_blockhash_buffer(block_number);
+                if (block_hash_buffer == nullptr) {
+                    result->status_code = EVMC_REJECTED;
+                    constexpr auto len = BLOCKHASH_ERR_MSG.size();
+                    result->message = new char[len + 1];
+                    memcpy(result->message, BLOCKHASH_ERR_MSG.data(), len);
+                    result->message[len] = 0;
+                    complete(result, user);
+                    return;
+                }
 
                 auto const res = eth_call_impl(
                     *chain,
@@ -594,6 +581,7 @@ struct monad_eth_call_executor
                 }
 
                 complete(result, user);
+                return;
             });
     }
 };
