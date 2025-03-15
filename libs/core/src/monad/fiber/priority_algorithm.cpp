@@ -25,13 +25,21 @@ void PriorityAlgorithm::awakened(
     else {
         ctx->detach();
         rqueue_.push(ctx);
+        recent_ = true;
     }
 }
 
 context *PriorityAlgorithm::pick_next() noexcept
 {
     context *ctx = rqueue_.pop();
+    if (!ctx) {
+        if (!recent_) {
+            std::this_thread::sleep_for(std::chrono::microseconds(10));
+        }
+        recent_ = false;
+    }
     if (MONAD_LIKELY(ctx)) {
+        recent_ = true;
         context::active()->attach(ctx);
     }
     else if (!lqueue_.empty()) {

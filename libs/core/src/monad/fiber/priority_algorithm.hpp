@@ -17,6 +17,8 @@ using boost::fibers::context;
 class PriorityAlgorithm final
     : public boost::fibers::algo::algorithm_with_properties<PriorityProperties>
 {
+    bool recent_{true};
+
     PriorityQueue &rqueue_;
 
     using lqueue_type = boost::fibers::scheduler::ready_queue_type;
