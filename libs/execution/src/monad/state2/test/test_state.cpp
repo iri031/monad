@@ -1420,6 +1420,11 @@ TEST_F(OnDiskTrieDbFixture, proposal_basics)
     EXPECT_EQ(db_cache.read_account(a).value().balance, 40'000);
 }
 
+#if defined(__GNUC__) && !defined(__clang__)
+    #pragma GCC push_options
+    #pragma GCC optimize("-fno-var-tracking-assignments")
+#endif
+
 TEST_F(OnDiskTrieDbFixture, undecided_proposals)
 {
     load_header(this->db, BlockHeader{.number = 9});
@@ -1624,6 +1629,10 @@ TEST_F(OnDiskTrieDbFixture, undecided_proposals)
     ASSERT_TRUE(data_131.has_value());
     EXPECT_EQ(state_root_round_131, to_bytes(data_131.value()));
 }
+
+#if defined(__GNUC__) && !defined(__clang__)
+    #pragma GCC pop_options
+#endif
 
 namespace
 {

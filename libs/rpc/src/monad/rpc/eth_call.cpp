@@ -518,8 +518,8 @@ struct monad_eth_call_executor
             result->status_code = EVMC_REJECTED;
             constexpr auto len = BLOCKHASH_ERR_MSG.size();
             result->message = new char[len + 1];
-            std::strncpy(result->message, BLOCKHASH_ERR_MSG.data(), len);
-            result->message[len] = 0;
+            std::memcpy(result->message, BLOCKHASH_ERR_MSG.data(), len);
+            result->message[len] = '\0';
             complete(result, user);
             return;
         }
