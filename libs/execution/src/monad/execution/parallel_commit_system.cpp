@@ -102,7 +102,7 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
     else {
         status_[myindex].store(TransactionStatus::FOOTPRINT_COMPUTED);
     }
-    /*
+    /* TODO: revive the code below when footprints are commputed AFTER starting transactions.
     // update status_[myindex] from STARTED to FOOTPRINT_COMPUTED, while preserving the _UNBLOCKED part which previous transactions may change concurrently when they notifyDone
     auto current_status = status_[myindex].load();
     // on non-first iterations, current_status comes from the CAS at the end of the previous iteration
@@ -245,7 +245,11 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
 bool ParallelCommitSystem::existsBlockerBefore(txindex_t index) const {
     return uncommited_transactions_with_inf_footprint.contains_any_element_lessthan(index);
     // this assumes that all footprints are declared before starting any transaction.
-    // but if we need to compute footprints lazily, we can fix that by having the ConcurrentTxSet constructor create an all 1 bitset  and then unset bits when a transaction declares a non-INF footprint.
+    // but if we need to compute footprints lazily, we can fix that by having the ConcurrentTxSet constructor create an all 1 
+    //bitset  and then unset bits when a transaction declares a non-INF footprint.
+    // to address proxy contracts, footprints can depend on SLOAD. so those computations need to be done lazily, AFTER starting all transactions in the block.
+    // WAITING_FOR_PREV_TRANSACTIONS can then come BEFORE FOOTPRINT_COMPUTED.
+    // NEED to create a new status: FOOTPRINT_WAITING_FOR_PREV_TRANSACTIONS. rename the current one to TX_WAITING_FOR_PREV_TRANSACTIONS.
 
 }
 
@@ -383,7 +387,7 @@ TODO(aa):
 - check how the priority pool works. if transactions 2,4-45 are running and 3 becomes ready, will it run before 46? 3 should run to get full advantage and reduce retries.
 - use a concurrent min heap to implement existsBlockerBefore in O(1), currently it is O(n). a new field, uncommited_transactions_with_INF_footprint will be added. also use it in transactions_accessing_address_ and highestLowerUncommittedIndexAccessingAddress. 
     notifyDone will then need to delete itself from the heap for all addresses in its footprint. also, if the footprint is null, also delete itself from uncommited_transactions_with_INF_footprint.
-- delay the transfer transactions based on footprint
+- delay the transfer transactions based on footprint: didnt help IIRC. generally, delaying anything is a bad idea. increasing parallelism seems safer.
 - expand compute_footprint in execute_block to support the cases where the preductions were expressions, not just constants. first add support CALLDATA(const)/SENDER/COINBASE. then add binops over them, and maybe CALLDATA(*). 
    need to write a function to interpret callee expressions based on the state accessible in execute_block.
 
