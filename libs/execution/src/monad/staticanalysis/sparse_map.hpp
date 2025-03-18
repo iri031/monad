@@ -25,8 +25,7 @@ public:
             return true;
         }
 
-        if (size_ >= MAX_ENTRIES)
-            return false; // No more space to insert new key
+        assert(size_ < MAX_ENTRIES);
 
         // Insert new key-value pair
         key_to_index_[key] = size_;

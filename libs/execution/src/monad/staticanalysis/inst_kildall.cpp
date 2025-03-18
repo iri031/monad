@@ -1829,6 +1829,11 @@ int main() {
         // Redirect cout to file temporarily
         auto cout_buf = std::cout.rdbuf(outFile.rdbuf());
         
+        outFile<<solver.steps<<std::endl;
+        #if DEBUG_KILDALL
+            solver.parsedBytecode.print();
+        #endif
+        
         const SparseMap<StackValues, MAX_BYTECODESIZE, MAX_BBLOCKS>& result = solver.fixpoint(entryPoint, StackValues());
 
         if (!outFile) {

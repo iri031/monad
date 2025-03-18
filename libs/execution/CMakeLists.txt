@@ -207,5 +207,5 @@ target_link_libraries(
   PUBLIC unordered_dense
   PUBLIC TBB::tbb)
 
-target_compile_options(sanalysis PRIVATE -Ofast)
+target_compile_options(sanalysis PRIVATE -O0)
 target_link_options(sanalysis PRIVATE LINKER:-z,defs)

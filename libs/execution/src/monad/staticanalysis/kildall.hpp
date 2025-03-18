@@ -71,7 +71,7 @@ struct Successors {
     bool includeAllJumpDests{false};
 };
 
-#define DEBUG_KILDALL 0 
+#define DEBUG_KILDALL 1 
 // DataflowSolver class template
 template<typename L, typename NS, typename Semilattice, typename NodeSet, uint16_t MAX_BYTECODESIZE, uint16_t MAX_BBLOCKS, size_t Cutoff>
 class DataflowSolver {
@@ -143,8 +143,11 @@ private:
     // Perform one iteration step
     void step() {
 #if DEBUG_KILDALL
-        std::cout << "\nInitial State:\n";
-        printStateFunction(parsedBytecode, state.aval);
+        //std::cout << "\nInitial State:\n";
+        //printStateFunction(parsedBytecode, state.aval);
+        std::cout << "worklist: ";
+        NodeSet::print(std::cout, state.worklist);
+        std::cout << "\n";
 #endif
 
         NodeID n = NodeSet::pick(state.worklist);
@@ -162,15 +165,17 @@ private:
 
         Successors<Cutoff> succs;
         transfSuccessors(parsedBytecode, n, val, succs);
+        propagate_succ_list(val, succs);
 #if DEBUG_KILDALL
         std::cout << "\nSuccessors of node " << n << ": ";
         for (int i=0; i<succs.succs.size; i++) {
-            std::cout << succs.succs[i] << " ";
+            std::cout << succs.succs[i] << ":";
+            Semilattice::print(std::cout, state.aval.get(succs.succs[i]));
+            std::cout << "\n" << std::flush;
         }
         std::cout << "\n";
 #endif
 
-        propagate_succ_list(val, succs);
         
 #if DEBUG_KILDALL
         std::cout << "\n----------------------------------------\n";
@@ -188,6 +193,11 @@ private:
 
     // Propagate the value to a successor node
     void propagate_succ(const L& out, NodeID n) {
+        if (n==21851) {
+            std::cout << "propagating " << " to " << n << "\n";
+            Semilattice::print(std::cout, out);
+            std::cout << "\n";
+        }
         if (!state.aval.exists(n)) {
             state.aval.insert(n, out);
             NodeSet::add(n, state.worklist);

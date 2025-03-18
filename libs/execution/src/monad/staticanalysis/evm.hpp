@@ -522,8 +522,10 @@ struct ParsedBytecode {
             parseOpcode<MAX_BYTECODESIZE>(insTerm, bytes, offset);
             if (std::holds_alternative<Instruction>(insTerm)) {
                 printInstruction(std::get<Instruction>(insTerm), os);
+                os << std::endl;
             } else {
                 printTerminator(std::get<Terminator>(insTerm), os);
+                os << std::endl;
             }
         }
 
