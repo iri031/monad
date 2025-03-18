@@ -25,6 +25,16 @@ public:
             return true;
         }
 
+        // TODO:delete
+        if(size_ >= MAX_ENTRIES) {
+            for(uint16_t i = 0; i < MAX_KEY; ++i) {
+                if(key_to_index_[i] != std::numeric_limits<uint16_t>::max()) {
+                    std::cout << i << ", ";
+                }
+            }
+            std::cout << "\n";
+        }
+
         assert(size_ < MAX_ENTRIES);
 
         // Insert new key-value pair

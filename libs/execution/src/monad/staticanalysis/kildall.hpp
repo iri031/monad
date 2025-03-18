@@ -193,11 +193,6 @@ private:
 
     // Propagate the value to a successor node
     void propagate_succ(const L& out, NodeID n) {
-        if (n==21851) {
-            std::cout << "propagating " << " to " << n << "\n";
-            Semilattice::print(std::cout, out);
-            std::cout << "\n";
-        }
         if (!state.aval.exists(n)) {
             state.aval.insert(n, out);
             NodeSet::add(n, state.worklist);
