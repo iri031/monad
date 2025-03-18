@@ -3,6 +3,7 @@
 #include <monad/config.hpp>
 #include <monad/core/address.hpp>
 #include <monad/core/bytes.hpp>
+#include <monad/execution/block_hash_function.hpp>
 #include <monad/execution/evm.hpp>
 #include <monad/execution/precompiles.hpp>
 #include <monad/execution/trace/call_tracer.hpp>
@@ -18,12 +19,10 @@
 
 MONAD_NAMESPACE_BEGIN
 
-class BlockHashBuffer;
-
 class EvmcHostBase : public evmc::Host
 {
     evmc_tx_context const &tx_context_;
-    BlockHashBuffer const &block_hash_buffer_;
+    BlockHashFunction const &block_hash_function_;
 
 protected:
     State &state_;
@@ -32,7 +31,7 @@ protected:
 
 public:
     EvmcHostBase(
-        CallTracerBase &, evmc_tx_context const &, BlockHashBuffer const &,
+        CallTracerBase &, evmc_tx_context const &, BlockHashFunction const &,
         State &, size_t max_code_size) noexcept;
 
     virtual ~EvmcHostBase() noexcept = default;

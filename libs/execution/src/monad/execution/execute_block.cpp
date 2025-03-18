@@ -8,7 +8,7 @@
 #include <monad/core/receipt.hpp>
 #include <monad/core/result.hpp>
 #include <monad/core/withdrawal.hpp>
-#include <monad/execution/block_hash_buffer.hpp>
+#include <monad/execution/block_hash_function.hpp>
 #include <monad/execution/block_reward.hpp>
 #include <monad/execution/ethereum/dao.hpp>
 #include <monad/execution/execute_block.hpp>
@@ -93,7 +93,7 @@ inline void set_beacon_root(BlockState &block_state, Block &block)
 template <evmc_revision rev>
 Result<std::vector<ExecutionResult>> execute_block(
     Chain const &chain, Block &block, BlockState &block_state,
-    BlockHashBuffer const &block_hash_buffer,
+    BlockHashFunction const &block_hash_function,
     fiber::PriorityPool &priority_pool)
 {
     TRACE_BLOCK_EVENT(StartBlock);
@@ -148,7 +148,7 @@ Result<std::vector<ExecutionResult>> execute_block(
              &transaction = block.transactions[i],
              &sender = senders[i],
              &header = block.header,
-             &block_hash_buffer = block_hash_buffer,
+             &block_hash_function = block_hash_function,
              &block_state] {
                 results[i] = execute<rev>(
                     chain,
@@ -156,7 +156,7 @@ Result<std::vector<ExecutionResult>> execute_block(
                     transaction,
                     sender,
                     header,
-                    block_hash_buffer,
+                    block_hash_function,
                     block_state,
                     promises[i]);
                 promises[i + 1].set_value();
@@ -210,7 +210,7 @@ EXPLICIT_EVMC_REVISION(execute_block);
 
 Result<std::vector<ExecutionResult>> execute_block(
     Chain const &chain, evmc_revision const rev, Block &block,
-    BlockState &block_state, BlockHashBuffer const &block_hash_buffer,
+    BlockState &block_state, BlockHashFunction const &block_hash_function,
     fiber::PriorityPool &priority_pool)
 {
     SWITCH_EVMC_REVISION(
@@ -218,7 +218,7 @@ Result<std::vector<ExecutionResult>> execute_block(
         chain,
         block,
         block_state,
-        block_hash_buffer,
+        block_hash_function,
         priority_pool);
     MONAD_ASSERT(false);
 }

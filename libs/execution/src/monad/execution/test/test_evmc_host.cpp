@@ -5,7 +5,7 @@
 #include <monad/core/int.hpp>
 #include <monad/core/transaction.hpp>
 #include <monad/db/trie_db.hpp>
-#include <monad/execution/block_hash_buffer.hpp>
+#include <monad/execution/block_hash_function.hpp>
 #include <monad/execution/evmc_host.hpp>
 #include <monad/execution/tx_context.hpp>
 #include <monad/state2/block_state.hpp>
@@ -119,12 +119,12 @@ TEST(EvmcHost, emit_log)
     db_t tdb{db};
     BlockState bs{tdb};
     State state{bs, Incarnation{0, 0}};
-    BlockHashBufferFinalized const block_hash_buffer;
+    BlockHashFunction const block_hash_function{};
     NoopCallTracer call_tracer;
     evmc_host_t host{
         call_tracer,
         EMPTY_TX_CONTEXT,
-        block_hash_buffer,
+        block_hash_function,
         state,
         MAX_CODE_SIZE_EIP170};
 
@@ -151,12 +151,12 @@ TEST(EvmcHost, access_precompile)
     db_t tdb{db};
     BlockState bs{tdb};
     State state{bs, Incarnation{0, 0}};
-    BlockHashBufferFinalized const block_hash_buffer;
+    BlockHashFunction const block_hash_function{};
     NoopCallTracer call_tracer;
     evmc_host_t host{
         call_tracer,
         EMPTY_TX_CONTEXT,
-        block_hash_buffer,
+        block_hash_function,
         state,
         MAX_CODE_SIZE_EIP170};
 

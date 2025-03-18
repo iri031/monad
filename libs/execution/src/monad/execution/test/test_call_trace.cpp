@@ -3,7 +3,7 @@
 #include <monad/core/address.hpp>
 #include <monad/core/int.hpp>
 #include <monad/db/trie_db.hpp>
-#include <monad/execution/block_hash_buffer.hpp>
+#include <monad/execution/block_hash_function.hpp>
 #include <monad/execution/evmc_host.hpp>
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/trace/call_tracer.hpp>
@@ -130,10 +130,10 @@ TEST(CallTrace, execute_success)
     auto const &beneficiary = ADDR_A;
 
     evmc_tx_context const tx_context{};
-    BlockHashBufferFinalized buffer{};
+    BlockHashFunction const block_hash_function{};
     CallTracer call_tracer{tx};
     EvmcHost<EVMC_SHANGHAI> host(
-        call_tracer, tx_context, buffer, s, MAX_CODE_SIZE_EIP170);
+        call_tracer, tx_context, block_hash_function, s, MAX_CODE_SIZE_EIP170);
 
     auto const result = execute_impl_no_validation<EVMC_SHANGHAI>(
         s, host, tx, sender, 1, beneficiary, MAX_CODE_SIZE_EIP170);
@@ -198,10 +198,10 @@ TEST(CallTrace, execute_reverted_insufficient_balance)
     auto const &beneficiary = ADDR_A;
 
     evmc_tx_context const tx_context{};
-    BlockHashBufferFinalized buffer{};
+    BlockHashFunction const block_hash_function{};
     CallTracer call_tracer{tx};
     EvmcHost<EVMC_SHANGHAI> host(
-        call_tracer, tx_context, buffer, s, MAX_CODE_SIZE_EIP170);
+        call_tracer, tx_context, block_hash_function, s, MAX_CODE_SIZE_EIP170);
 
     auto const result = execute_impl_no_validation<EVMC_SHANGHAI>(
         s, host, tx, sender, 1, beneficiary, MAX_CODE_SIZE_EIP170);

@@ -5,6 +5,7 @@
 #include <monad/core/int.hpp>
 #include <monad/core/receipt.hpp>
 #include <monad/core/result.hpp>
+#include <monad/execution/block_hash_function.hpp>
 #include <monad/execution/trace/call_frame.hpp>
 
 #include <evmc/evmc.h>
@@ -15,7 +16,6 @@
 
 MONAD_NAMESPACE_BEGIN
 
-class BlockHashBuffer;
 struct BlockHeader;
 class BlockState;
 struct Chain;
@@ -46,13 +46,14 @@ evmc::Result execute_impl_no_validation(
 template <evmc_revision rev>
 Result<ExecutionResult> execute_impl(
     Chain const &, uint64_t i, Transaction const &, Address const &sender,
-    BlockHeader const &, BlockHashBuffer const &, BlockState &,
+    BlockHeader const &, BlockHashFunction const &, BlockState &,
     boost::fibers::promise<void> &prev);
 
 template <evmc_revision rev>
 Result<ExecutionResult> execute(
     Chain const &, uint64_t i, Transaction const &,
     std::optional<Address> const &, BlockHeader const &,
-    BlockHashBuffer const &, BlockState &, boost::fibers::promise<void> &prev);
+    BlockHashFunction const &, BlockState &,
+    boost::fibers::promise<void> &prev);
 
 MONAD_NAMESPACE_END

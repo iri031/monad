@@ -11,7 +11,7 @@
 #include <monad/core/transaction.hpp>
 #include <monad/db/trie_db.hpp>
 #include <monad/db/util.hpp>
-#include <monad/execution/block_hash_buffer.hpp>
+#include <monad/execution/block_hash_function.hpp>
 #include <monad/execution/execute_block.hpp>
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/trace/call_tracer.hpp>
@@ -906,16 +906,18 @@ TYPED_TEST(DBTest, call_frames_stress_test)
     auto block = rlp::decode_block(block_rlp_view);
     ASSERT_TRUE(!block.has_error());
 
-    BlockHashBufferFinalized block_hash_buffer;
-    block_hash_buffer.set(
-        block.value().header.number - 1, block.value().header.parent_hash);
+    BlockHashFunction const block_hash_function{
+        [&block](uint64_t const block_number) {
+            MONAD_ASSERT(block_number == block.value().header.number - 1);
+            return block.value().header.parent_hash;
+        }};
 
     BlockState bs(tdb);
 
     fiber::PriorityPool pool{1, 1};
 
     auto const results = execute_block<EVMC_SHANGHAI>(
-        EthereumMainnet{}, block.value(), bs, block_hash_buffer, pool);
+        EthereumMainnet{}, block.value(), bs, block_hash_function, pool);
 
     ASSERT_TRUE(!results.has_error());
 
@@ -1003,16 +1005,22 @@ TYPED_TEST(DBTest, call_frames_refund)
     ASSERT_TRUE(!block.has_error());
     EXPECT_EQ(block.value().header.number, 1);
 
-    BlockHashBufferFinalized block_hash_buffer;
-    block_hash_buffer.set(
-        block.value().header.number - 1, block.value().header.parent_hash);
+    BlockHashFunction const block_hash_function{
+        [&block](uint64_t const block_number) {
+            MONAD_ASSERT(block_number == block.value().header.number - 1);
+            return block.value().header.parent_hash;
+        }};
 
     BlockState bs(tdb);
 
     fiber::PriorityPool pool{1, 1};
 
     auto const results = execute_block<EVMC_SHANGHAI>(
-        ShanghaiEthereumMainnet{}, block.value(), bs, block_hash_buffer, pool);
+        ShanghaiEthereumMainnet{},
+        block.value(),
+        bs,
+        block_hash_function,
+        pool);
 
     ASSERT_TRUE(!results.has_error());
 

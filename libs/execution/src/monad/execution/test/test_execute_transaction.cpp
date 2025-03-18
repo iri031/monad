@@ -3,7 +3,7 @@
 #include <monad/core/int.hpp>
 #include <monad/core/transaction.hpp>
 #include <monad/db/trie_db.hpp>
-#include <monad/execution/block_hash_buffer.hpp>
+#include <monad/execution/block_hash_function.hpp>
 #include <monad/execution/evmc_host.hpp>
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/tx_context.hpp>
@@ -58,13 +58,13 @@ TEST(TransactionProcessor, irrevocable_gas_and_refund_new_contract)
     };
 
     BlockHeader const header{.beneficiary = bene};
-    BlockHashBufferFinalized const block_hash_buffer;
+    BlockHashFunction const block_hash_function{};
 
     boost::fibers::promise<void> prev{};
     prev.set_value();
 
     auto const result = execute_impl<EVMC_SHANGHAI>(
-        EthereumMainnet{}, 0, tx, from, header, block_hash_buffer, bs, prev);
+        EthereumMainnet{}, 0, tx, from, header, block_hash_function, bs, prev);
 
     ASSERT_TRUE(!result.has_error());
 

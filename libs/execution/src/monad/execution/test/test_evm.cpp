@@ -4,7 +4,7 @@
 #include <monad/core/bytes.hpp>
 #include <monad/core/int.hpp>
 #include <monad/db/trie_db.hpp>
-#include <monad/execution/block_hash_buffer.hpp>
+#include <monad/execution/block_hash_function.hpp>
 #include <monad/execution/evm.hpp>
 #include <monad/execution/evmc_host.hpp>
 #include <monad/execution/tx_context.hpp>
@@ -62,12 +62,12 @@ TEST(Evm, create_with_insufficient)
     uint256_t const v{70'000'000'000'000'000}; // too much
     intx::be::store(m.value.bytes, v);
 
-    BlockHashBufferFinalized const block_hash_buffer;
+    BlockHashFunction const block_hash_function{};
     NoopCallTracer call_tracer;
     evm_host_t h{
         call_tracer,
         EMPTY_TX_CONTEXT,
-        block_hash_buffer,
+        block_hash_function,
         s,
         MAX_CODE_SIZE_EIP170};
     auto const result = create<EVMC_SHANGHAI>(&h, s, m, MAX_CODE_SIZE_EIP170);
@@ -112,12 +112,12 @@ TEST(Evm, eip684_existing_code)
     uint256_t const v{70'000'000};
     intx::be::store(m.value.bytes, v);
 
-    BlockHashBufferFinalized const block_hash_buffer;
+    BlockHashFunction const block_hash_function{};
     NoopCallTracer call_tracer;
     evm_host_t h{
         call_tracer,
         EMPTY_TX_CONTEXT,
-        block_hash_buffer,
+        block_hash_function,
         s,
         MAX_CODE_SIZE_EIP170};
     auto const result = create<EVMC_SHANGHAI>(&h, s, m, MAX_CODE_SIZE_EIP170);
@@ -137,12 +137,12 @@ TEST(Evm, create_nonce_out_of_range)
     static constexpr auto new_addr{
         0x58f3f9ebd5dbdf751f12d747b02d00324837077d_address};
 
-    BlockHashBufferFinalized const block_hash_buffer;
+    BlockHashFunction const block_hash_function{};
     NoopCallTracer call_tracer;
     evm_host_t h{
         call_tracer,
         EMPTY_TX_CONTEXT,
-        block_hash_buffer,
+        block_hash_function,
         s,
         MAX_CODE_SIZE_EIP170};
 
@@ -186,12 +186,12 @@ TEST(Evm, static_precompile_execution)
     static constexpr auto code_address{
         0x0000000000000000000000000000000000000004_address};
 
-    BlockHashBufferFinalized const block_hash_buffer;
+    BlockHashFunction const block_hash_function{};
     NoopCallTracer call_tracer;
     evm_host_t h{
         call_tracer,
         EMPTY_TX_CONTEXT,
-        block_hash_buffer,
+        block_hash_function,
         s,
         MAX_CODE_SIZE_EIP170};
 
@@ -241,12 +241,12 @@ TEST(Evm, out_of_gas_static_precompile_execution)
     static constexpr auto code_address{
         0x0000000000000000000000000000000000000001_address};
 
-    BlockHashBufferFinalized const block_hash_buffer;
+    BlockHashFunction const block_hash_function{};
     NoopCallTracer call_tracer;
     evm_host_t h{
         call_tracer,
         EMPTY_TX_CONTEXT,
-        block_hash_buffer,
+        block_hash_function,
         s,
         MAX_CODE_SIZE_EIP170};
 

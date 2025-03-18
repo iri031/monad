@@ -17,6 +17,7 @@
 #include <monad/core/rlp/transaction_rlp.hpp>
 #include <monad/db/util.hpp>
 #include <monad/execution/block_hash_buffer.hpp>
+#include <monad/execution/block_hash_function.hpp>
 #include <monad/execution/execute_block.hpp>
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/genesis.hpp>
@@ -79,7 +80,7 @@ namespace
 
 template <evmc_revision rev>
 Result<std::vector<Receipt>> BlockchainTest::execute(
-    Block &block, test::db_t &db, BlockHashBuffer const &block_hash_buffer)
+    Block &block, test::db_t &db, BlockHashFunction const &block_hash_function)
 {
     using namespace monad::test;
 
@@ -90,7 +91,7 @@ Result<std::vector<Receipt>> BlockchainTest::execute(
     BOOST_OUTCOME_TRY(
         auto const results,
         execute_block<rev>(
-            chain, block, block_state, block_hash_buffer, *pool_));
+            chain, block, block_state, block_hash_function, *pool_));
     std::vector<Receipt> receipts(results.size());
     std::vector<std::vector<CallFrame>> call_frames(results.size());
     std::vector<Address> senders(results.size());
@@ -120,10 +121,10 @@ Result<std::vector<Receipt>> BlockchainTest::execute(
 
 Result<std::vector<Receipt>> BlockchainTest::execute_dispatch(
     evmc_revision const rev, Block &block, test::db_t &db,
-    BlockHashBuffer const &block_hash_buffer)
+    BlockHashFunction const &block_hash_function)
 {
     MONAD_ASSERT(rev != EVMC_CONSTANTINOPLE);
-    SWITCH_EVMC_REVISION(execute, block, db, block_hash_buffer);
+    SWITCH_EVMC_REVISION(execute, block, db, block_hash_function);
     MONAD_ASSERT(false);
 }
 
@@ -270,7 +271,7 @@ void BlockchainTest::TestBody()
         }
         auto db_post_state = tdb.to_json();
 
-        BlockHashBufferFinalized block_hash_buffer;
+        BlockHashBuffer block_hash_buffer{};
         for (auto const &j_block : j_contents.at("blocks")) {
 
             auto const block_rlp = j_block.at("rlp").get<byte_string>();
@@ -297,8 +298,13 @@ void BlockchainTest::TestBody()
                 block.value().header.parent_hash);
 
             uint64_t const curr_block_number = block.value().header.number;
-            auto const result =
-                execute_dispatch(rev, block.value(), tdb, block_hash_buffer);
+            auto const result = execute_dispatch(
+                rev,
+                block.value(),
+                tdb,
+                [&block_hash_buffer](uint64_t const block_number) {
+                    return block_hash_buffer.get(block_number);
+                });
             if (!result.has_error()) {
                 db_post_state = tdb.to_json();
                 EXPECT_FALSE(j_block.contains("expectException"));
