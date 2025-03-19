@@ -205,6 +205,10 @@ struct FixedSizeArray {
         return arr[size++];
     }
 
+    T& push_back_no_assert() {
+        return arr[size++];
+    }
+
     T& operator[](uint16_t index) {
         assert(index < size && "Index out of bounds");
         return arr[index];
@@ -548,35 +552,36 @@ bool parseJumpDests(FixedSizeArray<NodeID, MAX_BBLOCKS> &jumpDestOffsets, const 
     NodeID offset = 0;
     InsTerm parsed;
     bool prevJmpi=false;
+    bool isJumpdest=false;
+    bool curJumpi=false;
     NodeID numNonJumpdestBB=0;
     while (offset<bytes.size) {
         Bytet current = bytes[offset];
 
         parseOpcode<MAX_BYTECODESIZE>(parsed, bytes, offset);
+        curJumpi=false;
 
         // Check for JUMPDEST and record its offset
         if (std::holds_alternative<Terminator>(parsed)) {
             auto& term = std::get<Terminator>(parsed);
-            if (std::holds_alternative<Jumpdest>(term)) {
+            isJumpdest = std::holds_alternative<Jumpdest>(term);
+            if (isJumpdest) {
                 if(jumpDestOffsets.get_size()>=MAX_BBLOCKS) {
                     return false;
                 }
-                jumpDestOffsets.push_back(offset);
-                prevJmpi=false;
+                jumpDestOffsets.push_back_no_assert(offset);
             } else if (std::holds_alternative<Jumpi>(term)) {
-                if (prevJmpi) {
-                    jumpDestOffsets.push_back(offset);
-                    prevJmpi=true;
-                }
-            }
-            else if (prevJmpi) {
-                numNonJumpdestBB++;// these basic blocks do not start with a jumpdest but follow a Jumpi
-                prevJmpi=false;
+                curJumpi=true;
             }
         }
+        if (!isJumpdest && prevJmpi) {
+            numNonJumpdestBB++;// these basic blocks do not start with a jumpdest but follow a Jumpi
+        }
+        prevJmpi=curJumpi;
 
     }
-    if (numNonJumpdestBB+jumpDestOffsets.get_size()>MAX_BBLOCKS) {
+    //std::cerr << "numNonJumpdestBB: " << numNonJumpdestBB << " jumpDestOffsets.get_size(): " << jumpDestOffsets.get_size() << std::endl;
+    if (numNonJumpdestBB+jumpDestOffsets.get_size()>=MAX_BBLOCKS) {
         return false;
     }
     return true;

@@ -71,7 +71,7 @@ struct Successors {
     bool includeAllJumpDests{false};
 };
 
-#define DEBUG_KILDALL 1 
+#define DEBUG_KILDALL 0 
 // DataflowSolver class template
 template<typename L, typename NS, typename Semilattice, typename NodeSet, uint16_t MAX_BYTECODESIZE, uint16_t MAX_BBLOCKS, size_t Cutoff>
 class DataflowSolver {
