@@ -101,11 +101,7 @@ void log_tps(
 void parseCodeHashes(std::unordered_map<Address, bytes32_t> &code_hashes) {
     std::ifstream file("/home/abhishek/contracts15m/hashes.txt");
     
-    if (!file.is_open()) {
-        LOG_ERROR("Could not open code hashes file");
-    	std::terminate();
-        return;
-    }
+    MONAD_ASSERT(file.is_open());
 
     std::string line;
     // Skip header line
