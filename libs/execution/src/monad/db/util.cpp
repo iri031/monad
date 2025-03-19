@@ -838,4 +838,160 @@ get_proposal_rounds(mpt::Db &db, uint64_t const block_number)
     return rounds;
 }
 
+bool for_each_state(
+    mpt::Db &db, NibblesView const prefix, uint64_t const block_number,
+    uint64_t const from, uint64_t const until,
+    std::function<void(byte_string_view)> const handle_account,
+    std::function<void(Address const &, byte_string_view)> const handle_storage,
+    std::function<void(byte_string_view)> const handle_code)
+{
+    struct Traverse final : public TraverseMachine
+    {
+        unsigned char nibble;
+        unsigned depth;
+        Address addr;
+        NibblesView prefix;
+        uint64_t from;
+        uint64_t until;
+        std::function<void(byte_string_view)> handle_account;
+        std::function<void(Address const &, byte_string_view)> handle_storage;
+        std::function<void(byte_string_view)> handle_code;
+
+        Traverse(
+            NibblesView const prefix, uint64_t const from, uint64_t const until,
+            std::function<void(byte_string_view)> const handle_account,
+            std::function<void(Address const &, byte_string_view)> const
+                handle_storage,
+            std::function<void(byte_string_view)> const handle_code)
+            : nibble{INVALID_BRANCH}
+            , depth{0}
+            , prefix{prefix}
+            , from{from}
+            , until{until}
+            , handle_account{handle_account}
+            , handle_storage{handle_storage}
+            , handle_code{handle_code}
+        {
+        }
+
+        virtual bool down(unsigned char const branch, Node const &node) override
+        {
+            if (branch == INVALID_BRANCH) {
+                MONAD_ASSERT(depth == 0);
+                return true;
+            }
+            else if (depth == 0 && nibble == INVALID_BRANCH) {
+                nibble = branch;
+                return true;
+            }
+
+            MONAD_ASSERT(nibble == STATE_NIBBLE || nibble == CODE_NIBBLE);
+            MONAD_ASSERT(
+                depth >= prefix.nibble_size() || prefix.get(depth) == branch);
+            auto const ext = node.path_nibble_view();
+            for (auto i = depth + 1; i < prefix.nibble_size(); ++i) {
+                auto const j = i - (depth + 1);
+                if (j >= ext.nibble_size()) {
+                    break;
+                }
+                if (ext.get(j) != prefix.get(i)) {
+                    return false;
+                }
+            }
+
+            MONAD_ASSERT(node.version >= 0);
+            auto const v = static_cast<uint64_t>(node.version);
+            if (v < from) {
+                return false;
+            }
+
+            depth += 1 + ext.nibble_size();
+
+            constexpr unsigned HASH_SIZE = KECCAK256_SIZE * 2;
+            bool const account = depth == HASH_SIZE && nibble == STATE_NIBBLE;
+            if (account && node.number_of_children() > 0) {
+                MONAD_ASSERT(node.has_value());
+                auto raw = node.value();
+                auto const res = decode_account_db(raw);
+                MONAD_ASSERT(res.has_value());
+                addr = std::get<Address>(res.assume_value());
+            }
+
+            if (node.has_value() && v <= until) {
+                if (nibble == CODE_NIBBLE) {
+                    MONAD_ASSERT(depth == HASH_SIZE);
+                    handle_code(node.value());
+                }
+                else {
+                    MONAD_ASSERT(nibble == STATE_NIBBLE);
+                    if (depth == HASH_SIZE) {
+                        handle_account(node.value());
+                    }
+                    else {
+                        MONAD_ASSERT(depth == (HASH_SIZE * 2));
+                        handle_storage(addr, node.value());
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        virtual void up(unsigned char const, Node const &node) override
+        {
+            if (depth == 0) {
+                nibble = INVALID_BRANCH;
+                return;
+            }
+            unsigned const subtrahend = 1 + node.path_nibbles_len();
+            MONAD_ASSERT(depth >= subtrahend);
+            depth -= subtrahend;
+        }
+
+        virtual std::unique_ptr<TraverseMachine> clone() const override
+        {
+            return std::make_unique<Traverse>(*this);
+        }
+
+        virtual bool
+        should_visit(Node const &node, unsigned char const branch) override
+        {
+            if (depth == 0 && nibble == INVALID_BRANCH) {
+                MONAD_ASSERT(branch != INVALID_BRANCH);
+                return branch == STATE_NIBBLE || branch == CODE_NIBBLE;
+            }
+            auto const v =
+                node.subtrie_min_version(node.to_child_index(branch));
+            MONAD_ASSERT(v >= 0);
+            if (static_cast<uint64_t>(v) > until) {
+                return false;
+            }
+            return depth >= prefix.nibble_size() || prefix.get(depth) == branch;
+        }
+    };
+
+    auto const root = db.load_root_for_version(block_number);
+    if (!root.is_valid()) {
+        return false;
+    }
+    auto const finalized_root_res =
+        db.find(root, finalized_nibbles, block_number);
+    if (!finalized_root_res.has_value()) {
+        return false;
+    }
+    auto const &finalized_root = finalized_root_res.value();
+    if (db.find(finalized_root, state_nibbles, block_number).has_error() ||
+        db.find(finalized_root, code_nibbles, block_number).has_error()) {
+        return false;
+    }
+
+    Traverse traverse(
+        prefix, from, until, handle_account, handle_storage, handle_code);
+    if (!db.traverse(finalized_root, traverse, block_number)) {
+        return false;
+    }
+
+    return true;
+}
+
 MONAD_NAMESPACE_END
