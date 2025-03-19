@@ -16,7 +16,7 @@
 #include <monad/state3/account_state.hpp>
 #include <monad/state3/version_stack.hpp>
 #include <monad/types/incarnation.hpp>
-
+//#include <monad/staticanalysis/expr.hpp> compile errors about duplicate defn
 #include <evmc/evmc.h>
 
 #include <ankerl/unordered_dense.h>
@@ -102,10 +102,21 @@ public:
         , txindex_{txindex}
     {
     }
+    static bool isPrecompile(evmc::address const &address) {
+        for (int i = 0; i < 19; i++) {
+            if (address.bytes[i] != 0) {
+                return false;
+            }
+        }
+        return address.bytes[19] < 10;
+    }
 
     // used only for an assert for debugging. not used in release builds
     inline bool change_within_footprint(const std::set<evmc::address>*footprint) {
         for (auto const &[address, stack] : current_) {
+            if (isPrecompile(address)) {
+                continue;
+            }
             assert(stack.size() >= 1);
             if (footprint && footprint->find(address) == footprint->end()) {
                 LOG_INFO("address not in footprint: {}", address);

@@ -95,6 +95,7 @@
         "regex": "cpp",
         "print": "cpp",
         "__availability": "cpp",
-        "version": "cpp"
+        "version": "cpp",
+        "coroutine": "cpp"
     }
 }

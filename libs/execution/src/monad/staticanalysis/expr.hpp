@@ -351,6 +351,12 @@ inline void from_uint64_array(Word256& result, const uint64_t in[4]) {
     result |= (Word256(in[3]) << 192);
 }
 
+inline void toWord256(Word256 &result, evmc::address const &address) {
+    result = 0;
+    for (size_t i = 0; i < 20; ++i) {
+        result |= Word256(address.bytes[i]) << (8 * (19 - i));
+    }
+}
     // Function to serialize a Word256 constant to a file
 inline void serializeConstant(std::ofstream &file, Word256 const &constant)
 {
