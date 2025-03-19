@@ -205,8 +205,8 @@ struct FixedSizeArray {
         return arr[size++];
     }
 
-    T& push_back_no_assert() {
-        return arr[size++];
+    void push_back_no_assert(const T& value) {
+        arr[size++] = value;
     }
 
     T& operator[](uint16_t index) {
