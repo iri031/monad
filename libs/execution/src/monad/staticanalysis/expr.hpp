@@ -1157,8 +1157,7 @@ inline void serializePredictions(const Predictions &predictions, const std::stri
 inline void unserializePredictions(Predictions &predictions, const std::string &filename) {
     std::ifstream in(filename, std::ios::binary);
     if (!in) {
-        // Could handle error silently or throw
-        return;
+        throw std::runtime_error("Cannot open file for reading: " + filename);
     }
 
     size_t mapSize = 0;
