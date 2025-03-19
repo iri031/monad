@@ -543,10 +543,12 @@ struct ParsedBytecode {
 
 
 template<size_t MAX_BYTECODESIZE, size_t MAX_BBLOCKS>
-void parseJumpDests(FixedSizeArray<NodeID, MAX_BBLOCKS> &jumpDestOffsets, const FixedSizeArray<Bytet, MAX_BYTECODESIZE>& bytes) {
+bool parseJumpDests(FixedSizeArray<NodeID, MAX_BBLOCKS> &jumpDestOffsets, const FixedSizeArray<Bytet, MAX_BYTECODESIZE>& bytes) {
     jumpDestOffsets.clear();
     NodeID offset = 0;
     InsTerm parsed;
+    bool prevJmpi=false;
+    NodeID numNonJumpdestBB=0;
     while (offset<bytes.size) {
         Bytet current = bytes[offset];
 
@@ -555,16 +557,36 @@ void parseJumpDests(FixedSizeArray<NodeID, MAX_BBLOCKS> &jumpDestOffsets, const 
         // Check for JUMPDEST and record its offset
         if (std::holds_alternative<Terminator>(parsed)) {
             auto& term = std::get<Terminator>(parsed);
-                if (std::holds_alternative<Jumpdest>(term)) {
+            if (std::holds_alternative<Jumpdest>(term)) {
+                if(jumpDestOffsets.get_size()>=MAX_BBLOCKS) {
+                    return false;
+                }
                 jumpDestOffsets.push_back(offset);
+                prevJmpi=false;
+            } else if (std::holds_alternative<Jumpi>(term)) {
+                if (prevJmpi) {
+                    jumpDestOffsets.push_back(offset);
+                    prevJmpi=true;
+                }
+            }
+            else if (prevJmpi) {
+                numNonJumpdestBB++;// these basic blocks do not start with a jumpdest but follow a Jumpi
+                prevJmpi=false;
             }
         }
 
     }
+    if (numNonJumpdestBB+jumpDestOffsets.get_size()>MAX_BBLOCKS) {
+        return false;
+    }
+    return true;
 }
 
+/**
+ * returns false if the number of basic blocks is greater than MAX_BBLOCKS
+ */
 template<size_t MAX_BYTECODESIZE, size_t MAX_BBLOCKS>
-void readBytecode(ParsedBytecode<MAX_BYTECODESIZE, MAX_BBLOCKS>& parsedBytecode, const std::string& filename) {
+bool readBytecode(ParsedBytecode<MAX_BYTECODESIZE, MAX_BBLOCKS>& parsedBytecode, const std::string& filename) {
     std::ifstream file(filename, std::ios::binary);
     if (!file) {
         std::cerr << "Unable to open file: " << filename << std::endl;
@@ -581,8 +603,11 @@ void readBytecode(ParsedBytecode<MAX_BYTECODESIZE, MAX_BBLOCKS>& parsedBytecode,
 
     assert (file.eof());
     // Populate jumpDests field by parsing the bytecode for JUMPDEST instructions
-    parseJumpDests<MAX_BYTECODESIZE, MAX_BBLOCKS>(parsedBytecode.jumpDestOffsets, parsedBytecode.bytes);
+    if (!parseJumpDests<MAX_BYTECODESIZE, MAX_BBLOCKS>(parsedBytecode.jumpDestOffsets, parsedBytecode.bytes)) {
+        return false;
+    }
     parsedBytecode.populateJumpDests();
+    return true;
 }
 
 

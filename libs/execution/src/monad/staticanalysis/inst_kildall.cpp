@@ -1811,13 +1811,18 @@ int main() {
     std::string filename;
     resetFactory();
     size_t procFiles=0;
+    std::ofstream failuresFile("failures.txt", std::ios::app);
     while (std::getline(contractList, filename)) {
         // Construct input and output paths
         std::string inputPath = inputDir + "/" + filename;
         std::string outputPath = outputDir + "/" + filename;
 
 //        std::cout << "opening " << filename << std::endl;
-        readBytecode<MAX_BYTECODESIZE, MAX_BBLOCKS>(solver.parsedBytecode, inputPath);
+        if (!readBytecode<MAX_BYTECODESIZE, MAX_BBLOCKS>(solver.parsedBytecode, inputPath)) {
+            assert(failuresFile);
+            failuresFile << filename << std::endl;
+            continue;
+        }
         // solver.parsedBytecode.print();
 //        std::cout << "Parsed " << filename << std::endl;
 
