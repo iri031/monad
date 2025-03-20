@@ -65,16 +65,15 @@ struct BinaryDbLoader
 private:
     static constexpr uint64_t CHUNK_SIZE = 1ul << 13; // 8 kb
 
-    ::monad::mpt::Db &db_;
-    std::deque<mpt::Update> update_alloc_;
+    mpt::Db &db_;
+    std::deque<Update> update_alloc_;
     std::deque<byte_string> bytes_alloc_;
     size_t buf_size_;
     std::unique_ptr<unsigned char[]> buf_;
     uint64_t block_id_;
 
 public:
-    BinaryDbLoader(
-        ::monad::mpt::Db &db, size_t buf_size, uint64_t const block_id)
+    BinaryDbLoader(mpt::Db &db, size_t buf_size, uint64_t const block_id)
         : db_{db}
         , buf_size_{buf_size}
         , buf_{std::make_unique_for_overwrite<unsigned char[]>(buf_size)}
@@ -562,7 +561,7 @@ constexpr uint8_t MachineBase::prefix_len() const
                                               : FINALIZED_PREFIX_LEN;
 }
 
-mpt::Compute &MachineBase::get_compute() const
+Compute &MachineBase::get_compute() const
 {
     static EmptyCompute empty_compute;
 
@@ -856,8 +855,6 @@ void load_from_binary(
 
 void load_header(mpt::Db &db, BlockHeader const &header)
 {
-    using namespace mpt;
-
     UpdateList header_updates;
     UpdateList ls;
     auto const n = db.is_on_disk() ? header.number : 0;
@@ -867,10 +864,10 @@ void load_header(mpt::Db &db, BlockHeader const &header)
         .key = block_header_nibbles,
         .value = header_encoded,
         .incarnation = true,
-        .next = mpt::UpdateList{},
+        .next = UpdateList{},
         .version = static_cast<int64_t>(n)};
     header_updates.push_front(block_header_update);
-    mpt::Update u{
+    Update u{
         .key = finalized_nibbles,
         .value = byte_string_view{},
         .incarnation = false,
@@ -881,9 +878,9 @@ void load_header(mpt::Db &db, BlockHeader const &header)
         std::move(ls), n, false /* compaction */, true /* write_to_fast */);
 }
 
-mpt::Nibbles proposal_prefix(uint64_t const round_number)
+Nibbles proposal_prefix(uint64_t const round_number)
 {
-    return mpt::concat(
+    return concat(
         PROPOSAL_NIBBLE,
         NibblesView{serialize_as_big_endian<sizeof(uint64_t)>(round_number)});
 }
@@ -929,9 +926,9 @@ get_proposal_rounds(mpt::Db &db, uint64_t const block_number)
 
         virtual void up(unsigned char const branch, Node const &node) override
         {
-            auto const path_view = monad::mpt::NibblesView{path_};
+            NibblesView const path_view{path_};
             unsigned const prefix_size =
-                branch == monad::mpt::INVALID_BRANCH
+                branch == INVALID_BRANCH
                     ? 0
                     : path_view.nibble_size() - node.path_nibbles_len() - 1;
             path_ = path_view.substr(0, prefix_size);
