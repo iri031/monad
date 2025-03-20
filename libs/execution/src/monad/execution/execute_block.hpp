@@ -28,7 +28,7 @@ struct CalleePredInfo {
     std::unordered_map<evmc::bytes32, Prediction> predictions;
     std::optional<Prediction*> lookup_callee(evmc::address runningAddress) {
         bytes32_t code_hash = code_hashes[runningAddress];
-        //LOG_INFO("code_hash: {}, runningAddress: {}", code_hash, runningAddress);
+        LOG_INFO("code_hash: {}, runningAddress: {}", code_hash, runningAddress);
         auto it = predictions.find(code_hash);
         if(it == predictions.end()) {
             return std::nullopt;
