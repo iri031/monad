@@ -263,7 +263,7 @@ std::string to_string(InstructionType type) {
         case InstructionType::Sar: return "Sar";
         case InstructionType::SHA3: return "SHA3";
         case InstructionType::Address: return "Addr";
-        case InstructionType::Balance: return "Bal";
+        case InstructionType::Balance: return "Balance";
         case InstructionType::Origin: return "Orig";
         case InstructionType::Caller: return "Callr";
         case InstructionType::Callvalue: return "Callval";
