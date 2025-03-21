@@ -255,7 +255,16 @@ Result<ExecutionResult> execute_impl(
 
         {
             TRACE_TXN_EVENT(StartStall);
-            //assert(state.change_within_footprint(parallel_commit_system.getFootprint(i)));
+            bool assumptions_within_footprint=block_state.assumptions_within_footprint(state,parallel_commit_system.getFootprint(i));
+            bool inFootprint=state.change_within_footprint(parallel_commit_system.getFootprint(i));
+            if (!inFootprint) {
+                LOG_INFO("transaction {} modified addresses outside its predicted footprint", i);
+            }
+            if (!assumptions_within_footprint) {
+                LOG_INFO("transaction {} read addresses outside its predicted footprint", i);
+            }
+            MONAD_ASSERT(inFootprint);
+            MONAD_ASSERT(assumptions_within_footprint);
             parallel_commit_system.waitForPrevTransactions(i);
         }
         bool beneficiary_touched = false;

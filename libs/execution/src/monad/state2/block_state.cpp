@@ -123,6 +123,21 @@ std::shared_ptr<CodeAnalysis> BlockState::read_code(bytes32_t const &code_hash)
     }
 }
 
+bool BlockState::assumptions_within_footprint(
+    State const &state, const std::set<evmc::address>*footprint)
+{
+    assert(footprint);
+    for (auto const &[address, _] : state.original_) {
+        if (State::isPrecompile(address)) { //TODO: just remove precompiles befrore can_merge_par
+            continue;
+        }
+        if (footprint->find(address) == footprint->end()) {
+            LOG_INFO("address not in footprint: {}", address);
+            return false;
+        }
+    }
+    return true;
+}
 /**
  * \pre the transactin's gas reward has not been added to the block_beneficiary's account yet 
  *   (thus if beneficiary is in state.original_, the transaction must have explicitly accessed the beneficiary's account, e.g. an explicit transfer transaction to the beneficiary)
