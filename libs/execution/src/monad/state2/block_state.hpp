@@ -23,7 +23,7 @@
 #include <monad/types/incarnation.hpp>
 #include <intx/intx.hpp>
 #include <quill/detail/LogMacros.h>
-
+#include <set>
 #include <memory>
 #include <vector>
 
@@ -102,6 +102,8 @@ public:
     inline void merge(State const & state){
         merge_par(state,0,std::nullopt,false);
     }
+    bool assumptions_within_footprint(State const &state, const std::set<evmc::address>*footprint);
+
     void update_beneficiary_delta(uint64_t tx_index, intx::uint256 delta);
 
     //must be called before any transaction calls can_merge

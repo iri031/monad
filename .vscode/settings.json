@@ -96,6 +96,9 @@
         "print": "cpp",
         "__availability": "cpp",
         "version": "cpp",
-        "coroutine": "cpp"
+        "coroutine": "cpp",
+        "cstdarg": "cpp",
+        "__threading_support": "cpp",
+        "ios": "cpp"
     }
 }
