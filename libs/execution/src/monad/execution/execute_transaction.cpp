@@ -258,10 +258,10 @@ Result<ExecutionResult> execute_impl(
             bool assumptions_within_footprint=block_state.assumptions_within_footprint(state,parallel_commit_system.getFootprint(i));
             bool inFootprint=state.change_within_footprint(parallel_commit_system.getFootprint(i));
             if (!inFootprint) {
-                LOG_INFO("transaction {} modified addresses outside its predicted footprint", i);
+                LOG_INFO("transaction {} of block {} modified addresses outside its predicted footprint", i, hdr.number);
             }
             if (!assumptions_within_footprint) {
-                LOG_INFO("transaction {} read addresses outside its predicted footprint", i);
+                LOG_INFO("transaction {} of block {} read addresses outside its predicted footprint", i, hdr.number);
             }
             MONAD_ASSERT(inFootprint);
             MONAD_ASSERT(assumptions_within_footprint);
