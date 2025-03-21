@@ -131,7 +131,7 @@ bool BlockState::assumptions_within_footprint(
         if (State::isPrecompile(address)) { //TODO: just remove precompiles befrore can_merge_par
             continue;
         }
-        if (footprint->find(address) == footprint->end()) {
+        if (footprint && footprint->find(address) == footprint->end()) {
             LOG_INFO("address not in footprint: {}", address);
             return false;
         }
