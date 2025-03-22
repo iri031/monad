@@ -1616,7 +1616,8 @@ size_t instrSize(const Instruction& instr) {
 
 std::set<uint32_t> calleeExprsIndices;
 std::set<uint32_t> delegateCallExprsIndices;
-std::set<uint32_t> allCalleeExprIndices;
+std::set<uint32_t> allFootprintExprIndices;
+std::set<uint32_t> balanceExprsIndices;
 
 struct Counts {
     uint16_t occurrencesCount=0;
@@ -1635,7 +1636,7 @@ struct Counts {
 Counts callCounts;
 Counts delegateCallCounts;
 Counts createCounts;
-
+Counts balanceCounts;
 static Predictions predictions;
 
 // Define `fineGrainedSolns` to print solutions for every program point in all basic blocks
@@ -1645,7 +1646,9 @@ void fineGrainedSolns(const ParsedBytecode<MAX_BYTECODESIZE, MAX_BBLOCKS>& parse
     delegateCallExprsIndices.clear();
     callCounts.reset();
     delegateCallCounts.reset();
+    balanceExprsIndices.clear();
     createCounts.reset();
+    balanceCounts.reset();
 
     NodeID currentOffset = 0;
     bool prevSolnAvailable = false;
@@ -1660,6 +1663,7 @@ void fineGrainedSolns(const ParsedBytecode<MAX_BYTECODESIZE, MAX_BBLOCKS>& parse
         isCall=parsedBytecode.bytes[currentOffset]==0xF1;//call opcode
         bool isCreate=parsedBytecode.bytes[currentOffset]==0xF0 || parsedBytecode.bytes[currentOffset]==0xF5;//create/create2 opcode
         bool isDelegateCall=parsedBytecode.bytes[currentOffset]==0xF4 || parsedBytecode.bytes[currentOffset]==0xF2;//delegatecall/callcode opcode
+        bool isBalance=parsedBytecode.bytes[currentOffset]==0x31;//balance opcode
         printSoln=true;//make it true if we want to print all instructions
         parseOpcode<MAX_BYTECODESIZE>(thisOffsetIns, parsedBytecode.bytes, currentOffset);//increments currentOffset by size of instruction
         if (solns.exists(oldOffset)) {
@@ -1746,9 +1750,26 @@ void fineGrainedSolns(const ParsedBytecode<MAX_BYTECODESIZE, MAX_BBLOCKS>& parse
         if (isCreate) {
             createCounts.occurrencesCount++;
             if (prevSolnAvailable && prevInstrSoln.size>2) {//CREATE has 3 stack args, CREATE2 has 4. we can make this more precise
-                createCounts.reachableCount++;
+                createCounts.reachableCount++;// is this count used anywhere?
             }
         }
+
+        if (isBalance) {
+            balanceCounts.occurrencesCount++;
+            if (prevSolnAvailable && prevInstrSoln.size>0)//BALANCE has 1 stack arg
+            {
+                balanceCounts.reachableCount++;
+                const ValueSet& balanceAccountSoln=prevInstrSoln[0];
+                if (!balanceAccountSoln.isComplete()) {
+                    balanceCounts.predictedCount++;
+                    for (size_t i=0; i<balanceAccountSoln.size(); i++) {
+                        uint32_t nodeIndex=balanceAccountSoln.getFixedValue(i);
+                        balanceExprsIndices.insert(nodeIndex);// what if someone does BALANCE on a precompile address?
+                    }
+                }
+            }
+        }
+
         prevInsTerm=thisOffsetIns;
 
     }
@@ -1850,11 +1871,12 @@ int main() {
 
         // Print results
         fineGrainedSolns(solver.parsedBytecode, result);
-        if (callCounts.allReachablePredicted() && delegateCallCounts.allReachablePredicted()) {
-            allCalleeExprIndices = calleeExprsIndices;
-            allCalleeExprIndices.insert(delegateCallExprsIndices.begin(),delegateCallExprsIndices.end());
-            bool allCallesSupported = epool.allSupported(allCalleeExprIndices);
-            bool predictionSuccess = allCallesSupported && (createCounts.reachableCount == 0); // in future, we can supporte create/create2 by computing
+        if (callCounts.allReachablePredicted() && delegateCallCounts.allReachablePredicted() && balanceCounts.allReachablePredicted()) {
+            allFootprintExprIndices= calleeExprsIndices;
+            allFootprintExprIndices.insert(delegateCallExprsIndices.begin(),delegateCallExprsIndices.end());
+            allFootprintExprIndices.insert(balanceExprsIndices.begin(), balanceExprsIndices.end());
+            bool allAcSupported = epool.allSupported(allFootprintExprIndices);
+            bool predictionSuccess = allAcSupported && (createCounts.reachableCount == 0); // in future, we can supporte create/create2 by computing
                      // the address of the created contract. for create2, we
                      // just need a prediction for the salt argument. for
                      // create, we to add nonce expressions in addition to stack
@@ -1864,8 +1886,10 @@ int main() {
                 Prediction pred;
                 pred.callees.reserve(calleeExprsIndices.size());
                 pred.delegateCallees.reserve(delegateCallExprsIndices.size());
+                pred.balanceAccounts.reserve(balanceExprsIndices.size());
                 pred.callees.insert(pred.callees.end(), calleeExprsIndices.begin(),calleeExprsIndices.end());
                 pred.delegateCallees.insert(pred.delegateCallees.end(),delegateCallExprsIndices.begin(),delegateCallExprsIndices.end());
+                pred.balanceAccounts.insert(pred.balanceAccounts.end(),balanceExprsIndices.begin(),balanceExprsIndices.end());
                 predictions[hash] = pred;
             }
         }

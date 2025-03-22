@@ -1353,6 +1353,7 @@ int main() {
 struct Prediction {
     std::vector<uint32_t> callees;
     std::vector<uint32_t> delegateCallees;
+    std::vector<uint32_t> balanceAccounts;
 };
 
 inline void prepad_hex(std::string &s, size_t size=64) {
@@ -1437,6 +1438,15 @@ inline void serializePredictions(const Predictions &predictions, const std::stri
                 out.write(reinterpret_cast<const char*>(&dCallee), sizeof(dCallee));
             }
         }
+
+        // write balance accounts
+        {
+            size_t balanceCount = prediction.balanceAccounts.size();
+            out.write(reinterpret_cast<const char*>(&balanceCount), sizeof(balanceCount));
+            for (auto const &bAccount : prediction.balanceAccounts) {
+                out.write(reinterpret_cast<const char*>(&bAccount), sizeof(bAccount));
+            }
+        }
     }
 }
 
@@ -1479,6 +1489,15 @@ inline void unserializePredictions(Predictions &predictions, const std::string &
             }
         }
 
+        // read balance accounts
+        {
+            size_t balanceCount = 0;
+            in.read(reinterpret_cast<char*>(&balanceCount), sizeof(balanceCount));
+            pred.balanceAccounts.resize(balanceCount);
+            for (size_t j = 0; j < balanceCount; ++j) {
+                in.read(reinterpret_cast<char*>(&pred.balanceAccounts[j]), sizeof(pred.balanceAccounts[j]));
+            }
+        }
         predictions.emplace(key, std::move(pred));
     }
 }
