@@ -248,7 +248,7 @@ Result<std::vector<ExecutionResult>> execute_block(
                     for(auto const &addr: *footprint) {
                         priority_pool.submit(num_transactions+i, [&addr, &i, &block_state] {
                             if (parallel_commit_system.cacheWarmable(i)) {
-                                block_state.read_account(addr);
+                                block_state.cache_account(addr);
                             }
                         });
                     }

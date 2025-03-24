@@ -55,6 +55,7 @@ public:
     BlockState(Db &);
 
     std::optional<Account> read_account(Address const &, const std::optional<uint64_t> & txindex=std::nullopt);
+    void cache_account(Address const &);
 
     bytes32_t read_storage(Address const &, Incarnation, bytes32_t const &key);
 
