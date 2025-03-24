@@ -142,7 +142,7 @@ class ParallelCommitSystem
 public:
     inline bool cacheWarmable(txindex_t index)
     {
-        return status_[index]<=TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS;
+        return status_[index].load()<=TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS;
     }
 
 #endif

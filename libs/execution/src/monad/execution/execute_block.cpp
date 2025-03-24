@@ -244,6 +244,8 @@ Result<std::vector<ExecutionResult>> execute_block(
                 senders[i] = recover_sender(transaction);
                 #if !SEQUENTIAL
                 std::set<evmc::address> *footprint=compute_footprint(block_state, transaction, callee_pred_info, i);
+                insert_to_footprint(footprint, senders[i].value());
+                parallel_commit_system.declareFootprint(i, footprint);
                 if(footprint) {
                     for(auto const &addr: *footprint) {
                         priority_pool.submit(num_transactions+i, [&addr, &i, &block_state] {
@@ -253,8 +255,6 @@ Result<std::vector<ExecutionResult>> execute_block(
                         });
                     }
                 }
-                insert_to_footprint(footprint, senders[i].value());
-                parallel_commit_system.declareFootprint(i, footprint);
                 //print_footprint(footprint, i);
                 #endif
                 promises[i].set_value();
