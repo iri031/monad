@@ -50,6 +50,16 @@ class ParallelCommitSystem
     ~ParallelCommitSystem();
     void waitForAllTransactionsToCommit();
     void reset(txindex_t num_transactions, monad::Address const &beneficiary);
+    enum class TransactionStatus : uint8_t
+    {
+        STARTED=0,
+        STARTED_UNBLOCKED=1,// unblocked iff all previous transactions have already committed
+        FOOTPRINT_COMPUTED=2, // at this stage, a transaction is speculatively executing the transaction. the footprint computation can share some computations with the transaction execution.
+        FOOTPRINT_COMPUTED_UNBLOCKED=3,
+        WAITING_FOR_PREV_TRANSACTIONS=4, // cannot be unblocked if it is waiting
+        COMMITTING=5, // committing or retrying. must be unblocked by now
+        COMMITTED=6 // must be unblocked by now
+    };
 
     private:
     monad::Address beneficiary;
@@ -62,16 +72,6 @@ class ParallelCommitSystem
 #if SEQUENTIAL//ideally, we should use PIMPL and move the private state to the cpp files, 
 //one for the sequential impl and one for the parallel impl. that may be a tiny bit slower due to the overhead of the indirection via the pointer.
 #else
-    enum class TransactionStatus : uint8_t
-    {
-        STARTED=0,
-        STARTED_UNBLOCKED=1,// unblocked iff all previous transactions have already committed
-        FOOTPRINT_COMPUTED=2, // at this stage, a transaction is speculatively executing the transaction. the footprint computation can share some computations with the transaction execution.
-        FOOTPRINT_COMPUTED_UNBLOCKED=3,
-        WAITING_FOR_PREV_TRANSACTIONS=4, // cannot be unblocked if it is waiting
-        COMMITTING=5, // committing or retrying. must be unblocked by now
-        COMMITTED=6 // must be unblocked by now
-    };
     /*
     * returns true if the transaction is unblockable, i.e. all previous transactions accessing its footprint have already committed
     * status is expected to be a recent load from status_[index]
@@ -139,6 +139,12 @@ class ParallelCommitSystem
     std::vector<tbb::concurrent_unordered_set<evmc::address>>
         pending_footprints_; 
     */
+public:
+    inline bool cacheWarmable(txindex_t index)
+    {
+        return status_[index]<=TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS;
+    }
+
 #endif
 };
 MONAD_NAMESPACE_END
