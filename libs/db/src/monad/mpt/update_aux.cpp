@@ -1168,7 +1168,7 @@ void UpdateAuxImpl::erase_version(uint64_t const version)
 
 void UpdateAuxImpl::adjust_history_length_based_on_disk_usage()
 {
-    constexpr double upper_bound = 0.8;
+    constexpr double upper_bound = 0.61;
     constexpr double lower_bound = 0.6;
 
     // Shorten history length when disk usage is high
