@@ -63,3 +63,11 @@ target_link_libraries(
                                   CLI11::CLI11 quill::quill)
 
 add_subdirectory("geth_freezer_db_analyzer")
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  add_executable(fuzz_db "${PROJECT_SOURCE_DIR}/src/monad/mpt/test/fuzz_db.cpp")
+  target_compile_options(fuzz_db PRIVATE "-fsanitize=fuzzer")
+  target_link_options(fuzz_db PRIVATE "-fsanitize=fuzzer")
+  monad_compile_options(fuzz_db)
+  target_link_libraries(fuzz_db PUBLIC monad_trie)
+endif()
