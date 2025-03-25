@@ -1930,7 +1930,9 @@ write_new_root_node(UpdateAuxImpl &aux, Node &root, uint64_t const version)
     if (MONAD_UNLIKELY(max_version_in_db == INVALID_BLOCK_ID)) {
         aux.fast_forward_next_version(version);
         aux.append_root_offset(offset_written_to);
-        MONAD_ASSERT(aux.db_history_range_lower_bound() == version);
+        MONAD_ASSERT(
+            aux.db_history_range_lower_bound_clamped_to_version_history_length() ==
+            version);
     }
     else if (version <= max_version_in_db) {
         MONAD_ASSERT(
@@ -1938,10 +1940,11 @@ write_new_root_node(UpdateAuxImpl &aux, Node &root, uint64_t const version)
             ((max_version_in_db >= aux.version_history_length())
                  ? max_version_in_db - aux.version_history_length() + 1
                  : 0));
-        auto const prev_lower_bound = aux.db_history_range_lower_bound();
+        auto const prev_lower_bound =
+            aux.db_history_range_lower_bound_clamped_to_version_history_length();
         aux.update_root_offset(version, offset_written_to);
         MONAD_ASSERT(
-            aux.db_history_range_lower_bound() ==
+            aux.db_history_range_lower_bound_clamped_to_version_history_length() ==
             std::min(version, prev_lower_bound));
     }
     else {

@@ -570,14 +570,22 @@ public:
             std::atomic_ref<uint64_t> next_version_;
             std::span<chunk_offset_t> root_offsets_chunks_;
 
-            void
-            update_version_lower_bound_(uint64_t lower_bound = uint64_t(-1))
+            void reset_version_lower_bound_if_greater_than(
+                uint64_t const lower_bound)
             {
                 auto const version_lower_bound =
                     version_lower_bound_.load(std::memory_order_acquire);
-                auto idx = (lower_bound < version_lower_bound)
-                               ? lower_bound
-                               : version_lower_bound;
+                if (lower_bound < version_lower_bound) {
+                    version_lower_bound_.store(
+                        lower_bound, std::memory_order_release);
+                }
+            }
+
+            void recalculate_version_lower_bound_()
+            {
+                auto const version_lower_bound =
+                    version_lower_bound_.load(std::memory_order_acquire);
+                auto idx = version_lower_bound;
                 auto const max_version =
                     next_version_.load(std::memory_order_acquire) - 1;
                 while (idx < max_version && (*this)[idx] == INVALID_OFFSET) {
@@ -622,7 +630,7 @@ public:
                 p->store(o, std::memory_order_release);
                 next_version_.store(next_wp, std::memory_order_release);
                 if (o != INVALID_OFFSET) {
-                    update_version_lower_bound_();
+                    recalculate_version_lower_bound_();
                 }
             }
 
@@ -632,8 +640,10 @@ public:
                     &root_offsets_chunks_
                         [i & (root_offsets_chunks_.size() - 1)]);
                 p->store(o, std::memory_order_release);
-                update_version_lower_bound_(
-                    (o != INVALID_OFFSET) ? i : uint64_t(-1));
+                if (o != INVALID_OFFSET) {
+                    reset_version_lower_bound_if_greater_than(i);
+                }
+                recalculate_version_lower_bound_();
             }
 
             chunk_offset_t operator[](size_t const i) const noexcept
@@ -675,7 +685,7 @@ public:
                         version, std::memory_order_release);
                 }
                 next_version_.store(version + 1, std::memory_order_release);
-                update_version_lower_bound_();
+                recalculate_version_lower_bound_();
             }
         };
 
@@ -783,7 +793,8 @@ public:
         MONAD_ASSERT(this->is_on_disk());
         if (version <= db_history_max_version()) {
             auto const offset = root_offsets()[version];
-            if (version >= db_history_range_lower_bound()) {
+            if (version >=
+                db_history_range_lower_bound_clamped_to_version_history_length()) {
                 return offset;
             }
         }
@@ -822,7 +833,8 @@ public:
     // Following funcs on db history are for on disk db only. In
     // memory db does not have any version history.
     // Db history range, returned version NOT always valid
-    uint64_t db_history_range_lower_bound() const noexcept;
+    uint64_t db_history_range_lower_bound_clamped_to_version_history_length()
+        const noexcept;
     uint64_t db_history_max_version() const noexcept;
     // Returns the first min version with a root offset. On disk db returns
     // invalid if it contains empty version

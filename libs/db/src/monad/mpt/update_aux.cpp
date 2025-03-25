@@ -217,15 +217,36 @@ void UpdateAuxImpl::fast_forward_next_version(
 }
 
 void UpdateAuxImpl::update_history_length_metadata(
-    uint64_t const history_len) noexcept
+    uint64_t const new_history_length) noexcept
 {
     MONAD_ASSERT(is_on_disk());
     auto do_ = [&](detail::db_metadata *m) {
         auto g = m->hold_dirty();
         auto const ro = root_offsets(m == db_metadata_[1].main);
-        MONAD_ASSERT(history_len > 0 && history_len <= ro.capacity());
+        MONAD_ASSERT(
+            new_history_length > 0 && new_history_length <= ro.capacity());
+        auto const max_version = ro.max_version();
+        if (max_version != INVALID_BLOCK_ID) {
+            auto const current_history_length =
+                reinterpret_cast<std::atomic_uint64_t *>(&m->history_length)
+                    ->load(std::memory_order_acquire);
+            if (new_history_length > current_history_length) {
+                for (auto version = max_version - new_history_length;
+                     version <= max_version - current_history_length;
+                     version++) {
+                    MONAD_ASSERT(ro[version] == INVALID_OFFSET);
+                }
+            }
+            else if (new_history_length < current_history_length) {
+                for (auto version = max_version - current_history_length;
+                     version <= max_version - new_history_length;
+                     version++) {
+                    MONAD_ASSERT(ro[version] == INVALID_OFFSET);
+                }
+            }
+        }
         reinterpret_cast<std::atomic_uint64_t *>(&m->history_length)
-            ->store(history_len, std::memory_order_relaxed);
+            ->store(new_history_length, std::memory_order_release);
     };
     do_(db_metadata_[0].main);
     do_(db_metadata_[1].main);
@@ -1328,7 +1349,8 @@ uint64_t UpdateAuxImpl::db_history_min_valid_version() const noexcept
 {
     MONAD_ASSERT(is_on_disk());
     auto const offsets = root_offsets();
-    auto min_version = db_history_range_lower_bound();
+    auto min_version =
+        db_history_range_lower_bound_clamped_to_version_history_length();
     for (; min_version != offsets.max_version(); ++min_version) {
         if (offsets[min_version] != INVALID_OFFSET) {
             break;
@@ -1337,7 +1359,9 @@ uint64_t UpdateAuxImpl::db_history_min_valid_version() const noexcept
     return min_version;
 }
 
-uint64_t UpdateAuxImpl::db_history_range_lower_bound() const noexcept
+uint64_t
+UpdateAuxImpl::db_history_range_lower_bound_clamped_to_version_history_length()
+    const noexcept
 {
     MONAD_ASSERT(is_on_disk());
     auto const max_version = db_history_max_version();
@@ -1347,7 +1371,9 @@ uint64_t UpdateAuxImpl::db_history_range_lower_bound() const noexcept
     else {
         auto version_lower_bound =
             db_metadata()->root_offsets.version_lower_bound_;
-        if (max_version - version_lower_bound > version_history_length() + 1) {
+        // version_lower_bound and max_version are **inclusive**, so the
+        // distance between them is +1
+        if (max_version - version_lower_bound + 1 > version_history_length()) {
             version_lower_bound = max_version - version_history_length() + 1;
         }
         return version_lower_bound;
