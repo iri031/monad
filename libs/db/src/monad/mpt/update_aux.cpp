@@ -1184,6 +1184,8 @@ void UpdateAuxImpl::adjust_history_length_based_on_disk_usage()
         while (disk_usage() > upper_bound &&
                version_history_length() > MIN_HISTORY_LENGTH) {
             auto const version_to_erase = db_history_min_valid_version();
+            LOG_INFO_CFORMAT(
+                "Compaction erasing version %lu", version_to_erase);
             MONAD_ASSERT(
                 version_to_erase != INVALID_BLOCK_ID &&
                 version_to_erase < max_version);
