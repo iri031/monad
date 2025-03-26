@@ -149,6 +149,7 @@ bool insert_callees(BlockState &block_state, std::set<evmc::address> *footprint,
     return false;
 }
 
+std::set<evmc::address> *footprints[MAX_TRANSACTIONS];
 
 // sender address is later added to the footprint by the caller, because sender.nonce is updated by the transaction
 // for now, we assume that no transaction calls a contract created by a previous transaction in this very block. need to extend static analysis to look at predicted stacks at CREATE/CREATE2
@@ -245,7 +246,7 @@ Result<std::vector<ExecutionResult>> execute_block(
                 #if !SEQUENTIAL
                 std::set<evmc::address> *footprint=compute_footprint(block_state, transaction, callee_pred_info, i);
                 insert_to_footprint(footprint, senders[i].value());
-                parallel_commit_system.declareFootprint(i, footprint);
+                footprints[i]=footprint;
                 if(footprint) {
                     for(auto const &addr: *footprint) {
                         priority_pool.submit(num_transactions+i, [&addr, i=i, &block_state] {
@@ -264,6 +265,10 @@ Result<std::vector<ExecutionResult>> execute_block(
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         promises[i].get_future().wait();
         //LOG_INFO("sender[{}]: {}", i, fmt::format("{}", senders[i].value()));
+    }
+    
+    for (unsigned i = 0; i < block.transactions.size(); ++i) {
+        parallel_commit_system.declareFootprint(i, footprints[i]);
     }
 
     std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
