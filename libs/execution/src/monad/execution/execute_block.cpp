@@ -232,7 +232,7 @@ Result<std::vector<ExecutionResult>> execute_block(
     parallel_commit_system.reset(block.transactions.size(), block.header.beneficiary);
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         priority_pool.submit(
-            i,
+            block.transactions.size()+i,
             [i = i,
              senders = senders,
              promises = promises,
@@ -275,7 +275,7 @@ Result<std::vector<ExecutionResult>> execute_block(
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         priority_pool.submit(
-            i,
+            block.transactions.size()+i,
             [&chain = chain,
              i = i,
              results = results,
