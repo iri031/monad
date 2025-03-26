@@ -232,14 +232,14 @@ Result<std::vector<ExecutionResult>> execute_block(
     parallel_commit_system.reset(block.transactions.size(), block.header.beneficiary);
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         priority_pool.submit(
-            block.transactions.size()+i,
+            i,
             [i = i,
              senders = senders,
              promises = promises,
              &block_state = block_state,
              &callee_pred_info = callee_pred_info,
              &priority_pool,
-             //num_transactions = block.transactions.size(),
+             num_transactions = block.transactions.size(),
              &transaction = block.transactions[i]] {
                 senders[i] = recover_sender(transaction);
                 #if !SEQUENTIAL
@@ -248,7 +248,7 @@ Result<std::vector<ExecutionResult>> execute_block(
                 parallel_commit_system.declareFootprint(i, footprint);
                 if(footprint) {
                     for(auto const &addr: *footprint) {
-                        priority_pool.submit(i, [&addr, i=i, &block_state] {
+                        priority_pool.submit(num_transactions+i, [&addr, i=i, &block_state] {
                             if (parallel_commit_system.cacheWarmable(i)) {
                                 block_state.cache_account(addr);
                             }
@@ -275,7 +275,7 @@ Result<std::vector<ExecutionResult>> execute_block(
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         priority_pool.submit(
-            block.transactions.size()+i,
+            (2*block.transactions.size())+i,
             [&chain = chain,
              i = i,
              results = results,
