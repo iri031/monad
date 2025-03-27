@@ -10,6 +10,9 @@
 #include <span>
 #include <vector>
 
+#include <fstream>
+#include <iostream>
+
 MONAD_NAMESPACE_BEGIN
 
 byte_string compress_call_frames(byte_string_view const rlp_call_frames)
@@ -34,6 +37,9 @@ byte_string compress_call_frames(byte_string_view const rlp_call_frames)
         static_cast<int>(size_required));
 
     MONAD_ASSERT(compressed_size > 0);
+
+    static std::ofstream ofile("call_trace_size.csv");
+    ofile << rlp_call_frames.length() << "," << compressed_size << std::endl;
 
     return byte_string(
         reinterpret_cast<uint8_t const *>(buffer.get()),
