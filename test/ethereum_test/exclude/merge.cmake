@@ -15,6 +15,4 @@ set(merge_excluded_tests
     "BlockchainTests.InvalidBlocks/bcInvalidHeaderTest/wrongTimestamp.json" # ParentHeader
     "BlockchainTests.InvalidBlocks/bcInvalidHeaderTest/wrongTransactionsTrie.json" # Trie
     "BlockchainTests.InvalidBlocks/bcMultiChainTest/UncleFromSideChain.json" # Uncle
-    "TransactionTests.ttWrongRLP/RLPIncorrectByteEncoding01.json"
-    "TransactionTests.ttWrongRLP/RLPIncorrectByteEncoding127.json"
 )
