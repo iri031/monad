@@ -1853,12 +1853,12 @@ int main() {
         if (callCounts.allReachablePredicted() && delegateCallCounts.allReachablePredicted()) {
             allCalleeExprIndices = calleeExprsIndices;
             allCalleeExprIndices.insert(delegateCallExprsIndices.begin(),delegateCallExprsIndices.end());
-            bool allCallesSupported = epool.allConstants(allCalleeExprIndices);
+            bool allCallesSupported = epool.allSupported(allCalleeExprIndices);
             bool predictionSuccess = allCallesSupported && (createCounts.reachableCount == 0); // in future, we can supporte create/create2 by computing
                      // the address of the created contract. for create2, we
                      // just need a prediction for the salt argument. for
                      // create, we to add nonce expressions in addition to stack
-                     // elements.
+                     // elements. we would also need to predic memory content as the init code can do CALLs as well
             if (predictionSuccess) {
                 ::evmc::bytes32 hash = hex_to_bytes32(filename);
                 Prediction pred;

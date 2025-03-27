@@ -935,6 +935,7 @@ public:
         file.close();
     }
 
+    // \pre transaction.to.has_value()
     std::optional<Word256> interpretExpression(
         uint32_t index, monad::BlockHeader const &block_header,
         monad::Transaction const &transaction,
@@ -1157,6 +1158,23 @@ public:
             return std::nullopt;
         }
     }
+
+    bool allSupported(const std::set<uint32_t>& indices) const {
+        evmc::address dummyAddr;
+        monad::Transaction dummy_transaction;
+        dummy_transaction.to = dummyAddr;
+        monad::BlockHeader dummy_block_header;
+        
+        
+        for (uint32_t index : indices) {
+            auto ie=interpretExpression(index, dummy_block_header, dummy_transaction, dummyAddr, true);
+            if (!ie.has_value())
+                return false;
+        }
+        return true;
+    }
+
+
 };
 
 // Implement expressionCompare
