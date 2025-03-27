@@ -38,6 +38,7 @@ struct CalleePredInfo {
 };
 
 uint64_t numPredictedFootprints();
+uint64_t numTTPredictedFootprints();
 
 
 template <evmc_revision rev>

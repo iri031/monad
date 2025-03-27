@@ -149,8 +149,13 @@ bool insert_callees(BlockState &block_state, std::set<evmc::address> *footprint,
     return false;
 }
 
-std::set<evmc::address> *footprints[MAX_TRANSACTIONS];
+std::atomic<uint64_t> numTTFp=0;
 
+uint64_t numTTPredictedFootprints() {
+    return numTTFp;
+}
+
+std::set<evmc::address> *footprints[MAX_TRANSACTIONS];
 // sender address is later added to the footprint by the caller, because sender.nonce is updated by the transaction
 // for now, we assume that no transaction calls a contract created by a previous transaction in this very block. need to extend static analysis to look at predicted stacks at CREATE/CREATE2
  std::set<evmc::address> * compute_footprint(BlockState &block_state, Transaction const &transaction, CalleePredInfo &callee_pred_info, uint64_t /*tx_index*/=0) {
@@ -162,6 +167,7 @@ std::set<evmc::address> *footprints[MAX_TRANSACTIONS];
     std::set<evmc::address> *footprint=new std::set<evmc::address>();
     footprint->insert(runningAddress);
     if(address_known_to_be_non_contract(block_state, transaction.to.value())) {
+        numTTFp++;
         //LOG_INFO("compute_footprint: tx_index: {} address_known_to_be_non_contract: {}", tx_index, runningAddress);
         return footprint;
     }
