@@ -12,6 +12,7 @@
 #include <boost/algorithm/hex.hpp>
 #include <set>
 #include <intx/intx.hpp>
+#undef UINT128_MAX
 #include <monad/core/block.hpp>
 namespace mp = boost::multiprecision;
 using Word256 = mp::uint256_t;
