@@ -33,6 +33,11 @@
 
 MONAD_NAMESPACE_BEGIN
 
+uint64_t num_retries = 0;
+uint64_t numRetries() {
+    return num_retries;
+}
+
 // YP Sec 6.2 "irrevocable_change"
 template <evmc_revision rev>
 constexpr void irrevocable_change(
@@ -248,6 +253,7 @@ Result<ExecutionResult> execute_impl(
     }
     {
         TRACE_TXN_EVENT(StartRetry);
+        num_retries++;
 
         State state{block_state, Incarnation{hdr.number, i + 1}};
 

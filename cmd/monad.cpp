@@ -203,6 +203,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
         }
         ++block_num;
     }
+        LOG_INFO("num retries: {}", numRetries());
     if (batch_num_blocks > 0) {
         log_tps(
             block_num, batch_num_blocks, batch_num_txs, batch_gas, batch_begin);
