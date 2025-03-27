@@ -202,6 +202,11 @@ void print_footprint(std::set<evmc::address> *footprint, uint64_t index) {
     LOG_INFO("footprint[{}]: {}", index, footprint_str);
 }
 
+uint64_t numPredFootprints=0;
+uint64_t numPredictedFootprints() {
+    return numPredFootprints;
+}
+
 ParallelCommitSystem parallel_commit_system;
 template <evmc_revision rev>
 Result<std::vector<ExecutionResult>> execute_block(
@@ -268,6 +273,10 @@ Result<std::vector<ExecutionResult>> execute_block(
     }
     
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
+        if(footprints[i]!=nullptr) {
+            numPredFootprints++;
+        }
+
         parallel_commit_system.declareFootprint(i, footprints[i]);
     }
 

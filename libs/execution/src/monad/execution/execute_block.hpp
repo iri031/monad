@@ -37,6 +37,8 @@ struct CalleePredInfo {
     }
 };
 
+uint64_t numPredictedFootprints();
+
 
 template <evmc_revision rev>
 Result<std::vector<ExecutionResult>> execute_block(

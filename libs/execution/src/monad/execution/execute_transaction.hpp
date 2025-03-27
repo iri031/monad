@@ -51,5 +51,7 @@ Result<ExecutionResult> execute(
     std::optional<Address> const &, BlockHeader const &,
     BlockHashBuffer const &, BlockState &, ParallelCommitSystem &);
 
+uint64_t numRetries();
+
 MONAD_NAMESPACE_END
 

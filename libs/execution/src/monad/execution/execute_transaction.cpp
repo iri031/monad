@@ -228,6 +228,11 @@ Result<evmc::Result> execute_impl2(
         hdr.beneficiary);
 }
 
+uint64_t numRetr=0;
+uint64_t numRetries() {
+    return numRetr;
+}
+
 template <evmc_revision rev>
 Result<ExecutionResult> execute_impl(
     Chain const &chain, uint64_t const i, Transaction const &tx,
@@ -297,7 +302,7 @@ Result<ExecutionResult> execute_impl(
         TRACE_TXN_EVENT(StartRetry);
 
         State state{block_state, Incarnation{hdr.number, i + 1}, i};
-
+        numRetr++;
 #ifdef ENABLE_CALL_TRACING
         CallTracer call_tracer{tx};
 #else
