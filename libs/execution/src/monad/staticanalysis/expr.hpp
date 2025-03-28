@@ -1510,13 +1510,15 @@ inline void printPredictions(const ExpressionPool& epool, const Predictions& pre
         // Print callees
         out << "  Callees (" << pred.callees.size() << "):\n";
         for (const auto& callee : pred.callees) {
-            out << "    " << epool.getConst(callee).str(0, std::ios_base::hex) << "\n";
+            epool.printExpression(out, callee);
+            out << "\n";
         }
 
         // Print delegate callees
         out << "  Delegate Callees (" << pred.delegateCallees.size() << "):\n"; 
         for (const auto& dCallee : pred.delegateCallees) {
-            out << "    " << epool.getConst(dCallee).str(0, std::ios_base::hex) << "\n";
+            epool.printExpression(out, dCallee);
+            out << "\n";
         }
         out << "\n";
     }
