@@ -94,7 +94,7 @@ inline void set_beacon_root(BlockState &block_state, Block &block)
 #define MAX_FOOTPRINT_SIZE 10
 
 // if this returns true, then the address MUST be a non-contract account. for correctness, it can always return false, but for performance, it should do that only for addresses created in this block.
-bool address_known_to_be_non_contract_del(BlockState &block_state, evmc::address address) {
+bool address_known_to_be_non_contract_dell(evmc::address address, BlockState &block_state, CalleePredInfo &) {
     auto const to_account = block_state.read_account(address);
     if(!to_account.has_value()) {// an account that is first seen in this block.
 
@@ -113,8 +113,8 @@ bool address_known_to_be_non_contract_del(BlockState &block_state, evmc::address
 // but because we already have the static analysis of all contracts called beforehand, we are able to look into the future here. 
 //the impact of this cheagint should likely be insignificant in tps. 
 // the above impl doesnt cleat but it loads the account from DB which is an expensive thing to do to just compute footprints, which is done even before transactions are started
-bool address_known_to_be_non_contract(evmc::address address, CalleePredInfo &cinfo) {
-    return (cinfo.code_hashes.find(address)!=cinfo.code_hashes.end());
+bool address_known_to_be_non_contract_buggy(evmc::address address, BlockState &, CalleePredInfo &cinfo) {
+    return (cinfo.code_hashes.find(address)==cinfo.code_hashes.end());
 }
 
 struct CallChainNode {
@@ -134,7 +134,7 @@ struct CallChainNode {
 /** returns true iff the footprint has been overapproximated to INF. in that case, footprint is deleted 
  * \pre address_known_to_be_non_contract(runningAddress)=false, which means runningAddress has a non-empty code hash or hasnt been seen until this block
 */
-bool insert_callees(Block &block, Transaction const &transaction, evmc::address origin, std::set<evmc::address> *footprint, std::vector<CallChainNode> & to_be_explored, std::set<CallChainNode> & seen_nodes, CallChainNode cnode, CalleePredInfo &callee_pred_info) {
+bool insert_callees(BlockState &block_state, Block &block, Transaction const &transaction, evmc::address origin, std::set<evmc::address> *footprint, std::vector<CallChainNode> & to_be_explored, std::set<CallChainNode> & seen_nodes, CallChainNode cnode, CalleePredInfo &callee_pred_info) {
     if(footprint->size()>MAX_FOOTPRINT_SIZE) {
         delete footprint;
         return true;
@@ -154,7 +154,7 @@ bool insert_callees(Block &block, Transaction const &transaction, evmc::address 
         footprint->insert(callee_addr);
         CallChainNode seenNode={callee_addr, cnode.callee, false};
         auto res=seen_nodes.insert(seenNode);
-        if(address_known_to_be_non_contract(callee_addr, callee_pred_info)) {
+        if(address_known_to_be_non_contract_buggy(callee_addr, block_state, callee_pred_info)) {
             //LOG_INFO("insert_callees: callee_addr: {} is known_to_be_non_contract", callee_addr);
             continue;
         }
@@ -168,7 +168,7 @@ bool insert_callees(Block &block, Transaction const &transaction, evmc::address 
             return true;// not enough information to interpret the callee address expression to a constant, e.g. CALLDATA is currently not available for non-root nodes in callchain. so this callee can be anything: overapproximate this transactions's footprint to INF
         }
         evmc::address callee_addr=get_address(callee_addrp.value());
-        if(address_known_to_be_non_contract(callee_addr, callee_pred_info)) {
+        if(address_known_to_be_non_contract_buggy(callee_addr, block_state, callee_pred_info)) {
             continue;
         }
         CallChainNode seenNode={callee_addr, cnode.callee, false};
@@ -190,7 +190,7 @@ uint64_t numTTPredictedFootprints() {
 std::set<evmc::address> *footprints[MAX_TRANSACTIONS];
 // sender address is later added to the footprint by the caller, because sender.nonce is updated by the transaction
 // for now, we assume that no transaction calls a contract created by a previous transaction in this very block. need to extend static analysis to look at predicted stacks at CREATE/CREATE2
- std::set<evmc::address> * compute_footprint(Block &block, Transaction const &transaction, evmc::address sender, CalleePredInfo &callee_pred_info, uint64_t /*tx_index*/=0) {
+ std::set<evmc::address> * compute_footprint(BlockState &block_state, Block &block, Transaction const &transaction, evmc::address sender, CalleePredInfo &callee_pred_info, uint64_t /*tx_index*/=0) {
     if(!transaction.to.has_value()) {
         //LOG_INFO("compute_footprint: tx_index: {} has no empty to value", tx_index);
         return nullptr;//this is sound but not optimal for performance. it seems even the init code can call contracts
@@ -198,7 +198,7 @@ std::set<evmc::address> *footprints[MAX_TRANSACTIONS];
     evmc::address runningAddress = transaction.to.value();
     std::set<evmc::address> *footprint=new std::set<evmc::address>();
     footprint->insert(runningAddress);
-    if(address_known_to_be_non_contract(runningAddress, callee_pred_info)) {
+    if(address_known_to_be_non_contract_buggy(runningAddress, block_state, callee_pred_info)) {
         numTTFp++;
         //LOG_INFO("compute_footprint: tx_index: {} address_known_to_be_non_contract: {}", tx_index, runningAddress);
         return footprint;
@@ -212,7 +212,7 @@ std::set<evmc::address> *footprints[MAX_TRANSACTIONS];
     while((!overapproximated)&&(to_be_explored.size()>0)) {
         CallChainNode runningAddress=to_be_explored.back();
         to_be_explored.pop_back();
-        overapproximated=insert_callees(block, transaction, sender, footprint, to_be_explored, seen_nodes, runningAddress, callee_pred_info);
+        overapproximated=insert_callees(block_state, block, transaction, sender, footprint, to_be_explored, seen_nodes, runningAddress, callee_pred_info);
     }
     if(overapproximated) {
         delete footprint;
@@ -288,7 +288,7 @@ Result<std::vector<ExecutionResult>> execute_block(
              &transaction = block.transactions[i]] {
                 senders[i] = recover_sender(transaction);
                 #if !SEQUENTIAL
-                std::set<evmc::address> *footprint=compute_footprint(block, transaction, senders[i].value(), callee_pred_info, i);
+                std::set<evmc::address> *footprint=compute_footprint(block_state, block, transaction, senders[i].value(), callee_pred_info, i);
                 insert_to_footprint(footprint, senders[i].value());
                 footprints[i]=footprint;
                 if(footprint) {
