@@ -938,8 +938,9 @@ public:
     // \pre transaction.to.has_value()
     std::optional<Word256> interpretExpression(
         uint32_t index, monad::BlockHeader const &block_header,
-        monad::Transaction const &transaction,
-        evmc::address const &sender, // not accurate for non-root calls
+        monad::Transaction const &transaction,// only transaction.data and transaction.value are used
+        evmc::address const &sender, 
+        evmc::address const &origin, 
         bool root_call // true iff this contract was directly called by the
                        // transaction. false for the callees of the root call
                        // and so on. for non-root calls, we do NOT have CALLDATA
@@ -966,7 +967,7 @@ public:
             // Interpret the node's exprIndex as the offset within transaction
             // input
             auto offsetOpt = interpretExpression(
-                node.exprIndex, block_header, transaction, sender, root_call);
+                node.exprIndex, block_header, transaction, sender, origin, root_call);
             if (!offsetOpt.has_value()) {
                 return std::nullopt;
             }
@@ -1016,19 +1017,10 @@ public:
             return ofIntx(transaction.value);
         }
         case ExpressionNode::Type::Caller: {
-            // If you can recover caller address, convert to Word256. If not,
-            // return zero.
-            if (root_call) {
-                return ofAddress(sender);
-            }
-            return std::nullopt; // fallback
+            return ofAddress(sender);
         }
         case ExpressionNode::Type::Origin: {
-            // Often same as "from" in a single-transaction scenario.
-            if (root_call) {
-                return ofAddress(sender);
-            }
-            return std::nullopt; // fallback
+            return ofAddress(origin);
         }
         case ExpressionNode::Type::Create: {
             // Incomplete placeholder. Return zero or some specialized logic.
@@ -1064,13 +1056,13 @@ public:
             // Recursively evaluate children as intx::uint256,
             // then combine and convert the result to Word256 at the end.
             auto lhsOpt = interpretExpression(
-                node.binaryOp.leftIndex, block_header, transaction, sender, root_call);
+                node.binaryOp.leftIndex, block_header, transaction, sender, origin, root_call);
             if (!lhsOpt.has_value()) {
                 return std::nullopt;
             }
             auto lhs = lhsOpt.value();
             auto rhsOpt = interpretExpression(
-                node.binaryOp.rightIndex, block_header, transaction, sender, root_call);
+                node.binaryOp.rightIndex, block_header, transaction, sender, origin, root_call);
             if (!rhsOpt.has_value()) {
                 return std::nullopt;
             }
@@ -1123,7 +1115,7 @@ public:
         // ----------------
         case ExpressionNode::Type::Not: {
             // Evaluate child as intx::uint256, then invert bits.
-            auto valOpt = interpretExpression(node.exprIndex, block_header, transaction, sender, root_call);
+            auto valOpt = interpretExpression(node.exprIndex, block_header, transaction, sender, origin, root_call);
             if (!valOpt.has_value()) {
                 return std::nullopt;
             }
@@ -1167,7 +1159,7 @@ public:
         
         
         for (uint32_t index : indices) {
-            auto ie=interpretExpression(index, dummy_block_header, dummy_transaction, dummyAddr, true);
+            auto ie=interpretExpression(index, dummy_block_header, dummy_transaction, dummyAddr, dummyAddr, true);
             if (!ie.has_value())
                 return false;
         }
