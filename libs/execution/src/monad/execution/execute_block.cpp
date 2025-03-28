@@ -148,7 +148,7 @@ bool insert_callees(Block &block, Transaction const &transaction, evmc::address 
     for (uint32_t index : calles.value()->callees) {
         std::optional<Word256> callee_addrp=callee_pred_info.epool.interpretExpression(index, block.header, transaction, cnode.caller, origin, cnode.root_call);
         if(!callee_addrp.has_value()) {
-            return true;// absense in map means callee prediction failed. the empty callee set is denoted by an empty vector.
+            return true;// not enough information to interpret the callee address expression to a constant, e.g. CALLDATA is currently not available for non-root nodes in callchain. so this callee can be anything: overapproximate this transactions's footprint to INF
         }
         evmc::address callee_addr=get_address(callee_addrp.value());
         footprint->insert(callee_addr);
@@ -163,11 +163,12 @@ bool insert_callees(Block &block, Transaction const &transaction, evmc::address 
         }
     }
     for (uint32_t index : calles.value()->delegateCallees) {
-        evmc::address callee_addr=get_address(index, callee_pred_info.epool);
-        if(address_known_to_be_non_contract(callee_addr, callee_pred_info)) {
-            continue;
+        std::optional<Word256> callee_addrp=callee_pred_info.epool.interpretExpression(index, block.header, transaction, cnode.caller, origin, cnode.root_call);
+        if(!callee_addrp.has_value()) {
+            return true;// not enough information to interpret the callee address expression to a constant, e.g. CALLDATA is currently not available for non-root nodes in callchain. so this callee can be anything: overapproximate this transactions's footprint to INF
         }
-        if (footprint->find(callee_addr)!=footprint->end()) {// this was already insested to to_be_explored
+        evmc::address callee_addr=get_address(callee_addrp.value());
+        if(address_known_to_be_non_contract(callee_addr, callee_pred_info)) {
             continue;
         }
         CallChainNode seenNode={callee_addr, cnode.callee, false};
