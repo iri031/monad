@@ -187,7 +187,7 @@ uint64_t numTTPredictedFootprints() {
 }
 
 
-std::set<evmc::address> *footprints[MAX_TRANSACTIONS];
+//std::set<evmc::address> *footprints[MAX_TRANSACTIONS];
 // sender address is later added to the footprint by the caller, because sender.nonce is updated by the transaction
 // for now, we assume that no transaction calls a contract created by a previous transaction in this very block. need to extend static analysis to look at predicted stacks at CREATE/CREATE2
  std::set<evmc::address> * compute_footprint(BlockState &block_state, Block &block, Transaction const &transaction, evmc::address sender, CalleePredInfo &callee_pred_info, uint64_t /*tx_index*/=0) {
@@ -240,9 +240,9 @@ void print_footprint(std::set<evmc::address> *footprint, uint64_t index) {
     LOG_INFO("footprint[{}]: {}", index, footprint_str);
 }
 
-uint64_t numPredFootprints=0;
+std::atomic<uint64_t> numPredFootprints=0;
 uint64_t numPredictedFootprints() {
-    return numPredFootprints;
+    return numPredFootprints.load();
 }
 
 ParallelCommitSystem parallel_commit_system;
@@ -290,14 +290,18 @@ Result<std::vector<ExecutionResult>> execute_block(
                 #if !SEQUENTIAL
                 std::set<evmc::address> *footprint=compute_footprint(block_state, block, transaction, senders[i].value(), callee_pred_info, i);
                 insert_to_footprint(footprint, senders[i].value());
-                footprints[i]=footprint;
-                if(footprint) {
-                    for(auto const &addr: *footprint) {
-                        priority_pool.submit(num_transactions+i, [&addr, i=i, &block_state] {
-                                block_state.cache_account(addr);
-                        });
-                    }
+                // if(footprint) {
+                //     for(auto const &addr: *footprint) {
+                //         priority_pool.submit(num_transactions+i, [&addr, i=i, &block_state] {
+                //                 block_state.cache_account(addr);
+                //         });
+                //     }
+                // }
+                if(footprint!=nullptr) {
+                    numPredFootprints++;
                 }
+
+                parallel_commit_system.declareFootprint(i, footprint);
                 //print_footprint(footprint, i);
                 #endif
                 promises[i].set_value();
@@ -311,13 +315,6 @@ Result<std::vector<ExecutionResult>> execute_block(
         //LOG_INFO("sender[{}]: {}", i, fmt::format("{}", senders[i].value()));
     }
     
-    for (unsigned i = 0; i < block.transactions.size(); ++i) {
-        if(footprints[i]!=nullptr) {
-            numPredFootprints++;
-        }
-
-        parallel_commit_system.declareFootprint(i, footprints[i]);
-    }
 
     std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
         new std::optional<Result<ExecutionResult>>[block.transactions.size()]};
@@ -326,7 +323,7 @@ Result<std::vector<ExecutionResult>> execute_block(
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         priority_pool.submit(
-            (2*block.transactions.size())+i,
+            i,
             [&chain = chain,
              i = i,
              results = results,
