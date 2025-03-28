@@ -353,6 +353,20 @@ inline void from_uint64_array(Word256& result, const uint64_t in[4]) {
     result |= (Word256(in[3]) << 192);
 }
 
+inline void from_byte_array(Word256& result, const uint8_t in[32]) {
+    result = 0;
+    for (int i = 0; i < 32; ++i) {
+        result |= (Word256(in[i]) << (8 * i));
+    }
+}
+
+inline void from_byte_array_bigendian(Word256& result, const uint8_t in[32]) {
+    result = 0;
+    for (int i = 0; i < 32; ++i) {
+        result |= (Word256(in[i]) << (8 * (31 - i)));
+    }
+}
+
 inline void toWord256(Word256 &result, evmc::address const &address) {
     result = 0;
     for (size_t i = 0; i < 20; ++i) {
@@ -996,11 +1010,13 @@ public:
                 std::memcpy(buffer, &transaction.data[offset64], bytesToCopy);
             }
 
+            Word256 dataVal;
+            from_byte_array_bigendian(dataVal, buffer);
             // Convert the 32-byte buffer to intx::uint256
-            intx::uint256 dataVal = intx::be::load<intx::uint256>(buffer);
+            // intx::uint256 dataVal = intx::be::load<intx::uint256>(buffer);
 
             // Convert intx::uint256 back to Word256
-            return ofIntx(dataVal);
+            return dataVal; // of
         }
         case ExpressionNode::Type::SmallConst: {
             // Interpret small constants as an address, then to Word256.
@@ -1127,11 +1143,9 @@ public:
         // Other zero-data ops:
         // ----------------
         case ExpressionNode::Type::CallDataSize: {
-            // Return transaction.data.size() as Word256.
             return Word256(transaction.data.size());
         }
         case ExpressionNode::Type::ReturndataSize: {
-            // Placeholder: return 0
             return std::nullopt;
         }
         case ExpressionNode::Type::Address: {
@@ -1141,12 +1155,10 @@ public:
             return std::nullopt;
         }
         case ExpressionNode::Type::Selfbalance: {
-            // Placeholder for self-balance retrieval. Return 0.
             return std::nullopt;
         }
         default:
-            // If we missed something, handle error or return 0
-            assert(false);
+            MONAD_ASSERT(false);
             return std::nullopt;
         }
     }
