@@ -113,9 +113,8 @@ bool address_known_to_be_non_contract_dell(evmc::address address, BlockState &bl
 // but because we already have the static analysis of all contracts called beforehand, we are able to look into the future here. 
 //the impact of this cheagint should likely be insignificant in tps. 
 // the above impl doesnt cleat but it loads the account from DB which is an expensive thing to do to just compute footprints, which is done even before transactions are started
-bool address_known_to_be_non_contract(evmc::address /*address*/, CalleePredInfo &/*cinfo*/) {
-    //return (cinfo.code_hashes.find(address)==cinfo.code_hashes.end());
-    return true;
+bool address_known_to_be_non_contract(evmc::address address, CalleePredInfo &cinfo) {
+    return (cinfo.code_hashes.find(address)==cinfo.code_hashes.end());
 }
 
 struct CallChainNode {
