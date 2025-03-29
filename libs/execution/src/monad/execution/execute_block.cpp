@@ -291,7 +291,7 @@ Result<std::vector<ExecutionResult>> execute_block(
                 insert_to_footprint(footprint, senders[i].value());
                 if(footprint) {
                     for(auto const &addr: *footprint) {
-                        priority_pool.submit(i, [&addr, i=i, &block_state] {
+                        priority_pool.submit(0, [&addr, i=i, &block_state] {
                                 block_state.cache_account(addr);
                         });
                     }
