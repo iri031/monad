@@ -109,7 +109,7 @@ class ParallelCommitSystem
     std::atomic<txindex_t> all_committed_below_index; 
 
     //now that the footprints are inserted into this map before we start running any transaction, we can make this a minheap. during footprint computation, we need concurrent insertions (but no deletion). After that, we need concurrent deletions (no insertion)
-    tbb::concurrent_unordered_map<evmc::address, ConcurrentTxSet * const> transactions_accessing_address_;
+    std::unordered_map<evmc::address, ConcurrentTxSet * const> transactions_accessing_address_;
     /**
     * footprints_[i] is the footprint of transaction i.
     * can use a shared_ptr but that will increase the

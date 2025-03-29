@@ -40,9 +40,6 @@ void ParallelCommitSystem::registerAddressAccessedBy(const evmc::address& addr, 
         }
         set=it->second;
     }
-    // because nobody will ever change the set pointer in the map, we do set->insert after `it` goes out of scope, 
-    // thus releasing the lock, and allowing other threads to concurrently insert into the set.
-    // if this address was not in the map before, `it` may hold a write lock on the set, thus preventing other threads from accessing the set.
     set->insert(index);
 }
 
