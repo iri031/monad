@@ -25,7 +25,20 @@ public:
             return true;
         }
 
-        assert(size_ < MAX_ENTRIES);
+        if (size_ >= MAX_ENTRIES) {
+            std::cerr << "overflow. current SparseMap items: " << std::endl;
+            uint64_t num_items = 0;
+            for (uint16_t i = 0; i < MAX_KEY; i++) {
+                if (key_to_index_[i] != std::numeric_limits<uint16_t>::max()) {
+//                    std::cerr << i << "(" << key_to_index_[i] << ")" << ",";
+                    std::cerr << i << ",";
+                    num_items++;
+                }
+            }
+            std::cerr << std::endl;
+            std::cerr << "num_items: " << num_items << std::endl;
+            std::terminate();
+        }
 
         // Insert new key-value pair
         key_to_index_[key] = size_;

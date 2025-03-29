@@ -574,14 +574,14 @@ bool parseJumpDests(FixedSizeArray<NodeID, MAX_BBLOCKS> &jumpDestOffsets, const 
                 curJumpi=true;
             }
         }
-        if (!isJumpdest && prevJmpi) {
-            numNonJumpdestBB++;// these basic blocks do not start with a jumpdest but follow a Jumpi
+        if (/*!isJumpdest && */prevJmpi) {// if we have Jumpi Jdest Push, Jdest becomes its own basic block. Jdest makes Push and following content a basic block. Jumpi makes Jdest a basic block. basic blocks cannot start from a terminator. so the baic block for Jdest starts from Push. Also, the opcode following Jdest is a basic block. we can optimize the basic block creation elminate the Jdest basic block and have the PC jump directly to Push after Jdest
+            numNonJumpdestBB++;// these basic blocks follow a Jumpi
         }
         prevJmpi=curJumpi;
 
     }
     //std::cerr << "numNonJumpdestBB: " << numNonJumpdestBB << " jumpDestOffsets.get_size(): " << jumpDestOffsets.get_size() << std::endl;
-    if (numNonJumpdestBB+jumpDestOffsets.get_size()>=MAX_BBLOCKS) {
+    if (numNonJumpdestBB+jumpDestOffsets.get_size()+1/*for the first basic block*/>=MAX_BBLOCKS) {
         return false;
     }
     return true;
