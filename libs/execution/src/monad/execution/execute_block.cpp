@@ -198,7 +198,7 @@ uint64_t numTTPredictedFootprints() {
     std::set<evmc::address> *footprint=new std::set<evmc::address>();
     footprint->insert(runningAddress);
     if(address_known_to_be_non_contract(runningAddress, callee_pred_info)) {
-        numTTFp++;
+        //numTTFp++;
         //LOG_INFO("compute_footprint: tx_index: {} address_known_to_be_non_contract: {}", tx_index, runningAddress);
         return footprint;
     }
@@ -270,6 +270,7 @@ Result<std::vector<ExecutionResult>> execute_block(
 
     std::shared_ptr<boost::fibers::promise<void>[]> promises{
         new boost::fibers::promise<void>[block.transactions.size()]};
+    uint64_t num_transactions = block.transactions.size();
 
 //    LOG_INFO("block number: {}", block.header.number);
     parallel_commit_system.reset(block.transactions.size(), block.header.beneficiary);
@@ -282,21 +283,22 @@ Result<std::vector<ExecutionResult>> execute_block(
              &callee_pred_info = callee_pred_info,
              &priority_pool,
              &block,
-             num_transactions = block.transactions.size(),
+             &block_state,
+             num_transactions,
              &transaction = block.transactions[i]] {
                 senders[i] = recover_sender(transaction);
                 std::set<evmc::address> *footprint=compute_footprint(block, transaction, senders[i].value(), callee_pred_info, i);
                 insert_to_footprint(footprint, senders[i].value());
-                // if(footprint) {
-                //     for(auto const &addr: *footprint) {
-                //         priority_pool.submit(num_transactions+i, [&addr, i=i, &block_state] {
-                //                 block_state.cache_account(addr);
-                //         });
-                //     }
-                // }
-                if(footprint!=nullptr) {
-                    numPredFootprints++;
+                if(footprint) {
+                    for(auto const &addr: *footprint) {
+                        priority_pool.submit(i, [&addr, i=i, &block_state] {
+                                block_state.cache_account(addr);
+                        });
+                    }
                 }
+                // if(footprint!=nullptr) {
+                //     numPredFootprints++;
+                // }
 
                 parallel_commit_system.declareFootprint(i, footprint);
                 //print_footprint(footprint, i);
@@ -319,7 +321,7 @@ Result<std::vector<ExecutionResult>> execute_block(
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         priority_pool.submit(
-            i,
+            num_transactions+i,
             [&chain = chain,
              i = i,
              results = results,
