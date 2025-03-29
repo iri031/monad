@@ -6,29 +6,6 @@
 MONAD_NAMESPACE_BEGIN
 
 #if SEQUENTIAL
-void ParallelCommitSystem::waitForPrevTransactions(txindex_t myindex) {
-    promises.at(myindex).get_future().wait();
-}
-
-void ParallelCommitSystem::notifyDone(txindex_t myindex) {
-    promises.at(myindex + 1).set_value();
-}
-
-ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions) :promises(num_transactions+1) {
-    promises.at(0).set_value();
-    this->num_transactions = num_transactions;
-}
-
-ParallelCommitSystem::~ParallelCommitSystem() {
-}
-
-void ParallelCommitSystem::declareFootprint(txindex_t, const std::set<evmc::address> *) {
-}
-
-void ParallelCommitSystem::waitForAllTransactionsToCommit() {
-    promises.at(num_transactions).get_future().wait();
-}
-std::set<evmc::address> *ParallelCommitSystem::getFootprint(txindex_t myindex) { return nullptr; }
 #else
 
 void ParallelCommitSystem::reset(txindex_t num_transactions_, monad::Address const &beneficiary) {
@@ -70,66 +47,77 @@ void ParallelCommitSystem::registerAddressAccessedBy(const evmc::address& addr, 
 }
 
 void ParallelCommitSystem::unregisterAddressAccessedBy(const evmc::address& addr, txindex_t index) {
-    auto it = transactions_accessing_address_.find(addr);
-    if (it != transactions_accessing_address_.end()) {
-        it->second->remove(index);
+    ConcurrentTxSet * set;
+    {
+        auto it = transactions_accessing_address_.find(addr);
+        if (it == transactions_accessing_address_.end()) {
+            return;
+        }
+        set = it->second;
+    }
+    set->commit(index);
+}
+
+void ParallelCommitSystem::compileFootprints() {
+    for (txindex_t myindex = 0; myindex < num_transactions; myindex++) {
+        auto footprint = footprints_[myindex];
+        if (footprint) {
+            for (const auto& addr : *footprint) {
+                registerAddressAccessedBy(addr, myindex);
+            }
+        }
+        else {
+            uncommited_transactions_with_inf_footprint.insert(myindex);
+        }
+        if(footprint && footprint->find(beneficiary)!=footprint->end()){
+            nontriv_footprint_contains_beneficiary[myindex]=true;
+            //LOG_INFO("footprint[{}] contains beneficiary", myindex);
+        }
+        else {
+            nontriv_footprint_contains_beneficiary[myindex]=false;
+        }
+
+
+        if (myindex==0) {
+            status_[myindex].store(TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED);
+        }
+        else {
+            status_[myindex].store(TransactionStatus::FOOTPRINT_COMPUTED);
+        }
+        /* TODO: revive the code below when footprints are commputed AFTER starting transactions.
+        // update status_[myindex] from STARTED to FOOTPRINT_COMPUTED, while preserving the _UNBLOCKED part which previous transactions may change concurrently when they notifyDone
+        auto current_status = status_[myindex].load();
+        // on non-first iterations, current_status comes from the CAS at the end of the previous iteration
+        assert(current_status == TransactionStatus::STARTED ||
+            current_status == TransactionStatus::STARTED_UNBLOCKED);
+
+        auto new_status = (current_status == TransactionStatus::STARTED) ? 
+                    TransactionStatus::FOOTPRINT_COMPUTED :
+                    (current_status == TransactionStatus::STARTED_UNBLOCKED) ?
+                        TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED :
+                        current_status;
+            
+        if (!status_[myindex].compare_exchange_strong(current_status, new_status)) {
+            assert(current_status == TransactionStatus::STARTED_UNBLOCKED);
+            status_[myindex].store(TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED);
+            //LOG_INFO("declareFootprint: status[{}] changed from STARTED_UNBLOCKED to FOOTPRINT_COMPUTED_UNBLOCKED", myindex);
+        } */
+        // else {
+        //     //LOG_INFO("declareFootprint: status[{}] changed from {} to {}", 
+        //     //    myindex, 
+        //     //    status_to_string(current_status), 
+        //     //    status_to_string(new_status));
+        // }
+
+        // if (!existsBlockerBefore(myindex)) {
+        //     tryUnblockTransactionsStartingFrom(myindex);
+        // }
     }
 }
 
 void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<evmc::address> *footprint) {
     delete footprints_[myindex];
     footprints_[myindex] = footprint;
-    if (footprint) {
-        for (const auto& addr : *footprint) {
-            registerAddressAccessedBy(addr, myindex);
-        }
-    }
-    else {
-        uncommited_transactions_with_inf_footprint.insert(myindex);
-    }
-    if(footprint && footprint->find(beneficiary)!=footprint->end()){
-        nontriv_footprint_contains_beneficiary[myindex]=true;
-        //LOG_INFO("footprint[{}] contains beneficiary", myindex);
-    }
-    else {
-        nontriv_footprint_contains_beneficiary[myindex]=false;
-    }
-
-
-    if (myindex==0) {
-        status_[myindex].store(TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED);
-    }
-    else {
-        status_[myindex].store(TransactionStatus::FOOTPRINT_COMPUTED);
-    }
-    /* TODO: revive the code below when footprints are commputed AFTER starting transactions.
-    // update status_[myindex] from STARTED to FOOTPRINT_COMPUTED, while preserving the _UNBLOCKED part which previous transactions may change concurrently when they notifyDone
-    auto current_status = status_[myindex].load();
-    // on non-first iterations, current_status comes from the CAS at the end of the previous iteration
-    assert(current_status == TransactionStatus::STARTED ||
-        current_status == TransactionStatus::STARTED_UNBLOCKED);
-
-    auto new_status = (current_status == TransactionStatus::STARTED) ? 
-                TransactionStatus::FOOTPRINT_COMPUTED :
-                (current_status == TransactionStatus::STARTED_UNBLOCKED) ?
-                    TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED :
-                    current_status;
-        
-    if (!status_[myindex].compare_exchange_strong(current_status, new_status)) {
-        assert(current_status == TransactionStatus::STARTED_UNBLOCKED);
-        status_[myindex].store(TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED);
-        //LOG_INFO("declareFootprint: status[{}] changed from STARTED_UNBLOCKED to FOOTPRINT_COMPUTED_UNBLOCKED", myindex);
-    } */
-    // else {
-    //     //LOG_INFO("declareFootprint: status[{}] changed from {} to {}", 
-    //     //    myindex, 
-    //     //    status_to_string(current_status), 
-    //     //    status_to_string(new_status));
-    // }
-
-    // if (!existsBlockerBefore(myindex)) {
-    //     tryUnblockTransactionsStartingFrom(myindex);
-    // }
 }
 
 ParallelCommitSystem::~ParallelCommitSystem() {
@@ -199,12 +187,15 @@ void ParallelCommitSystem::unblockTransaction(TransactionStatus status, txindex_
 }
 
 bool ParallelCommitSystem::existsPrevUncommittedNonInfFootprintTxAccessingAddress(txindex_t index, const evmc::address& addr) {
-    auto it = transactions_accessing_address_.find(addr);
-    if (it == transactions_accessing_address_.end()) {
-        return false;// no transaction in this block with non-INF footprint accesses this address
+    ConcurrentTxSet * set;
+    {
+        auto it = transactions_accessing_address_.find(addr);
+        if (it == transactions_accessing_address_.end()) {
+            return false;
+        }
+        set = it->second;
     }
-    auto set = it->second;
-    return set->contains_any_element_lessthan(index);
+    return set->contains_uncommitted_index_less_than(index);
 }
 
 //pre: blocksAllLaterTransactions(i) is false for all i<index
@@ -243,7 +234,7 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
 }
 
 bool ParallelCommitSystem::existsBlockerBefore(txindex_t index) const {
-    return uncommited_transactions_with_inf_footprint.contains_any_element_lessthan(index);
+    return uncommited_transactions_with_inf_footprint.contains_uncommitted_index_less_than(index);
     // this assumes that all footprints are declared before starting any transaction.
     // but if we need to compute footprints lazily, we can fix that by having the ConcurrentTxSet constructor create an all 1 
     //bitset  and then unset bits when a transaction declares a non-INF footprint.
@@ -308,7 +299,7 @@ void ParallelCommitSystem::notifyDone(txindex_t myindex) {
     //std::cout << "notifyDone: status of " << myindex << " is " << status_to_string(status) << std::endl;
     //assert(status == TransactionStatus::COMMITTING);
     status_[myindex].store(TransactionStatus::COMMITTED);
-    uncommited_transactions_with_inf_footprint.remove(myindex);
+    uncommited_transactions_with_inf_footprint.commit(myindex);
     if(footprints_[myindex]) {
         for(auto addr: *footprints_[myindex]) {
             unregisterAddressAccessedBy(addr, myindex);

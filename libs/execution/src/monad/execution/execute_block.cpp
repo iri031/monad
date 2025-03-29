@@ -311,7 +311,7 @@ Result<std::vector<ExecutionResult>> execute_block(
         //LOG_INFO("sender[{}]: {}", i, fmt::format("{}", senders[i].value()));
     }
     
-
+    parallel_commit_system.compileFootprints();
     std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
         new std::optional<Result<ExecutionResult>>[block.transactions.size()]};
 
