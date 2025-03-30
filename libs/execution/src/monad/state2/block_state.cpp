@@ -145,7 +145,7 @@ std::shared_ptr<CodeAnalysis> BlockState::read_code(bytes32_t const &code_hash)
 }
 
 bool BlockState::assumptions_within_footprint(
-    State const &state, const std::set<evmc::address>*footprint)
+    State const &state, const std::set<evmc::address>*footprint, uint64_t tx_index)
 {
     assert(footprint);
     for (auto const &[address, _] : state.original_) {
@@ -153,7 +153,7 @@ bool BlockState::assumptions_within_footprint(
             continue;
         }
         if (footprint && footprint->find(address) == footprint->end()) {
-            LOG_INFO("address not in footprint: {}", address);
+            LOG_INFO("read address not in footprint: {} at tx {}", address, tx_index);
             return false;
         }
     }

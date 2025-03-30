@@ -112,14 +112,14 @@ public:
     }
 
     // used only for an assert for debugging. not used in release builds
-    inline bool change_within_footprint(const std::set<evmc::address>*footprint) {
+    inline bool change_within_footprint(const std::set<evmc::address>*footprint, uint64_t tx_index) {
         for (auto const &[address, stack] : current_) {
             if (isPrecompile(address)) { //TODO: just remove precompiles befrore can_merge_par
                 continue;
             }
             assert(stack.size() >= 1);
             if (footprint && footprint->find(address) == footprint->end()) {
-                LOG_INFO("address not in footprint: {}", address);
+                LOG_INFO("changed address not in footprint: {} at tx {}", address, tx_index);
                 return false;
             }
         }

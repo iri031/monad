@@ -316,7 +316,7 @@ Result<std::vector<ExecutionResult>> execute_block(
                 auto end_time = std::chrono::high_resolution_clock::now();
                 std::chrono::duration<double> elapsed_seconds = end_time - start_time;
                 compute_footprints_time[i] = elapsed_seconds;
-                //print_footprint(footprint, i);
+                print_footprint(footprint, i);
                 promises[i].set_value();
             });
     }
