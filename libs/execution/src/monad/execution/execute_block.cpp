@@ -245,10 +245,15 @@ uint64_t numPredictedFootprints() {
 }
 
 std::chrono::duration<double> compile_footprints_time{0};
+std::chrono::duration<double> footprint_time{0};
 std::chrono::duration<double> get_compile_footprints_time() {
     return compile_footprints_time;
 }
+std::chrono::duration<double> get_footprint_time() {
+    return footprint_time;
+}
 
+std::chrono::duration<double> compute_footprints_time[MAX_TRANSACTIONS];
 ParallelCommitSystem parallel_commit_system;
 template <evmc_revision rev>
 Result<std::vector<ExecutionResult>> execute_block(
@@ -292,6 +297,7 @@ Result<std::vector<ExecutionResult>> execute_block(
              num_transactions,
              &transaction = block.transactions[i]] {
                 senders[i] = recover_sender(transaction);
+                auto start_time = std::chrono::high_resolution_clock::now();
                 std::set<evmc::address> *footprint=compute_footprint(block, transaction, senders[i].value(), callee_pred_info, i);
                 insert_to_footprint(footprint, senders[i].value());
                 if(footprint) {
@@ -306,6 +312,9 @@ Result<std::vector<ExecutionResult>> execute_block(
                 // }
 
                 parallel_commit_system.declareFootprint(i, footprint);
+                auto end_time = std::chrono::high_resolution_clock::now();
+                std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+                compute_footprints_time[i] = elapsed_seconds;
                 //print_footprint(footprint, i);
                 promises[i].set_value();
             });
@@ -324,6 +333,10 @@ Result<std::vector<ExecutionResult>> execute_block(
         auto end_time = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed_seconds = end_time - start_time;
         compile_footprints_time += elapsed_seconds;
+        for(unsigned i = 0; i < num_transactions; ++i) {
+            footprint_time += compute_footprints_time[i];
+        }
+        footprint_time += elapsed_seconds;
     }
     
     std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{

@@ -40,6 +40,7 @@ struct CalleePredInfo {
 uint64_t numPredictedFootprints();
 uint64_t numTTPredictedFootprints();
 std::chrono::duration<double> get_compile_footprints_time();
+std::chrono::duration<double> get_footprint_time();
 
 template <evmc_revision rev>
 Result<std::vector<ExecutionResult>> execute_block(
