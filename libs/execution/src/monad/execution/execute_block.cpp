@@ -296,8 +296,8 @@ Result<std::vector<ExecutionResult>> execute_block(
              &block_state,
              num_transactions,
              &transaction = block.transactions[i]] {
-                senders[i] = recover_sender(transaction);
                 auto start_time = std::chrono::high_resolution_clock::now();
+                senders[i] = recover_sender(transaction);
                 std::set<evmc::address> *footprint=compute_footprint(block, transaction, senders[i].value(), callee_pred_info, i);
                 insert_to_footprint(footprint, senders[i].value());
                 if(footprint) {
@@ -330,6 +330,7 @@ Result<std::vector<ExecutionResult>> execute_block(
     {
         auto start_time = std::chrono::high_resolution_clock::now();
         parallel_commit_system.compileFootprints();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
         auto end_time = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed_seconds = end_time - start_time;
         compile_footprints_time += elapsed_seconds;
