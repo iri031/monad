@@ -300,13 +300,13 @@ Result<std::vector<ExecutionResult>> execute_block(
                 senders[i] = recover_sender(transaction);
                 std::set<evmc::address> *footprint=compute_footprint(block, transaction, senders[i].value(), callee_pred_info, i);
                 insert_to_footprint(footprint, senders[i].value());
-                if(footprint) {
-                    for(auto const &addr: *footprint) {
-                        priority_pool.submit(0, [&addr, i=i, &block_state] {
-                                block_state.cache_account(addr);
-                        });
-                    }
-                }
+                // if(footprint) {
+                //     for(auto const &addr: *footprint) {
+                //         priority_pool.submit(0, [&addr, i=i, &block_state] {
+                //                 block_state.cache_account(addr);
+                //         });
+                //     }
+                // }
                 // if(footprint!=nullptr) {
                 //     numPredFootprints++;
                 // }
@@ -330,7 +330,7 @@ Result<std::vector<ExecutionResult>> execute_block(
     {
         auto start_time = std::chrono::high_resolution_clock::now();
         parallel_commit_system.compileFootprints();
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        //std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         auto end_time = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed_seconds = end_time - start_time;
         compile_footprints_time += elapsed_seconds;
