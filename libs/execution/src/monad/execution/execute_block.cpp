@@ -91,7 +91,7 @@ inline void set_beacon_root(BlockState &block_state, Block &block)
     }
 }
 
-#define MAX_FOOTPRINT_SIZE 5
+#define MAX_FOOTPRINT_SIZE 20
 
 // if this returns true, then the address MUST be a non-contract account. for correctness, it can always return false, but for performance, it should do that only for addresses created in this block.
 bool address_known_to_be_non_contract_dell(evmc::address address, BlockState &block_state, CalleePredInfo &) {
