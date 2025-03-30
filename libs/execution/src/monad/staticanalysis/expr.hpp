@@ -1355,6 +1355,11 @@ struct Prediction {
     std::vector<uint32_t> delegateCallees;
 };
 
+inline void prepad_hex(std::string &s, size_t size=64) {
+    if (s.size() < size) {
+        s = std::string(size - s.size(), '0') + s;
+    }
+}
 
 inline ::evmc::address hex_to_address(const std::string& hex_str) {
     std::string s = hex_str;
@@ -1362,7 +1367,7 @@ inline ::evmc::address hex_to_address(const std::string& hex_str) {
         s = s.substr(2);
     }
 
-    assert(s.size() == 40);
+    prepad_hex(s, 40);
 
     unsigned char bytes[20];
     boost::algorithm::unhex(s.begin(), s.end(), bytes);
@@ -1377,11 +1382,6 @@ inline void trim(std::string &s) {
     s.erase(s.find_last_not_of(" \n\r\t") + 1);
 }
 
-inline void prepad_hex(std::string &s) {
-    if (s.size() < 64) {
-        s = std::string(64 - s.size(), '0') + s;
-    }
-}
 
 inline ::evmc::bytes32 hex_to_bytes32(const std::string& hex_str) {
     std::string s = hex_str;
