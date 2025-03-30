@@ -90,6 +90,10 @@
         "valarray": "cpp",
         "variant": "cpp",
         "__bit_reference": "cpp",
-        "__verbose_abort": "cpp"
+        "__verbose_abort": "cpp",
+        "cstdarg": "cpp",
+        "print": "cpp",
+        "__threading_support": "cpp",
+        "ios": "cpp"
     }
 }

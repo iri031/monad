@@ -88,6 +88,10 @@ Result<void> EthereumMainnet::validate_header(
     // YP eq. 170
     if (MONAD_UNLIKELY(
             !receipts.empty() && receipts.back().gas_used != hdr.gas_used)) {
+        LOG_ERROR("Block: {}, Computed Gas Used: {}, Expected Gas Used: {}",
+            hdr.number,
+            receipts.back().gas_used,
+            hdr.gas_used);
         return BlockError::InvalidGasUsed;
     }
 

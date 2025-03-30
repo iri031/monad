@@ -321,9 +321,16 @@ Result<std::vector<ExecutionResult>> execute_block(
             });
     }
     block_state.load_preblock_beneficiary_balance();
+    // EIP-3651
+    if constexpr (rev >= EVMC_SHANGHAI) {
+        if(num_transactions > 0) {
+            promises[0].get_future().wait();// wait for senders[0] to be computed
+            access_beneficiary<rev>(block_state, block, block_hash_buffer, senders[0].value(), chain);
+        }
+    }
 
 
-    for (unsigned i = 0; i < block.transactions.size(); ++i) {
+    for (unsigned i = 1; i < block.transactions.size(); ++i) {
         promises[i].get_future().wait();
         //LOG_INFO("sender[{}]: {}", i, fmt::format("{}", senders[i].value()));
     }

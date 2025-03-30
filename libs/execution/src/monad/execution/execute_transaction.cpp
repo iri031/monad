@@ -108,17 +108,33 @@ constexpr evmc_message to_message(Transaction const &tx, Address const &sender)
 }
 
 template <evmc_revision rev>
+void access_beneficiary(BlockState &block_state, Block &block, BlockHashBuffer const &block_hash_buffer, Address const &sender0, Chain const &chain) {
+    if constexpr (rev >= EVMC_SHANGHAI) {
+        State state{block_state, Incarnation{block.header.number, 1}, 0};
+        Transaction tx=block.transactions[0];
+        auto const tx_context =
+            get_tx_context<rev>(tx, sender0, block.header, chain.get_chain_id());
+    #ifdef ENABLE_CALL_TRACING
+        CallTracer call_tracer{tx};
+    #else
+        NoopCallTracer call_tracer{};
+    #endif
+
+        EvmcHost<rev> host{call_tracer, tx_context, block_hash_buffer, state};
+        host.access_account(block.header.beneficiary);
+    }
+}
+
+EXPLICIT_EVMC_REVISION(access_beneficiary);
+
+template <evmc_revision rev>
 evmc::Result execute_impl_no_validation(
     State &state, EvmcHost<rev> &host, Transaction const &tx,
     Address const &sender, uint256_t const &base_fee_per_gas,
-    Address const &beneficiary)
+    Address const &/*beneficiary*/)
 {
     irrevocable_change<rev>(state, tx, sender, base_fee_per_gas);
 
-    // EIP-3651
-    if constexpr (rev >= EVMC_SHANGHAI) {
-        host.access_account(beneficiary);
-    }
 
     state.access_account(sender);
     for (auto const &ae : tx.access_list) {
