@@ -10,6 +10,7 @@
 #include <monad/core/transaction.hpp>
 #include <monad/execution/evmc_host.hpp>
 #include <monad/execution/execute_transaction.hpp>
+#include <monad/execution/execute_block.hpp>
 #include <monad/execution/parallel_commit_system.hpp>
 #include <monad/execution/explicit_evmc_revision.hpp>
 #include <monad/execution/trace/call_frame.hpp>
@@ -274,7 +275,7 @@ Result<ExecutionResult> execute_impl(
         }
         bool beneficiary_touched = false;
         if (block_state.can_merge_par(state, i, beneficiary_touched,true)) {
-//            state.dumpFootprint(getIdealFP()[hdr.number][i]);
+            state.dumpFootprint(blockFootprint(hdr.number)[i]);
             assert(result.has_value());
             if (result.has_error()) {
                 return std::move(result.error());
@@ -315,6 +316,7 @@ Result<ExecutionResult> execute_impl(
 
         bool beneficiary_touched=false;
         MONAD_ASSERT(block_state.can_merge_par(state,i,beneficiary_touched,true)); //TODO: remove this assert and compute beneficiary_touched separately
+        state.dumpFootprint(blockFootprint(hdr.number)[i]);
         assert(result.has_value());
         if (result.has_error()) {
             return std::move(result.error());

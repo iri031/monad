@@ -201,6 +201,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     // Deserialize epool and predictions using environment-based paths
     cinfo.epool.deserialize(ePoolFile);
     unserializePredictions(cinfo.predictions, predictionsFile);
+    getIdealFP().reserve(nblocks);
     auto batch_begin = std::chrono::steady_clock::now();
     
     uint64_t const end_block_num =
@@ -208,6 +209,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
             ? std::numeric_limits<uint64_t>::max()
             : block_num + nblocks - 1;
     uint64_t const init_block_num = block_num;
+    setStartBlockNumber(block_num);
     while (block_num <= end_block_num && stop == 0) {
         auto opt_block = try_get(block_num);
         if (!opt_block.has_value()) {
@@ -302,6 +304,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
         log_tps(
             block_num, batch_num_blocks, batch_num_txs, batch_gas, batch_begin);
     }
+    serializeIdealFP(getIdealFP(), std::string(envDir) + "/ideal_fp.bin");
     return {ntxs, total_gas};
 }
 

@@ -112,6 +112,8 @@ using IdealFP= std::vector<std::vector<std::set<evmc::address>>>;// [block][tx]
  }
 
 IdealFP & getIdealFP();
+std::vector<std::set<evmc::address>> & blockFootprint(uint64_t blockNumber);
+void setStartBlockNumber(uint64_t startBlockNumber);
 
 template <evmc_revision rev>
 Result<std::vector<ExecutionResult>> execute_block(
