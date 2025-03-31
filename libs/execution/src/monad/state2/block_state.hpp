@@ -92,8 +92,8 @@ public:
         return beneficiary_account.equal_except_balance(other);
     }
 
-    bool can_merge_par(State const &, uint64_t tx_index, bool & beneficiary_touched, bool parallel_beneficiary=false);
-    inline bool can_merge(State const &state){
+    bool can_merge_par(State &, uint64_t tx_index, bool & beneficiary_touched, bool parallel_beneficiary=false);
+    inline bool can_merge(State &state){
         bool beneficiary_touched=false;
         return can_merge_par(state,0,beneficiary_touched,false);
     }

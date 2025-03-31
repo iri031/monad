@@ -114,7 +114,7 @@ public:
     // used only for an assert for debugging. not used in release builds
     inline bool change_within_footprint(const std::set<evmc::address>*footprint, uint64_t tx_index) {
         for (auto const &[address, stack] : current_) {
-            if (isPrecompile(address)) { //TODO: just remove precompiles befrore can_merge_par
+            if (isPrecompile(address) || address==block_state_.get_block_beneficiary()) { //TODO: just remove precompiles and nop changes to block_beneficiary   befrore can_merge_par
                 continue;
             }
             assert(stack.size() >= 1);

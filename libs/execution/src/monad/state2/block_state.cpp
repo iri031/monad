@@ -151,7 +151,7 @@ bool BlockState::assumptions_within_footprint(
         return true;
     }
     for (auto const &[address, _] : state.original_) {
-        if (State::isPrecompile(address)) { //TODO: just remove precompiles befrore can_merge_par
+        if (State::isPrecompile(address) || address==block_beneficiary) { //TODO: just remove precompiles and nop changes to block_beneficiary befrore can_merge_par
             continue;
         }
         if (footprint && footprint->find(address) == footprint->end()) {
@@ -161,6 +161,7 @@ bool BlockState::assumptions_within_footprint(
     }
     return true;
 }
+
 /**
  * \pre the transactin's gas reward has not been added to the block_beneficiary's account yet 
  *   (thus if beneficiary is in state.original_, the transaction must have explicitly accessed the beneficiary's account, e.g. an explicit transfer transaction to the beneficiary)
@@ -168,7 +169,7 @@ bool BlockState::assumptions_within_footprint(
  *  (thus the array members until this index are correct)
  */
 bool BlockState::can_merge_par(
-    State const &state, uint64_t tx_index, bool & beneficiary_touched, bool parallel_beneficiary)
+    State &state, uint64_t tx_index, bool & beneficiary_touched, bool parallel_beneficiary)
 {
     beneficiary_touched = false;
     for (auto const &[address, account_state] : state.original_) {
@@ -177,10 +178,12 @@ bool BlockState::can_merge_par(
         StateDeltas::const_accessor it{};
         if (parallel_beneficiary && address==block_beneficiary){
             assert(account.has_value());
-            if (!eq_beneficiary_ac_before_txindex(account.value(), tx_index)){
-                return false;
+            if(/*original_*/account.value().balance != state.recent_account(block_beneficiary).value().balance){// there may be subtle bugs here. the if cond check whether the transaction actually updated the block beneficiary's balance. this is dealing with EIP-3651 which just warms the beneficiary's account without actually changing anything externally visible beyond a transaction. explicitly track whether non-warming changes were done instead of this likely-wrong hack.
+                if (!eq_beneficiary_ac_before_txindex(account.value(), tx_index)){
+                    return false;
+                }
+                beneficiary_touched = true;
             }
-            beneficiary_touched = true;
         }
         else{
             MONAD_ASSERT(state_.find(it, address));
