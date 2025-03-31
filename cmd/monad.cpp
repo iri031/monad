@@ -201,7 +201,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     // Deserialize epool and predictions using environment-based paths
     cinfo.epool.deserialize(ePoolFile);
     unserializePredictions(cinfo.predictions, predictionsFile);
-    getIdealFP().reserve(nblocks);
+    getIdealFP().resize(nblocks);
     auto batch_begin = std::chrono::steady_clock::now();
     
     uint64_t const end_block_num =

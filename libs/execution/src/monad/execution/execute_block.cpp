@@ -269,8 +269,8 @@ std::vector<std::set<evmc::address>> & blockFootprint(uint64_t blockNumber) {
     return getIdealFP()[blockNumber-startBlockNumber];
 }
 
-void setStartBlockNumber(uint64_t startBlockNumber) {
-    startBlockNumber = startBlockNumber;
+void setStartBlockNumber(uint64_t startBlockNumber_) {
+    startBlockNumber = startBlockNumber_;
 }
 
 std::chrono::duration<double> compute_footprints_time[MAX_TRANSACTIONS];
@@ -301,7 +301,7 @@ Result<std::vector<ExecutionResult>> execute_block(
     std::shared_ptr<boost::fibers::promise<void>[]> promises{
         new boost::fibers::promise<void>[block.transactions.size()]};
     uint64_t num_transactions = block.transactions.size();
-    blockFootprint(block.header.number).reserve(block.transactions.size());
+    blockFootprint(block.header.number).resize(block.transactions.size());
 
 //    LOG_INFO("block number: {}", block.header.number);
     parallel_commit_system.reset(block.transactions.size(), block.header.beneficiary);
