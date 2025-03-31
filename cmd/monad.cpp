@@ -178,7 +178,6 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     uint64_t batch_num_txs = 0;
     uint64_t total_gas = 0;
     uint64_t batch_gas = 0;
-    auto batch_begin = std::chrono::steady_clock::now();
     uint64_t ntxs = 0;
 
     CalleePredInfo cinfo;
@@ -202,6 +201,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     // Deserialize epool and predictions using environment-based paths
     cinfo.epool.deserialize(ePoolFile);
     unserializePredictions(cinfo.predictions, predictionsFile);
+    auto batch_begin = std::chrono::steady_clock::now();
     
     uint64_t const end_block_num =
         (std::numeric_limits<uint64_t>::max() - block_num + 1) <= nblocks
