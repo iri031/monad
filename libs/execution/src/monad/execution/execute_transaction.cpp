@@ -275,7 +275,9 @@ Result<ExecutionResult> execute_impl(
         }
         bool beneficiary_touched = false;
         if (block_state.can_merge_par(state, i, beneficiary_touched,true)) {
-            //state.dumpFootprint(blockFootprint(hdr.number)[i]);
+            #ifdef COMPUTE_IDEAL_FP
+                state.dumpFootprint(blockFootprint(hdr.number)[i]);
+            #endif
             assert(result.has_value());
             if (result.has_error()) {
                 return std::move(result.error());
@@ -316,7 +318,9 @@ Result<ExecutionResult> execute_impl(
 
         bool beneficiary_touched=false;
         MONAD_ASSERT(block_state.can_merge_par(state,i,beneficiary_touched,true)); //TODO: remove this assert and compute beneficiary_touched separately
-        //state.dumpFootprint(blockFootprint(hdr.number)[i]);
+        #ifdef COMPUTE_IDEAL_FP
+            state.dumpFootprint(blockFootprint(hdr.number)[i]);
+        #endif
         assert(result.has_value());
         if (result.has_error()) {
             return std::move(result.error());

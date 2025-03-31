@@ -261,13 +261,13 @@ std::chrono::duration<double> get_footprint_time() {
     return footprint_time;
 }
 uint64_t startBlockNumber;
-// IdealFP ideal_fp;
-// IdealFP & getIdealFP() {
-//     return ideal_fp;
-// }
-// std::vector<std::set<evmc::address>> & blockFootprint(uint64_t blockNumber) {
-//     return getIdealFP()[blockNumber-startBlockNumber];
-// }
+IdealFP ideal_fp;
+IdealFP & getIdealFP() {
+    return ideal_fp;
+}
+std::vector<std::set<evmc::address>> & blockFootprint(uint64_t blockNumber) {
+    return getIdealFP()[blockNumber-startBlockNumber];
+}
 
 void setStartBlockNumber(uint64_t startBlockNumber_) {
     startBlockNumber = startBlockNumber_;
@@ -301,7 +301,9 @@ Result<std::vector<ExecutionResult>> execute_block(
     std::shared_ptr<boost::fibers::promise<void>[]> promises{
         new boost::fibers::promise<void>[block.transactions.size()]};
     uint64_t num_transactions = block.transactions.size();
-    //blockFootprint(block.header.number).resize(block.transactions.size());
+    #ifdef COMPUTE_IDEAL_FP
+        blockFootprint(block.header.number).resize(block.transactions.size());
+    #endif
 
 //    LOG_INFO("block number: {}", block.header.number);
     parallel_commit_system.reset(block.transactions.size(), block.header.beneficiary);
@@ -319,8 +321,13 @@ Result<std::vector<ExecutionResult>> execute_block(
              &transaction = block.transactions[i]] {
                 //auto start_time = std::chrono::high_resolution_clock::now();
                 senders[i] = recover_sender(transaction);
-                std::set<evmc::address> *footprint=compute_footprint(block, transaction, senders[i].value(), callee_pred_info, i);
-                insert_to_footprint(footprint, senders[i].value());
+                #ifdef USE_IDEAL_FP
+                    std::set<evmc::address> *footprint=&blockFootprint(block.header.number)[i];
+                #else
+                    std::set<evmc::address> *footprint=compute_footprint(block, transaction, senders[i].value(), callee_pred_info, i);
+                    insert_to_footprint(footprint, senders[i].value());
+                #endif
+
                 // if(footprint) {
                 //     for(auto const &addr: *footprint) {
                 //         priority_pool.submit(0, [&addr, i=i, &block_state] {

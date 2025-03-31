@@ -17,6 +17,7 @@
 
 MONAD_NAMESPACE_BEGIN
 
+#define USE_IDEAL_FP
 struct Block;
 class BlockHashBuffer;
 class BlockState;

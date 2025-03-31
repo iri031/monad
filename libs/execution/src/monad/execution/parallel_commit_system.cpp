@@ -113,7 +113,9 @@ void ParallelCommitSystem::compileFootprints() {
 }
 
 void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<evmc::address> *footprint) {
-    delete footprints_[myindex];
+    #ifdef USE_IDEAL_FP
+        delete footprints_[myindex];// in this case the footprint is not owned by this object but owned by the vector produced by unserializeIdealFootprint
+    #endif
     footprints_[myindex] = footprint;
 }
 
