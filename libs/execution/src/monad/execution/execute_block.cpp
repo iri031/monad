@@ -326,6 +326,9 @@ Result<std::vector<ExecutionResult>> execute_block(
                 #else
                     std::set<evmc::address> *footprint=compute_footprint(block, transaction, senders[i].value(), callee_pred_info, i);
                     insert_to_footprint(footprint, senders[i].value());
+                    if(footprint!=nullptr) {
+                        numPredFootprints++;
+                    }
                 #endif
 
                 // if(footprint) {
@@ -335,9 +338,6 @@ Result<std::vector<ExecutionResult>> execute_block(
                 //         });
                 //     }
                 // }
-                if(footprint!=nullptr) {
-                    numPredFootprints++;
-                }
 
                 parallel_commit_system.declareFootprint(i, footprint);
                 //auto end_time = std::chrono::high_resolution_clock::now();
