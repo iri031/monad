@@ -176,6 +176,14 @@ bool insert_callees(Block &block, Transaction const &transaction, evmc::address 
             to_be_explored.push_back(seenNode);
         }
     }
+    for (uint32_t index : calles.value()->balanceAccounts) {
+        std::optional<Word256> balance_addrp=callee_pred_info.epool.interpretExpression(index, block.header, transaction, cnode.caller, origin, cnode.root_call);
+        if(!balance_addrp.has_value()) {
+            return true;// not enough information to interpret the callee address expression to a constant, e.g. CALLDATA is currently not available for non-root nodes in callchain. so this callee can be anything: overapproximate this transactions's footprint to INF
+        }
+        evmc::address balance_addr=get_address(balance_addrp.value());
+        footprint->insert(balance_addr);
+    }
     return false;
 }
 
@@ -296,7 +304,7 @@ Result<std::vector<ExecutionResult>> execute_block(
              &block_state,
              num_transactions,
              &transaction = block.transactions[i]] {
-                auto start_time = std::chrono::high_resolution_clock::now();
+                //auto start_time = std::chrono::high_resolution_clock::now();
                 senders[i] = recover_sender(transaction);
                 //std::this_thread::sleep_for(std::chrono::milliseconds(1000));
                 std::set<evmc::address> *footprint=compute_footprint(block, transaction, senders[i].value(), callee_pred_info, i);
@@ -313,9 +321,9 @@ Result<std::vector<ExecutionResult>> execute_block(
                 // }
 
                 parallel_commit_system.declareFootprint(i, footprint);
-                auto end_time = std::chrono::high_resolution_clock::now();
-                std::chrono::duration<double> elapsed_seconds = end_time - start_time;
-                compute_footprints_time[i] = elapsed_seconds;
+                //auto end_time = std::chrono::high_resolution_clock::now();
+                //std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+                //compute_footprints_time[i] = elapsed_seconds;
                 print_footprint(footprint, i);
                 promises[i].set_value();
             });
@@ -329,15 +337,15 @@ Result<std::vector<ExecutionResult>> execute_block(
     }
     
     {
-        auto start_time = std::chrono::high_resolution_clock::now();
+        //auto start_time = std::chrono::high_resolution_clock::now();
         parallel_commit_system.compileFootprints();
-        auto end_time = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> elapsed_seconds = end_time - start_time;
-        compile_footprints_time += elapsed_seconds;
-        for(unsigned i = 0; i < num_transactions; ++i) {
-            footprint_time += compute_footprints_time[i];
-        }
-        footprint_time += elapsed_seconds;
+        //auto end_time = std::chrono::high_resolution_clock::now();
+        //std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+        //compile_footprints_time += elapsed_seconds;
+        //for(unsigned i = 0; i < num_transactions; ++i) {
+        //    footprint_time += compute_footprints_time[i];
+        //}
+        //footprint_time += elapsed_seconds;
     }
     
     std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
