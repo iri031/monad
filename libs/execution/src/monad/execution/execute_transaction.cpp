@@ -274,6 +274,7 @@ Result<ExecutionResult> execute_impl(
         }
         bool beneficiary_touched = false;
         if (block_state.can_merge_par(state, i, beneficiary_touched,true)) {
+//            state.dumpFootprint(getIdealFP()[hdr.number][i]);
             assert(result.has_value());
             if (result.has_error()) {
                 return std::move(result.error());

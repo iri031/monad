@@ -126,6 +126,14 @@ public:
         return true;
     }
     
+    inline void dumpFootprint(std::set<evmc::address> &footprint) {
+        for (auto const &[address, _] : original_) {
+            if (State::isPrecompile(address)) {
+                continue;
+            }
+            footprint.insert(address);
+        }
+    }
 
     State(State &&) = delete;
     State(State const &) = delete;

@@ -1489,15 +1489,15 @@ inline void unserializePredictions(Predictions &predictions, const std::string &
             }
         }
 
-        // read balance accounts
-        {
-            size_t balanceCount = 0;
-            in.read(reinterpret_cast<char*>(&balanceCount), sizeof(balanceCount));
-            pred.balanceAccounts.resize(balanceCount);
-            for (size_t j = 0; j < balanceCount; ++j) {
-                in.read(reinterpret_cast<char*>(&pred.balanceAccounts[j]), sizeof(pred.balanceAccounts[j]));
-            }
-        }
+        // // read balance accounts
+        // {
+        //     size_t balanceCount = 0;
+        //     in.read(reinterpret_cast<char*>(&balanceCount), sizeof(balanceCount));
+        //     pred.balanceAccounts.resize(balanceCount);
+        //     for (size_t j = 0; j < balanceCount; ++j) {
+        //         in.read(reinterpret_cast<char*>(&pred.balanceAccounts[j]), sizeof(pred.balanceAccounts[j]));
+        //     }
+        // }
         predictions.emplace(key, std::move(pred));
     }
 }

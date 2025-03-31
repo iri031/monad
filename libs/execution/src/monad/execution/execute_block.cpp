@@ -260,6 +260,10 @@ std::chrono::duration<double> get_compile_footprints_time() {
 std::chrono::duration<double> get_footprint_time() {
     return footprint_time;
 }
+IdealFP ideal_fp;
+IdealFP & getIdealFP() {
+    return ideal_fp;
+}
 
 std::chrono::duration<double> compute_footprints_time[MAX_TRANSACTIONS];
 ParallelCommitSystem parallel_commit_system;
@@ -316,9 +320,9 @@ Result<std::vector<ExecutionResult>> execute_block(
                 //         });
                 //     }
                 // }
-                // if(footprint!=nullptr) {
-                //     numPredFootprints++;
-                // }
+                if(footprint!=nullptr) {
+                    numPredFootprints++;
+                }
 
                 parallel_commit_system.declareFootprint(i, footprint);
                 //auto end_time = std::chrono::high_resolution_clock::now();
