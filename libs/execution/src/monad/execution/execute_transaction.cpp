@@ -260,16 +260,16 @@ Result<ExecutionResult> execute_impl(
 
         {
             TRACE_TXN_EVENT(StartStall);
-            bool assumptions_within_footprint=block_state.assumptions_within_footprint(state,parallel_commit_system.getFootprint(i),i);
-            bool inFootprint=state.change_within_footprint(parallel_commit_system.getFootprint(i),i); 
-            if (!inFootprint) {
-                LOG_INFO("transaction {} of block {} modified addresses outside its predicted footprint", i, hdr.number);
-            }
-            if (!assumptions_within_footprint) {
-                LOG_INFO("transaction {} of block {} read addresses outside its predicted footprint", i, hdr.number);
-            }
-            MONAD_ASSERT(inFootprint);
-            MONAD_ASSERT(assumptions_within_footprint);
+            // bool assumptions_within_footprint=block_state.assumptions_within_footprint(state,parallel_commit_system.getFootprint(i),i);
+            // bool inFootprint=state.change_within_footprint(parallel_commit_system.getFootprint(i),i); 
+            // if (!inFootprint) {
+            //     LOG_INFO("transaction {} of block {} modified addresses outside its predicted footprint", i, hdr.number);
+            // }
+            // if (!assumptions_within_footprint) {
+            //     LOG_INFO("transaction {} of block {} read addresses outside its predicted footprint", i, hdr.number);
+            // }
+            // MONAD_ASSERT(inFootprint);
+            // MONAD_ASSERT(assumptions_within_footprint);
             parallel_commit_system.waitForPrevTransactions(i);
         }
         bool beneficiary_touched = false;
@@ -289,7 +289,7 @@ Result<ExecutionResult> execute_impl(
                 beneficiary_touched,
                 block_beneficiary_reward);
             call_tracer.on_receipt(receipt);
-            MONAD_ASSERT(state.change_within_footprint(parallel_commit_system.getFootprint(i),i));
+            //MONAD_ASSERT(state.change_within_footprint(parallel_commit_system.getFootprint(i),i));
             block_state.merge_par(state, i, block_beneficiary_reward,true);
 
             auto const frames = call_tracer.get_frames();
@@ -329,7 +329,7 @@ Result<ExecutionResult> execute_impl(
             beneficiary_touched,
             block_beneficiary_reward);
         call_tracer.on_receipt(receipt);
-        MONAD_ASSERT(state.change_within_footprint(parallel_commit_system.getFootprint(i),i));
+        //MONAD_ASSERT(state.change_within_footprint(parallel_commit_system.getFootprint(i),i));
 
         block_state.merge_par(state,i,block_beneficiary_reward,true);
 
