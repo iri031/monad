@@ -198,7 +198,7 @@ uint64_t numTTPredictedFootprints() {
     std::set<evmc::address> *footprint=new std::set<evmc::address>();
     footprint->insert(runningAddress);
     if(address_known_to_be_non_contract(runningAddress, callee_pred_info)) {
-        //numTTFp++;
+        numTTFp++;
         //LOG_INFO("compute_footprint: tx_index: {} address_known_to_be_non_contract: {}", tx_index, runningAddress);
         return footprint;
     }
@@ -296,26 +296,26 @@ Result<std::vector<ExecutionResult>> execute_block(
              &block_state,
              num_transactions,
              &transaction = block.transactions[i]] {
-                auto start_time = std::chrono::high_resolution_clock::now();
+                //auto start_time = std::chrono::high_resolution_clock::now();
                 senders[i] = recover_sender(transaction);
                 //std::this_thread::sleep_for(std::chrono::milliseconds(1000));
                 std::set<evmc::address> *footprint=compute_footprint(block, transaction, senders[i].value(), callee_pred_info, i);
                 insert_to_footprint(footprint, senders[i].value());
-                // if(footprint) {
-                //     for(auto const &addr: *footprint) {
-                //         priority_pool.submit(0, [&addr, i=i, &block_state] {
-                //                 block_state.cache_account(addr);
-                //         });
-                //     }
-                // }
+                if(footprint) {
+                    for(auto const &addr: *footprint) {
+                        priority_pool.submit(0, [&addr, i=i, &block_state] {
+                                block_state.cache_account(addr);
+                        });
+                    }
+                }
                 // if(footprint!=nullptr) {
                 //     numPredFootprints++;
                 // }
 
                 parallel_commit_system.declareFootprint(i, footprint);
-                auto end_time = std::chrono::high_resolution_clock::now();
-                std::chrono::duration<double> elapsed_seconds = end_time - start_time;
-                compute_footprints_time[i] = elapsed_seconds;
+                //auto end_time = std::chrono::high_resolution_clock::now();
+                //std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+                //compute_footprints_time[i] = elapsed_seconds;
                 //print_footprint(footprint, i);
                 promises[i].set_value();
             });
@@ -329,15 +329,15 @@ Result<std::vector<ExecutionResult>> execute_block(
     }
     
     {
-        auto start_time = std::chrono::high_resolution_clock::now();
+        //auto start_time = std::chrono::high_resolution_clock::now();
         parallel_commit_system.compileFootprints();
-        auto end_time = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> elapsed_seconds = end_time - start_time;
-        compile_footprints_time += elapsed_seconds;
-        for(unsigned i = 0; i < num_transactions; ++i) {
-            footprint_time += compute_footprints_time[i];
-        }
-        footprint_time += elapsed_seconds;
+        //auto end_time = std::chrono::high_resolution_clock::now();
+        //std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+        //compile_footprints_time += elapsed_seconds;
+        //for(unsigned i = 0; i < num_transactions; ++i) {
+        //    footprint_time += compute_footprints_time[i];
+        //}
+        //footprint_time += elapsed_seconds;
     }
     
     std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
