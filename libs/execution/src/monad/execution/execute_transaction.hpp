@@ -53,8 +53,5 @@ Result<ExecutionResult> execute(
 
 uint64_t numRetries();
 
-template <evmc_revision rev>
-void access_beneficiary(BlockState &block_state, Block &block, BlockHashBuffer const &block_hash_buffer, Address const &sender0, Chain const &chain);
-
 MONAD_NAMESPACE_END
 
