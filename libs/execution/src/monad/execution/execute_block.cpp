@@ -200,6 +200,33 @@ void print_footprint(std::shared_ptr<std::set<evmc::address>> footprint, uint64_
     LOG_INFO("footprint[{}]: {}", index, footprint_str);
 }
 
+std::atomic<uint64_t> numPredFootprints=0;
+uint64_t numPredictedFootprints() {
+    return numPredFootprints.load();
+}
+
+std::chrono::duration<double> compile_footprints_time{0};
+std::chrono::duration<double> footprint_time{0};
+std::chrono::duration<double> get_compile_footprints_time() {
+    return compile_footprints_time;
+}
+std::chrono::duration<double> get_footprint_time() {
+    return footprint_time;
+}
+uint64_t startBlockNumber;
+IdealFP ideal_fp;
+IdealFP & getIdealFP() {
+    return ideal_fp;
+}
+std::vector<std::set<evmc::address>> & blockFootprint(uint64_t blockNumber) {
+    return getIdealFP()[blockNumber-startBlockNumber];
+}
+
+void setStartBlockNumber(uint64_t startBlockNumber_) {
+    startBlockNumber = startBlockNumber_;
+}
+
+std::chrono::duration<double> compute_footprints_time[MAX_TRANSACTIONS];
 ParallelCommitSystem parallel_commit_system;
 
 void earlyDestructFibers() {
@@ -236,6 +263,9 @@ Result<std::vector<ExecutionResult>> execute_block(
 
     std::shared_ptr<boost::fibers::promise<void>[]> promises{
         new boost::fibers::promise<void>[block.transactions.size()]};
+    #ifdef COMPUTE_IDEAL_FP
+        blockFootprint(block.header.number).resize(block.transactions.size());
+    #endif
 
     parallel_commit_system.reset(block.transactions.size(), block.header.beneficiary);
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
@@ -244,13 +274,30 @@ Result<std::vector<ExecutionResult>> execute_block(
             [i = i,
              senders = senders,
              promises = promises,
+             &block,
              &block_state = block_state,
              &priority_pool = priority_pool,
              &callee_pred_info = callee_pred_info,
              &transaction = block.transactions[i]] {
                 senders[i] = recover_sender(transaction);
-                std::shared_ptr<std::set<evmc::address>> footprint=compute_footprint(block_state, transaction, callee_pred_info, i);
-                insert_to_footprint(footprint, senders[i].value());// because the footprint depends on senders, this cannot be done before senders are computed
+                #ifdef USE_IDEAL_FP
+                    std::shared_ptr<std::set<evmc::address>> footprint(&blockFootprint(block.header.number)[i], [](std::set<evmc::address> *) {});
+                #else
+                    std::shared_ptr<std::set<evmc::address>> footprint=compute_footprint(block_state, transaction, callee_pred_info, i);
+                    insert_to_footprint(footprint, senders[i].value());
+                #endif
+
+                // if(footprint) {
+                //     for(auto const &addr: *footprint) {
+                //         priority_pool.submit(0, [&addr, i=i, &block_state] {
+                //                 block_state.cache_account(addr);
+                //         });
+                //     }
+                // }
+                // if(footprint!=nullptr) {
+                //     numPredFootprints++;
+                // }
+
                 parallel_commit_system.declareFootprint(i, footprint);
                 //print_footprint(footprint, i);
                 promises[i].set_value();
