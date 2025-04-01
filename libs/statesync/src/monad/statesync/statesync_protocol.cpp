@@ -222,7 +222,7 @@ bool StatesyncProtocolV1::handle_upsert(
         ctx->hdrs[res.value().number % ctx->hdrs.size()] = res.value();
     }
 
-    if ((++ctx->n_upserts % (1 << 20)) == 0) {
+    if ((++ctx->n_upserts % 100'000'000) == 0) {
         ctx->commit();
     }
 
