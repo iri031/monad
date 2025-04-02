@@ -31,6 +31,12 @@ void ParallelCommitSystem::waitForAllTransactionsToCommit() {
 std::set<evmc::address> *ParallelCommitSystem::getFootprint(txindex_t myindex) { return nullptr; }
 #else
 
+void ParallelCommitSystem::earlyDestructFibers() {
+    for (size_t i = 0; i < MAX_TRANSACTIONS; i++) {
+        promises[i] = boost::fibers::promise<void>();
+    }
+}
+
 void ParallelCommitSystem::reset(txindex_t num_transactions_, monad::Address const &beneficiary) {
     assert(num_transactions_<=MAX_TRANSACTIONS);
     this->num_transactions=num_transactions_;

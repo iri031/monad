@@ -200,6 +200,11 @@ void print_footprint(std::set<evmc::address> *footprint, uint64_t index) {
 }
 
 ParallelCommitSystem parallel_commit_system;
+
+void earlyDestructFibers() {
+    parallel_commit_system.earlyDestructFibers();
+}
+
 template <evmc_revision rev>
 Result<std::vector<ExecutionResult>> execute_block(
     Chain const &chain, Block &block, BlockState &block_state,

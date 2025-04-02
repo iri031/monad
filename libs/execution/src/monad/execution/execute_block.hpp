@@ -41,4 +41,6 @@ Result<std::vector<ExecutionResult>> execute_block(
     Chain const &, evmc_revision, Block &, BlockState &,
     BlockHashBuffer const &, fiber::PriorityPool &, CalleePredInfo &);
 
+void earlyDestructFibers();
+
 MONAD_NAMESPACE_END

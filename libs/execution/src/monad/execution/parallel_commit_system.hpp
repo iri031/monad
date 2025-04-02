@@ -50,6 +50,7 @@ class ParallelCommitSystem
     ~ParallelCommitSystem();
     void waitForAllTransactionsToCommit();
     void reset(txindex_t num_transactions, monad::Address const &beneficiary);
+    void earlyDestructFibers();
 
     private:
     monad::Address beneficiary;
@@ -90,7 +91,6 @@ class ParallelCommitSystem
     bool blocksAllLaterTransactions(txindex_t index) const;
     static std::string status_to_string(TransactionStatus status);
     void notifyAllDone();// add a block index argument
-
     /**
     * status is expected to be a recent load from status_[index]
     * it is just a minor optimization to avoid calling load() on status_[index] because it is already loaded in the caller
