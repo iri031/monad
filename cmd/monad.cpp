@@ -99,10 +99,11 @@ void log_tps(
 };
 
 void parseCodeHashes(std::unordered_map<Address, bytes32_t> &code_hashes) {
-    std::ifstream file("/home/abhishek/contracts5m/hashes.txt");
+    std::ifstream file("/home/abhishek/contracts15m/hashes.txt");
     
     if (!file.is_open()) {
         LOG_ERROR("Could not open code hashes file");
+    	std::terminate();
         return;
     }
 
@@ -181,16 +182,16 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     uint64_t batch_num_txs = 0;
     uint64_t total_gas = 0;
     uint64_t batch_gas = 0;
-    auto batch_begin = std::chrono::steady_clock::now();
     uint64_t ntxs = 0;
 
     CalleePredInfo cinfo;
     parseCodeHashes(cinfo.code_hashes);
-    cinfo.epool.deserialize("/home/abhishek/contracts5m/epool.bin");
-    unserializePredictions(cinfo.predictions, "/home/abhishek/contracts5m/predictions.bin");
+    cinfo.epool.deserialize("/home/abhishek/contracts15m/epool.bin");
+    unserializePredictions(cinfo.predictions, "/home/abhishek/contracts15m/predictions.bin");
 //    printPredictions(cinfo.epool, cinfo.predictions, "predictions.txt");
 //    std::terminate();
     
+    auto batch_begin = std::chrono::steady_clock::now();
     uint64_t const end_block_num =
         (std::numeric_limits<uint64_t>::max() - block_num + 1) <= nblocks
             ? std::numeric_limits<uint64_t>::max()

@@ -1144,6 +1144,7 @@ inline void serializePredictions(const Predictions &predictions, const std::stri
 inline void unserializePredictions(Predictions &predictions, const std::string &filename) {
     std::ifstream in(filename, std::ios::binary);
     if (!in) {
+        std::terminate();
         // Could handle error silently or throw
         return;
     }
