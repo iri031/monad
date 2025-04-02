@@ -40,7 +40,7 @@ static_assert(alignof(FinalizedDeletionsEntry) == 8);
 
 class FinalizedDeletions
 {
-    uint64_t start_block_number_{mpt::INVALID_BLOCK_ID};
+    size_t num_entries_{0};
     uint64_t end_block_number_{mpt::INVALID_BLOCK_ID};
     std::array<FinalizedDeletionsEntry, MAX_ENTRIES> entries_{};
     std::array<Deletion, MAX_DELETIONS> deletions_{};

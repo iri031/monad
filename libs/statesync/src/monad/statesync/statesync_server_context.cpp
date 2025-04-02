@@ -104,6 +104,8 @@ void FinalizedDeletions::set_entry(
     uint64_t const i, uint64_t const block_number,
     std::vector<Deletion> const &deletions)
 {
+    ++num_entries_;
+    end_block_number_ = block_number;
     auto &entry = entries_[i];
     std::lock_guard const lock{entry.mutex};
     MONAD_ASSERT(entry.block_number == INVALID_BLOCK_ID);
@@ -129,6 +131,7 @@ void FinalizedDeletions::clear_entry(uint64_t const i)
     if (entry.block_number == INVALID_BLOCK_ID) {
         return;
     }
+    --num_entries_;
     LOG_INFO(
         "deletions buffer clear i={} "
         "FinalizedDeletionsEntry{{block_number={} idx={} "
@@ -169,8 +172,6 @@ void FinalizedDeletions::write(
 
     auto const free_deletions = [this] { return free_end_ - free_start_; };
 
-    end_block_number_ = block_number;
-
     if (MONAD_UNLIKELY(deletions.size() > MAX_DELETIONS)) { // blow away
         LOG_WARNING(
             "dropping deletions due to exessive size block_number={} size={}",
@@ -179,27 +180,22 @@ void FinalizedDeletions::write(
         for (uint64_t i = 0; i < MAX_ENTRIES; ++i) {
             clear_entry(i);
         }
-        start_block_number_ = INVALID_BLOCK_ID;
-        MONAD_ASSERT(free_deletions() == MAX_DELETIONS);
+        end_block_number_ = INVALID_BLOCK_ID;
+        MONAD_ASSERT(free_deletions() == MAX_DELETIONS && num_entries_ == 0);
     }
     else {
-        if (MONAD_UNLIKELY(start_block_number_ == INVALID_BLOCK_ID)) {
-            start_block_number_ = end_block_number_;
+        uint64_t const i = block_number % MAX_ENTRIES;
+        clear_entry(i);
+        for (uint64_t j = i + 1; free_deletions() < deletions.size(); ++j) {
+            MONAD_ASSERT((j % MAX_ENTRIES) != i);
+            clear_entry(j % MAX_ENTRIES);
         }
-        auto const target_idx = end_block_number_ % MAX_ENTRIES;
-        clear_entry(target_idx);
-        while (free_deletions() < deletions.size()) {
-            MONAD_ASSERT(start_block_number_ < end_block_number_);
-            clear_entry(start_block_number_ % MAX_ENTRIES);
-            ++start_block_number_;
-        }
-        set_entry(target_idx, end_block_number_, deletions);
+        set_entry(i, block_number, deletions);
     }
     LOG_INFO(
-        "deletions buffer range={} free_deletions={}",
-        start_block_number_ == INVALID_BLOCK_ID
-            ? "EMPTY"
-            : fmt::format("[{}, {}]", start_block_number_, end_block_number_),
+        "deletions buffer num_entries={} end_block_number={} free_deletions={}",
+        num_entries_,
+        end_block_number_,
         free_deletions());
 }
 
