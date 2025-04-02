@@ -241,7 +241,7 @@ int main(int const argc, char const *argv[])
             LOG_INFO("Loading from binary checkpoint in {}", snapshot);
             std::ifstream accounts(snapshot / "accounts");
             std::ifstream code(snapshot / "code");
-            auto const n = std::stoul(snapshot.stem());
+            auto const n = std::stoul(snapshot.stem()); // level?
             load_from_binary(db, accounts, code, n);
 
             // load the eth header for snapshot
