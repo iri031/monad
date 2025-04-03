@@ -361,7 +361,7 @@ Node const *Node::next(size_t const index) const noexcept
 
 void Node::set_next(unsigned const index, Node::UniquePtr node_ptr) noexcept
 {
-    Node *node = node_ptr.release();
+    Node *node = node_ptr.get();
     node ? memcpy(next_data() + index * sizeof(Node *), &node, sizeof(Node *))
          : memset(next_data() + index * sizeof(Node *), 0, sizeof(Node *));
 }
