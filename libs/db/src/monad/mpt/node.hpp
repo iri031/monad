@@ -131,7 +131,7 @@ public:
     using Deleter = allocators::unique_ptr_aliasing_allocator_deleter<
         std::allocator<Node>, BytesAllocator, &Node::pool,
         &Node::get_deallocate_count>;
-    using UniquePtr = std::unique_ptr<Node, Deleter>;
+    using UniquePtr = std::shared_ptr<Node>;
 
     /* 16-bit mask for children */
     uint16_t mask{0};
