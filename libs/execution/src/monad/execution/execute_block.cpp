@@ -91,7 +91,7 @@ inline void set_beacon_root(BlockState &block_state, Block &block)
     }
 }
 
-#define MAX_FOOTPRINT_SIZE 10
+#define MAX_FOOTPRINT_SIZE 15
 
 // if this returns true, then the address MUST be a non-contract account. for correctness, it can always return false, but for performance, it should do that only for addresses created in this block.
 bool address_known_to_be_non_contract(BlockState &block_state, evmc::address address) {
@@ -113,7 +113,6 @@ bool address_known_to_be_non_contract(BlockState &block_state, evmc::address add
 */
 bool insert_callees(BlockState &block_state, std::set<evmc::address> *footprint, std::vector<evmc::address> & to_be_explored, std::set<evmc::address> & seen_delegate_callees, evmc::address runningAddress, CalleePredInfo &callee_pred_info) {
     if(footprint->size()>MAX_FOOTPRINT_SIZE) {
-        delete footprint;
         return true;
     }
 
