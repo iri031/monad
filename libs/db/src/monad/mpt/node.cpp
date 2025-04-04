@@ -467,6 +467,7 @@ Node::UniquePtr make_node(
         from.data().size() + from.child_data_len(),
         node->data_data());
 
+    // todo: might not be necessary
     // move next ptrs to new node, invalidating old pointers
     if (from.number_of_children()) {
         auto const next_size = from.number_of_children() * sizeof(Node *);
@@ -505,6 +506,7 @@ Node::UniquePtr make_node(
         }
     }
 
+    // use shr_ptr
     auto node = Node::make(
         calculate_node_size(
             number_of_children,

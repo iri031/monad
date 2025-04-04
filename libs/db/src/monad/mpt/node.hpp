@@ -132,6 +132,7 @@ public:
         std::allocator<Node>, BytesAllocator, &Node::pool,
         &Node::get_deallocate_count>;
     using UniquePtr = std::unique_ptr<Node, Deleter>;
+    using SharedPtr = std::shared_ptr<Node>;
 
     /* 16-bit mask for children */
     uint16_t mask{0};
@@ -193,6 +194,24 @@ public:
     static UniquePtr make(size_t bytes, Args &&...args)
     {
         MONAD_DEBUG_ASSERT(bytes <= Node::max_size);
+
+        return allocators::allocate_aliasing_unique<
+            std::allocator<Node>,
+            BytesAllocator,
+            &pool,
+            &get_deallocate_count>(
+            bytes,
+            prevent_public_construction_tag{},
+            std::forward<Args>(args)...);
+    }
+
+    template <class... Args>
+static SharedPtr make(size_t bytes, Args &&...args)
+    {
+        MONAD_DEBUG_ASSERT(bytes <= Node::max_size);
+
+        // todo: maybe something like std::make_shared<>() ?
+        // allocators::allocate_shared_ptr<>
         return allocators::allocate_aliasing_unique<
             std::allocator<Node>,
             BytesAllocator,
@@ -283,7 +302,9 @@ public:
     Node *next(size_t index) noexcept;
     Node const *next(size_t index) const noexcept;
     void set_next(unsigned index, Node::UniquePtr) noexcept;
-    UniquePtr move_next(unsigned index) noexcept;
+    void set_next(unsigned index, Node::SharedPtr) noexcept;
+
+    SharedPtr move_next(unsigned index) noexcept;
 
     //! node size in memory
     unsigned get_mem_size() const noexcept;
@@ -298,6 +319,7 @@ static_assert(alignof(Node) == 8);
 // file offset and hash data, in the update recursion.
 struct ChildData
 {
+    // todo: update after parent
     Node::UniquePtr ptr{nullptr};
     chunk_offset_t offset{INVALID_OFFSET}; // physical offsets
     unsigned char data[32] = {0};
@@ -344,6 +366,7 @@ constexpr size_t MAX_VALUE_LEN_OF_LEAF =
         0 /* number_of_children */, 0 /* child_data_size */, 0 /* value_size */,
         KECCAK256_SIZE /* path_size */, KECCAK256_SIZE /* data_size*/);
 
+// revist
 Node::UniquePtr make_node(
     Node &from, NibblesView path, std::optional<byte_string_view> value,
     int64_t version);
