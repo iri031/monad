@@ -97,7 +97,7 @@ static_assert(sizeof(find_request_sender<byte_string>) == 120);
 static_assert(alignof(find_request_sender<byte_string>) == 8);
 static_assert(MONAD_ASYNC_NAMESPACE::sender<find_request_sender<byte_string>>);
 
-static_assert(sizeof(find_request_sender<Node::UniquePtr>) == 96);
+static_assert(sizeof(find_request_sender<Node::UniquePtr>) == 104);
 static_assert(alignof(find_request_sender<Node::UniquePtr>) == 8);
 static_assert(
     MONAD_ASYNC_NAMESPACE::sender<find_request_sender<Node::UniquePtr>>);

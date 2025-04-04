@@ -361,7 +361,7 @@ Node const *Node::next(size_t const index) const noexcept
 
 void Node::set_next(unsigned const index, Node::UniquePtr node_ptr) noexcept
 {
-    Node *node = node_ptr.release();
+    Node *node = node_ptr.get();
     node ? memcpy(next_data() + index * sizeof(Node *), &node, sizeof(Node *))
          : memset(next_data() + index * sizeof(Node *), 0, sizeof(Node *));
 }
@@ -407,7 +407,7 @@ void ChildData::finalize(
     Node::UniquePtr node, Compute &compute, bool const cache)
 {
     MONAD_DEBUG_ASSERT(is_valid());
-    ptr = std::move(node);
+    ptr = node;
     auto const length = compute.compute(data, ptr.get());
     MONAD_DEBUG_ASSERT(length <= std::numeric_limits<uint8_t>::max());
     len = static_cast<uint8_t>(length);
@@ -520,6 +520,7 @@ Node::UniquePtr make_node(
         path,
         version);
 
+    /*
     std::copy_n(
         (byte_string_view::pointer)child_data_offsets.data(),
         child_data_offsets.size() * sizeof(uint16_t),
@@ -531,11 +532,12 @@ Node::UniquePtr make_node(
             node->set_min_offset_fast(index, child.min_offset_fast);
             node->set_min_offset_slow(index, child.min_offset_slow);
             node->set_subtrie_min_version(index, child.subtrie_min_version);
-            node->set_next(index, std::move(child.ptr));
+            node->set_next(index, child.ptr);
             node->set_child_data(index, {child.data, child.len});
             ++index;
         }
     }
+    */
 
     return node;
 }
