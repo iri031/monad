@@ -200,12 +200,42 @@ bool containsElemInRange(const std::set<uint64_t>& s, uint64_t gt, uint64_t lt)
     return (it != s.end() && *it < lt);
 }
 
-bool ParallelCommitSystem::existsUncommittedSmallerIndexAccessingAddress(txindex_t index, const evmc::address& addr) {
+uint64_t highestElemInRange(const std::set<uint64_t>& s, uint64_t gt, uint64_t lt)
+{
+    // If set is empty, no valid element.
+    if (s.empty()) {
+        return std::numeric_limits<uint64_t>::max();  // or another sentinel
+    }
+
+    // 1) We want x < lt.
+    //    lower_bound(lt) returns an iterator pointing to the first element >= lt.
+    //    So if we step one iterator back, that element is guaranteed to be < lt.
+    auto it = s.lower_bound(lt);
+
+    // 2) If it == s.begin(), then every element in the set is >= lt,
+    //    so we have no element < lt.
+    if (it == s.begin()) {
+        return 0;
+    }
+
+    // 3) Move one step back to get the largest element < lt.
+    --it;
+
+    // 4) Check if that element is also > gt. If yes, it's in (gt, lt).
+    if (*it > gt) {
+        return *it; 
+    }
+
+    return std::numeric_limits<uint64_t>::max();
+}
+
+ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedIndexAccessingAddress(txindex_t index, const evmc::address& addr) {
     auto it = transactions_accessing_address_.find(addr);
     if (it == transactions_accessing_address_.end()) {
-        return false;
+        return std::numeric_limits<txindex_t>::max();
     }
-    auto set = it->second;
+    auto & set = it->second;
+    MONAD_ASSERT(set.size() >0);
     /*LOG_INFO("indicesAccessingAddress[{}]: {}", 
         fmt::format("{}", addr),
         [&set]() {
@@ -218,7 +248,7 @@ bool ParallelCommitSystem::existsUncommittedSmallerIndexAccessingAddress(txindex
     
     // Start from all_committed_below_index instead of set->begin()
     auto committed_ub = all_committed_below_index.load();
-    return containsElemInRange(set, committed_ub, index);
+    return highestElemInRange(set, committed_ub, index);
 }
 
 //pre: blocksAllLaterTransactions(i) is false for all i<index
@@ -246,9 +276,10 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
             return false;// above, we observed that the previous transacton hasn't committed yet. this transaction may read the exact beneficiary balance, so we need to wait for all previous transactions to commit so that the rewards get finalized.
         }
         for (const auto& addr : *footprint) {
-            if (existsUncommittedSmallerIndexAccessingAddress(index, addr))
-                return false;// the access map may not have all entries yet. actually, it will have all relevant entries because of a precondition of this function: see comment
-
+           auto highest_prev = highestLowerUncommittedIndexAccessingAddress(index, addr);
+            assert(highest_prev<index || highest_prev == std::numeric_limits<txindex_t>::max());
+            if (highest_prev != std::numeric_limits<txindex_t>::max() && status_[highest_prev].load() != TransactionStatus::COMMITTED)
+                return false;
         }
         unblockTransaction(status, index);
         return true;

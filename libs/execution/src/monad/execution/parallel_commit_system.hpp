@@ -83,7 +83,7 @@ class ParallelCommitSystem
     */
     bool tryUnblockTransaction(TransactionStatus status, txindex_t index);
     static bool isUnblocked(TransactionStatus status);
-    bool existsUncommittedSmallerIndexAccessingAddress(txindex_t index, const evmc::address& addr);
+    txindex_t highestLowerUncommittedIndexAccessingAddress(txindex_t index, const evmc::address& addr);
     void tryUnblockTransactionsStartingFrom(txindex_t start);
     void updateLastCommittedUb();
     /** update all_committed_below_index so that it is at least minValue */
