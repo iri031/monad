@@ -215,7 +215,7 @@ uint64_t highestElemInRange(const std::set<uint64_t>& s, uint64_t gt, uint64_t l
     // 2) If it == s.begin(), then every element in the set is >= lt,
     //    so we have no element < lt.
     if (it == s.begin()) {
-        return 0;
+        return std::numeric_limits<uint64_t>::max();
     }
 
     // 3) Move one step back to get the largest element < lt.
