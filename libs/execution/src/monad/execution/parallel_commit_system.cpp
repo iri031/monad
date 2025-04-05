@@ -37,8 +37,6 @@ void ParallelCommitSystem::registerAddressAccessedBy(const evmc::address& addr, 
         it = transactions_accessing_address_.insert({addr, std::set<txindex_t>()}).first;
     }
     it->second.insert(index);
-    //MONAD_ASSERT(it->second.size() >0);
-    //MONAD_ASSERT(transactions_accessing_address_.size() >0);
 }
 
 void ParallelCommitSystem::compileFootprint() {
@@ -202,7 +200,6 @@ ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedInd
         return std::numeric_limits<txindex_t>::max();
     }
     auto & set = it->second;
-    MONAD_ASSERT(set.size() >0);
     /*LOG_INFO("indicesAccessingAddress[{}]: {}", 
         fmt::format("{}", addr),
         [&set]() {
@@ -216,7 +213,7 @@ ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedInd
     // Start from all_committed_below_index instead of set->begin()
     auto committed_ub = all_committed_below_index.load();
     auto result = highestElemInRange(set, committed_ub, index);
-    LOG_INFO("highestLowerUncommittedIndexAccessingAddress: {} in ({}, {}) for set {}", result, committed_ub, index, set);
+    //LOG_INFO("highestLowerUncommittedIndexAccessingAddress: {} in ({}, {}) for set {}", result, committed_ub, index, set);
     return result;
 }
 

@@ -246,7 +246,7 @@ Result<std::vector<ExecutionResult>> execute_block(
                 std::set<evmc::address> *footprint=compute_footprint(block_state, transaction, callee_pred_info, i);
                 insert_to_footprint(footprint, senders[i].value());
                 parallel_commit_system.declareFootprint(i, footprint);
-                print_footprint(footprint, i);
+                //print_footprint(footprint, i);
                 promises[i].set_value();
             });
     }
