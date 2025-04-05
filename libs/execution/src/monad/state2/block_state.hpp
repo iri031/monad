@@ -102,7 +102,7 @@ public:
     inline void merge(State const & state){
         merge_par(state,0,std::nullopt,false);
     }
-    bool assumptions_within_footprint(State const &state, const std::set<evmc::address>*footprint);
+    bool assumptions_within_footprint(State const &state, const std::set<evmc::address>*footprint, uint64_t tx_index);
 
     void update_beneficiary_delta(uint64_t tx_index, intx::uint256 delta);
 

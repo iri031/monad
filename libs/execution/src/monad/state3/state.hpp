@@ -102,13 +102,21 @@ public:
         , txindex_{txindex}
     {
     }
+    static bool isPrecompile(evmc::address const &address) {
+        for (int i = 0; i < 19; i++) {
+            if (address.bytes[i] != 0) {
+                return false;
+            }
+        }
+        return address.bytes[19] < 10;
+    }
 
     // used only for an assert for debugging. not used in release builds
-    inline bool change_within_footprint(const std::set<evmc::address>*footprint) {
+    inline bool change_within_footprint(const std::set<evmc::address>*footprint, uint64_t tx_index) {
         for (auto const &[address, stack] : current_) {
             assert(stack.size() >= 1);
             if (footprint && footprint->find(address) == footprint->end()) {
-                //LOG_INFO("address not in footprint: {}", address);
+                LOG_INFO("update:address not in footprint: {} at tx index {}", address, tx_index);
                 return false;
             }
         }

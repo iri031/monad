@@ -124,15 +124,17 @@ std::shared_ptr<CodeAnalysis> BlockState::read_code(bytes32_t const &code_hash)
 }
 
 bool BlockState::assumptions_within_footprint(
-    State const &state, const std::set<evmc::address>*footprint)
+    State const &state, const std::set<evmc::address>*footprint, uint64_t tx_index)
 {
-    assert(footprint);
+    if (!footprint) {
+        return true;
+    }
     for (auto const &[address, _] : state.original_) {
         if (State::isPrecompile(address)) { //TODO: just remove precompiles befrore can_merge_par
             continue;
         }
         if (footprint && footprint->find(address) == footprint->end()) {
-            LOG_INFO("address not in footprint: {}", address);
+            LOG_INFO("read: address not in footprint: {} at tx index {}", address, tx_index);
             return false;
         }
     }

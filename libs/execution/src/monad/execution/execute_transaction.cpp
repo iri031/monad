@@ -255,8 +255,8 @@ Result<ExecutionResult> execute_impl(
 
         {
             TRACE_TXN_EVENT(StartStall);
-            bool assumptions_within_footprint=block_state.assumptions_within_footprint(state,parallel_commit_system.getFootprint(i));
-            bool inFootprint=state.change_within_footprint(parallel_commit_system.getFootprint(i));
+            bool assumptions_within_footprint=block_state.assumptions_within_footprint(state,parallel_commit_system.getFootprint(i),i);
+            bool inFootprint=state.change_within_footprint(parallel_commit_system.getFootprint(i),i);
             if (!inFootprint) {
                 LOG_INFO("transaction {} of block {} modified addresses outside its predicted footprint", i, hdr.number);
             }
