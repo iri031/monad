@@ -166,16 +166,8 @@ void ParallelCommitSystem::unblockTransaction(TransactionStatus status, txindex_
     }
 }
 
-bool containsElemInRange(const std::set<uint64_t>& s, uint64_t gt, uint64_t lt)
-{
-    // Find the first element in s that is >= gt+1
-    auto it = s.lower_bound(gt + 1);
-
-    // If such element exists and is < lt, we have an element in (gt, lt)
-    return (it != s.end() && *it < lt);
-}
-
-uint64_t highestElemInRange(const std::set<uint64_t>& s, uint64_t gt, uint64_t lt)
+/* return the highest element in the range [ge, lt) in the set s. if no such element exists, return max*/
+uint64_t highestElemInRange(const std::set<uint64_t>& s, uint64_t ge, uint64_t lt)
 {
     // If set is empty, no valid element.
     if (s.empty()) {
@@ -196,8 +188,8 @@ uint64_t highestElemInRange(const std::set<uint64_t>& s, uint64_t gt, uint64_t l
     // 3) Move one step back to get the largest element < lt.
     --it;
 
-    // 4) Check if that element is also > gt. If yes, it's in (gt, lt).
-    if (*it > gt) {
+    // 4) Check if that element is also >= ge. If yes, it's in [ge, lt).
+    if (*it >= ge) {
         return *it; 
     }
 
