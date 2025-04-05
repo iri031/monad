@@ -43,6 +43,9 @@ void ParallelCommitSystem::reset(txindex_t num_transactions_, monad::Address con
     this->beneficiary=beneficiary;
     all_committed_below_index.store(0);
     transactions_accessing_address_.clear();
+    for (size_t i = 0; i < num_transactions; i++) {// TODO(aa): do not initialize here, except promises. ensure declareFootprint initializes all these, in parallel.
+        promises[i] = boost::fibers::promise<void>();
+    }    
     promises[num_transactions]=boost::fibers::promise<void>();
 
     if (num_transactions == 0)
@@ -87,7 +90,7 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
         nontriv_footprint_contains_beneficiary[myindex]=false;
     }
 
-    promises[myindex] = boost::fibers::promise<void>();
+    //promises[myindex] = boost::fibers::promise<void>();
 
 
     if (myindex==0) {
