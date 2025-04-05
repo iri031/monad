@@ -253,6 +253,8 @@ Result<std::vector<ExecutionResult>> execute_block(
             });
     }
     block_state.load_preblock_beneficiary_balance();
+    std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
+        new std::optional<Result<ExecutionResult>>[block.transactions.size()]};
 
     //LOG_INFO("block number: {}, block beneficiary: {}", block.header.number, block.header.beneficiary);
 
@@ -260,10 +262,7 @@ Result<std::vector<ExecutionResult>> execute_block(
         promises[i].get_future().wait();
         //LOG_INFO("sender[{}]: {}", i, fmt::format("{}", senders[i].value()));
     }
-
-    std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
-        new std::optional<Result<ExecutionResult>>[block.transactions.size()]};
-
+    parallel_commit_system.compileFootprint();
 
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {

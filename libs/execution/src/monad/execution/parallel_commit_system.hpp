@@ -44,6 +44,8 @@ class ParallelCommitSystem
     * the destructor of this class will delete footprint.
     */
     void declareFootprint(txindex_t myindex, const std::set<evmc::address> *footprint);
+    void compileFootprint();
+
     const std::set<evmc::address> *getFootprint(txindex_t myindex);
 
     
@@ -81,7 +83,7 @@ class ParallelCommitSystem
     */
     bool tryUnblockTransaction(TransactionStatus status, txindex_t index);
     static bool isUnblocked(TransactionStatus status);
-    txindex_t highestLowerUncommittedIndexAccessingAddress(txindex_t index, const evmc::address& addr);
+    bool existsUncommittedSmallerIndexAccessingAddress(txindex_t index, const evmc::address& addr);
     void tryUnblockTransactionsStartingFrom(txindex_t start);
     void updateLastCommittedUb();
     /** update all_committed_below_index so that it is at least minValue */
@@ -104,7 +106,7 @@ class ParallelCommitSystem
     * the check of whether all previous transactions have committed.
     */
     std::atomic<txindex_t> all_committed_below_index; 
-    tbb::concurrent_unordered_map<evmc::address, tbb::concurrent_set<txindex_t> * const> transactions_accessing_address_;
+    std::unordered_map<evmc::address, std::set<txindex_t>> transactions_accessing_address_;//TODO: make the value a const sized bitset with non dynamic allocation
     /**
     * footprints_[i] is the footprint of transaction i.
     * can use a shared_ptr but that will increase the

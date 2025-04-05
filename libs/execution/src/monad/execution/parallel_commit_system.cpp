@@ -42,13 +42,7 @@ void ParallelCommitSystem::reset(txindex_t num_transactions_, monad::Address con
     this->num_transactions=num_transactions_;
     this->beneficiary=beneficiary;
     all_committed_below_index.store(0);
-    for (auto& pair : transactions_accessing_address_) {
-          delete pair.second; // matches the "new tbb::concurrent_set<txindex_t>()" in registerAddressAccessedBy
-    }
     transactions_accessing_address_.clear();
-    for (size_t i = 0; i < num_transactions; i++) {// TODO(aa): do not initialize here, except promises. ensure declareFootprint initializes all these, in parallel.
-        promises[i] = boost::fibers::promise<void>();
-    }
     promises[num_transactions]=boost::fibers::promise<void>();
 
     if (num_transactions == 0)
@@ -60,28 +54,31 @@ void ParallelCommitSystem::reset(txindex_t num_transactions_, monad::Address con
 const std::set<evmc::address>* ParallelCommitSystem::getFootprint(txindex_t myindex) { return footprints_[myindex]; }
 
 void ParallelCommitSystem::registerAddressAccessedBy(const evmc::address& addr, txindex_t index) {
-    tbb::concurrent_set<txindex_t> * set;
-    {
-        auto it = transactions_accessing_address_.find(addr);
-        if (it == transactions_accessing_address_.end()) {
-            it = transactions_accessing_address_.insert({addr, new tbb::concurrent_set<txindex_t>()}).first;
-        }
-        set=it->second;
+    auto it = transactions_accessing_address_.find(addr);
+    if (it == transactions_accessing_address_.end()) {
+        it = transactions_accessing_address_.insert({addr, std::set<txindex_t>()}).first;
     }
-    // because nobody will ever change the set pointer in the map, we do set->insert after `it` goes out of scope, 
-    // thus releasing the lock, and allowing other threads to concurrently insert into the set.
-    // if this address was not in the map before, `it` may hold a write lock on the set, thus preventing other threads from accessing the set.
-    set->insert(index);
+    it->second.insert(index);
+    //MONAD_ASSERT(it->second.size() >0);
+    //MONAD_ASSERT(transactions_accessing_address_.size() >0);
 }
+
+void ParallelCommitSystem::compileFootprint() {
+    for (txindex_t myindex = 0; myindex < num_transactions; ++myindex) {
+        auto footprint = footprints_[myindex];
+        if (footprint) {
+            for (const auto& addr : *footprint) {
+                registerAddressAccessedBy(addr, myindex);
+            }
+        }
+    }
+}
+
+
 
 void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<evmc::address> *footprint) {
     delete footprints_[myindex];
     footprints_[myindex] = footprint;
-    if (footprint) {
-        for (const auto& addr : *footprint) {
-            registerAddressAccessedBy(addr, myindex);
-        }
-    }
     if(footprint && footprint->find(beneficiary)!=footprint->end()){
         nontriv_footprint_contains_beneficiary[myindex]=true;
         //LOG_INFO("footprint[{}] contains beneficiary", myindex);
@@ -89,6 +86,8 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
     else {
         nontriv_footprint_contains_beneficiary[myindex]=false;
     }
+
+    promises[myindex] = boost::fibers::promise<void>();
 
 
     if (myindex==0) {
@@ -128,10 +127,6 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
 }
 
 ParallelCommitSystem::~ParallelCommitSystem() {
-    // Clean up the concurrent sets stored in transactions_accessing_address_
-    for (auto& pair : transactions_accessing_address_) {
-        delete pair.second;
-    }
     // Clean up the footprints (we own these pointers)
     for (auto footprint : footprints_) {
         if (footprint != nullptr) {
@@ -193,10 +188,19 @@ void ParallelCommitSystem::unblockTransaction(TransactionStatus status, txindex_
     }
 }
 
-ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedIndexAccessingAddress(txindex_t index, const evmc::address& addr) {
+bool containsElemInRange(const std::set<uint64_t>& s, uint64_t gt, uint64_t lt)
+{
+    // Find the first element in s that is >= gt+1
+    auto it = s.lower_bound(gt + 1);
+
+    // If such element exists and is < lt, we have an element in (gt, lt)
+    return (it != s.end() && *it < lt);
+}
+
+bool ParallelCommitSystem::existsUncommittedSmallerIndexAccessingAddress(txindex_t index, const evmc::address& addr) {
     auto it = transactions_accessing_address_.find(addr);
     if (it == transactions_accessing_address_.end()) {
-        return std::numeric_limits<txindex_t>::max();
+        return false;
     }
     auto set = it->second;
     /*LOG_INFO("indicesAccessingAddress[{}]: {}", 
@@ -211,31 +215,7 @@ ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedInd
     
     // Start from all_committed_below_index instead of set->begin()
     auto committed_ub = all_committed_below_index.load();
-    // Finds the first element in the container that is >= committed_ub.
-    auto it2 = set->lower_bound(committed_ub);
-    if(it2==set->end()) {
-        return std::numeric_limits<txindex_t>::max();
-    }
-    if(*it2>=index) {
-        return std::numeric_limits<txindex_t>::max();
-    }
-
-    auto prev=*it2;
-    
-    // can do a binary search instead of a linear scan, but that seems tricky to do in a concurrent set
-    while (true) {
-        ++it2;
-        if(it2==set->end()) {
-            return prev;
-        }
-        if(*it2>=index) {
-            return prev;
-        }
-        prev=*it2;
-
-    }
-    assert(false);
-    return *it2;
+    return containsElemInRange(set, committed_ub, index);
 }
 
 //pre: blocksAllLaterTransactions(i) is false for all i<index
@@ -263,9 +243,7 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
             return false;// above, we observed that the previous transacton hasn't committed yet. this transaction may read the exact beneficiary balance, so we need to wait for all previous transactions to commit so that the rewards get finalized.
         }
         for (const auto& addr : *footprint) {
-            auto highest_prev = highestLowerUncommittedIndexAccessingAddress(index, addr);
-            assert(highest_prev<index || highest_prev == std::numeric_limits<txindex_t>::max());
-            if (highest_prev != std::numeric_limits<txindex_t>::max() && status_[highest_prev].load() != TransactionStatus::COMMITTED)
+            if (existsUncommittedSmallerIndexAccessingAddress(index, addr))
                 return false;// the access map may not have all entries yet. actually, it will have all relevant entries because of a precondition of this function: see comment
 
         }
