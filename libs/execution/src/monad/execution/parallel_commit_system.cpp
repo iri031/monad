@@ -5,31 +5,6 @@
 
 MONAD_NAMESPACE_BEGIN
 
-#if SEQUENTIAL
-void ParallelCommitSystem::waitForPrevTransactions(txindex_t myindex) {
-    promises.at(myindex).get_future().wait();
-}
-
-void ParallelCommitSystem::notifyDone(txindex_t myindex) {
-    promises.at(myindex + 1).set_value();
-}
-
-ParallelCommitSystem::ParallelCommitSystem(txindex_t num_transactions) :promises(num_transactions+1) {
-    promises.at(0).set_value();
-    this->num_transactions = num_transactions;
-}
-
-ParallelCommitSystem::~ParallelCommitSystem() {
-}
-
-void ParallelCommitSystem::declareFootprint(txindex_t, const std::set<evmc::address> *) {
-}
-
-void ParallelCommitSystem::waitForAllTransactionsToCommit() {
-    promises.at(num_transactions).get_future().wait();
-}
-std::set<evmc::address> *ParallelCommitSystem::getFootprint(txindex_t myindex) { return nullptr; }
-#else
 
 void ParallelCommitSystem::earlyDestructFibers() {
     for (size_t i = 0; i < MAX_TRANSACTIONS; i++) {
@@ -45,7 +20,7 @@ void ParallelCommitSystem::reset(txindex_t num_transactions_, monad::Address con
     transactions_accessing_address_.clear();
     for (size_t i = 0; i < num_transactions; i++) {// TODO(aa): do not initialize here, except promises. ensure declareFootprint initializes all these, in parallel.
         promises[i] = boost::fibers::promise<void>();
-    }    
+    }
     promises[num_transactions]=boost::fibers::promise<void>();
 
     if (num_transactions == 0)
@@ -202,6 +177,7 @@ bool containsElemInRange(const std::set<uint64_t>& s, uint64_t gt, uint64_t lt)
 
 uint64_t highestElemInRange(const std::set<uint64_t>& s, uint64_t gt, uint64_t lt)
 {
+    LOG_INFO("highestElemInRange: searching in ({}, {}) in set {}", gt, lt, s);
     // If set is empty, no valid element.
     if (s.empty()) {
         return std::numeric_limits<uint64_t>::max();  // or another sentinel
@@ -223,6 +199,7 @@ uint64_t highestElemInRange(const std::set<uint64_t>& s, uint64_t gt, uint64_t l
 
     // 4) Check if that element is also > gt. If yes, it's in (gt, lt).
     if (*it > gt) {
+        LOG_INFO("highestElemInRange: {} in ({}, {})", *it, gt, lt);
         return *it; 
     }
 
@@ -276,7 +253,7 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
             return false;// above, we observed that the previous transacton hasn't committed yet. this transaction may read the exact beneficiary balance, so we need to wait for all previous transactions to commit so that the rewards get finalized.
         }
         for (const auto& addr : *footprint) {
-           auto highest_prev = highestLowerUncommittedIndexAccessingAddress(index, addr);
+            auto highest_prev = highestLowerUncommittedIndexAccessingAddress(index, addr);
             assert(highest_prev<index || highest_prev == std::numeric_limits<txindex_t>::max());
             if (highest_prev != std::numeric_limits<txindex_t>::max() && status_[highest_prev].load() != TransactionStatus::COMMITTED)
                 return false;
@@ -400,8 +377,6 @@ bool ParallelCommitSystem::advanceLastCommittedUb(txindex_t minValue) {
     }
     return false;
 }
-
-#endif
 
 MONAD_NAMESPACE_END
 
