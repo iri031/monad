@@ -177,7 +177,6 @@ bool containsElemInRange(const std::set<uint64_t>& s, uint64_t gt, uint64_t lt)
 
 uint64_t highestElemInRange(const std::set<uint64_t>& s, uint64_t gt, uint64_t lt)
 {
-    LOG_INFO("highestElemInRange: searching in ({}, {}) in set {}", gt, lt, s);
     // If set is empty, no valid element.
     if (s.empty()) {
         return std::numeric_limits<uint64_t>::max();  // or another sentinel
@@ -199,7 +198,6 @@ uint64_t highestElemInRange(const std::set<uint64_t>& s, uint64_t gt, uint64_t l
 
     // 4) Check if that element is also > gt. If yes, it's in (gt, lt).
     if (*it > gt) {
-        LOG_INFO("highestElemInRange: {} in ({}, {})", *it, gt, lt);
         return *it; 
     }
 
@@ -225,7 +223,9 @@ ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedInd
     
     // Start from all_committed_below_index instead of set->begin()
     auto committed_ub = all_committed_below_index.load();
-    return highestElemInRange(set, committed_ub, index);
+    auto result = highestElemInRange(set, committed_ub, index);
+    LOG_INFO("highestLowerUncommittedIndexAccessingAddress: {} in ({}, {}) for set {}", result, committed_ub, index, set);
+    return result;
 }
 
 //pre: blocksAllLaterTransactions(i) is false for all i<index
