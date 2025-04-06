@@ -38,12 +38,16 @@ void ParallelCommitSystem::registerAddressAccessedBy(const evmc::address& addr, 
 }
 
 void ParallelCommitSystem::compileFootprint() {
+    inf_footprint_txs.reset();
     for (txindex_t myindex = 0; myindex < num_transactions; ++myindex) {
         auto footprint = footprints_[myindex];
         if (footprint) {
             for (const auto& addr : *footprint) {
                 registerAddressAccessedBy(addr, myindex);
             }
+        }
+        else {
+            inf_footprint_txs.setBit(myindex);
         }
     }
 }
@@ -212,23 +216,23 @@ ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedInd
 }
 
 //pre: blocksAllLaterTransactions(i) is false for all i<index
-bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txindex_t index) {
-    if (isUnblocked(status)) {
+// returns true iff this transaction blocks all later transactions
+bool ParallelCommitSystem::tryUnblockTransaction(txindex_t all_committed_ub_, txindex_t index) {
+    auto footprint = footprints_[index];
+    if (footprint == nullptr) {
         return true;
     }
-
-    auto all_committed_ub_ = all_committed_below_index.load();
     if (index==all_committed_ub_) { // index-1<all_committed_ub_ <-> index -1 + 1<=all_committed_ub_ <-> index<=all_committed_ub_ <-> (index == all_committed_ub_ || index < all_committed_ub_). in the latter case, the transaction at index has already commited so we do not need to unblock it. so we can drop the last disjunct.
 
-        unblockTransaction(status, index);
-        return true;
+        unblockTransaction(status_[index].load(), index);
+        return false;
     }
-    //status=status_[index].load(); // get the more uptodate value, but not essential for correctness
+    auto status = status_[index].load();// delay this concurrent op as much as possible
+    if (isUnblocked(status)) {
+        return false;
+    }
+
     if (status == TransactionStatus::FOOTPRINT_COMPUTED || status==TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS) {
-        auto footprint = footprints_[index];
-        if (footprint == nullptr) {
-            return false;
-        }
         if(nontriv_footprint_contains_beneficiary[index]) {
             return false;// above, we observed that the previous transacton hasn't committed yet. this transaction may read the exact beneficiary balance, so we need to wait for all previous transactions to commit so that the rewards get finalized.
         }
@@ -244,48 +248,40 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
     return false;
 }
 
-bool ParallelCommitSystem::existsBlockerBefore(txindex_t index) const {
-    auto committed_ub = all_committed_below_index.load(); // transactions before this index cannot be blockers
-
-    while (index > committed_ub) {
-        --index; // Decrement index to check the previous transaction
-        if (blocksAllLaterTransactions(index)) {
-            return true;
-        }
-    }
-    return false;
+inline bool ParallelCommitSystem::existsBlockerBefore(txindex_t all_committed_ub, txindex_t index) const {
+    return (inf_footprint_txs.findLargestSetBitInRange(all_committed_ub, index) != std::numeric_limits<txindex_t>::max());
 }
 
-bool ParallelCommitSystem::blocksAllLaterTransactions(txindex_t index) const {
-    assert(index<num_transactions);
-    auto status = status_[index].load();
-    if (footprints_[index] == nullptr /* INF footprint */ && status != TransactionStatus::COMMITTED) {
-        return true;
-    }
-    return false;
-}
+// inline bool ParallelCommitSystem::blocksAllLaterTransactions(txindex_t index) const {
+//     assert(index<num_transactions);
+//     auto status = status_[index].load();
+//     if (footprints_[index] == nullptr /* INF footprint */ && status != TransactionStatus::COMMITTED) {
+//         return true;
+//     }
+//     return false;
+// }
 
 void ParallelCommitSystem::waitForAllTransactionsToCommit() {
     promises[num_transactions].get_future().wait();
 }
 
 //pre: blocksAllLaterTransactions(i) is false for all i<start
-void ParallelCommitSystem::tryUnblockTransactionsStartingFrom(txindex_t start) {
+void ParallelCommitSystem::tryUnblockTransactionsStartingFrom(txindex_t all_committed_ub, txindex_t start) {
 
     // unblock or wake up later transactions
     // once we hit a transaction whose footprint is not yet computed,
     // we cannot wake up or unblock transactions after that transaction
     // every transaction accesses at least 1 account and the uncomputed footprint may include that account.
     txindex_t index=start;
-    index=std::max(index, all_committed_below_index.load());
+    index=std::max(index, all_committed_ub);
     while(index < num_transactions) {
-        auto current_status = status_[index].load();
-        tryUnblockTransaction(current_status, index);
-        if (blocksAllLaterTransactions(index)) {
+        bool blocks_all_later_transactions = tryUnblockTransaction(all_committed_ub, index);
+        if (blocks_all_later_transactions) {
             break;
         }
         ++index;
-        index=std::max(index, all_committed_below_index.load());
+        all_committed_ub = all_committed_below_index.load();
+        index=std::max(index, all_committed_ub);
     }
 }
 
@@ -306,13 +302,14 @@ void ParallelCommitSystem::notifyDone(txindex_t myindex) {
     //std::cout << "notifyDone: status of " << myindex << " is " << status_to_string(status) << std::endl;
     // assert(status == TransactionStatus::COMMITTING);
     status_[myindex].store(TransactionStatus::COMMITTED);
+    bool alldone = false;
     //LOG_INFO("notifyDone: status[{}] changed from {} to {}", myindex, status_to_string(TransactionStatus::COMMITTING), status_to_string(TransactionStatus::COMMITTED));
-    updateLastCommittedUb();
-    if(all_done.load()) {// there is currently a rare bug here. this object may have been deallocated by now. using shared_ptr can fix. static allocation of this object may be better if we can compute a not-too-loose bound on #transactions.
+    auto new_all_committed_ub = updateLastCommittedUb(alldone);
+    if(alldone) {// there is currently a rare bug here. this object may have been deallocated by now. using shared_ptr can fix. static allocation of this object may be better if we can compute a not-too-loose bound on #transactions.
         return;
     }
-    if (!existsBlockerBefore(myindex)) {
-        tryUnblockTransactionsStartingFrom(myindex+1); // unlike before, the transaction myindex+1 cannot necesssarily be unblocked here because some transaction before myindex may not have committed and may have conflicts
+    if (!existsBlockerBefore(new_all_committed_ub, myindex)) {
+        tryUnblockTransactionsStartingFrom(new_all_committed_ub, myindex+1); // unlike before, the transaction myindex+1 cannot necesssarily be unblocked here because some transaction before myindex may not have committed and may have conflicts
     }
 }
 
@@ -323,7 +320,7 @@ void ParallelCommitSystem::notifyAllDone() {
     }
 }
 
-void ParallelCommitSystem::updateLastCommittedUb() {
+ParallelCommitSystem::txindex_t ParallelCommitSystem::updateLastCommittedUb(bool & alldone) {
 //    bool changed=false;
     auto newUb = all_committed_below_index.load();
     while (newUb< num_transactions) {
@@ -336,21 +333,23 @@ void ParallelCommitSystem::updateLastCommittedUb() {
     // if(!changed) {
     //     return;
     // }
-    advanceLastCommittedUb(newUb);
-    if(newUb == num_transactions) {
+    auto new_all_committed_ub = advanceLastCommittedUb(newUb);// it may return a value strictly greater than newUb
+    if(new_all_committed_ub == num_transactions) {
+        alldone = true;
         notifyAllDone(); // one problem is that this unblocks execute_block, which can destruct the this object, even though more calls are done on it, e.g. in notifyDone
     }
+    return new_all_committed_ub;
 }
 
-bool ParallelCommitSystem::advanceLastCommittedUb(txindex_t minValue) {
+ParallelCommitSystem::txindex_t ParallelCommitSystem::advanceLastCommittedUb(txindex_t minValue) {
     txindex_t old_value = all_committed_below_index.load();
     while (old_value < minValue) {
-        // ever update to all_committed_below_index strictly increases it. so this loop will terminate
-        if (all_committed_below_index.compare_exchange_weak(old_value, minValue)) {
-            return true;
+        // every update to all_committed_below_index strictly increases it. so this loop will terminate
+        if (all_committed_below_index.compare_exchange_strong(old_value, minValue)) {
+            return minValue;
         }
     }
-    return false;
+    return old_value;
 }
 
 MONAD_NAMESPACE_END

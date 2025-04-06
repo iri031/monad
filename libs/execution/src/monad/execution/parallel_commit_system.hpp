@@ -38,9 +38,7 @@ public:
         // Zero-initialized
     }
     void reset() {
-        for (size_t i = 0; i < CHUNK_COUNT; i++) {
-            data[i] = 0ULL;
-        }
+        std::memset(data, 0, sizeof(data));
     }
     // Set a bit at the given index (no range checks in example).
     void setBit(size_t pos) {
@@ -166,16 +164,16 @@ class ParallelCommitSystem
     * it is just a minor optimization to avoid calling load() on status_[index] because it is already loaded in the caller
     * 
     */
-    bool tryUnblockTransaction(TransactionStatus status, txindex_t index);
+    bool tryUnblockTransaction(txindex_t all_committed_ub_, txindex_t index);
     static bool isUnblocked(TransactionStatus status);
     txindex_t highestLowerUncommittedIndexAccessingAddress(txindex_t index, const evmc::address& addr);
-    void tryUnblockTransactionsStartingFrom(txindex_t start);
-    void updateLastCommittedUb();
+    void tryUnblockTransactionsStartingFrom(txindex_t all_committed_ub, txindex_t start);
+    txindex_t updateLastCommittedUb(bool & alldone);
     /** update all_committed_below_index so that it is at least minValue */
-    bool advanceLastCommittedUb(txindex_t minValue);
+    txindex_t advanceLastCommittedUb(txindex_t minValue);
     void registerAddressAccessedBy(const evmc::address& addr, txindex_t index);
-    bool existsBlockerBefore(txindex_t index) const;
-    bool blocksAllLaterTransactions(txindex_t index) const;
+    bool existsBlockerBefore(txindex_t all_committed_ub, txindex_t index) const;
+//    bool blocksAllLaterTransactions(txindex_t index) const;
     static std::string status_to_string(TransactionStatus status);
     void notifyAllDone();// add a block index argument
     /**
@@ -205,6 +203,7 @@ class ParallelCommitSystem
     bool nontriv_footprint_contains_beneficiary[MAX_TRANSACTIONS]; // just a cache, can be computed from footprints_
 
     std::atomic<bool> all_done=false;
+    StaticBitset<MAX_TRANSACTIONS> inf_footprint_txs;
 
     // notifyDone(i) should up fully_done[i] at the end. the guarantee is that it would not modify any field after that. 
     // currently, even after waitForAllTransactionsToCommit returns, notifyDone(i) of some transactions (especially the last ones) may be running. 
