@@ -6,6 +6,7 @@
 MONAD_NAMESPACE_BEGIN
 
 
+
 void ParallelCommitSystem::earlyDestructFibers() {
     for (size_t i = 0; i < MAX_TRANSACTIONS; i++) {
         promises[i] = boost::fibers::promise<void>();
@@ -31,9 +32,9 @@ const std::set<evmc::address>* ParallelCommitSystem::getFootprint(txindex_t myin
 void ParallelCommitSystem::registerAddressAccessedBy(const evmc::address& addr, txindex_t index) {
     auto it = transactions_accessing_address_.find(addr);
     if (it == transactions_accessing_address_.end()) {
-        it = transactions_accessing_address_.insert({addr, std::set<txindex_t>()}).first;
+        it = transactions_accessing_address_.insert({addr, StaticBitset<MAX_TRANSACTIONS>()}).first;
     }
-    it->second.insert(index);
+    it->second.setBit(index);
 }
 
 void ParallelCommitSystem::compileFootprint() {
@@ -207,7 +208,7 @@ ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedInd
     
     // Start from all_committed_below_index instead of set->begin()
     auto committed_ub = all_committed_below_index.load();
-    auto result = highestElemInRange(set, committed_ub, index);
+    auto result = set.findLargestSetBitInRange(committed_ub, index);
     //LOG_INFO("highestLowerUncommittedIndexAccessingAddress: {} in ({}, {}) for set {}", result, committed_ub, index, set);
     return result;
 }

@@ -244,7 +244,7 @@ Result<std::vector<ExecutionResult>> execute_block(
              &transaction = block.transactions[i]] {
                 senders[i] = recover_sender(transaction);
                 std::set<evmc::address> *footprint=compute_footprint(block_state, transaction, callee_pred_info, i);
-                insert_to_footprint(footprint, senders[i].value());
+                insert_to_footprint(footprint, senders[i].value());// because the footprint depends on senders, this cannot be done before senders are computed
                 parallel_commit_system.declareFootprint(i, footprint);
                 //print_footprint(footprint, i);
                 promises[i].set_value();

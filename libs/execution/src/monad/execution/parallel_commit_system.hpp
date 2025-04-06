@@ -22,6 +22,93 @@
 #define MAX_TRANSACTIONS 800
 MONAD_NAMESPACE_BEGIN
 #define SEQUENTIAL 0
+
+static inline int highestSetBitPos(uint64_t x) {
+    if (x == 0) return -1;
+    return 63 - __builtin_clzll(x);
+}
+
+template <size_t N>
+class StaticBitset
+{
+public:
+    static constexpr size_t CHUNK_COUNT = (N + 63) / 64;
+
+    constexpr StaticBitset() : data{} {
+        // Zero-initialized
+    }
+    void reset() {
+        for (size_t i = 0; i < CHUNK_COUNT; i++) {
+            data[i] = 0ULL;
+        }
+    }
+    // Set a bit at the given index (no range checks in example).
+    void setBit(size_t pos) {
+        size_t chunkIndex = pos / 64;
+        size_t bitIndex   = pos % 64;
+        data[chunkIndex] |= (1ULL << bitIndex);
+    }
+
+    uint64_t findLargestSetBitInRange(size_t ge, size_t lt) const {
+	if (ge >= lt) {
+	    return std::numeric_limits<uint64_t>::max();
+	}
+
+	size_t lowChunk   = ge / 64;
+	size_t lowOffset  = ge % 64;
+	if (lt == 0) {
+	    return std::numeric_limits<uint64_t>::max();
+	}
+	size_t highChunk  = (lt - 1) / 64;
+	size_t highOffset = (lt - 1) % 64;
+
+	// Safely make a mask of low n bits
+	auto maskLowBits = [](size_t n) {
+	    if (n >= 64) return 0xFFFFFFFFFFFFFFFFULL;
+	    return (1ULL << n) - 1ULL;
+	};
+
+	for (size_t c = highChunk; ; c--) {
+	    // Stop scanning if we've gone below lowChunk
+	    if (c < lowChunk) {
+		break;
+	    }
+
+	    // Start with all bits set
+	    uint64_t mask = 0xFFFFFFFFFFFFFFFFULL;
+
+	    // If c == highChunk, mask out bits above highOffset
+	    if (c == highChunk) {
+		uint64_t hiMask = maskLowBits(highOffset + 1ULL);
+		mask &= hiMask;
+	    }
+
+	    // If c == lowChunk, mask out bits below lowOffset
+	    if (c == lowChunk) {
+		uint64_t loMask = maskLowBits(lowOffset);
+		mask &= ~loMask;
+	    }
+
+	    uint64_t maskedValue = data[c] & mask;
+	    if (maskedValue != 0) {
+		int highestBit = highestSetBitPos(maskedValue);
+		return static_cast<uint64_t>(c) * 64ULL + highestBit;
+	    }
+
+	    if (c == 0) {
+		// Avoid unsigned wrap-around
+		break;
+	    }
+	}
+
+	return std::numeric_limits<uint64_t>::max();
+    }
+
+
+private:
+    uint64_t data[CHUNK_COUNT];
+};
+
 class ParallelCommitSystem
 {
     public:
@@ -106,7 +193,7 @@ class ParallelCommitSystem
     * the check of whether all previous transactions have committed.
     */
     std::atomic<txindex_t> all_committed_below_index; 
-    std::unordered_map<evmc::address, std::set<txindex_t>> transactions_accessing_address_;//TODO: make the value a const sized bitset with non dynamic allocation
+    std::unordered_map<evmc::address, StaticBitset<MAX_TRANSACTIONS>> transactions_accessing_address_;//TODO: make the value a const sized bitset with non dynamic allocation
     /**
     * footprints_[i] is the footprint of transaction i.
     * can use a shared_ptr but that will increase the
