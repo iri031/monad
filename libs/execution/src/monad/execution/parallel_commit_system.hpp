@@ -154,8 +154,6 @@ class ParallelCommitSystem
 #else
     enum class TransactionStatus : uint8_t
     {
-        STARTED=0,
-        STARTED_UNBLOCKED=1,// unblocked iff all previous transactions have already committed
         FOOTPRINT_COMPUTED=2, // at this stage, a transaction is speculatively executing the transaction. the footprint computation can share some computations with the transaction execution.
         FOOTPRINT_COMPUTED_UNBLOCKED=3,
         WAITING_FOR_PREV_TRANSACTIONS=4, // cannot be unblocked if it is waiting

@@ -129,15 +129,13 @@ void ParallelCommitSystem::waitForPrevTransactions(txindex_t myindex) {
 }
 
 bool ParallelCommitSystem::isUnblocked(TransactionStatus status) {
-    return status > TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS || status == TransactionStatus::STARTED_UNBLOCKED || status == TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED;
+    return status > TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS || status == TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED;
 }
 
 void ParallelCommitSystem::unblockTransaction(TransactionStatus status, txindex_t index) {
     while (!isUnblocked(status)) {
-        TransactionStatus new_status;
-        if (status == TransactionStatus::STARTED) {
-            new_status = TransactionStatus::STARTED_UNBLOCKED;
-        } else if (status == TransactionStatus::FOOTPRINT_COMPUTED) {
+        TransactionStatus new_status{TransactionStatus::FOOTPRINT_COMPUTED};// dummy value to get the compiler to shut up about uninitialized new_status
+        if (status == TransactionStatus::FOOTPRINT_COMPUTED) {
             new_status = TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED;
         } else if (status == TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS) {
             new_status = TransactionStatus::COMMITTING;
@@ -226,9 +224,6 @@ bool ParallelCommitSystem::tryUnblockTransaction(TransactionStatus status, txind
         return true;
     }
     //status=status_[index].load(); // get the more uptodate value, but not essential for correctness
-    if (status == TransactionStatus::STARTED) {
-        return false;
-    }
     if (status == TransactionStatus::FOOTPRINT_COMPUTED || status==TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS) {
         auto footprint = footprints_[index];
         if (footprint == nullptr) {
@@ -264,9 +259,6 @@ bool ParallelCommitSystem::existsBlockerBefore(txindex_t index) const {
 bool ParallelCommitSystem::blocksAllLaterTransactions(txindex_t index) const {
     assert(index<num_transactions);
     auto status = status_[index].load();
-    if (status == TransactionStatus::STARTED || status == TransactionStatus::STARTED_UNBLOCKED) {
-        return true;
-    }
     if (footprints_[index] == nullptr /* INF footprint */ && status != TransactionStatus::COMMITTED) {
         return true;
     }
@@ -299,8 +291,6 @@ void ParallelCommitSystem::tryUnblockTransactionsStartingFrom(txindex_t start) {
 
 std::string ParallelCommitSystem::status_to_string(TransactionStatus status) {
     switch (status) {
-        case TransactionStatus::STARTED: return "STARTED";
-        case TransactionStatus::STARTED_UNBLOCKED: return "STARTED_UNBLOCKED";
         case TransactionStatus::FOOTPRINT_COMPUTED: return "FOOTPRINT_COMPUTED";
         case TransactionStatus::FOOTPRINT_COMPUTED_UNBLOCKED: return "FOOTPRINT_COMPUTED_UNBLOCKED";
         case TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS: return "WAITING_FOR_PREV_TRANSACTIONS";
