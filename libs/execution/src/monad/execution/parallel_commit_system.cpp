@@ -231,7 +231,7 @@ bool ParallelCommitSystem::tryUnblockTransaction(txindex_t all_committed_ub_, tx
     }
 
     if (status == TransactionStatus::FOOTPRINT_COMPUTED || status==TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS) {
-        if(footprint == nullptr || !nontriv_footprint_contains_beneficiary[index]) {
+        if(footprint == nullptr || nontriv_footprint_contains_beneficiary[index]) {
             return blocks_all_later_transactions;
         }
         for (const auto& addr : *footprint) {
