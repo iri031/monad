@@ -218,34 +218,32 @@ ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedInd
 //pre: blocksAllLaterTransactions(i) is false for all i<index
 // returns true iff this transaction blocks all later transactions
 bool ParallelCommitSystem::tryUnblockTransaction(txindex_t all_committed_ub_, txindex_t index) {
+    auto footprint = footprints_[index];
     auto status = status_[index].load();
+    bool blocks_all_later_transactions = status != TransactionStatus::COMMITTED && footprint == nullptr;
     if (index==all_committed_ub_) { // index-1<all_committed_ub_ <-> index -1 + 1<=all_committed_ub_ <-> index<=all_committed_ub_ <-> (index == all_committed_ub_ || index < all_committed_ub_). in the latter case, the transaction at index has already commited so we do not need to unblock it. so we can drop the last disjunct.
 
         unblockTransaction(status, index);
-        return false;
+        return blocks_all_later_transactions;
     }
     if (isUnblocked(status)) {
-        return false;
+        return blocks_all_later_transactions;
     }
 
     if (status == TransactionStatus::FOOTPRINT_COMPUTED || status==TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS) {
-        auto footprint = footprints_[index];
-        if (footprint == nullptr) {
-            return true;
-        }
-        if(nontriv_footprint_contains_beneficiary[index]) {
-            return false;// above, we observed that the previous transacton hasn't committed yet. this transaction may read the exact beneficiary balance, so we need to wait for all previous transactions to commit so that the rewards get finalized.
+        if(footprint == nullptr || !nontriv_footprint_contains_beneficiary[index]) {
+            return blocks_all_later_transactions;
         }
         for (const auto& addr : *footprint) {
             auto highest_prev = highestLowerUncommittedIndexAccessingAddress(index, addr);
             assert(highest_prev<index || highest_prev == std::numeric_limits<txindex_t>::max());
             if (highest_prev != std::numeric_limits<txindex_t>::max() && status_[highest_prev].load() != TransactionStatus::COMMITTED)
-                return false;
+                return blocks_all_later_transactions;
         }
         unblockTransaction(status, index);
-        return true;
+        return blocks_all_later_transactions;
     }
-    return false;
+    return blocks_all_later_transactions;
 }
 
 inline bool ParallelCommitSystem::existsBlockerBefore(txindex_t all_committed_ub, txindex_t index) const {
