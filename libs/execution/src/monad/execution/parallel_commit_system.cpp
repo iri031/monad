@@ -218,21 +218,21 @@ ParallelCommitSystem::txindex_t ParallelCommitSystem::highestLowerUncommittedInd
 //pre: blocksAllLaterTransactions(i) is false for all i<index
 // returns true iff this transaction blocks all later transactions
 bool ParallelCommitSystem::tryUnblockTransaction(txindex_t all_committed_ub_, txindex_t index) {
-    auto footprint = footprints_[index];
-    if (footprint == nullptr) {
-        return true;
-    }
+    auto status = status_[index].load();
     if (index==all_committed_ub_) { // index-1<all_committed_ub_ <-> index -1 + 1<=all_committed_ub_ <-> index<=all_committed_ub_ <-> (index == all_committed_ub_ || index < all_committed_ub_). in the latter case, the transaction at index has already commited so we do not need to unblock it. so we can drop the last disjunct.
 
-        unblockTransaction(status_[index].load(), index);
+        unblockTransaction(status, index);
         return false;
     }
-    auto status = status_[index].load();// delay this concurrent op as much as possible
     if (isUnblocked(status)) {
         return false;
     }
 
     if (status == TransactionStatus::FOOTPRINT_COMPUTED || status==TransactionStatus::WAITING_FOR_PREV_TRANSACTIONS) {
+        auto footprint = footprints_[index];
+        if (footprint == nullptr) {
+            return true;
+        }
         if(nontriv_footprint_contains_beneficiary[index]) {
             return false;// above, we observed that the previous transacton hasn't committed yet. this transaction may read the exact beneficiary balance, so we need to wait for all previous transactions to commit so that the rewards get finalized.
         }
