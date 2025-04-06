@@ -101,11 +101,9 @@ void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<ev
 
 ParallelCommitSystem::~ParallelCommitSystem() {
     // Clean up the footprints (we own these pointers)
-    for (auto footprint : footprints_) {
-        if (footprint != nullptr) {
-            delete footprint;
-        }
-    }
+    //for (auto footprint : footprints_) {
+        //delete footprint;// only delete till num_transactions
+    //}
 }
 
 void ParallelCommitSystem::waitForPrevTransactions(txindex_t myindex) {
