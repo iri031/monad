@@ -318,9 +318,12 @@ void ParallelCommitSystem::notifyAllDone() {
     }
 }
 
-ParallelCommitSystem::txindex_t ParallelCommitSystem::updateLastCommittedUb(bool & alldone) {
+ParallelCommitSystem::txindex_t ParallelCommitSystem::updateLastCommittedUb(bool & alldone, txindex_t justCommittedIndex) {
 //    bool changed=false;
     auto newUb = all_committed_below_index.load();
+    if(newUb==justCommittedIndex) {// likely case
+        newUb++;
+    }
     while (newUb< num_transactions) {
         if (status_[newUb].load() != TransactionStatus::COMMITTED) {
             break;

@@ -282,7 +282,6 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
         }
         ++block_num;
     }
-    earlyDestructFibers();
     if (batch_num_blocks > 0) {
         log_tps(
             block_num, batch_num_blocks, batch_num_txs, batch_gas, batch_begin);
@@ -627,5 +626,6 @@ int main(int const argc, char const *argv[])
         TrieDb ro_db{db};
         write_to_file(ro_db.to_json(), dump_snapshot, block_num);
     }
+    earlyDestructFibers();
     return result.has_error() ? EXIT_FAILURE : EXIT_SUCCESS;
 }

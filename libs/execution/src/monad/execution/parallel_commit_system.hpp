@@ -168,7 +168,7 @@ class ParallelCommitSystem
     static bool isUnblocked(TransactionStatus status);
     txindex_t highestLowerUncommittedIndexAccessingAddress(txindex_t index, const evmc::address& addr);
     void tryUnblockTransactionsStartingFrom(txindex_t all_committed_ub, txindex_t start);
-    txindex_t updateLastCommittedUb(bool & alldone);
+    txindex_t updateLastCommittedUb(bool & alldone, txindex_t justCommittedIndex);
     /** update all_committed_below_index so that it is at least minValue */
     txindex_t advanceLastCommittedUb(txindex_t minValue);
     void registerAddressAccessedBy(const evmc::address& addr, txindex_t index);
