@@ -128,10 +128,10 @@ class ParallelCommitSystem
     * the FULL ownership of footprint is transferred to this class: the caller should not use it after this call.
     * the destructor of this class will delete footprint.
     */
-    void declareFootprint(txindex_t myindex, const std::set<evmc::address> *footprint);
+    void declareFootprint(txindex_t myindex, std::shared_ptr<std::set<evmc::address>> footprint);
     void compileFootprint();
 
-    const std::set<evmc::address> *getFootprint(txindex_t myindex);
+    const std::shared_ptr<std::set<evmc::address>> getFootprint(txindex_t myindex);
 
     
     ~ParallelCommitSystem();
@@ -202,7 +202,7 @@ class ParallelCommitSystem
     * other transactions will not read this until status_[i] is updated to FOOTPRINT_COMPUTED or greater.
     * therefore we do not need atomics.
     */
-    const std::set<evmc::address> * footprints_[MAX_TRANSACTIONS];
+    std::shared_ptr<std::set<evmc::address>> footprints_[MAX_TRANSACTIONS];
     bool nontriv_footprint_contains_beneficiary[MAX_TRANSACTIONS]; // just a cache, can be computed from footprints_
 
     std::atomic<bool> all_done=false;

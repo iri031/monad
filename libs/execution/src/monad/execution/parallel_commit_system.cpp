@@ -27,7 +27,7 @@ void ParallelCommitSystem::reset(txindex_t num_transactions_, monad::Address con
     
 }
 // pre: footprint has been declared already
-const std::set<evmc::address>* ParallelCommitSystem::getFootprint(txindex_t myindex) { return footprints_[myindex]; }
+const std::shared_ptr<std::set<evmc::address>> ParallelCommitSystem::getFootprint(txindex_t myindex) { return footprints_[myindex]; }
 
 void ParallelCommitSystem::registerAddressAccessedBy(const evmc::address& addr, txindex_t index) {
     auto it = transactions_accessing_address_.find(addr);
@@ -54,8 +54,7 @@ void ParallelCommitSystem::compileFootprint() {
 
 
 
-void ParallelCommitSystem::declareFootprint(txindex_t myindex, const std::set<evmc::address> *footprint) {
-    delete footprints_[myindex];
+void ParallelCommitSystem::declareFootprint(txindex_t myindex, std::shared_ptr<std::set<evmc::address>> footprint) {
     footprints_[myindex] = footprint;
     if(footprint && footprint->find(beneficiary)!=footprint->end()){
         nontriv_footprint_contains_beneficiary[myindex]=true;

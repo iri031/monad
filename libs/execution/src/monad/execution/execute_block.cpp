@@ -112,7 +112,7 @@ bool address_known_to_be_non_contract(BlockState &block_state, evmc::address add
 /** returns true iff the footprint has been overapproximated to INF. in that case, footprint is deleted 
  * \pre address_known_to_be_non_contract(runningAddress)=false, which means runningAddress has a non-empty code hash or hasnt been seen until this block
 */
-bool insert_callees(BlockState &block_state, std::set<evmc::address> *footprint, std::vector<evmc::address> & to_be_explored, std::set<evmc::address> & seen_delegate_callees, evmc::address runningAddress, CalleePredInfo &callee_pred_info) {
+bool insert_callees(BlockState &block_state, std::shared_ptr<std::set<evmc::address>> footprint, std::vector<evmc::address> & to_be_explored, std::set<evmc::address> & seen_delegate_callees, evmc::address runningAddress, CalleePredInfo &callee_pred_info) {
     if(footprint->size()>MAX_FOOTPRINT_SIZE) {
         return true;
     }
@@ -152,13 +152,13 @@ bool insert_callees(BlockState &block_state, std::set<evmc::address> *footprint,
 
 // sender address is later added to the footprint by the caller, because sender.nonce is updated by the transaction
 // for now, we assume that no transaction calls a contract created by a previous transaction in this very block. need to extend static analysis to look at predicted stacks at CREATE/CREATE2
- std::set<evmc::address> * compute_footprint(BlockState &block_state, Transaction const &transaction, CalleePredInfo &callee_pred_info, uint64_t /*tx_index*/=0) {
+ std::shared_ptr<std::set<evmc::address>> compute_footprint(BlockState &block_state, Transaction const &transaction, CalleePredInfo &callee_pred_info, uint64_t /*tx_index*/=0) {
     if(!transaction.to.has_value()) {
         //LOG_INFO("compute_footprint: tx_index: {} has no empty to value", tx_index);
         return nullptr;//this is sound but not optimal for performance. add a way for the ParallelCommitSystem to  know that this is creating a NEW contract, so that we know that there is no conflict with block-pre-existing contracts
     }
     evmc::address runningAddress = transaction.to.value();
-    std::set<evmc::address> *footprint=new std::set<evmc::address>();
+    std::shared_ptr<std::set<evmc::address>> footprint=std::make_shared<std::set<evmc::address>>();
     footprint->insert(runningAddress);
     if(address_known_to_be_non_contract(block_state, transaction.to.value())) {
         //LOG_INFO("compute_footprint: tx_index: {} address_known_to_be_non_contract: {}", tx_index, runningAddress);
@@ -176,20 +176,19 @@ bool insert_callees(BlockState &block_state, std::set<evmc::address> *footprint,
         overapproximated=insert_callees(block_state, footprint, to_be_explored, seen_delegate_callees, runningAddress, callee_pred_info);
     }
     if(overapproximated) {
-        delete footprint;
         return nullptr;
     }
     return footprint;
 }
 
-void insert_to_footprint(std::set<evmc::address> *footprint, evmc::address address) {
+void insert_to_footprint(std::shared_ptr<std::set<evmc::address>> footprint, evmc::address address) {
     if(footprint==nullptr) {
         return; // footprint is INF, so the address is already a part of it
     }
     footprint->insert(address);
 }
 
-void print_footprint(std::set<evmc::address> *footprint, uint64_t index) {
+void print_footprint(std::shared_ptr<std::set<evmc::address>> footprint, uint64_t index) {
     if(footprint==nullptr) {
         LOG_INFO("footprint[{}]: INF", index);
         return;
@@ -249,7 +248,7 @@ Result<std::vector<ExecutionResult>> execute_block(
              &callee_pred_info = callee_pred_info,
              &transaction = block.transactions[i]] {
                 senders[i] = recover_sender(transaction);
-                std::set<evmc::address> *footprint=compute_footprint(block_state, transaction, callee_pred_info, i);
+                std::shared_ptr<std::set<evmc::address>> footprint=compute_footprint(block_state, transaction, callee_pred_info, i);
                 insert_to_footprint(footprint, senders[i].value());// because the footprint depends on senders, this cannot be done before senders are computed
                 parallel_commit_system.declareFootprint(i, footprint);
                 //print_footprint(footprint, i);
