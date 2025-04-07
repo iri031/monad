@@ -205,14 +205,15 @@ public:
             std::forward<Args>(args)...);
     }
 
+
     template <class... Args>
-static SharedPtr make(size_t bytes, Args &&...args)
+    static SharedPtr make_shared(size_t bytes, Args &&...args)
     {
         MONAD_DEBUG_ASSERT(bytes <= Node::max_size);
-
-        // todo: maybe something like std::make_shared<>() ?
-        // allocators::allocate_shared_ptr<>
-        return allocators::allocate_aliasing_unique<
+        // todo: maybe an allocators::allocate_aliasing_shared<>
+        // how to track/observe shrd_ptr alloc?
+        /*
+        * return allocators::allocate_aliasing_unique<
             std::allocator<Node>,
             BytesAllocator,
             &pool,
@@ -220,6 +221,9 @@ static SharedPtr make(size_t bytes, Args &&...args)
             bytes,
             prevent_public_construction_tag{},
             std::forward<Args>(args)...);
+         */
+
+        return std::make_shared<Node>(bytes, args...);
     }
 
     Node(prevent_public_construction_tag);
@@ -302,9 +306,10 @@ static SharedPtr make(size_t bytes, Args &&...args)
     Node *next(size_t index) noexcept;
     Node const *next(size_t index) const noexcept;
     void set_next(unsigned index, Node::UniquePtr) noexcept;
-    void set_next(unsigned index, Node::SharedPtr) noexcept;
+    // void set_next(unsigned index, Node::SharedPtr) noexcept;
 
-    SharedPtr move_next(unsigned index) noexcept;
+    UniquePtr move_next(unsigned index) noexcept;
+    // SharedPtr move_next(unsigned index) noexcept;
 
     //! node size in memory
     unsigned get_mem_size() const noexcept;

@@ -1056,7 +1056,7 @@ Node::UniquePtr UpdateAuxImpl::do_update(
             make_update({}, {}, false, std::move(updates), version);
         root_updates.push_front(root_update);
         return upsert(
-            *this, version, sm, prev_root, std::move(root_updates));
+        *this, version, sm, std::move(prev_root), std::move(root_updates));
     }
     MONAD_ASSERT(is_on_disk());
     set_can_write_to_fast(can_write_to_fast);

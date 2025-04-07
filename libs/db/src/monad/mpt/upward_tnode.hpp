@@ -142,8 +142,7 @@ inline tnode_unique_ptr make_tnode(
         std::move(old)});
 }
 
-// static_assert(sizeof(UpdateTNode) == 88);
-static_assert(sizeof(UpdateTNode) == 96);
+static_assert(sizeof(UpdateTNode) == 88);
 static_assert(alignof(UpdateTNode) == 8);
 
 struct CompactTNode : public UpwardTreeNodeBase<CompactTNode>
@@ -209,8 +208,7 @@ struct CompactTNode : public UpwardTreeNodeBase<CompactTNode>
     }
 };
 
-// static_assert(sizeof(CompactTNode) == 24);
-static_assert(sizeof(CompactTNode) == 32);
+static_assert(sizeof(CompactTNode) == 24);
 static_assert(alignof(CompactTNode) == 8);
 
 struct ExpireTNode : public UpdateExpireCommonStorage<ExpireTNode>
@@ -278,8 +276,7 @@ struct ExpireTNode : public UpdateExpireCommonStorage<ExpireTNode>
     }
 };
 
-// static_assert(sizeof(ExpireTNode) == 32);
-static_assert(sizeof(ExpireTNode) == 40);
+static_assert(sizeof(ExpireTNode) == 32);
 static_assert(alignof(ExpireTNode) == 8);
 
 MONAD_MPT_NAMESPACE_END
