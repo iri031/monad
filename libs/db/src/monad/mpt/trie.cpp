@@ -1468,6 +1468,53 @@ void fillin_parent_after_expiration(
     --parent->npending;
 }
 
+// todo: verify this logic makes sense with a shared pointer
+void fillin_parent_after_expiration(
+    UpdateAuxImpl &aux, Node::SharedPtr new_node, ExpireTNode *const parent,
+    uint8_t const index, uint8_t const branch, bool const cache_node)
+{
+    if (new_node == nullptr) {
+        // expire this branch from parent
+        parent->mask &= static_cast<uint16_t>(~(1u << branch));
+        if (parent->type == tnode_type::update) {
+            ((UpdateTNode *)parent)->children[index].erase();
+        }
+    }
+    else {
+        auto const new_offset =
+            async_write_node_set_spare(aux, *new_node, true);
+        auto const &[min_offset_fast, min_offset_slow] =
+            calc_min_offsets(*new_node, aux.physical_to_virtual(new_offset));
+        MONAD_DEBUG_ASSERT(
+            min_offset_fast != INVALID_COMPACT_VIRTUAL_OFFSET ||
+            min_offset_slow != INVALID_COMPACT_VIRTUAL_OFFSET);
+        auto const min_version = calc_min_version(*new_node);
+        MONAD_ASSERT(min_version >= aux.curr_upsert_auto_expire_version);
+        if (parent->type == tnode_type::update) {
+            auto &child = ((UpdateTNode *)parent)->children[index];
+            MONAD_ASSERT(!child.ptr); // been transferred to tnode
+            child.offset = new_offset;
+            MONAD_DEBUG_ASSERT(cache_node);
+            child.ptr = std::move(new_node);
+            child.min_offset_fast = min_offset_fast;
+            child.min_offset_slow = min_offset_slow;
+            child.subtrie_min_version = min_version;
+        }
+        else {
+            MONAD_ASSERT(parent->type == tnode_type::expire);
+            if (cache_node) {
+                parent->cache_mask |= static_cast<uint16_t>(1u << index);
+            }
+            parent->node->set_next(index, std::move(new_node));
+            parent->node->set_subtrie_min_version(index, min_version);
+            parent->node->set_min_offset_fast(index, min_offset_fast);
+            parent->node->set_min_offset_slow(index, min_offset_slow);
+            parent->node->set_fnext(index, new_offset);
+        }
+    }
+    --parent->npending;
+}
+
 void try_fillin_parent_after_expiration(
     UpdateAuxImpl &aux, StateMachine &sm, ExpireTNode::unique_ptr_type tnode)
 {

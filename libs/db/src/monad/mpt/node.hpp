@@ -205,15 +205,13 @@ public:
             std::forward<Args>(args)...);
     }
 
-
     template <class... Args>
     static SharedPtr make_shared(size_t bytes, Args &&...args)
     {
         MONAD_DEBUG_ASSERT(bytes <= Node::max_size);
-        // todo: maybe an allocators::allocate_aliasing_shared<>
-        // how to track/observe shrd_ptr alloc?
-        /*
-        * return allocators::allocate_aliasing_unique<
+
+        // todo: a naive shared ptr allocator that's aware of the storage pool
+        return allocators::allocate_aliasing_shared<
             std::allocator<Node>,
             BytesAllocator,
             &pool,
@@ -221,9 +219,6 @@ public:
             bytes,
             prevent_public_construction_tag{},
             std::forward<Args>(args)...);
-         */
-
-        return std::make_shared<Node>(bytes, args...);
     }
 
     Node(prevent_public_construction_tag);
@@ -306,10 +301,10 @@ public:
     Node *next(size_t index) noexcept;
     Node const *next(size_t index) const noexcept;
     void set_next(unsigned index, Node::UniquePtr) noexcept;
-    // void set_next(unsigned index, Node::SharedPtr) noexcept;
+    void set_next(unsigned index, const Node::SharedPtr&) noexcept;
 
     UniquePtr move_next(unsigned index) noexcept;
-    // SharedPtr move_next(unsigned index) noexcept;
+    SharedPtr move_next_shared(unsigned index) noexcept; // noop + copy
 
     //! node size in memory
     unsigned get_mem_size() const noexcept;
@@ -324,8 +319,9 @@ static_assert(alignof(Node) == 8);
 // file offset and hash data, in the update recursion.
 struct ChildData
 {
-    // todo: update after parent
-    Node::UniquePtr ptr{nullptr};
+    // Node::UniquePtr ptr{nullptr};
+    Node::SharedPtr ptr{nullptr};
+
     chunk_offset_t offset{INVALID_OFFSET}; // physical offsets
     unsigned char data[32] = {0};
     int64_t subtrie_min_version{std::numeric_limits<int64_t>::max()};
@@ -341,10 +337,13 @@ struct ChildData
     bool is_valid() const;
     void erase();
     void finalize(Node::UniquePtr, Compute &, bool cache);
+    void finalize(Node::SharedPtr node, Compute &compute, bool const cache);
     void copy_old_child(Node *old, unsigned i);
 };
 
-static_assert(sizeof(ChildData) == 72);
+// unique ptr + node size static_assert(sizeof(ChildData) == 72);
+// shared ptr is larger to fit in ref counts + meta
+static_assert(sizeof(ChildData) == 80);
 static_assert(alignof(ChildData) == 8);
 
 constexpr size_t calculate_node_size(
@@ -371,22 +370,21 @@ constexpr size_t MAX_VALUE_LEN_OF_LEAF =
         0 /* number_of_children */, 0 /* child_data_size */, 0 /* value_size */,
         KECCAK256_SIZE /* path_size */, KECCAK256_SIZE /* data_size*/);
 
-// revist
-Node::UniquePtr make_node(
+Node::SharedPtr make_node(
     Node &from, NibblesView path, std::optional<byte_string_view> value,
     int64_t version);
 
-Node::UniquePtr make_node(
+Node::SharedPtr make_node(
     uint16_t mask, std::span<ChildData>, NibblesView path,
     std::optional<byte_string_view> value, size_t data_size, int64_t version);
 
-Node::UniquePtr make_node(
+Node::SharedPtr make_node(
     uint16_t mask, std::span<ChildData>, NibblesView path,
     std::optional<byte_string_view> value, byte_string_view data,
     int64_t version);
 
 // create node: either branch/extension, with or without leaf
-Node::UniquePtr create_node_with_children(
+Node::SharedPtr create_node_with_children(
     Compute &, uint16_t mask, std::span<ChildData> children, NibblesView path,
     std::optional<byte_string_view> value, int64_t version);
 

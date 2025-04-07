@@ -362,7 +362,13 @@ Node const *Node::next(size_t const index) const noexcept
 void Node::set_next(unsigned const index, Node::UniquePtr node_ptr) noexcept
 {
     Node *node = node_ptr.release();
-    // Node *node = node_ptr.get();
+    node ? memcpy(next_data() + index * sizeof(Node *), &node, sizeof(Node *))
+         : memset(next_data() + index * sizeof(Node *), 0, sizeof(Node *));
+}
+
+void Node::set_next(unsigned const index, const Node::SharedPtr& node_ptr) noexcept
+{
+    Node *node = node_ptr.get();
     node ? memcpy(next_data() + index * sizeof(Node *), &node, sizeof(Node *))
          : memset(next_data() + index * sizeof(Node *), 0, sizeof(Node *));
 }
@@ -370,8 +376,18 @@ void Node::set_next(unsigned const index, Node::UniquePtr node_ptr) noexcept
 Node::UniquePtr Node::move_next(unsigned const index) noexcept
 {
     Node *p = next(index);
-    set_next(index, {nullptr});
+
+    set_next(index, UniquePtr{nullptr});
     return UniquePtr{p};
+}
+
+Node::SharedPtr Node::move_next_shared(unsigned const index) noexcept
+{
+    // todo: this should be a no op and use std::move instead of invalidating?
+    Node *p = next(index);
+
+    set_next(index, SharedPtr{nullptr});
+    return SharedPtr{p};
 }
 
 unsigned Node::get_mem_size() const noexcept
@@ -409,7 +425,19 @@ void ChildData::finalize(
 {
     MONAD_DEBUG_ASSERT(is_valid());
     ptr = std::move(node);
-    // ptr = node;
+
+    auto const length = compute.compute(data, ptr.get());
+    MONAD_DEBUG_ASSERT(length <= std::numeric_limits<uint8_t>::max());
+    len = static_cast<uint8_t>(length);
+    cache_node = cache;
+    subtrie_min_version = calc_min_version(*ptr);
+}
+
+void ChildData::finalize(
+    Node::SharedPtr node, Compute &compute, bool const cache)
+{
+    MONAD_DEBUG_ASSERT(is_valid());
+    ptr = node;
     auto const length = compute.compute(data, ptr.get());
     MONAD_DEBUG_ASSERT(length <= std::numeric_limits<uint8_t>::max());
     len = static_cast<uint8_t>(length);
@@ -438,13 +466,13 @@ void ChildData::copy_old_child(Node *const old, unsigned const i)
     MONAD_DEBUG_ASSERT(is_valid());
 }
 
-Node::UniquePtr make_node(
+Node::SharedPtr make_node(
     Node &from, NibblesView const path,
     std::optional<byte_string_view> const value, int64_t const version)
 {
     auto const value_size =
         value.transform(&byte_string_view::size).value_or(0);
-    auto node = Node::make(
+    auto node = Node::make_shared(
         calculate_node_size(
             from.number_of_children(),
             from.child_data_len(),
@@ -471,6 +499,7 @@ Node::UniquePtr make_node(
 
     // todo: might not be necessary
     // move next ptrs to new node, invalidating old pointers
+
     if (from.number_of_children()) {
         auto const next_size = from.number_of_children() * sizeof(Node *);
         std::copy_n(from.next_data(), next_size, node->next_data());
@@ -480,7 +509,7 @@ Node::UniquePtr make_node(
     return node;
 }
 
-Node::UniquePtr make_node(
+Node::SharedPtr make_node(
     uint16_t const mask, std::span<ChildData> const children,
     NibblesView const path, std::optional<byte_string_view> const value,
     size_t const data_size, int64_t const version)
@@ -508,8 +537,7 @@ Node::UniquePtr make_node(
         }
     }
 
-    // use shr_ptr
-    auto node = Node::make(
+    auto node = Node::make_shared(
         calculate_node_size(
             number_of_children,
             total_child_data_size,
@@ -543,7 +571,7 @@ Node::UniquePtr make_node(
     return node;
 }
 
-Node::UniquePtr make_node(
+Node::SharedPtr make_node(
     uint16_t const mask, std::span<ChildData> const children,
     NibblesView const path, std::optional<byte_string_view> const value,
     byte_string_view const data, int64_t const version)
@@ -555,7 +583,7 @@ Node::UniquePtr make_node(
 
 // all children's offset are set before creating parent
 // create node with at least one child
-Node::UniquePtr create_node_with_children(
+Node::SharedPtr create_node_with_children(
     Compute &comp, uint16_t const mask, std::span<ChildData> children,
     NibblesView const path, std::optional<byte_string_view> const value,
     int64_t const version)

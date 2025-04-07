@@ -310,6 +310,57 @@ namespace allocators
         }
     }
 
+    // todo: verify this actually allocates correctly
+    //! naive shared ptr alloc aware of storage pool
+    template <
+        allocator TypeAlloc, allocator RawAlloc,
+        detail::type_raw_alloc_pair<TypeAlloc, RawAlloc> (*GetAllocator)(),
+        size_t (*GetSize)(typename TypeAlloc::value_type *) = nullptr,
+        class... Args>
+        requires(
+            std::is_same_v<typename RawAlloc::value_type, std::byte> &&
+            std::is_constructible_v<typename TypeAlloc::value_type, Args...>)
+    inline constexpr std::shared_ptr<typename TypeAlloc::value_type>
+    allocate_aliasing_shared(size_t const storagebytes, Args &&...args)
+    {
+        MONAD_ASSERT(storagebytes >= sizeof(typename TypeAlloc::value_type));
+        using allocator1_traits = std::allocator_traits<TypeAlloc>;
+        using allocator2_traits = std::allocator_traits<RawAlloc>;
+        auto [alloc1, alloc2] = GetAllocator();
+        std::byte *p2;
+        if constexpr (
+            alignof(typename TypeAlloc::value_type) > alignof(max_align_t)) {
+            p2 = alloc2.template allocate_overaligned<
+                typename TypeAlloc::value_type>(storagebytes);
+        }
+        else {
+            p2 = allocator2_traits::allocate(alloc2, storagebytes);
+        }
+#ifndef NDEBUG
+        if constexpr (!construction_equals_all_bits_zero<
+                          typename TypeAlloc::value_type>::value) {
+            // Trap use of region after end of type
+            cmemset(p2, std::byte{0xff}, storagebytes);
+        }
+#endif
+        try {
+            auto *p1 = reinterpret_cast<typename TypeAlloc::value_type *>(p2);
+            if constexpr (
+                sizeof...(args) > 0 ||
+                !construction_equals_all_bits_zero<
+                    typename TypeAlloc::value_type>::value) {
+                allocator1_traits::construct(
+                    alloc1, p1, static_cast<Args &&>(args)...);
+            }
+
+            return std::shared_ptr<typename TypeAlloc::value_type>(p1);
+        }
+        catch (...) {
+            allocator2_traits::deallocate(alloc2, p2, storagebytes);
+            throw;
+        }
+    }
+
     //! \brief A unique ptr whose storage is larger than its type, using
     //! `std::allocator`.
     template <class T, class... Args>
