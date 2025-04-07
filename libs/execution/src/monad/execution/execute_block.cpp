@@ -91,6 +91,7 @@ inline void set_beacon_root(BlockState &block_state, Block &block)
     }
 }
 
+
 #define MAX_FOOTPRINT_SIZE 15
 
 // if this returns true, then the address MUST be a non-contract account. for correctness, it can always return false, but for performance, it should do that only for addresses created in this block.
@@ -205,6 +206,11 @@ ParallelCommitSystem parallel_commit_system;
 void earlyDestructFibers() {
     parallel_commit_system.earlyDestructFibers();
 }
+
+void initFibers() {
+    parallel_commit_system.init();
+}
+
 
 template <evmc_revision rev>
 Result<std::vector<ExecutionResult>> execute_block(

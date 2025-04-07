@@ -42,5 +42,6 @@ Result<std::vector<ExecutionResult>> execute_block(
     BlockHashBuffer const &, fiber::PriorityPool &, CalleePredInfo &);
 
 void earlyDestructFibers();
+void initFibers();
 
 MONAD_NAMESPACE_END

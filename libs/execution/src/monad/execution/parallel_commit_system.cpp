@@ -302,7 +302,7 @@ void ParallelCommitSystem::notifyDone(txindex_t myindex) {
     status_[myindex].store(TransactionStatus::COMMITTED);
     bool alldone = false;
     //LOG_INFO("notifyDone: status[{}] changed from {} to {}", myindex, status_to_string(TransactionStatus::COMMITTING), status_to_string(TransactionStatus::COMMITTED));
-    auto new_all_committed_ub = updateLastCommittedUb(alldone);
+    auto new_all_committed_ub = updateLastCommittedUb(alldone, myindex);
     if(alldone) {// there is currently a rare bug here. this object may have been deallocated by now. using shared_ptr can fix. static allocation of this object may be better if we can compute a not-too-loose bound on #transactions.
         return;
     }

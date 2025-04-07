@@ -186,7 +186,7 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     unserializePredictions(cinfo.predictions, "/home/abhishek/contracts15m/predictions.bin");
 //    printPredictions(cinfo.epool, cinfo.predictions, "predictions.txt");
 //    std::terminate();
-    
+    initFibers();
     auto batch_begin = std::chrono::steady_clock::now();
     uint64_t const end_block_num =
         (std::numeric_limits<uint64_t>::max() - block_num + 1) <= nblocks
@@ -626,6 +626,6 @@ int main(int const argc, char const *argv[])
         TrieDb ro_db{db};
         write_to_file(ro_db.to_json(), dump_snapshot, block_num);
     }
-    earlyDestructFibers();
+    //earlyDestructFibers();
     return result.has_error() ? EXIT_FAILURE : EXIT_SUCCESS;
 }
