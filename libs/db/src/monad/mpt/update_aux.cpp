@@ -1121,20 +1121,20 @@ Node::UniquePtr UpdateAuxImpl::do_update(
         physical_to_virtual(node_writer_fast->sender().offset());
     [[maybe_unused]] auto const curr_slow_writer_offset =
         physical_to_virtual(node_writer_slow->sender().offset());
-    LOG_INFO_CFORMAT(
-        "Finish upserting version %lu. Time elapsed: %ld us. Disk usage: %.4f. "
-        "Chunks: %u fast, %u slow, %u free. Writer offsets: fast={%u,%u}, "
-        "slow={%u,%u}.",
-        version,
-        duration.count(),
-        disk_usage(),
-        num_chunks(chunk_list::fast),
-        num_chunks(chunk_list::slow),
-        num_chunks(chunk_list::free),
-        curr_fast_writer_offset.count,
-        curr_fast_writer_offset.offset,
-        curr_slow_writer_offset.count,
-        curr_slow_writer_offset.offset);
+    // LOG_INFO_CFORMAT(
+    //     "Finish upserting version %lu. Time elapsed: %ld us. Disk usage: %.4f. "
+    //     "Chunks: %u fast, %u slow, %u free. Writer offsets: fast={%u,%u}, "
+    //     "slow={%u,%u}.",
+    //     version,
+    //     duration.count(),
+    //     disk_usage(),
+    //     num_chunks(chunk_list::fast),
+    //     num_chunks(chunk_list::slow),
+    //     num_chunks(chunk_list::free),
+    //     curr_fast_writer_offset.count,
+    //     curr_fast_writer_offset.offset,
+    //     curr_slow_writer_offset.count,
+    //     curr_slow_writer_offset.offset);
     if (duration > std::chrono::microseconds(500'000)) {
         LOG_WARNING_CFORMAT(
             "Upsert version %lu takes longer than 0.5 s, time elapsed: %ld us.",
