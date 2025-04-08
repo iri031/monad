@@ -15,19 +15,22 @@ using namespace monad::mpt;
 
 monad_statesync_client_context::monad_statesync_client_context(
     std::vector<std::filesystem::path> const dbname_paths,
-    std::filesystem::path const genesis, monad_statesync_client *const sync,
+    std::filesystem::path const genesis,
+    std::optional<unsigned> const sq_thread_cpu,
+    monad_statesync_client *const sync,
     void (*statesync_send_request)(
         struct monad_statesync_client *, struct monad_sync_request))
     : db{machine,
          mpt::OnDiskDbConfig{
              .append = true,
              .compaction = false,
+             .rewind_to_latest_finalized = true,
              .rd_buffers = 8192,
              .wr_buffers = 32,
              .uring_entries = 128,
-             .sq_thread_cpu = get_nprocs() - 1,
+             .sq_thread_cpu = sq_thread_cpu,
              .dbname_paths = dbname_paths}}
-    , tdb{db}
+    , tdb{db} // open with latest finalized if valid, otherwise init as block 0
     , progress(
           monad_statesync_client_prefixes(),
           {db.get_latest_block_id(), db.get_latest_block_id()})
@@ -39,6 +42,8 @@ monad_statesync_client_context::monad_statesync_client_context(
     , sync{sync}
     , statesync_send_request{statesync_send_request}
 {
+    MONAD_ASSERT(
+        db.get_latest_block_id() == db.get_latest_finalized_block_id());
 }
 
 void monad_statesync_client_context::commit()

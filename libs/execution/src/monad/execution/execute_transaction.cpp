@@ -12,6 +12,7 @@
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/parallel_commit_system.hpp>
 #include <monad/execution/explicit_evmc_revision.hpp>
+#include <monad/execution/switch_evmc_revision.hpp>
 #include <monad/execution/trace/call_frame.hpp>
 #include <monad/execution/trace/call_tracer.hpp>
 #include <monad/execution/trace/event_trace.hpp>
@@ -63,19 +64,12 @@ constexpr uint64_t g_star(
     return gas_remaining + std::min(refund_allowance, refund);
 }
 
-template <evmc_revision rev>
-constexpr auto refund_gas(
-    State &state, Transaction const &tx, Address const &sender,
-    uint256_t const &base_fee_per_gas, uint64_t const gas_leftover,
-    uint64_t const refund)
+uint64_t g_star(
+    evmc_revision const rev, Transaction const &tx,
+    uint64_t const gas_remaining, uint64_t const refund)
 {
-    // refund and priority, Eqn. 73-76
-    auto const gas_remaining = g_star<rev>(tx, gas_leftover, refund);
-    auto const gas_cost = gas_price<rev>(tx, base_fee_per_gas);
-
-    state.add_to_balance(sender, gas_cost * gas_remaining);
-
-    return gas_remaining;
+    SWITCH_EVMC_REVISION(g_star, tx, gas_remaining, refund);
+    MONAD_ASSERT(false);
 }
 
 template <evmc_revision rev>
@@ -111,7 +105,7 @@ template <evmc_revision rev>
 evmc::Result execute_impl_no_validation(
     State &state, EvmcHost<rev> &host, Transaction const &tx,
     Address const &sender, uint256_t const &base_fee_per_gas,
-    Address const &beneficiary)
+    Address const &beneficiary, size_t const max_code_size)
 {
     irrevocable_change<rev>(state, tx, sender, base_fee_per_gas);
 
@@ -132,28 +126,36 @@ evmc::Result execute_impl_no_validation(
     }
 
     auto const msg = to_message<rev>(tx, sender);
-    return host.call(msg);
+
+    return (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2)
+               ? ::monad::create<rev>(&host, state, msg, max_code_size)
+               : ::monad::call(&host, state, msg);
 }
 
 EXPLICIT_EVMC_REVISION(execute_impl_no_validation);
 
 template <evmc_revision rev>
 Receipt execute_final(
-    State &state, Transaction const &tx, Address const &sender,
+    Chain const &chain, State &state, BlockHeader const &header,
+    Transaction const &tx, Address const &sender,
     uint256_t const &base_fee_per_gas, evmc::Result const &result,
     Address const &beneficiary, bool beneficiary_touched, std::optional<uint256_t> & block_beneficiary_reward)
 {
     MONAD_ASSERT(result.gas_left >= 0);
     MONAD_ASSERT(result.gas_refund >= 0);
     MONAD_ASSERT(tx.gas_limit >= static_cast<uint64_t>(result.gas_left));
-    auto const gas_remaining = refund_gas<rev>(
-        state,
+
+    // refund and priority, Eqn. 73-76
+    auto const gas_refund = chain.compute_gas_refund(
+        header.number,
+        header.timestamp,
         tx,
-        sender,
-        base_fee_per_gas,
         static_cast<uint64_t>(result.gas_left),
         static_cast<uint64_t>(result.gas_refund));
-    auto const gas_used = tx.gas_limit - gas_remaining;
+    auto const gas_cost = gas_price<rev>(tx, base_fee_per_gas);
+    state.add_to_balance(sender, gas_cost * gas_refund);
+
+    auto const gas_used = tx.gas_limit - gas_refund;
     auto const reward =
         calculate_txn_award<rev>(tx, base_fee_per_gas, gas_used);
     if (beneficiary_touched || sender == beneficiary) {
@@ -215,9 +217,13 @@ Result<evmc::Result> execute_impl2(
     //     BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
     // }
 
+    size_t const max_code_size =
+        chain.get_max_code_size(hdr.number, hdr.timestamp);
+
     auto const tx_context =
         get_tx_context<rev>(tx, sender, hdr, chain.get_chain_id());
-    EvmcHost<rev> host{call_tracer, tx_context, block_hash_buffer, state};
+    EvmcHost<rev> host{
+        call_tracer, tx_context, block_hash_buffer, state, max_code_size};
 
     return execute_impl_no_validation<rev>(
         state,
@@ -225,7 +231,8 @@ Result<evmc::Result> execute_impl2(
         tx,
         sender,
         hdr.base_fee_per_gas.value_or(0),
-        hdr.beneficiary);
+        hdr.beneficiary,
+        max_code_size);
 }
 
 template <evmc_revision rev>
@@ -236,7 +243,10 @@ Result<ExecutionResult> execute_impl(
     ParallelCommitSystem &parallel_commit_system)
 {
     BOOST_OUTCOME_TRY(static_validate_transaction<rev>(
-        tx, hdr.base_fee_per_gas, chain.get_chain_id()));
+        tx,
+        hdr.base_fee_per_gas,
+        chain.get_chain_id(),
+        chain.get_max_code_size(hdr.number, hdr.timestamp)));
 
     {
         TRACE_TXN_EVENT(StartExecution);
@@ -275,7 +285,9 @@ Result<ExecutionResult> execute_impl(
             }
             std::optional<uint256_t> block_beneficiary_reward = std::nullopt;
             auto const receipt = execute_final<rev>(
+                chain,
                 state,
+                hdr,
                 tx,
                 sender,
                 hdr.base_fee_per_gas.value_or(0),
@@ -290,6 +302,7 @@ Result<ExecutionResult> execute_impl(
             auto const frames = call_tracer.get_frames();
             return ExecutionResult{
                 .receipt = receipt,
+                .sender = sender,
                 .call_frames = {frames.begin(), frames.end()}};
         }
     }
@@ -315,7 +328,9 @@ Result<ExecutionResult> execute_impl(
         }
         std::optional<uint256_t> block_beneficiary_reward = std::nullopt;
         auto const receipt = execute_final<rev>(
+            chain,
             state,
+            hdr,
             tx,
             sender,
             hdr.base_fee_per_gas.value_or(0),
@@ -330,7 +345,9 @@ Result<ExecutionResult> execute_impl(
 
         auto const frames = call_tracer.get_frames();
         return ExecutionResult{
-            .receipt = receipt, .call_frames = {frames.begin(), frames.end()}};
+            .receipt = receipt,
+            .sender = sender,
+            .call_frames = {frames.begin(), frames.end()}};
     }
 }
 

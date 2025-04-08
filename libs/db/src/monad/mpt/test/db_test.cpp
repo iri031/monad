@@ -3,6 +3,7 @@
 #include <monad/async/config.hpp>
 #include <monad/async/detail/scope_polyfill.hpp>
 #include <monad/async/erased_connected_operation.hpp>
+#include <monad/async/storage_pool.hpp>
 #include <monad/async/util.hpp>
 #include <monad/core/assert.h>
 #include <monad/core/byte_string.hpp>
@@ -10,6 +11,9 @@
 #include <monad/core/result.hpp>
 #include <monad/core/small_prng.hpp>
 #include <monad/core/unaligned.hpp>
+#include <monad/fiber/priority_pool.hpp>
+#include <monad/io/buffers.hpp>
+#include <monad/io/ring.hpp>
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/db_error.hpp>
 #include <monad/mpt/nibbles_view.hpp>
@@ -24,6 +28,7 @@
 #include <gtest/gtest.h>
 
 #include <boost/fiber/fiber.hpp>
+#include <boost/fiber/future/promise.hpp>
 #include <boost/fiber/operations.hpp>
 
 #include <atomic>
@@ -37,6 +42,7 @@
 #include <initializer_list>
 #include <iostream>
 #include <iterator>
+#include <memory>
 #include <stdexcept>
 #include <thread>
 #include <type_traits>
@@ -125,30 +131,31 @@ namespace
 
     struct OnDiskDbWithFileAsyncFixture : public OnDiskDbWithFileFixture
     {
-        using result_t = monad::Result<monad::byte_string>;
+        template <return_type T>
+        using result_t = monad::Result<T>;
 
+        AsyncIOContext io_ctx;
         Db ro_db;
         AsyncContextUniquePtr ctx;
         std::atomic<size_t> cbs{0}; // callbacks when found
 
         OnDiskDbWithFileAsyncFixture()
-            : ro_db([&] {
-                ReadOnlyOnDiskDbConfig const ro_config{
-                    .dbname_paths = this->config.dbname_paths};
-                return Db{ro_config};
-            }())
+            : io_ctx(ReadOnlyOnDiskDbConfig{
+                  .dbname_paths = this->config.dbname_paths})
+            , ro_db(io_ctx)
             , ctx(async_context_create(ro_db))
         {
         }
 
-        void async_get(auto &&sender, std::function<void(result_t)> callback)
+        template <return_type T>
+        void async_get(auto &&sender, std::function<void(result_t<T>)> callback)
         {
             using sender_type = std::decay_t<decltype(sender)>;
 
             struct receiver_t
             {
                 OnDiskDbWithFileAsyncFixture *parent;
-                std::function<void(result_t)> callback;
+                std::function<void(result_t<T>)> callback;
 
                 void set_value(
                     monad::async::erased_connected_operation *state,
@@ -222,9 +229,16 @@ namespace
         }
     };
 
-    struct DummyTraverseMachine : public TraverseMachine
+    struct DummyTraverseMachine final : public TraverseMachine
     {
+        size_t &num_leaves;
         Nibbles path{};
+        std::vector<std::chrono::steady_clock::time_point> *times{nullptr};
+
+        explicit DummyTraverseMachine(size_t &num_leaves)
+            : num_leaves(num_leaves)
+        {
+        }
 
         virtual bool down(unsigned char branch, Node const &node) override
         {
@@ -234,6 +248,10 @@ namespace
             path = concat(NibblesView{path}, branch, node.path_nibble_view());
 
             if (node.has_value()) {
+                if (times != nullptr && (num_leaves & 4095) == 0) {
+                    times->push_back(std::chrono::steady_clock::now());
+                }
+                ++num_leaves;
                 EXPECT_EQ(path.nibble_size(), KECCAK256_SIZE * 2);
             }
             return true;
@@ -262,6 +280,14 @@ namespace
         {
             return std::make_unique<DummyTraverseMachine>(*this);
         }
+
+        void reset()
+        {
+            num_leaves = 0;
+            if (times != nullptr) {
+                times->clear();
+            }
+        }
     };
 
     monad::byte_string keccak_int_to_string(size_t const n)
@@ -271,12 +297,12 @@ namespace
         return ret;
     }
 
-    std::pair<std::vector<monad::byte_string>, std::vector<Update>>
-    prepare_random_updates(unsigned size)
+    std::pair<std::deque<monad::byte_string>, std::deque<Update>>
+    prepare_random_updates(unsigned nkeys, unsigned const offset = 0)
     {
-        std::vector<monad::byte_string> bytes_alloc;
-        std::vector<Update> updates_alloc;
-        for (size_t i = 0; i < size; ++i) {
+        std::deque<monad::byte_string> bytes_alloc;
+        std::deque<Update> updates_alloc;
+        for (size_t i = offset; i < nkeys + offset; ++i) {
             auto &kv = bytes_alloc.emplace_back(keccak_int_to_string(i));
             updates_alloc.push_back(Update{
                 .key = kv,
@@ -286,6 +312,37 @@ namespace
         }
         return std::make_pair(std::move(bytes_alloc), std::move(updates_alloc));
     }
+
+    struct ROOnDiskWithFileFixture : public OnDiskDbWithFileFixture
+    {
+        RODb ro_db;
+        monad::fiber::PriorityPool pool;
+
+        static constexpr unsigned keys_per_block = 10;
+        static constexpr uint64_t num_blocks = 1000;
+
+        ROOnDiskWithFileFixture()
+            : ro_db(ReadOnlyOnDiskDbConfig{
+                  .dbname_paths = this->config.dbname_paths,
+                  .node_lru_size = 100})
+            , pool(2, 16)
+        {
+            init_db_with_data();
+        }
+
+        void init_db_with_data()
+        {
+            for (unsigned b = 0; b < num_blocks; ++b) {
+                auto [kv_alloc, updates_alloc] =
+                    prepare_random_updates(keys_per_block, b * keys_per_block);
+                UpdateList ls;
+                for (auto &u : updates_alloc) {
+                    ls.push_front(u);
+                }
+                db.upsert(std::move(ls), b);
+            }
+        }
+    };
 }
 
 template <typename TFixture>
@@ -296,6 +353,40 @@ struct DbTest : public TFixture
 using DbTypes = ::testing::Types<InMemoryDbFixture, OnDiskDbFixture>;
 TYPED_TEST_SUITE(DbTest, DbTypes);
 
+TEST_F(OnDiskDbWithFileFixture, multiple_read_only_db_share_one_asyncio)
+{
+    auto const &kv = fixed_updates::kv;
+
+    auto const prefix = 0x00_hex;
+    uint64_t const starting_block_id = 0x0;
+
+    upsert_updates_flat_list(
+        db,
+        prefix,
+        starting_block_id,
+        make_update(kv[0].first, kv[0].second),
+        make_update(kv[1].first, kv[1].second));
+
+    AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    Db rodb1{io_ctx};
+    Db rodb2{io_ctx};
+
+    auto verify_read = [&prefix, &starting_block_id](Db &db) {
+        EXPECT_EQ(db.get_latest_block_id(), starting_block_id);
+        EXPECT_EQ(
+            db.get(prefix + kv[0].first, starting_block_id).value(),
+            kv[0].second);
+        EXPECT_EQ(
+            db.get(prefix + kv[1].first, starting_block_id).value(),
+            kv[1].second);
+        EXPECT_EQ(
+            db.get_data(prefix, starting_block_id).value(),
+            0x05a697d6698c55ee3e4d472c4907bca2184648bcfdd0e023e7ff7089dc984e7e_hex);
+    };
+    verify_read(rodb1);
+    verify_read(rodb2);
+}
+
 TEST_F(OnDiskDbWithFileFixture, read_only_db_single_thread)
 {
     auto const &kv = fixed_updates::kv;
@@ -304,23 +395,12 @@ TEST_F(OnDiskDbWithFileFixture, read_only_db_single_thread)
     uint64_t const first_block_id = 0x123;
     uint64_t const second_block_id = first_block_id + 1;
 
-    {
-        auto u1 = make_update(kv[0].first, kv[0].second);
-        auto u2 = make_update(kv[1].first, kv[1].second);
-        UpdateList ul;
-        ul.push_front(u1);
-        ul.push_front(u2);
-
-        auto u_prefix = Update{
-            .key = prefix,
-            .value = monad::byte_string_view{},
-            .incarnation = false,
-            .next = std::move(ul)};
-        UpdateList ul_prefix;
-        ul_prefix.push_front(u_prefix);
-
-        this->db.upsert(std::move(ul_prefix), first_block_id);
-    }
+    upsert_updates_flat_list(
+        db,
+        prefix,
+        first_block_id,
+        make_update(kv[0].first, kv[0].second),
+        make_update(kv[1].first, kv[1].second));
 
     // Verify RW
     EXPECT_EQ(
@@ -333,9 +413,8 @@ TEST_F(OnDiskDbWithFileFixture, read_only_db_single_thread)
         this->db.get_data(prefix, first_block_id).value(),
         0x05a697d6698c55ee3e4d472c4907bca2184648bcfdd0e023e7ff7089dc984e7e_hex);
 
-    ReadOnlyOnDiskDbConfig const ro_config{
-        .dbname_paths = this->config.dbname_paths};
-    Db ro_db{ro_config};
+    AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    Db ro_db{io_ctx};
 
     // Verify RO
     EXPECT_EQ(
@@ -346,23 +425,12 @@ TEST_F(OnDiskDbWithFileFixture, read_only_db_single_thread)
         ro_db.get_data(prefix, first_block_id).value(),
         0x05a697d6698c55ee3e4d472c4907bca2184648bcfdd0e023e7ff7089dc984e7e_hex);
 
-    {
-        auto u1 = make_update(kv[2].first, kv[2].second);
-        auto u2 = make_update(kv[3].first, kv[3].second);
-        UpdateList ul;
-        ul.push_front(u1);
-        ul.push_front(u2);
-
-        auto u_prefix = Update{
-            .key = prefix,
-            .value = monad::byte_string_view{},
-            .incarnation = false,
-            .next = std::move(ul)};
-        UpdateList ul_prefix;
-        ul_prefix.push_front(u_prefix);
-
-        this->db.upsert(std::move(ul_prefix), second_block_id);
-    }
+    upsert_updates_flat_list(
+        db,
+        prefix,
+        second_block_id,
+        make_update(kv[2].first, kv[2].second),
+        make_update(kv[3].first, kv[3].second));
 
     // Verify RW database can read new data
     EXPECT_EQ(
@@ -394,6 +462,54 @@ TEST_F(OnDiskDbWithFileFixture, read_only_db_single_thread)
         0x05a697d6698c55ee3e4d472c4907bca2184648bcfdd0e023e7ff7089dc984e7e_hex);
 }
 
+TEST_F(ROOnDiskWithFileFixture, nonblocking_rodb)
+{
+    std::shared_ptr<boost::fibers::promise<void>[]> promises{
+        new boost::fibers::promise<void>[num_blocks]};
+
+    // read all keys
+    for (unsigned b = 0; b < num_blocks; ++b) {
+        pool.submit(0, [b = b, &db = ro_db, promises = promises] {
+            unsigned const start_index = b * keys_per_block;
+            for (unsigned i = start_index; i < start_index + keys_per_block;
+                 ++i) {
+                auto const kv_bytes = keccak_int_to_string(i);
+                auto const res = db.find(kv_bytes, b);
+                ASSERT_TRUE(res.has_value());
+                EXPECT_EQ(res.value().node->value(), kv_bytes);
+            }
+            promises[b].set_value();
+        });
+    }
+
+    for (unsigned i = 0; i < num_blocks; ++i) {
+        promises[i].get_future().get();
+    }
+
+    // read the same set of keys from all blocks, and invalid blocks and keys
+    promises.reset(new boost::fibers::promise<void>[num_blocks]);
+    for (unsigned b = 0; b < num_blocks; ++b) {
+        pool.submit(0, [b = b, &db = ro_db, promises = promises] {
+            for (unsigned i = 0; i < keys_per_block; ++i) {
+                auto kv_bytes = keccak_int_to_string(i);
+                auto const res = db.find(kv_bytes, b);
+                ASSERT_TRUE(res.has_value());
+                EXPECT_EQ(res.value().node->value(), kv_bytes);
+            }
+            ASSERT_TRUE(
+                db.find(NibblesView{serialize_as_big_endian<sizeof(b)>(b)}, b)
+                    .has_error());
+            // non exist block
+            ASSERT_TRUE(db.find({}, 5000).has_error());
+            promises[b].set_value();
+        });
+    }
+
+    for (unsigned i = 0; i < num_blocks; ++i) {
+        promises[i].get_future().get();
+    }
+}
+
 TEST_F(OnDiskDbWithFileAsyncFixture, read_only_db_single_thread_async)
 {
     auto const &kv = fixed_updates::kv;
@@ -410,7 +526,7 @@ TEST_F(OnDiskDbWithFileAsyncFixture, read_only_db_single_thread_async)
 
     constexpr uint8_t const test_cached_level = 1;
     size_t i;
-    constexpr size_t read_per_iteration = 3;
+    constexpr size_t read_per_iteration = 5;
     size_t const expected_num_success_callbacks =
         (ro_db.get_history_length() - 1) * read_per_iteration;
     for (i = 1; i < ro_db.get_history_length(); ++i) {
@@ -423,33 +539,52 @@ TEST_F(OnDiskDbWithFileAsyncFixture, read_only_db_single_thread_async)
             make_update(kv[3].first, kv[3].second));
 
         // ensure we can still async query the old version
-        async_get(
+        async_get<monad::byte_string>(
             make_get_sender(
                 ctx.get(),
                 prefix + kv[0].first,
                 starting_block_id,
                 test_cached_level),
-            [&](result_t res) {
+            [&](result_t<monad::byte_string> res) {
                 ASSERT_TRUE(res.has_value());
                 EXPECT_EQ(res.value(), kv[0].second);
             });
-        async_get(
+        async_get<monad::byte_string>(
             make_get_sender(
                 ctx.get(),
                 prefix + kv[1].first,
                 starting_block_id,
                 test_cached_level),
-            [&](result_t res) {
+            [&](result_t<monad::byte_string> res) {
                 ASSERT_TRUE(res.has_value());
                 EXPECT_EQ(res.value(), kv[1].second);
             });
-        async_get(
+        async_get<Node::UniquePtr>(
+            make_get_node_sender(
+                ctx.get(),
+                prefix + kv[0].first,
+                starting_block_id,
+                test_cached_level),
+            [&](result_t<Node::UniquePtr> res) {
+                ASSERT_TRUE(res.has_value());
+                EXPECT_EQ(res.value()->value(), kv[0].second);
+            });
+        async_get<monad::byte_string>(
             make_get_data_sender(
                 ctx.get(), prefix, starting_block_id, test_cached_level),
-            [&](result_t res) {
+            [&](result_t<monad::byte_string> res) {
                 ASSERT_TRUE(res.has_value());
                 EXPECT_EQ(
                     res.value(),
+                    0x05a697d6698c55ee3e4d472c4907bca2184648bcfdd0e023e7ff7089dc984e7e_hex);
+            });
+        async_get<Node::UniquePtr>(
+            make_get_node_sender(
+                ctx.get(), prefix, starting_block_id, test_cached_level),
+            [&](result_t<Node::UniquePtr> res) {
+                ASSERT_TRUE(res.has_value());
+                EXPECT_EQ(
+                    res.value()->data(),
                     0x05a697d6698c55ee3e4d472c4907bca2184648bcfdd0e023e7ff7089dc984e7e_hex);
             });
     }
@@ -466,14 +601,14 @@ TEST_F(OnDiskDbWithFileAsyncFixture, read_only_db_single_thread_async)
         make_update(kv[2].first, kv[2].second),
         make_update(kv[3].first, kv[3].second));
 
-    async_get(
+    async_get<monad::byte_string>(
         make_get_sender(
             ctx.get(),
             prefix + kv[0].first,
             starting_block_id,
             test_cached_level),
-        [&](result_t res) {
-            EXPECT_TRUE(res.has_error());
+        [&](result_t<monad::byte_string> res) {
+            ASSERT_TRUE(res.has_error());
             EXPECT_EQ(res.error(), DbError::key_not_found);
         });
 
@@ -496,10 +631,10 @@ TEST_F(OnDiskDbWithFileAsyncFixture, async_rodb_level_based_cache_works)
 
     // Do async reads
     for (auto const &kv : kv_alloc) {
-        async_get(
+        async_get<monad::byte_string>(
             make_get_sender(ctx.get(), kv, version, test_cached_level),
-            [&](result_t res) {
-                EXPECT_TRUE(res.has_value());
+            [&](result_t<monad::byte_string> res) {
+                ASSERT_TRUE(res.has_value());
                 EXPECT_EQ(res.value(), kv);
             });
     }
@@ -552,7 +687,10 @@ TEST_F(OnDiskDbWithFileAsyncFixture, async_rodb_level_based_cache_works)
     AsyncContext::TrieRootCache::ConstAccessor acc;
     ASSERT_TRUE(ctx->root_cache.find(acc, offset));
     auto root = acc->second->val;
-    ro_db.traverse(NodeCursor{*root}, traverse_machine, version);
+    // MUST use traverse_blocking() to check the in memory nodes as they are.
+    // The `Db::traverse()` API make a copy of traverse root which does not
+    // maintain the exact in memory trie
+    ro_db.traverse_blocking(NodeCursor{*root}, traverse_machine, version);
 }
 
 TEST_F(OnDiskDbWithFileAsyncFixture, root_cache_invalidation)
@@ -565,9 +703,9 @@ TEST_F(OnDiskDbWithFileAsyncFixture, root_cache_invalidation)
     upsert_updates_flat_list(
         db, prefix0, block_id, make_update(kv[0].first, kv[0].second));
 
-    async_get(
+    async_get<monad::byte_string>(
         make_get_sender(ctx.get(), prefix0 + kv[0].first, block_id),
-        [&](result_t res) {
+        [&](result_t<monad::byte_string> res) {
             ASSERT_TRUE(res.has_value());
             EXPECT_EQ(res.value(), kv[0].second);
         });
@@ -579,9 +717,9 @@ TEST_F(OnDiskDbWithFileAsyncFixture, root_cache_invalidation)
     db.copy_trie(block_id, prefix0, block_id, final_prefix, true);
 
     // Do another async read on the same version
-    async_get(
+    async_get<monad::byte_string>(
         make_get_sender(ctx.get(), final_prefix + kv[0].first, block_id),
-        [&](result_t res) {
+        [&](result_t<monad::byte_string> res) {
             ASSERT_TRUE(res.has_value());
             EXPECT_EQ(res.value(), kv[0].second);
         });
@@ -595,9 +733,9 @@ TEST_F(OnDiskDbWithFileAsyncFixture, root_cache_invalidation)
 TEST_F(OnDiskDbWithFileFixture, open_emtpy_rodb)
 {
     // construct RODb
-    ReadOnlyOnDiskDbConfig const ro_config{.dbname_paths = {dbname}};
+    AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    Db ro_db{io_ctx};
     // RODb root is invalid
-    Db const ro_db{ro_config};
     EXPECT_FALSE(ro_db.root().is_valid());
     EXPECT_EQ(ro_db.get_latest_block_id(), INVALID_BLOCK_ID);
     EXPECT_EQ(ro_db.get_earliest_block_id(), INVALID_BLOCK_ID);
@@ -632,8 +770,8 @@ TEST_F(OnDiskDbWithFileFixture, read_only_db_concurrent)
 
     auto keep_query = [&]() {
         // construct RODb
-        ReadOnlyOnDiskDbConfig const ro_config{.dbname_paths = {dbname}};
-        Db ro_db{ro_config};
+        AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+        Db ro_db{io_ctx};
 
         uint64_t read_version = 0;
         auto start_version_bytes = serialize_as_big_endian<6>(read_version);
@@ -690,10 +828,105 @@ TEST_F(OnDiskDbWithFileFixture, read_only_db_concurrent)
               << db.get_earliest_block_id() << std::endl;
 }
 
+TEST_F(OnDiskDbWithFileFixture, upsert_but_not_write_root)
+{
+    AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    Db ro_db{io_ctx};
+
+    // upsert not write root, rodb reads nothing
+    auto const k1 = 0x12345678_hex;
+    auto const k2 = 0x22345678_hex;
+    auto u1 = make_update(k1, k1);
+    UpdateList ul;
+    ul.push_front(u1);
+
+    constexpr uint64_t block_id = 0;
+    // upsert disable write root
+    this->db.upsert(std::move(ul), block_id, true, true, false);
+
+    EXPECT_TRUE(ro_db.get(NibblesView{k1}, block_id).has_error());
+
+    ul.clear();
+    auto u2 = make_update(k2, k2);
+    ul.push_front(u2);
+    this->db.upsert(std::move(ul), block_id); // write root to disk
+
+    auto const res1 = ro_db.get(NibblesView{k1}, block_id);
+    ASSERT_TRUE(res1.has_value());
+    EXPECT_EQ(res1.value(), k1);
+
+    auto const res2 = ro_db.get(NibblesView{k2}, block_id);
+    ASSERT_TRUE(res2.has_value());
+    EXPECT_EQ(res2.value(), k2);
+}
+
+TEST(DbTest, history_length_adjustment_never_under_min)
+{
+    auto const dbname = create_temp_file(4);
+    StateMachineAlwaysEmpty machine{};
+    OnDiskDbConfig config{
+        .compaction = true,
+        .sq_thread_cpu{std::nullopt},
+        .dbname_paths = {dbname}};
+    Db db{machine, config};
+
+    constexpr unsigned nkeys = 1000;
+
+    // prepare updates with 8KB size value
+    std::deque<monad::byte_string> bytes_alloc;
+    std::deque<Update> updates_alloc;
+    auto const &large_value =
+        bytes_alloc.emplace_back(monad::byte_string(8 * 1024, 0xf));
+    for (size_t i = 0; i < nkeys; ++i) {
+        updates_alloc.push_back(Update{
+            .key = bytes_alloc.emplace_back(keccak_int_to_string(i)),
+            .value = large_value,
+            .incarnation = false,
+            .next = UpdateList{}});
+    }
+
+    // construct a read-only aux
+    monad::async::storage_pool::creation_flags pool_options;
+    pool_options.open_read_only = true;
+    monad::async::storage_pool pool(
+        config.dbname_paths,
+        monad::async::storage_pool::mode::open_existing,
+        pool_options);
+    monad::io::Ring read_ring{128};
+    monad::io::Buffers read_buffers = monad::io::make_buffers_for_read_only(
+        read_ring, 128, monad::async::AsyncIO::MONAD_IO_BUFFERS_READ_SIZE);
+    monad::async::AsyncIO io_ctx(pool, read_buffers);
+    UpdateAux aux_reader{&io_ctx};
+
+    auto batch_upsert_once = [&](uint64_t const version) {
+        UpdateList ls;
+        for (auto &u : updates_alloc) {
+            ls.push_front(u);
+        }
+        db.upsert(std::move(ls), version);
+    };
+    uint64_t block_id = 0;
+    while (db.get_history_length() != MIN_HISTORY_LENGTH) {
+        batch_upsert_once(block_id);
+        ++block_id;
+    }
+    auto const disk_usage_before = aux_reader.disk_usage();
+    while (aux_reader.disk_usage() == disk_usage_before) {
+        batch_upsert_once(block_id);
+        ++block_id;
+    }
+    // Db stops adjusting down history length at MIN_HISTORY_LENGTH
+    EXPECT_GT(aux_reader.disk_usage(), disk_usage_before);
+    EXPECT_EQ(db.get_history_length(), MIN_HISTORY_LENGTH);
+
+    remove(dbname);
+}
+
 TEST_F(OnDiskDbWithFileFixture, read_only_db_traverse_concurrent)
 {
     EXPECT_EQ(db.get_history_length(), DBTEST_HISTORY_LENGTH);
-    auto [bytes_alloc, updates_alloc] = prepare_random_updates(20);
+    constexpr size_t nkeys = 20;
+    auto [bytes_alloc, updates_alloc] = prepare_random_updates(nkeys);
 
     uint64_t version = 0;
     auto upsert_once = [&] {
@@ -713,17 +946,20 @@ TEST_F(OnDiskDbWithFileFixture, read_only_db_traverse_concurrent)
         }
     });
 
-    ReadOnlyOnDiskDbConfig const ro_config{.dbname_paths = {dbname}};
-    Db ro_db{ro_config};
+    AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    Db ro_db{io_ctx};
     EXPECT_EQ(ro_db.get_history_length(), DBTEST_HISTORY_LENGTH);
-    DummyTraverseMachine traverse_machine;
+    size_t num_leaves_traversed = 0;
+    DummyTraverseMachine traverse_machine{num_leaves_traversed};
 
-    // read thread loop to traverse block 0 until it gets erased
     while (!ro_db.load_root_for_version(0).is_valid()) {
     } // first block data is written to db by writer thread
     auto const root_cursor = ro_db.load_root_for_version(0);
     ASSERT_TRUE(root_cursor.is_valid());
+    // read thread loop to traverse block 0 until it gets erased
     while (ro_db.traverse(root_cursor, traverse_machine, 0)) {
+        EXPECT_EQ(num_leaves_traversed, nkeys);
+        traverse_machine.reset();
     }
 
     done.store(true, std::memory_order_release);
@@ -735,7 +971,8 @@ TEST_F(OnDiskDbWithFileFixture, read_only_db_traverse_concurrent)
 
 TEST_F(OnDiskDbWithFileFixture, benchmark_blocking_parallel_traverse)
 {
-    auto [bytes_alloc, updates_alloc] = prepare_random_updates(2000);
+    constexpr size_t nkeys = 2000;
+    auto [bytes_alloc, updates_alloc] = prepare_random_updates(nkeys);
     UpdateList ls;
     for (auto &u : updates_alloc) {
         ls.push_front(u);
@@ -743,26 +980,153 @@ TEST_F(OnDiskDbWithFileFixture, benchmark_blocking_parallel_traverse)
     db.upsert(std::move(ls), 0);
 
     // benchmark traverse
-    DummyTraverseMachine traverse_machine{};
+    size_t num_leaves_traversed = 0;
+    DummyTraverseMachine traverse_machine{num_leaves_traversed};
+    std::vector<std::chrono::steady_clock::time_point> times;
+    times.reserve(1024);
+    traverse_machine.times = &times;
     auto begin = std::chrono::steady_clock::now();
     ASSERT_TRUE(db.traverse(db.root(), traverse_machine, 0));
     auto end = std::chrono::steady_clock::now();
+    EXPECT_EQ(num_leaves_traversed, nkeys);
+    ASSERT_FALSE(times.empty());
     auto const parallel_elapsed =
         std::chrono::duration_cast<std::chrono::microseconds>(end - begin)
             .count();
+    auto const parallel_first_node_elapsed =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            times[times.size() / 8] - begin)
+            .count();
     std::cout << "RODb parallel traversal takes " << parallel_elapsed
-              << " ms, ";
+              << " us, 12.5% node took " << parallel_first_node_elapsed
+              << " us." << std::endl;
 
+    traverse_machine.reset();
     begin = std::chrono::steady_clock::now();
     ASSERT_TRUE(db.traverse_blocking(db.root(), traverse_machine, 0));
     end = std::chrono::steady_clock::now();
+    EXPECT_EQ(num_leaves_traversed, nkeys);
+    ASSERT_FALSE(times.empty());
     auto const blocking_elapsed =
         std::chrono::duration_cast<std::chrono::microseconds>(end - begin)
             .count();
-    std::cout << "RWDb blocking traversal takes " << blocking_elapsed << " ms."
-              << std::endl;
+    auto const blocking_first_node_elapsed =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            times[times.size() / 8] - begin)
+            .count();
+    std::cout << "RWDb blocking traversal takes " << blocking_elapsed
+              << " us, 12.5% node took " << blocking_first_node_elapsed
+              << " us." << std::endl;
 
     EXPECT_TRUE(parallel_elapsed < blocking_elapsed);
+}
+
+TEST_F(OnDiskDbWithFileAsyncFixture, async_get_node_then_async_traverse)
+{
+    // Insert keys
+    constexpr unsigned nkeys = 1000;
+    auto [kv_alloc, updates_alloc] = prepare_random_updates(nkeys);
+    uint64_t const block_id = 0;
+    UpdateList ls;
+    for (auto &u : updates_alloc) {
+        ls.push_front(u);
+    }
+    db.upsert(std::move(ls), block_id);
+
+    struct TraverseResult
+    {
+        bool traverse_success{false};
+        size_t num_leaves_traversed{0};
+    };
+
+    struct TraverseReceiver
+    {
+        TraverseResult &result;
+
+        explicit TraverseReceiver(TraverseResult &result)
+            : result(result)
+        {
+        }
+
+        void set_value(
+            monad::async::erased_connected_operation *traverse_state,
+            monad::async::result<bool> res)
+        {
+            ASSERT_TRUE(res);
+            result.traverse_success = res.assume_value();
+
+            delete traverse_state;
+        }
+    };
+
+    // async get traverse root
+    struct GetNodeReceiver
+    {
+        using ResultType = monad::async::result<Node::UniquePtr>;
+
+        detail::TraverseSender traverse_sender;
+        TraverseResult &result;
+
+        GetNodeReceiver(detail::TraverseSender &&sender, TraverseResult &result)
+            : traverse_sender(std::move(sender))
+            , result(result)
+        {
+        }
+
+        void set_value(
+            monad::async::erased_connected_operation *state, ResultType res)
+        {
+            if (!res) {
+                result.traverse_success = false;
+            }
+            else {
+                traverse_sender.traverse_root = std::move(res.assume_value());
+                // issue async traverse
+                auto *traverse_state = new auto(monad::async::connect(
+                    std::move(traverse_sender), TraverseReceiver{result}));
+                traverse_state->initiate();
+            }
+            delete state;
+        }
+    };
+
+    // async traverse on valid block
+    std::deque<TraverseResult> results;
+    for (auto i = 0; i < 10; ++i) {
+        auto &result_holder = results.emplace_back(TraverseResult{});
+        auto machine = std::make_unique<DummyTraverseMachine>(
+            result_holder.num_leaves_traversed);
+
+        auto *state = new auto(monad::async::connect(
+            make_get_node_sender(ctx.get(), NibblesView{}, block_id),
+            GetNodeReceiver{
+                make_traverse_sender(
+                    ctx.get(), {}, std::move(machine), block_id),
+                result_holder}));
+        state->initiate();
+    }
+    ctx->aux.io->wait_until_done();
+    for (auto &r : results) {
+        EXPECT_TRUE(r.traverse_success);
+        EXPECT_EQ(r.num_leaves_traversed, nkeys);
+    }
+
+    // look up invalid block
+    TraverseResult expect_failure;
+    auto *state = new auto(monad::async::connect(
+        make_get_node_sender(ctx.get(), NibblesView{}, block_id + 1),
+        GetNodeReceiver{
+            make_traverse_sender(
+                ctx.get(),
+                {},
+                std::make_unique<DummyTraverseMachine>(
+                    expect_failure.num_leaves_traversed),
+                block_id),
+            expect_failure}));
+    state->initiate();
+    ctx->aux.io->wait_until_done();
+    EXPECT_FALSE(expect_failure.traverse_success);
+    EXPECT_EQ(expect_failure.num_leaves_traversed, 0);
 }
 
 TEST_F(OnDiskDbWithFileFixture, load_correct_root_upon_reopen_nonempty_db)
@@ -771,13 +1135,14 @@ TEST_F(OnDiskDbWithFileFixture, load_correct_root_upon_reopen_nonempty_db)
     auto const prefix = 0x00_hex;
     uint64_t const block_id = 0x123;
 
+    AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    Db ro_db{io_ctx};
     {
         Db const db{machine, config};
         // db is init to empty
         EXPECT_FALSE(db.root().is_valid());
         EXPECT_EQ(db.get_latest_block_id(), INVALID_BLOCK_ID);
 
-        Db const ro_db{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
         EXPECT_FALSE(ro_db.root().is_valid());
         EXPECT_EQ(ro_db.get_latest_block_id(), INVALID_BLOCK_ID);
     }
@@ -814,7 +1179,6 @@ TEST_F(OnDiskDbWithFileFixture, load_correct_root_upon_reopen_nonempty_db)
         EXPECT_EQ(db.get_latest_block_id(), block_id);
         EXPECT_EQ(db.get_earliest_block_id(), block_id);
 
-        Db const ro_db{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
         EXPECT_TRUE(db.root().is_valid());
         EXPECT_EQ(db.get_latest_block_id(), block_id);
         EXPECT_EQ(db.get_earliest_block_id(), block_id);
@@ -834,8 +1198,8 @@ TEST(DbTest, out_of_order_upserts_to_nonexist_earlier_version)
         .fixed_history_length = DBTEST_HISTORY_LENGTH};
     Db db{machine, config};
 
-    ReadOnlyOnDiskDbConfig const ro_config{.dbname_paths = {dbname}};
-    Db rodb{ro_config};
+    AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    Db rodb{io_ctx};
 
     constexpr size_t total_keys = 10000;
     auto [bytes_alloc, updates_alloc] = prepare_random_updates(total_keys);
@@ -894,8 +1258,8 @@ TEST(DbTest, out_of_order_upserts_with_compaction)
         .dbname_paths = {dbname},
         .fixed_history_length = DBTEST_HISTORY_LENGTH};
     Db db{machine, config};
-    ReadOnlyOnDiskDbConfig const ro_config{.dbname_paths = {dbname}};
-    Db rodb{ro_config};
+    AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    Db rodb{io_ctx};
 
     auto get_release_offsets = [](monad::byte_string_view const bytes)
         -> std::pair<uint32_t, uint32_t> {
@@ -929,12 +1293,13 @@ TEST(DbTest, out_of_order_upserts_with_compaction)
             continue;
         }
         auto const result_n = rodb.get({}, block_id);
-        EXPECT_TRUE(result_n.has_value());
+        ASSERT_TRUE(result_n.has_value());
         auto const [fast_n, slow_n] = get_release_offsets(result_n.value());
-        auto const result_before = rodb.get({}, block_id - 1);
-        EXPECT_TRUE(result_before.has_value());
-        auto const [fast_n_1, slow_n_1] =
-            get_release_offsets(result_before.value());
+        monad::Result<monad::byte_string_view> const res =
+            rodb.get({}, block_id - 1);
+        ASSERT_TRUE(res.has_value());
+        monad::byte_string const result_before{res.value()};
+        auto const [fast_n_1, slow_n_1] = get_release_offsets(result_before);
         EXPECT_GE(fast_n, fast_n_1);
         EXPECT_GE(slow_n, slow_n_1);
         // upsert on top of N-1
@@ -948,9 +1313,9 @@ TEST(DbTest, out_of_order_upserts_with_compaction)
             make_update(kv_alloc[3], kv_alloc[3]),
             make_update(kv_alloc[4], kv_alloc[4]));
         auto const result_after = rodb.get({}, block_id - 1);
-        EXPECT_TRUE(result_after.has_value());
+        ASSERT_TRUE(result_after.has_value());
         // offsets remain the same after the second upsert
-        EXPECT_EQ(result_before.value(), result_after.value());
+        EXPECT_EQ(result_before, result_after.value());
         // convert to byte_string so that both data are in scope
         monad::byte_string const data_n_1{
             rodb.get_data({prefix}, block_id - 1).value()};
@@ -963,7 +1328,7 @@ TEST(DbTest, out_of_order_upserts_with_compaction)
 
     ASSERT_EQ(n, block_id * keys_per_version);
     auto const result_n = rodb.get({}, block_id - 1);
-    EXPECT_TRUE(result_n.has_value());
+    ASSERT_TRUE(result_n.has_value());
     auto const [fast_n, slow_n] = get_release_offsets(result_n.value());
     EXPECT_EQ(
         rodb.get_data({prefix}, block_id - 1).value(),
@@ -1350,7 +1715,7 @@ TEST_F(OnDiskDbFixture, rw_query_old_version)
     // This will exceed the ring buffer capacity, kicking out the first write.
     write(kv[1].first, kv[1].second, block_id + i);
     auto bad_read = this->db.get(prefix + kv[0].first, block_id);
-    EXPECT_TRUE(bad_read.has_error());
+    ASSERT_TRUE(bad_read.has_error());
     EXPECT_EQ(bad_read.error(), DbError::key_not_found);
 }
 
@@ -1579,8 +1944,8 @@ TEST_F(OnDiskDbWithFileFixture, copy_trie_to_different_version_modify_state)
     upsert_updates_flat_list(
         db, prefix, block_id, make_update(kv_alloc[0], kv_alloc[0]));
 
-    ReadOnlyOnDiskDbConfig const ro_config{.dbname_paths = {dbname}};
-    Db rodb{ro_config};
+    AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    Db rodb{io_ctx};
 
     // copy trie to a new version
     // read: can't read new dest version until upserting
@@ -1655,7 +2020,8 @@ TEST_F(OnDiskDbWithFileFixture, copy_trie_to_different_version_modify_state)
 TEST_F(OnDiskDbWithFileFixture, move_trie_causes_discontinuous_history)
 {
     EXPECT_EQ(db.get_history_length(), DBTEST_HISTORY_LENGTH);
-    Db ro_db{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    Db ro_db{io_ctx};
     EXPECT_EQ(ro_db.get_history_length(), DBTEST_HISTORY_LENGTH);
 
     // continuous upsert() and move_trie_version_forward() leads to
@@ -1763,10 +2129,98 @@ TEST_F(OnDiskDbWithFileFixture, move_trie_causes_discontinuous_history)
     EXPECT_EQ(ro_db.get_earliest_block_id(), far_dest_block_id);
 }
 
+TEST_F(OnDiskDbWithFileFixture, move_trie_version_forward_within_history_range)
+{
+    EXPECT_EQ(db.get_history_length(), DBTEST_HISTORY_LENGTH);
+    AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    Db ro_db{io_ctx};
+    EXPECT_EQ(ro_db.get_history_length(), DBTEST_HISTORY_LENGTH);
+
+    auto const &kv = fixed_updates::kv;
+    auto const prefix = 0x00_hex;
+    uint64_t block_id = 0;
+    uint64_t const max_block_id = 10;
+
+    // Upsert the same data in block 0 - 10
+    for (; block_id <= max_block_id; ++block_id) {
+        upsert_updates_flat_list(
+            db,
+            prefix,
+            block_id,
+            make_update(kv[0].first, kv[0].second),
+            make_update(kv[1].first, kv[1].second));
+        EXPECT_TRUE(db.get(prefix + kv[0].first, block_id).has_value());
+        EXPECT_TRUE(db.get(prefix + kv[1].first, block_id).has_value());
+    }
+    EXPECT_EQ(ro_db.get_latest_block_id(), max_block_id);
+    EXPECT_EQ(ro_db.get_earliest_block_id(), 0);
+
+    // Move trie version within history length, which will not invalidate any
+    // versions
+    uint64_t const dest_block_id = max_block_id + 5;
+    db.move_trie_version_forward(max_block_id, dest_block_id);
+
+    EXPECT_EQ(ro_db.get_latest_block_id(), dest_block_id);
+    EXPECT_EQ(ro_db.get_earliest_block_id(), 0);
+    EXPECT_TRUE(ro_db.find({}, max_block_id).has_error());
+    EXPECT_TRUE(ro_db.find({}, dest_block_id).has_value());
+}
+
+TEST_F(
+    OnDiskDbWithFileFixture,
+    move_trie_version_forward_clear_history_versions_out_of_range)
+{
+    EXPECT_EQ(db.get_history_length(), DBTEST_HISTORY_LENGTH);
+    AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    Db ro_db{io_ctx};
+    EXPECT_EQ(ro_db.get_history_length(), DBTEST_HISTORY_LENGTH);
+
+    auto const &kv = fixed_updates::kv;
+    auto const prefix = 0x00_hex;
+    uint64_t block_id = 0;
+
+    // Upsert the same data in block 0 - 10
+    for (; block_id <= 10; ++block_id) {
+        upsert_updates_flat_list(
+            db,
+            prefix,
+            block_id,
+            make_update(kv[0].first, kv[0].second),
+            make_update(kv[1].first, kv[1].second));
+        EXPECT_TRUE(db.get(prefix + kv[0].first, block_id).has_value());
+        EXPECT_TRUE(db.get(prefix + kv[1].first, block_id).has_value());
+    }
+
+    // Move trie version to a later dest_block_id, which invalidates some
+    // but not all history versions
+    uint64_t const dest_block_id = ro_db.get_history_length() + 5;
+    db.move_trie_version_forward(block_id, dest_block_id);
+
+    // Now valid version are 6-9, 1005 (DBTEST_HISTORY_LENGTH+5)
+    EXPECT_EQ(ro_db.get_latest_block_id(), dest_block_id);
+    auto const earliest_block_id = ro_db.get_earliest_block_id();
+    EXPECT_EQ(
+        earliest_block_id, dest_block_id - ro_db.get_history_length() + 1);
+
+    // src block 10 should be invalid
+    EXPECT_TRUE(ro_db.find(prefix, block_id).has_error());
+
+    // recreate db with longer history length to simulate dynamic history length
+    // adjustment, verify earliest db version remains unchanged
+    db.~Db();
+    auto new_config = this->config;
+    new_config.fixed_history_length = 65536;
+    new_config.append = true;
+    new (&db) Db(machine, new_config);
+    EXPECT_EQ(ro_db.get_latest_block_id(), dest_block_id);
+    EXPECT_EQ(ro_db.get_earliest_block_id(), earliest_block_id);
+}
+
 TEST_F(OnDiskDbWithFileFixture, reset_history_length_concurrent)
 {
     std::atomic<bool> done{false};
-    Db ro_db{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    Db ro_db{io_ctx};
     auto const prefix = 0x00_hex;
 
     // fille rwdb with some blocks
@@ -1779,7 +2233,7 @@ TEST_F(OnDiskDbWithFileFixture, reset_history_length_concurrent)
     EXPECT_EQ(ro_db.get_history_length(), DBTEST_HISTORY_LENGTH);
     EXPECT_EQ(ro_db.get_latest_block_id(), DBTEST_HISTORY_LENGTH - 1);
     auto const res = ro_db.get(prefix + kv[0].first, 0);
-    EXPECT_TRUE(res.has_value());
+    ASSERT_TRUE(res.has_value());
     EXPECT_EQ(res.value(), kv[0].second);
 
     uint64_t const end_history_length =
@@ -1859,7 +2313,8 @@ TEST_F(OnDiskDbWithFileFixture, rwdb_reset_history_length)
     EXPECT_EQ(db.get_earliest_block_id(), min_block_num_before);
     EXPECT_TRUE(db.get(prefix + kv[1].first, min_block_num_before).has_value());
 
-    Db ro_db{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
+    Db ro_db{io_ctx};
     EXPECT_EQ(ro_db.get_history_length(), DBTEST_HISTORY_LENGTH);
     EXPECT_TRUE(ro_db.get(prefix + kv[1].first, 0).has_error());
     EXPECT_TRUE(ro_db.get(prefix + kv[1].first, max_block_id).has_value());

@@ -1,7 +1,6 @@
 #include <monad/mpt/node.hpp>
 
 #include <monad/async/config.hpp>
-#include <monad/async/detail/scope_polyfill.hpp>
 #include <monad/async/storage_pool.hpp>
 #include <monad/core/assert.h>
 #include <monad/core/byte_string.hpp>
@@ -570,9 +569,8 @@ void serialize_node_to_buffer(
     unsigned char *write_pos, unsigned bytes_to_append, Node const &node,
     uint32_t const disk_size, unsigned const offset)
 {
-
+    MONAD_ASSERT(disk_size > 0 && disk_size <= Node::max_disk_size);
     if (offset < Node::disk_size_bytes) { // serialize node disk size
-        MONAD_ASSERT(disk_size > 0 && disk_size <= Node::max_disk_size);
         MONAD_ASSERT(bytes_to_append <= disk_size - offset);
         unsigned const written =
             std::min(bytes_to_append, Node::disk_size_bytes - offset);
@@ -620,39 +618,16 @@ deserialize_node_from_buffer(unsigned char const *read_pos, size_t max_bytes)
     return node;
 }
 
-Node::UniquePtr read_node_blocking(
-    MONAD_ASYNC_NAMESPACE::storage_pool &pool, chunk_offset_t node_offset)
+Node::UniquePtr copy_node(Node const *const node)
 {
-    MONAD_DEBUG_ASSERT(
-        node_offset.spare <=
-        round_up_align<DISK_PAGE_BITS>(Node::max_disk_size));
-    // spare bits are number of pages needed to load node
-    unsigned const num_pages_to_load_node =
-        node_disk_pages_spare_15{node_offset}.to_pages();
-    unsigned const bytes_to_read = num_pages_to_load_node << DISK_PAGE_BITS;
-    file_offset_t const rd_offset =
-        round_down_align<DISK_PAGE_BITS>(node_offset.offset);
-    uint16_t const buffer_off = uint16_t(node_offset.offset - rd_offset);
-    auto *buffer =
-        (unsigned char *)aligned_alloc(DISK_PAGE_SIZE, bytes_to_read);
-    auto unbuffer = make_scope_exit([buffer]() noexcept { ::free(buffer); });
-
-    auto chunk = pool.activate_chunk(pool.seq, node_offset.id);
-    auto fd = chunk->read_fd();
-    ssize_t const bytes_read = pread(
-        fd.first,
-        buffer,
-        bytes_to_read,
-        static_cast<off_t>(fd.second + rd_offset));
-    if (bytes_read < 0) {
-        MONAD_ABORT_PRINTF(
-            "FATAL: pread(%u, %llu) failed with '%s'\n",
-            bytes_to_read,
-            rd_offset,
-            strerror(errno));
-    }
-    return deserialize_node_from_buffer(
-        buffer + buffer_off, size_t(bytes_read) - buffer_off);
+    auto const alloc_size = node->get_mem_size();
+    auto node_copy = Node::make(alloc_size);
+    std::copy_n(
+        (unsigned char *)node, alloc_size, (unsigned char *)node_copy.get());
+    // reset all in memory children
+    auto const next_size = node->number_of_children() * sizeof(Node *);
+    std::memset(node_copy->next_data(), 0, next_size);
+    return node_copy;
 }
 
 int64_t calc_min_version(Node const &node)

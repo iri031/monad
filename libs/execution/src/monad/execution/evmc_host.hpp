@@ -28,11 +28,12 @@ class EvmcHostBase : public evmc::Host
 protected:
     State &state_;
     CallTracerBase &call_tracer_;
+    size_t const max_code_size_;
 
 public:
     EvmcHostBase(
         CallTracerBase &, evmc_tx_context const &, BlockHashBuffer const &,
-        State &) noexcept;
+        State &, size_t max_code_size) noexcept;
 
     virtual ~EvmcHostBase() noexcept = default;
 
@@ -95,13 +96,23 @@ struct EvmcHost final : public EvmcHostBase
 
     virtual evmc::Result call(evmc_message const &msg) noexcept override
     {
-        call_tracer_.on_enter(msg);
-        auto result =
-            (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2)
-                ? ::monad::create_contract_account<rev>(this, state_, msg)
-                : ::monad::call<rev>(this, state_, msg);
-        call_tracer_.on_exit(result);
-        return result;
+        if (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2) {
+            auto result =
+                ::monad::create<rev>(this, state_, msg, max_code_size_);
+
+            // EIP-211
+            if (result.status_code != EVMC_REVERT) {
+                result = evmc::Result{
+                    result.status_code,
+                    result.gas_left,
+                    result.gas_refund,
+                    result.create_address};
+            }
+            return result;
+        }
+        else {
+            return ::monad::call(this, state_, msg);
+        }
     }
 
     virtual evmc_access_status
@@ -111,6 +122,11 @@ struct EvmcHost final : public EvmcHostBase
             return EVMC_ACCESS_WARM;
         }
         return state_.access_account(address);
+    }
+
+    CallTracerBase &get_call_tracer() noexcept
+    {
+        return call_tracer_;
     }
 };
 

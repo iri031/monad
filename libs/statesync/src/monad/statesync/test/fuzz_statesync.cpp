@@ -21,6 +21,7 @@
 #include <optional>
 #include <span>
 #include <stdio.h>
+#include <sys/sysinfo.h>
 
 using namespace monad;
 using namespace monad::mpt;
@@ -256,15 +257,22 @@ LLVMFuzzerTestOneInput(uint8_t const *const data, size_t const size)
     monad_statesync_client client;
     monad_statesync_client_context *const cctx =
         monad_statesync_client_context_create(
-            &cdbname_str, 1, "", &client, &statesync_send_request);
+            &cdbname_str,
+            1,
+            "",
+            static_cast<unsigned>(get_nprocs() - 1),
+            &client,
+            &statesync_send_request);
     std::filesystem::path sdbname{tmp_dbname()};
     OnDiskMachine machine;
     mpt::Db sdb{
         machine, OnDiskDbConfig{.append = true, .dbname_paths = {sdbname}}};
     TrieDb stdb{sdb};
-    monad_statesync_server_context sctx{stdb};
-    mpt::Db ro{ReadOnlyOnDiskDbConfig{.dbname_paths{sdbname}}};
-    sctx.ro = &ro;
+    std::unique_ptr<monad_statesync_server_context> sctx =
+        std::make_unique<monad_statesync_server_context>(stdb);
+    mpt::AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths{sdbname}}};
+    mpt::Db ro{io_ctx};
+    sctx->ro = &ro;
     monad_statesync_server_network net{
         .client = &client, .cctx = cctx, .buf = {}};
     for (size_t i = 0; i < monad_statesync_client_prefixes(); ++i) {
@@ -272,7 +280,7 @@ LLVMFuzzerTestOneInput(uint8_t const *const data, size_t const size)
             cctx, i, monad_statesync_version());
     }
     monad_statesync_server *const server = monad_statesync_server_create(
-        &sctx,
+        sctx.get(),
         &net,
         &statesync_server_recv,
         &statesync_server_send_upsert,
@@ -281,8 +289,10 @@ LLVMFuzzerTestOneInput(uint8_t const *const data, size_t const size)
     std::span<uint8_t const> raw{data, size};
     State state{};
 
-    BlockHeader hdr{.parent_hash = NULL_HASH, .number = 0};
-    sctx.commit(StateDeltas{}, Code{}, hdr);
+    BlockHeader hdr{.number = 0};
+    sctx->commit(
+        StateDeltas{}, Code{}, MonadConsensusBlockHeader::from_eth_header(hdr));
+    sctx->finalize(0, 0);
     while (raw.size() >= sizeof(uint64_t)) {
         StateDeltas deltas;
         uint64_t const n = unaligned_load<uint64_t>(raw.data());
@@ -311,12 +321,13 @@ LLVMFuzzerTestOneInput(uint8_t const *const data, size_t const size)
         client.mask = raw.size() < sizeof(uint64_t)
                           ? std::numeric_limits<uint64_t>::max()
                           : n;
-        hdr.parent_hash = to_bytes(keccak256(rlp::encode_block_header(hdr)));
         hdr.number = stdb.get_block_number() + 1;
-        sctx.commit(deltas, {}, hdr);
-        BlockHeader tgrt{hdr};
-        tgrt.state_root = sctx.state_root();
-        auto const rlp = rlp::encode_block_header(tgrt);
+        MONAD_ASSERT(hdr.number > 0);
+        sctx->set_block_and_round(hdr.number - 1);
+        sctx->commit(
+            deltas, {}, MonadConsensusBlockHeader::from_eth_header(hdr));
+        sctx->finalize(hdr.number, hdr.number);
+        auto const rlp = rlp::encode_block_header(sctx->read_eth_header());
         monad_statesync_client_handle_target(cctx, rlp.data(), rlp.size());
         while (!client.rqs.empty()) {
             monad_statesync_server_run_once(server);

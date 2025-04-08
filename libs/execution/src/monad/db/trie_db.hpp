@@ -8,12 +8,12 @@
 #include <monad/core/transaction.hpp>
 #include <monad/db/db.hpp>
 #include <monad/db/util.hpp>
-#include <monad/execution/code_analysis.hpp>
 #include <monad/execution/trace/call_frame.hpp>
 #include <monad/mpt/compute.hpp>
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/ondisk_db_config.hpp>
 #include <monad/mpt/state_machine.hpp>
+#include <monad/vm/evmone/code_analysis.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -48,20 +48,21 @@ public:
     virtual void set_block_and_round(
         uint64_t block_number,
         std::optional<uint64_t> round_number = std::nullopt) override;
-    // TODO: remove round_number parameter, retrieve it from header instead once
-    // we add the monad fields in BlockHeader
     virtual void commit(
-        StateDeltas const &, Code const &, BlockHeader const &,
+        StateDeltas const &, Code const &, MonadConsensusBlockHeader const &,
         std::vector<Receipt> const & = {},
         std::vector<std::vector<CallFrame>> const & = {},
+        std::vector<Address> const & = {},
         std::vector<Transaction> const & = {},
         std::vector<BlockHeader> const &ommers = {},
-        std::optional<std::vector<Withdrawal>> const & = std::nullopt,
-        std::optional<uint64_t> round_number = std::nullopt) override;
+        std::optional<std::vector<Withdrawal>> const & = std::nullopt) override;
     virtual void
     finalize(uint64_t block_number, uint64_t round_number) override;
-    virtual void update_verified_block(uint64_t) override;
+    virtual void update_verified_block(uint64_t block_number) override;
+    virtual void
+    update_voted_metadata(uint64_t block_number, uint64_t round) override;
 
+    virtual BlockHeader read_eth_header() override;
     virtual bytes32_t state_root() override;
     virtual bytes32_t receipts_root() override;
     virtual bytes32_t transactions_root() override;

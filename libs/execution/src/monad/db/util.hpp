@@ -4,6 +4,7 @@
 #include <monad/core/account.hpp>
 #include <monad/core/address.hpp>
 #include <monad/core/byte_string.hpp>
+#include <monad/core/receipt.hpp>
 #include <monad/core/result.hpp>
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/state_machine.hpp>
@@ -14,6 +15,8 @@
 #include <istream>
 
 MONAD_NAMESPACE_BEGIN
+
+struct BlockHeader;
 
 struct MachineBase : public mpt::StateMachine
 {
@@ -90,6 +93,7 @@ inline constexpr unsigned char OMMER_NIBBLE = 6;
 inline constexpr unsigned char TX_HASH_NIBBLE = 7;
 inline constexpr unsigned char BLOCK_HASH_NIBBLE = 8;
 inline constexpr unsigned char CALL_FRAME_NIBBLE = 9;
+inline constexpr unsigned char BFT_BLOCK_NIBBLE = 10;
 inline constexpr unsigned char INVALID_NIBBLE = 255;
 inline mpt::Nibbles const state_nibbles = mpt::concat(STATE_NIBBLE);
 inline mpt::Nibbles const code_nibbles = mpt::concat(CODE_NIBBLE);
@@ -102,6 +106,7 @@ inline mpt::Nibbles const ommer_nibbles = mpt::concat(OMMER_NIBBLE);
 inline mpt::Nibbles const withdrawal_nibbles = mpt::concat(WITHDRAWAL_NIBBLE);
 inline mpt::Nibbles const tx_hash_nibbles = mpt::concat(TX_HASH_NIBBLE);
 inline mpt::Nibbles const block_hash_nibbles = mpt::concat(BLOCK_HASH_NIBBLE);
+inline mpt::Nibbles const bft_block_nibbles = mpt::concat(BFT_BLOCK_NIBBLE);
 
 //////////////////////////////////////////////////////////
 // Proposed and finialized subtries. Active on all tables.
@@ -120,6 +125,10 @@ Result<Account> decode_account_db_ignore_address(byte_string_view &);
 Result<std::pair<bytes32_t, bytes32_t>> decode_storage_db(byte_string_view &);
 Result<byte_string_view> decode_storage_db_ignore_slot(byte_string_view &);
 
+Result<std::pair<Receipt, size_t>> decode_receipt_db(byte_string_view &);
+Result<std::pair<Transaction, Address>>
+decode_transaction_db(byte_string_view &);
+
 void write_to_file(
     nlohmann::json const &, std::filesystem::path const &,
     uint64_t block_number);
@@ -128,5 +137,11 @@ void load_from_binary(
     mpt::Db &, std::istream &accounts, std::istream &code,
     uint64_t init_block_number = 0,
     size_t buf_size = 1ul << 32); // TODO: dynamic loading
+
+void load_header(mpt::Db &, BlockHeader const &);
+
+mpt::Nibbles proposal_prefix(uint64_t);
+
+std::vector<uint64_t> get_proposal_rounds(mpt::Db &, uint64_t block_number);
 
 MONAD_NAMESPACE_END

@@ -52,11 +52,18 @@ struct node_disk_pages_spare_15
         : value{0}
     {
         unsigned const exp = pages >> count_bits;
-        auto const shift = static_cast<uint16_t>(
+        auto shift = static_cast<uint16_t>(
             std::numeric_limits<decltype(exp)>::digits - std::countl_zero(exp));
-        value.spare.count =
-            ((pages >> shift) + bool(pages & ((1u << shift) - 1))) & max_count;
+        auto count = (pages >> shift) + (0 != (pages & ((1u << shift) - 1)));
+        if (count > max_count) {
+            count >>= 1;
+            shift += 1;
+        }
+        MONAD_ASSERT(count <= max_count);
+        MONAD_ASSERT(shift <= max_shift);
+        value.spare.count = count & max_count;
         value.spare.shift = shift & max_shift;
+        MONAD_ASSERT(to_pages() >= pages);
     }
 
     constexpr unsigned to_pages() const noexcept
@@ -318,7 +325,6 @@ constexpr size_t calculate_node_size(
     size_t const value_size, size_t const path_size,
     size_t const data_size) noexcept
 {
-    MONAD_DEBUG_ASSERT(number_of_children || total_child_data_size == 0);
     return sizeof(Node) +
            (sizeof(uint16_t) // child data offset
             + sizeof(compact_virtual_chunk_offset_t) * 2 // min truncated offset
@@ -327,6 +333,16 @@ constexpr size_t calculate_node_size(
                number_of_children +
            total_child_data_size + value_size + path_size + data_size;
 }
+
+// Maximum value size that can be stored in a leaf node.  This is calculated by
+// taking the maximum possible node size and subtracting the overhead of the
+// Node metadata. We use KECCAK256_SIZE for the path length since the state trie
+// is our deepest trie in practice.
+constexpr size_t MAX_VALUE_LEN_OF_LEAF =
+    Node::max_disk_size -
+    calculate_node_size(
+        0 /* number_of_children */, 0 /* child_data_size */, 0 /* value_size */,
+        KECCAK256_SIZE /* path_size */, KECCAK256_SIZE /* data_size*/);
 
 Node::UniquePtr make_node(
     Node &from, NibblesView path, std::optional<byte_string_view> value,
@@ -353,10 +369,7 @@ void serialize_node_to_buffer(
 Node::UniquePtr
 deserialize_node_from_buffer(unsigned char const *read_pos, size_t max_bytes);
 
-//! input argument is node's physical offset
-//! chunk_offset_t spare bits store the num page to read
-Node::UniquePtr read_node_blocking(
-    MONAD_ASYNC_NAMESPACE::storage_pool &, chunk_offset_t node_offset);
+Node::UniquePtr copy_node(Node const *);
 
 int64_t calc_min_version(Node const &);
 

@@ -25,6 +25,7 @@ add_library(
   "src/monad/chain/monad_chain.hpp"
   "src/monad/chain/monad_devnet.cpp"
   "src/monad/chain/monad_devnet.hpp"
+  "src/monad/chain/monad_revision.h"
   "src/monad/chain/monad_testnet.cpp"
   "src/monad/chain/monad_testnet.hpp"
   # core
@@ -32,6 +33,7 @@ add_library(
   "src/monad/core/address.hpp"
   "src/monad/core/block.hpp"
   "src/monad/core/bytes.hpp"
+  "src/monad/core/monad_block.hpp"
   "src/monad/core/fmt/account_fmt.hpp"
   "src/monad/core/fmt/address_fmt.hpp"
   "src/monad/core/fmt/block_fmt.hpp"
@@ -52,6 +54,8 @@ add_library(
   "src/monad/core/rlp/block_rlp.hpp"
   "src/monad/core/rlp/bytes_rlp.hpp"
   "src/monad/core/rlp/int_rlp.hpp"
+  "src/monad/core/rlp/monad_block_rlp.cpp"
+  "src/monad/core/rlp/monad_block_rlp.hpp"
   "src/monad/core/rlp/receipt_rlp.cpp"
   "src/monad/core/rlp/receipt_rlp.hpp"
   "src/monad/core/rlp/signature_rlp.cpp"
@@ -75,16 +79,14 @@ add_library(
   "src/monad/db/file_db.hpp"
   "src/monad/db/trie_db.cpp"
   "src/monad/db/trie_db.hpp"
+  "src/monad/db/trie_rodb.hpp"
   "src/monad/db/util.cpp"
   "src/monad/db/util.hpp"
   # execution
-  "src/monad/execution/baseline_execute.cpp"
-  "src/monad/execution/baseline_execute.hpp"
   "src/monad/execution/block_hash_buffer.cpp"
   "src/monad/execution/block_hash_buffer.hpp"
   "src/monad/execution/block_reward.cpp"
   "src/monad/execution/block_reward.hpp"
-  "src/monad/execution/code_analysis.hpp"
   "src/monad/execution/create_contract_address.cpp"
   "src/monad/execution/create_contract_address.hpp"
   "src/monad/execution/ethereum/dao.hpp"
@@ -120,6 +122,8 @@ add_library(
   "src/monad/execution/validate_block.hpp"
   "src/monad/execution/validate_transaction.cpp"
   "src/monad/execution/validate_transaction.hpp"
+  "src/monad/execution/wal_reader.cpp"
+  "src/monad/execution/wal_reader.hpp"
   # rlp
   "src/monad/rlp/config.hpp"
   "src/monad/rlp/decode.hpp"
@@ -130,6 +134,7 @@ add_library(
   "src/monad/state2/block_state.cpp"
   "src/monad/state2/block_state.hpp"
   "src/monad/state2/fmt/state_deltas_fmt.hpp"
+  "src/monad/state2/proposal_state.hpp"
   "src/monad/state2/state_deltas.hpp"
   # state 3
   "src/monad/state3/account_state.cpp"
@@ -152,6 +157,7 @@ target_include_directories(
 
 target_link_libraries(
   monad_execution
+  PUBLIC monad-compiler-vm
   PUBLIC monad_core
   PUBLIC monad_trie
   PRIVATE Boost::fiber
@@ -159,12 +165,10 @@ target_link_libraries(
   PRIVATE PkgConfig::brotli
   PUBLIC ethash::keccak
   PUBLIC evmc
-  PUBLIC evmone
   PUBLIC intx::intx
   PUBLIC nlohmann_json::nlohmann_json
   PUBLIC quill::quill
   PUBLIC silkpre
-  PUBLIC thread_safe_lru
   PUBLIC unordered_dense
   PUBLIC TBB::tbb)
 monad_compile_options(monad_execution)

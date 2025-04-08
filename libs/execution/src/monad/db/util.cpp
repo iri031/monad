@@ -1,15 +1,21 @@
 #include <monad/config.hpp>
 #include <monad/core/account.hpp>
 #include <monad/core/assert.h>
+#include <monad/core/block.hpp>
 #include <monad/core/byte_string.hpp>
 #include <monad/core/bytes.hpp>
 #include <monad/core/int.hpp>
 #include <monad/core/likely.h>
+#include <monad/core/receipt.hpp>
 #include <monad/core/result.hpp>
 #include <monad/core/rlp/account_rlp.hpp>
 #include <monad/core/rlp/address_rlp.hpp>
+#include <monad/core/rlp/block_rlp.hpp>
 #include <monad/core/rlp/bytes_rlp.hpp>
 #include <monad/core/rlp/int_rlp.hpp>
+#include <monad/core/rlp/receipt_rlp.hpp>
+#include <monad/core/rlp/transaction_rlp.hpp>
+#include <monad/core/transaction.hpp>
 #include <monad/core/unaligned.hpp>
 #include <monad/db/util.hpp>
 #include <monad/mpt/compute.hpp>
@@ -18,6 +24,7 @@
 #include <monad/mpt/node.hpp>
 #include <monad/mpt/ondisk_db_config.hpp>
 #include <monad/mpt/state_machine.hpp>
+#include <monad/mpt/traverse.hpp>
 #include <monad/mpt/update.hpp>
 #include <monad/mpt/util.hpp>
 #include <monad/rlp/decode.hpp>
@@ -47,6 +54,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -329,6 +337,42 @@ namespace
         }
     };
 
+    Result<byte_string_view>
+    parse_encoded_receipt_ignore_log_index(byte_string_view &enc)
+    {
+        BOOST_OUTCOME_TRY(enc, rlp::parse_list_metadata(enc));
+        return rlp::decode_string(enc);
+    }
+
+    struct ReceiptLeafProcessor
+    {
+        static byte_string_view process(byte_string_view enc)
+        {
+            auto const enc_receipt =
+                parse_encoded_receipt_ignore_log_index(enc);
+            MONAD_ASSERT(!enc_receipt.has_error());
+            return enc_receipt.value();
+        }
+    };
+
+    Result<byte_string_view>
+    parse_encoded_transaction_ignore_sender(byte_string_view &enc)
+    {
+        BOOST_OUTCOME_TRY(enc, rlp::parse_list_metadata(enc));
+        return rlp::decode_string(enc);
+    }
+
+    struct TransactionLeafProcess
+    {
+        static byte_string_view process(byte_string_view enc)
+        {
+            auto const enc_transaction =
+                parse_encoded_transaction_ignore_sender(enc);
+            MONAD_ASSERT(!enc_transaction.has_error());
+            return enc_transaction.value();
+        }
+    };
+
     using AccountMerkleCompute = MerkleComputeBase<ComputeAccountLeaf>;
     using StorageMerkleCompute = MerkleComputeBase<ComputeStorageLeaf>;
 
@@ -411,6 +455,12 @@ mpt::Compute &MachineBase::get_compute() const
     static VarLenMerkleCompute generic_merkle_compute;
     static RootVarLenMerkleCompute generic_root_merkle_compute;
 
+    static VarLenMerkleCompute<ReceiptLeafProcessor> receipt_compute;
+    static RootVarLenMerkleCompute<ReceiptLeafProcessor> receipt_root_compute;
+    static VarLenMerkleCompute<TransactionLeafProcess> transaction_compute;
+    static RootVarLenMerkleCompute<TransactionLeafProcess>
+        transaction_root_compute;
+
     auto const prefix_length = prefix_len();
     if (MONAD_LIKELY(table == TableType::State)) {
         MONAD_ASSERT(depth >= prefix_length);
@@ -427,9 +477,14 @@ mpt::Compute &MachineBase::get_compute() const
             return storage_compute;
         }
     }
-    else if (
-        table == TableType::Receipt || table == TableType::Transaction ||
-        table == TableType::Withdrawal) {
+    else if (table == TableType::Receipt) {
+        return depth == prefix_length ? receipt_root_compute : receipt_compute;
+    }
+    else if (table == TableType::Transaction) {
+        return depth == prefix_length ? transaction_root_compute
+                                      : transaction_compute;
+    }
+    else if (table == TableType::Withdrawal) {
         return depth == prefix_length ? generic_root_merkle_compute
                                       : generic_merkle_compute;
     }
@@ -461,7 +516,8 @@ void MachineBase::down(unsigned char const nibble)
          nibble == RECEIPT_NIBBLE || nibble == CALL_FRAME_NIBBLE ||
          nibble == TRANSACTION_NIBBLE || nibble == BLOCKHEADER_NIBBLE ||
          nibble == WITHDRAWAL_NIBBLE || nibble == OMMER_NIBBLE ||
-         nibble == TX_HASH_NIBBLE || nibble == BLOCK_HASH_NIBBLE) ||
+         nibble == TX_HASH_NIBBLE || nibble == BLOCK_HASH_NIBBLE ||
+         nibble == BFT_BLOCK_NIBBLE) ||
         depth != prefix_length);
     if (MONAD_UNLIKELY(depth == prefix_length)) {
         MONAD_ASSERT(table == TableType::Prefix);
@@ -490,8 +546,8 @@ void MachineBase::down(unsigned char const nibble)
             // No subtrie in the rest tables, thus treated the same as
             // Table::Prefix
             MONAD_ASSERT(
-                nibble == BLOCKHEADER_NIBBLE || nibble == OMMER_NIBBLE ||
-                nibble == CALL_FRAME_NIBBLE);
+                nibble == BLOCKHEADER_NIBBLE || nibble == BFT_BLOCK_NIBBLE ||
+                nibble == OMMER_NIBBLE || nibble == CALL_FRAME_NIBBLE);
         }
     }
 }
@@ -526,9 +582,10 @@ std::unique_ptr<StateMachine> InMemoryMachine::clone() const
 bool OnDiskMachine::cache() const
 {
     constexpr uint64_t CACHE_DEPTH_IN_TABLE = 5;
-    return (depth <= prefix_len() + CACHE_DEPTH_IN_TABLE) &&
-           (table == TableType::State || table == TableType::Code ||
-            table == TableType::TxHash || table == TableType::BlockHash);
+    return table == TableType::Prefix ||
+           ((depth <= prefix_len() + CACHE_DEPTH_IN_TABLE) &&
+            (table == TableType::State || table == TableType::Code ||
+             table == TableType::TxHash || table == TableType::BlockHash));
 }
 
 bool OnDiskMachine::compact() const
@@ -544,6 +601,33 @@ bool OnDiskMachine::auto_expire() const
 std::unique_ptr<StateMachine> OnDiskMachine::clone() const
 {
     return std::make_unique<OnDiskMachine>(*this);
+}
+
+Result<std::pair<Receipt, size_t>> decode_receipt_db(byte_string_view &enc)
+{
+    BOOST_OUTCOME_TRY(
+        auto encoded_receipt, parse_encoded_receipt_ignore_log_index(enc));
+    BOOST_OUTCOME_TRY(auto const receipt, rlp::decode_receipt(encoded_receipt));
+    BOOST_OUTCOME_TRY(
+        auto const log_index_begin, rlp::decode_unsigned<size_t>(enc));
+    if (MONAD_UNLIKELY(!enc.empty())) {
+        return rlp::DecodeError::InputTooLong;
+    }
+    return std::make_pair(receipt, log_index_begin);
+}
+
+Result<std::pair<Transaction, Address>>
+decode_transaction_db(byte_string_view &enc)
+{
+    BOOST_OUTCOME_TRY(
+        auto encoded_tx, parse_encoded_transaction_ignore_sender(enc));
+    BOOST_OUTCOME_TRY(
+        auto const transaction, rlp::decode_transaction(encoded_tx));
+    BOOST_OUTCOME_TRY(auto const sender, rlp::decode_address(enc));
+    if (MONAD_UNLIKELY(!enc.empty())) {
+        return rlp::DecodeError::InputTooLong;
+    }
+    return {transaction, sender};
 }
 
 byte_string encode_account_db(Address const &address, Account const &account)
@@ -619,7 +703,7 @@ void write_to_file(
     nlohmann::json const &j, std::filesystem::path const &root_path,
     uint64_t const block_number)
 {
-    auto const start_time = std::chrono::steady_clock::now();
+    [[maybe_unused]] auto const start_time = std::chrono::steady_clock::now();
 
     auto const dir = root_path / std::to_string(block_number);
     std::filesystem::create_directory(dir);
@@ -630,14 +714,11 @@ void write_to_file(
     std::ofstream ofile(file);
     ofile << j.dump(4);
 
-    auto const finished_time = std::chrono::steady_clock::now();
-    auto const elapsed_ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            finished_time - start_time);
     LOG_INFO(
         "Finished dumping to json file at block = {}, time elapsed = {}",
         block_number,
-        elapsed_ms);
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start_time));
 }
 
 void load_from_binary(
@@ -652,6 +733,109 @@ void load_from_binary(
     BinaryDbLoader loader{
         db, buf_size, db.is_on_disk() ? init_block_number : 0};
     loader.load(accounts, code);
+}
+
+void load_header(mpt::Db &db, BlockHeader const &header)
+{
+    using namespace mpt;
+
+    UpdateList header_updates;
+    UpdateList ls;
+    auto const n = db.is_on_disk() ? header.number : 0;
+    auto const header_encoded = rlp::encode_block_header(header);
+
+    Update block_header_update{
+        .key = block_header_nibbles,
+        .value = header_encoded,
+        .incarnation = true,
+        .next = mpt::UpdateList{},
+        .version = static_cast<int64_t>(n)};
+    header_updates.push_front(block_header_update);
+    mpt::Update u{
+        .key = finalized_nibbles,
+        .value = byte_string_view{},
+        .incarnation = false,
+        .next = std::move(header_updates),
+        .version = static_cast<int64_t>(n)};
+    ls.push_front(u);
+    db.upsert(
+        std::move(ls), n, false /* compaction */, true /* write_to_fast */);
+}
+
+mpt::Nibbles proposal_prefix(uint64_t const round_number)
+{
+    return mpt::concat(
+        PROPOSAL_NIBBLE,
+        NibblesView{serialize_as_big_endian<sizeof(uint64_t)>(round_number)});
+}
+
+std::vector<uint64_t>
+get_proposal_rounds(mpt::Db &db, uint64_t const block_number)
+{
+    static constexpr uint64_t PROPOSAL_PREFIX_LEN = 1 + sizeof(uint64_t) * 2;
+
+    class ProposalTraverseMachine final : public TraverseMachine
+    {
+        std::vector<uint64_t> &rounds_;
+        Nibbles path_;
+
+    public:
+        explicit ProposalTraverseMachine(std::vector<uint64_t> &rounds)
+            : rounds_(rounds)
+        {
+        }
+
+        ProposalTraverseMachine(ProposalTraverseMachine const &other) = default;
+
+        virtual bool down(unsigned char const branch, Node const &node) override
+        {
+            if (branch == INVALID_BRANCH) {
+                MONAD_ASSERT(path_.nibble_size() == 0);
+                path_ = node.path_nibble_view();
+                return true;
+            }
+
+            Nibbles const new_path =
+                concat(NibblesView{path_}, branch, node.path_nibble_view());
+            if (new_path.nibble_size() == PROPOSAL_PREFIX_LEN) {
+                MONAD_ASSERT(node.has_value());
+                MONAD_ASSERT(new_path.get(0) == PROPOSAL_NIBBLE);
+                rounds_.push_back(
+                    deserialize_from_big_endian<uint64_t>(new_path.substr(1)));
+                return false;
+            }
+            path_ = new_path;
+            return true;
+        }
+
+        virtual void up(unsigned char const branch, Node const &node) override
+        {
+            auto const path_view = monad::mpt::NibblesView{path_};
+            unsigned const prefix_size =
+                branch == monad::mpt::INVALID_BRANCH
+                    ? 0
+                    : path_view.nibble_size() - node.path_nibbles_len() - 1;
+            path_ = path_view.substr(0, prefix_size);
+        }
+
+        virtual bool should_visit(Node const &, unsigned char branch) override
+        {
+            if (path_.nibble_size() == 0) {
+                return branch == PROPOSAL_NIBBLE;
+            }
+            return true;
+        }
+
+        virtual std::unique_ptr<TraverseMachine> clone() const override
+        {
+            return std::make_unique<ProposalTraverseMachine>(*this);
+        }
+    };
+
+    std::vector<uint64_t> rounds;
+    ProposalTraverseMachine traverse(rounds);
+    db.traverse(db.load_root_for_version(block_number), traverse, block_number);
+    return rounds;
 }
 
 MONAD_NAMESPACE_END

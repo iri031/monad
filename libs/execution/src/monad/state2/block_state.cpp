@@ -7,11 +7,11 @@
 #include <monad/core/receipt.hpp>
 #include <monad/core/rlp/block_rlp.hpp>
 #include <monad/db/db.hpp>
-#include <monad/execution/code_analysis.hpp>
 #include <monad/state2/block_state.hpp>
 #include <monad/state2/fmt/state_deltas_fmt.hpp> // NOLINT
 #include <monad/state2/state_deltas.hpp>
 #include <monad/state3/state.hpp>
+#include <monad/vm/evmone/code_analysis.hpp>
 
 #include <ankerl/unordered_dense.h>
 
@@ -27,6 +27,8 @@ MONAD_NAMESPACE_BEGIN
 
 BlockState::BlockState(Db &db)
     : db_{db}
+    , state_(std::make_unique<StateDeltas>())
+    , code_(std::make_unique<Code>())
 {
 }
 
@@ -35,7 +37,8 @@ std::optional<Account> BlockState::read_account(Address const &address, const st
     // block state
     {
         StateDeltas::const_accessor it{};
-        if (MONAD_LIKELY(state_.find(it, address))) {
+        MONAD_ASSERT(state_);
+        if (MONAD_LIKELY(state_->find(it, address))) {
             auto account = it->second.account.second;
             if ((!txindex.has_value()) || address!=block_beneficiary){
                 return account;// reduce copying?
@@ -50,7 +53,7 @@ std::optional<Account> BlockState::read_account(Address const &address, const st
     {
         auto const result = db_.read_account(address);
         StateDeltas::const_accessor it{};
-        state_.emplace(
+        state_->emplace(
             it,
             address,
             StateDelta{.account = {result, result}, .storage = {}});
@@ -65,7 +68,8 @@ bytes32_t BlockState::read_storage(
     // block state
     {
         StateDeltas::const_accessor it{};
-        MONAD_ASSERT(state_.find(it, address));
+        MONAD_ASSERT(state_);
+        MONAD_ASSERT(state_->find(it, address));
         auto const &account = it->second.account.second;
         if (!account || incarnation != account->incarnation) {
             return {};
@@ -88,7 +92,7 @@ bytes32_t BlockState::read_storage(
                                 ? db_.read_storage(address, incarnation, key)
                                 : bytes32_t{};
         StateDeltas::accessor it{};
-        MONAD_ASSERT(state_.find(it, address));
+        MONAD_ASSERT(state_->find(it, address));
         auto const &account = it->second.account.second;
         if (!account || incarnation != account->incarnation) {
             return result;
@@ -107,7 +111,8 @@ std::shared_ptr<CodeAnalysis> BlockState::read_code(bytes32_t const &code_hash)
     // block state
     {
         Code::const_accessor it{};
-        if (MONAD_LIKELY(code_.find(it, code_hash))) {
+        MONAD_ASSERT(code_);
+        if (MONAD_LIKELY(code_->find(it, code_hash))) {
             return it->second;
         }
     }
@@ -116,9 +121,9 @@ std::shared_ptr<CodeAnalysis> BlockState::read_code(bytes32_t const &code_hash)
         auto const result = db_.read_code(code_hash);
         MONAD_ASSERT(result);
         MONAD_ASSERT(
-            code_hash == NULL_HASH || !result->executable_code.empty());
+            code_hash == NULL_HASH || !result->executable_code().empty());
         Code::const_accessor it{};
-        code_.emplace(it, code_hash, result);
+        code_->emplace(it, code_hash, result);
         return it->second;
     }
 }
@@ -150,6 +155,7 @@ bool BlockState::can_merge_par(
     State const &state, uint64_t tx_index, bool & beneficiary_touched, bool parallel_beneficiary)
 {
     beneficiary_touched = false;
+    MONAD_ASSERT(state_);
     for (auto const &[address, account_state] : state.original_) {
         auto const &account = account_state.account_;
         auto const &storage = account_state.storage_;
@@ -162,7 +168,7 @@ bool BlockState::can_merge_par(
             beneficiary_touched = true;
         }
         else{
-            MONAD_ASSERT(state_.find(it, address));
+            MONAD_ASSERT(state_->find(it, address));
             if (account != it->second.account.second) {
                 return false;
             }
@@ -199,20 +205,22 @@ void BlockState::merge_par(State const &state, uint64_t tx_index, std::optional<
         }
     }
 
+    MONAD_ASSERT(code_);
     for (auto const &code_hash : code_hashes) {
         auto const it = state.code_.find(code_hash);
         if (it == state.code_.end()) {
             continue;
         }
-        code_.emplace(code_hash, it->second); // TODO try_emplace
+        code_->emplace(code_hash, it->second); // TODO try_emplace
     }
 
+    MONAD_ASSERT(state_);
     for (auto const &[address, stack] : state.current_) {
         auto const &account_state = stack.recent();
         auto const &account = account_state.account_;
         auto const &storage = account_state.storage_;
         StateDeltas::accessor it{};
-        MONAD_ASSERT(state_.find(it, address));
+        MONAD_ASSERT(state_->find(it, address));
         it->second.account.second = account;
         if (account.has_value()) {
             for (auto const &[key, value] : storage) {
@@ -247,29 +255,32 @@ void BlockState::merge_par(State const &state, uint64_t tx_index, std::optional<
 }
 
 void BlockState::commit(
-    BlockHeader const &header, std::vector<Receipt> const &receipts,
+    MonadConsensusBlockHeader const &consensus_header,
+    std::vector<Receipt> const &receipts,
     std::vector<std::vector<CallFrame>> const &call_frames,
+    std::vector<Address> const &senders,
     std::vector<Transaction> const &transactions,
     std::vector<BlockHeader> const &ommers,
-    std::optional<std::vector<Withdrawal>> const &withdrawals,
-    std::optional<uint64_t> round_number)
+    std::optional<std::vector<Withdrawal>> const &withdrawals)
 {
     db_.commit(
-        state_,
-        code_,
-        header,
+        std::move(state_),
+        std::move(code_),
+        consensus_header,
         receipts,
         call_frames,
+        senders,
         transactions,
         ommers,
-        withdrawals,
-        round_number);
+        withdrawals);
 }
 
 void BlockState::log_debug()
 {
-    LOG_DEBUG("State Deltas: {}", state_);
-    LOG_DEBUG("Code Deltas: {}", code_);
+    MONAD_ASSERT(state_);
+    MONAD_ASSERT(code_);
+    LOG_DEBUG("State Deltas: {}", *state_);
+    LOG_DEBUG("Code Deltas: {}", *code_);
 }
 
 MONAD_NAMESPACE_END

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <monad/async/config.hpp>
+#include <monad/lru/static_lru_cache.hpp>
 #include <monad/mpt/compute.hpp>
 #include <monad/mpt/config.hpp>
 #include <monad/mpt/detail/collected_stats.hpp>
@@ -31,6 +32,7 @@
 #include <bit>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <vector>
 
 // temporary
@@ -177,7 +179,27 @@ class UpdateAuxImpl
 
     void free_compacted_chunks();
 
-    void erase_version(uint64_t const version);
+    // clear root offsets of versions <= version
+    void clear_root_offsets_up_to_and_including(uint64_t version);
+    void release_unreferenced_chunks();
+    // clear all versions <= version, release unused disk space
+    void erase_versions_up_to_and_including(uint64_t version);
+
+    /* Calculate the version up to which the database will automatically expire
+    entries (referred to as "auto_expire" in code names).
+
+    Currently, the db auto-expires at most 2 blocks per upsert as a
+    temporary workaround to reduce the sudden increase in auto-expiration
+    workload during upserts that significantly shorten the history length.
+
+    TODO: Develop a more efficient and scalable mechanism for auto-expiration
+    throttling. The goal is to ensure stable database commit times despite
+    varying block loads. */
+    int64_t calc_auto_expire_version() noexcept;
+
+    void set_auto_expire_version_metadata(int64_t) noexcept;
+
+    void update_disk_growth_data();
 
     /******** Compaction ********/
     uint32_t chunks_to_remove_before_count_fast_{0};
@@ -350,8 +372,7 @@ protected:
     };
 
 public:
-    int64_t min_version_after_upsert{0};
-
+    int64_t curr_upsert_auto_expire_version{0};
     compact_virtual_chunk_offset_t compact_offset_fast{
         MIN_COMPACT_VIRTUAL_OFFSET};
     compact_virtual_chunk_offset_t compact_offset_slow{
@@ -517,13 +538,14 @@ public:
     Node::UniquePtr do_update(
         Node::UniquePtr prev_root, StateMachine &, UpdateList &&,
         uint64_t version, bool compaction = false,
-        bool can_write_to_fast = true);
+        bool can_write_to_fast = true, bool write_root = true);
 
     void adjust_history_length_based_on_disk_usage();
     void move_trie_version_forward(uint64_t src, uint64_t dest);
 
     // collect and print trie update stats
     void reset_stats();
+    void collect_expire_stats(bool is_read);
     void collect_number_nodes_created_stats();
     void collect_compaction_read_stats(
         chunk_offset_t node_offset, unsigned bytes_to_read);
@@ -531,7 +553,7 @@ public:
         bool const copy_node_for_fast, bool const rewrite_to_fast,
         virtual_chunk_offset_t node_offset, uint32_t node_disk_size);
 
-    void print_update_stats();
+    void print_update_stats(uint64_t version);
 
     enum class chunk_list : uint8_t
     {
@@ -694,15 +716,21 @@ public:
     void fast_forward_next_version(uint64_t version) noexcept;
 
     void update_history_length_metadata(uint64_t history_len) noexcept;
-    void set_latest_finalized_version(uint64_t) noexcept;
-    void set_latest_verified_version(uint64_t) noexcept;
+    void set_latest_finalized_version(uint64_t version) noexcept;
+    void set_latest_verified_version(uint64_t version) noexcept;
+    void set_latest_voted(uint64_t version, uint64_t round) noexcept;
     uint64_t get_latest_finalized_version() const noexcept;
     uint64_t get_latest_verified_version() const noexcept;
+    uint64_t get_latest_voted_round() const noexcept;
+    uint64_t get_latest_voted_version() const noexcept;
+
+    int64_t get_auto_expire_version_metadata() const noexcept;
 
     // WARNING: These are destructive, they discard immediately any extraneous
     // data.
     void rewind_to_match_offsets();
     void rewind_to_version(uint64_t version);
+    void clear_ondisk_db();
 
     void set_initial_insertion_count_unit_testing_only(uint32_t count)
     {
@@ -979,7 +1007,7 @@ void async_read(UpdateAuxImpl &aux, Receiver &&receiver)
 // batch upsert, updates can be nested
 Node::UniquePtr upsert(
     UpdateAuxImpl &, uint64_t, StateMachine &, Node::UniquePtr old,
-    UpdateList &&);
+    UpdateList &&, bool write_root = true);
 
 // Performs a deep copy of a subtrie from `src_root` trie at
 // `src_prefix` to the `dest_root` trie at `dest_prefix`.
@@ -988,7 +1016,7 @@ Node::UniquePtr upsert(
 // The in-memory effect is similar to a move operation.
 Node::UniquePtr copy_trie_to_dest(
     UpdateAuxImpl &, Node &src_root, NibblesView src_prefix,
-    Node::UniquePtr dest_root, NibblesView dest_prefx,
+    uint64_t src_version, Node::UniquePtr dest_root, NibblesView dest_prefx,
     uint64_t const dest_version, bool must_write_to_disk);
 
 // load all nodes as far as caching policy would allow
@@ -1008,18 +1036,29 @@ enum class find_result : uint8_t
     key_ends_earlier_than_node_failure,
     need_to_continue_in_io_thread
 };
-using find_result_type = std::pair<NodeCursor, find_result>;
+template <class T>
+using find_result_type = std::pair<T, find_result>;
+
+using find_cursor_result_type = find_result_type<NodeCursor>;
+using find_owning_cursor_result_type = find_result_type<OwningNodeCursor>;
 
 using inflight_map_t = unordered_dense_map<
     chunk_offset_t,
     std::vector<std::function<MONAD_ASYNC_NAMESPACE::result<void>(NodeCursor)>>,
     chunk_offset_t_hasher>;
 
+using inflight_map_owning_t = unordered_dense_map<
+    chunk_offset_t,
+    std::pair< // pair: (max version of all requests, vector of continuations)
+        uint64_t, std::vector<std::function<MONAD_ASYNC_NAMESPACE::result<void>(
+                      OwningNodeCursor &)>>>,
+    chunk_offset_t_hasher>;
+
 // The request type to put to the fiber buffered channel for triedb thread
 // to work on
 struct fiber_find_request_t
 {
-    threadsafe_boost_fibers_promise<find_result_type> *promise;
+    threadsafe_boost_fibers_promise<find_cursor_result_type> *promise;
     NodeCursor start{};
     NibblesView key{};
 };
@@ -1028,21 +1067,47 @@ static_assert(sizeof(fiber_find_request_t) == 40);
 static_assert(alignof(fiber_find_request_t) == 8);
 static_assert(std::is_trivially_copyable_v<fiber_find_request_t> == true);
 
+using NodeCache = static_lru_cache<
+    chunk_offset_t, std::shared_ptr<Node>, chunk_offset_t_hasher>;
+
 //! \warning this is not threadsafe, should only be called from triedb thread
 // during execution, DO NOT invoke it directly from a transaction fiber, as is
 // not race free.
 void find_notify_fiber_future(
-    UpdateAuxImpl &, inflight_map_t &inflights, fiber_find_request_t);
+    UpdateAuxImpl &, inflight_map_t &,
+    threadsafe_boost_fibers_promise<find_cursor_result_type> &,
+    NodeCursor start, NibblesView key);
+
+// rodb
+void find_owning_notify_fiber_future(
+    UpdateAuxImpl &, NodeCache &, inflight_map_owning_t &,
+    threadsafe_boost_fibers_promise<find_owning_cursor_result_type> &promise,
+    OwningNodeCursor &start, NibblesView, uint64_t version);
+
+// rodb load root
+void load_root_notify_fiber_future(
+    UpdateAuxImpl &, NodeCache &, inflight_map_owning_t &,
+    threadsafe_boost_fibers_promise<find_owning_cursor_result_type> &promise,
+    uint64_t version);
 
 /*! \brief blocking find node indexed by key from root, It works for both
 on-disk and in-memory trie. When node along key is not yet in memory, it loads
 the node through blocking read.
 
-\warning Should only invoke it from the triedb owning
-thread, as no synchronization is provided, and user code should make sure no
-other place is modifying trie. */
-find_result_type
-find_blocking(UpdateAuxImpl const &, NodeCursor, NibblesView key);
+\warning Should only invoke it from the triedb owning thread, as no
+synchronization is provided, and user code should make sure no other place is
+modifying trie.
+*/
+find_cursor_result_type find_blocking(
+    UpdateAuxImpl const &, NodeCursor, NibblesView key, uint64_t version);
+
+/* This function reads a node from the specified physical offset `node_offset`,
+where the spare bits indicate the number of pages to read. It returns a valid
+`Node::UniquePtr` on success, and returns `nullptr` if the specified version
+becomes invalid.
+*/
+Node::UniquePtr read_node_blocking(
+    UpdateAuxImpl const &, chunk_offset_t node_offset, uint64_t version);
 
 //////////////////////////////////////////////////////////////////////////////
 // helpers

@@ -17,13 +17,14 @@
 #include <monad/core/keccak.hpp>
 #include <monad/core/receipt.hpp>
 #include <monad/db/db.hpp>
-#include <monad/execution/code_analysis.hpp>
 #include <monad/execution/trace/call_tracer.hpp>
 #include <monad/state2/state_deltas.hpp>
 #include <monad/types/incarnation.hpp>
 #include <intx/intx.hpp>
 #include <quill/detail/LogMacros.h>
 #include <set>
+#include <monad/vm/evmone/code_analysis.hpp>
+
 #include <memory>
 #include <vector>
 
@@ -33,8 +34,8 @@ class State;
 class BlockState final
 {
     Db &db_;
-    StateDeltas state_{};
-    Code code_{};
+    std::unique_ptr<StateDeltas> state_;
+    std::unique_ptr<Code> code_;
     std::vector<std::pair<::intx::uint256,bool>> beneficiary_balance_updates;//bool true represents increment by ith transaction, false represents absolute value at the end of ith transaction
     monad::Address block_beneficiary;
     uint256_t preblock_beneficiary_balance;
@@ -121,12 +122,12 @@ public:
     // TODO: remove round_number parameter, retrieve it from header instead once
     // we add the monad fields in BlockHeader
     void commit(
-        BlockHeader const &, std::vector<Receipt> const &,
-        std::vector<std::vector<CallFrame>> const &,
-        std::vector<Transaction> const &,
-        std::vector<BlockHeader> const &ommers,
-        std::optional<std::vector<Withdrawal>> const &,
-        std::optional<uint64_t> round_number = std::nullopt);
+        MonadConsensusBlockHeader const &, std::vector<Receipt> const & = {},
+        std::vector<std::vector<CallFrame>> const & = {},
+        std::vector<Address> const & = {},
+        std::vector<Transaction> const & = {},
+        std::vector<BlockHeader> const &ommers = {},
+        std::optional<std::vector<Withdrawal>> const & = {});
 
     void log_debug();
 };
