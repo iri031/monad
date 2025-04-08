@@ -132,6 +132,7 @@ public:
         std::allocator<Node>, BytesAllocator, &Node::pool,
         &Node::get_deallocate_count>;
     using UniquePtr = std::unique_ptr<Node, Deleter>;
+    using SharedPtr = std::shared_ptr<Node>;
 
     /* 16-bit mask for children */
     uint16_t mask{0};

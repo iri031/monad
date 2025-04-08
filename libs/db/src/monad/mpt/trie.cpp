@@ -44,16 +44,16 @@ using namespace MONAD_ASYNC_NAMESPACE;
 */
 void dispatch_updates_flat_list_(
     UpdateAuxImpl &, StateMachine &, UpdateTNode &parent, ChildData &,
-    Node::UniquePtr old, Requests &, NibblesView path, unsigned prefix_index);
+    Node::SharedPtr old, Requests &, NibblesView path, unsigned prefix_index);
 
 void dispatch_updates_impl_(
     UpdateAuxImpl &, StateMachine &, UpdateTNode &parent, ChildData &,
-    Node::UniquePtr old, Requests &, unsigned prefix_index, NibblesView path,
+    Node::SharedPtr old, Requests &, unsigned prefix_index, NibblesView path,
     std::optional<byte_string_view> opt_leaf_data, int64_t version);
 
 void mismatch_handler_(
     UpdateAuxImpl &, StateMachine &, UpdateTNode &parent, ChildData &,
-    Node::UniquePtr old, Requests &, NibblesView path,
+    Node::SharedPtr old, Requests &, NibblesView path,
     unsigned old_prefix_index, unsigned prefix_index);
 
 void create_new_trie_(
@@ -67,7 +67,7 @@ void create_new_trie_from_requests_(
 
 void upsert_(
     UpdateAuxImpl &, StateMachine &, UpdateTNode &parent, ChildData &,
-    Node::UniquePtr old, chunk_offset_t offset, UpdateList &&,
+    Node::SharedPtr old, chunk_offset_t offset, UpdateList &&,
     unsigned prefix_index = 0, unsigned old_prefix_index = 0);
 
 void create_node_compute_data_possibly_async(
@@ -109,12 +109,14 @@ Node::UniquePtr upsert(
         ChildData &entry = sentinel->children[0];
         sentinel->children[0] = ChildData{.branch = 0};
         if (old) {
+            Node::SharedPtr const old_node = std::move(old);
+
             upsert_(
                 aux,
                 sm,
                 *sentinel,
                 entry,
-                std::move(old),
+                old_node,
                 INVALID_OFFSET,
                 std::move(updates));
             if (sentinel->npending) {
@@ -825,7 +827,7 @@ void create_node_compute_data_possibly_async(
 
 void update_value_and_subtrie_(
     UpdateAuxImpl &aux, StateMachine &sm, UpdateTNode &parent, ChildData &entry,
-    Node::UniquePtr old, NibblesView const path, Update &update)
+    Node::SharedPtr old, NibblesView const path, Update &update)
 {
     if (update.is_deletion()) {
         parent.mask &= static_cast<uint16_t>(~(1u << entry.branch));
@@ -860,7 +862,7 @@ void update_value_and_subtrie_(
             sm,
             parent,
             entry,
-            std::move(old),
+            old,
             requests,
             0,
             path,
@@ -994,7 +996,7 @@ void create_new_trie_from_requests_(
 
 void upsert_(
     UpdateAuxImpl &aux, StateMachine &sm, UpdateTNode &parent, ChildData &entry,
-    Node::UniquePtr old, chunk_offset_t const old_offset, UpdateList &&updates,
+    Node::SharedPtr old, chunk_offset_t const old_offset, UpdateList &&updates,
     unsigned prefix_index, unsigned old_prefix_index)
 {
     if (!old) {
@@ -1026,7 +1028,7 @@ void upsert_(
             MONAD_ASSERT(old->path_nibble_index_end == old_prefix_index);
             MONAD_ASSERT(old->has_value());
             update_value_and_subtrie_(
-                aux, sm, parent, entry, std::move(old), path, update);
+                aux, sm, parent, entry, old, path, update);
             break;
         }
         unsigned const number_of_sublists = requests.split_into_sublists(
@@ -1051,7 +1053,7 @@ void upsert_(
                 sm,
                 parent,
                 entry,
-                std::move(old),
+                old,
                 requests,
                 path,
                 prefix_index);
@@ -1073,7 +1075,7 @@ void upsert_(
             sm,
             parent,
             entry,
-            std::move(old),
+            old,
             requests,
             path,
             old_prefix_index,
@@ -1102,7 +1104,7 @@ void fillin_entry(
  * and there might be update to the leaf value. */
 void dispatch_updates_impl_(
     UpdateAuxImpl &aux, StateMachine &sm, UpdateTNode &parent, ChildData &entry,
-    Node::UniquePtr old_ptr, Requests &requests, unsigned const prefix_index,
+    Node::SharedPtr old_ptr, Requests &requests, unsigned const prefix_index,
     NibblesView const path, std::optional<byte_string_view> const opt_leaf_data,
     int64_t const version)
 {
@@ -1111,6 +1113,11 @@ void dispatch_updates_impl_(
     auto const number_of_children =
         static_cast<unsigned>(std::popcount(orig_mask));
     // tnode->version will be updated bottom up
+
+    // likely don't want to hold onto a shared reference beyond this
+    // there must be some sync mechanism to wait until *old_ptr.get() == unique
+    // the reference to tnode is invalidated, this is not great.
+
     auto tnode = make_tnode(
         orig_mask,
         &parent,
@@ -1118,7 +1125,7 @@ void dispatch_updates_impl_(
         path,
         version,
         opt_leaf_data,
-        opt_leaf_data.has_value() ? std::move(old_ptr) : Node::UniquePtr{});
+        opt_leaf_data.has_value() ? Node::UniquePtr{} : Node::UniquePtr{});
     MONAD_DEBUG_ASSERT(tnode->children.size() == number_of_children);
     auto &children = tnode->children;
 
@@ -1197,7 +1204,7 @@ void dispatch_updates_impl_(
 
 void dispatch_updates_flat_list_(
     UpdateAuxImpl &aux, StateMachine &sm, UpdateTNode &parent, ChildData &entry,
-    Node::UniquePtr old, Requests &requests, NibblesView const path,
+    Node::SharedPtr old, Requests &requests, NibblesView const path,
     unsigned prefix_index)
 {
     auto &opt_leaf = requests.opt_leaf;
@@ -1250,7 +1257,7 @@ void dispatch_updates_flat_list_(
 // prefix_index to `requests`, which can have 1 or more sublists.
 void mismatch_handler_(
     UpdateAuxImpl &aux, StateMachine &sm, UpdateTNode &parent, ChildData &entry,
-    Node::UniquePtr old_ptr, Requests &requests, NibblesView const path,
+    Node::SharedPtr old_ptr, Requests &requests, NibblesView const path,
     unsigned const old_prefix_index, unsigned const prefix_index)
 {
     Node &old = *old_ptr;
