@@ -249,11 +249,12 @@ Result<std::vector<ExecutionResult>> execute_block(
     parallel_commit_system.reset(block.transactions.size(), block.header.beneficiary);
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         priority_pool.submit(
-            i,
+            0,
             [i = i,
              senders = senders,
              promises = promises,
              &block_state = block_state,
+             &priority_pool = priority_pool,
              &callee_pred_info = callee_pred_info,
              &transaction = block.transactions[i]] {
                 senders[i] = recover_sender(transaction);
@@ -262,6 +263,14 @@ Result<std::vector<ExecutionResult>> execute_block(
                 parallel_commit_system.declareFootprint(i, footprint);
                 //print_footprint(footprint, i);
                 promises[i].set_value();
+                if(footprint) {
+                    for(auto const &addr: *footprint) {
+                        priority_pool.submit(1, [&addr=addr, &block_state] {
+                                block_state.cache_account(addr);
+                        });
+                    }
+                }
+
             });
     }
     block_state.load_preblock_beneficiary_balance();
