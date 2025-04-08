@@ -79,7 +79,7 @@ public:
     inline bool eq_beneficiary_ac_before_txindex(Account const &other, uint64_t tx_index) const
     {
         StateDeltas::const_accessor it{};
-        MONAD_ASSERT(state_.find(it, block_beneficiary));// TODO: drop?
+        MONAD_ASSERT(state_->find(it, block_beneficiary));// TODO: drop?
         assert(it->second.account.second.has_value());
         const monad::Account &beneficiary_account =
             it->second.account.second.value();

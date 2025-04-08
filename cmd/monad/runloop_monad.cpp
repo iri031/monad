@@ -75,6 +75,7 @@ bft_id_for_finalized_block(mpt::Db const &db, uint64_t const block_id)
     return to_bytes(blake3(encoded_bft_header.value()));
 }
 
+CalleePredInfo cinfo;// TODO: initialize it properly. currently only supported for ethereum
 Result<std::pair<bytes32_t, uint64_t>> on_proposal_event(
     MonadConsensusBlockHeader const &consensus_header, Block block,
     BlockHashBuffer const &block_hash_buffer, Chain const &chain, Db &db,
@@ -96,7 +97,7 @@ Result<std::pair<bytes32_t, uint64_t>> on_proposal_event(
     BOOST_OUTCOME_TRY(
         auto results,
         execute_block(
-            chain, rev, block, block_state, block_hash_buffer, priority_pool));
+            chain, rev, block, block_state, block_hash_buffer, priority_pool, cinfo));
 
     std::vector<Receipt> receipts(results.size());
     std::vector<std::vector<CallFrame>> call_frames(results.size());
