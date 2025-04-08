@@ -51,6 +51,7 @@ public:
         beneficiary_balance_updates.clear();// TODO(aa): preallocate statically
         beneficiary_balance_updates.resize(num_txs,std::make_pair(0,BENEFICIARY_BALANCE_INCREMENT));
     }
+    void cache_account(Address const &);
 
     BlockState(Db &);
 
