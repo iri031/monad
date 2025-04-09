@@ -60,3 +60,10 @@ endif()
 if(MONAD_COMPILER_TESTING)
   add_subdirectory(vm/type-check)
 endif()
+
+add_executable(
+  fiber_test
+  fiber_test.cpp
+)
+monad_compile_options(fiber_test)
+target_link_libraries(fiber_test PRIVATE monad_core PUBLIC quill::quill)
