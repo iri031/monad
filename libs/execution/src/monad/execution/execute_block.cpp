@@ -94,15 +94,6 @@ inline void set_beacon_root(BlockState &block_state, Block &block)
 
 #define MAX_FOOTPRINT_SIZE 15
 
-//this is cheating a tiny bit as it knows more than what we would know in production. 
-// specifically, if an address was never seen in previous blocks, it is not known to be a contract account blocks, we cannot know the correct answer here. 
-// but because we already have the static analysis of all contracts called beforehand, we are able to look into the future here. 
-//the impact of this cheagint should likely be insignificant in tps. 
-// the above impl doesnt cleat but it loads the account from DB which is an expensive thing to do to just compute footprints, which is done even before transactions are started
-bool address_known_to_be_non_contract_cheat(evmc::address address, CalleePredInfo &cinfo) {
-    return (cinfo.code_hashes.find(address)==cinfo.code_hashes.end());
-}
-
 // if this returns true, then the address MUST be a non-contract account. for correctness, it can always return false, but for performance, it should do that only for addresses created in this block.
 bool address_known_to_be_non_contract(BlockState &block_state, evmc::address address) {
     auto const to_account = block_state.read_account(address);
@@ -121,7 +112,7 @@ bool address_known_to_be_non_contract(BlockState &block_state, evmc::address add
 /** returns true iff the footprint has been overapproximated to INF. in that case, footprint is deleted 
  * \pre address_known_to_be_non_contract(runningAddress)=false, which means runningAddress has a non-empty code hash or hasnt been seen until this block
 */
-bool insert_callees(std::shared_ptr<std::set<evmc::address>> footprint, std::vector<evmc::address> & to_be_explored, std::set<evmc::address> & seen_delegate_callees, evmc::address runningAddress, CalleePredInfo &callee_pred_info) {
+bool insert_callees(BlockState &block_state, std::shared_ptr<std::set<evmc::address>> footprint, std::vector<evmc::address> & to_be_explored, std::set<evmc::address> & seen_delegate_callees, evmc::address runningAddress, CalleePredInfo &callee_pred_info) {
     if(footprint->size()>MAX_FOOTPRINT_SIZE) {
         return true;
     }
@@ -134,7 +125,7 @@ bool insert_callees(std::shared_ptr<std::set<evmc::address>> footprint, std::vec
     for (uint32_t index : calles.value()->callees) {
         evmc::address callee_addr=get_address(index, callee_pred_info.epool);
         auto res=footprint->insert(callee_addr);
-        if(address_known_to_be_non_contract_cheat(callee_addr, callee_pred_info)) {
+        if(address_known_to_be_non_contract(block_state, callee_addr)) {
             //LOG_INFO("insert_callees: callee_addr: {} is known_to_be_non_contract", callee_addr);
             continue;
         }
@@ -144,7 +135,7 @@ bool insert_callees(std::shared_ptr<std::set<evmc::address>> footprint, std::vec
     }
     for (uint32_t index : calles.value()->delegateCallees) {
         evmc::address callee_addr=get_address(index, callee_pred_info.epool);
-        if(address_known_to_be_non_contract_cheat(callee_addr, callee_pred_info)) {
+        if(address_known_to_be_non_contract(block_state, callee_addr)) {
             continue;
         }
         if (footprint->find(callee_addr)!=footprint->end()) {// this was already insested to to_be_explored
@@ -161,7 +152,7 @@ bool insert_callees(std::shared_ptr<std::set<evmc::address>> footprint, std::vec
 
 // sender address is later added to the footprint by the caller, because sender.nonce is updated by the transaction
 // for now, we assume that no transaction calls a contract created by a previous transaction in this very block. need to extend static analysis to look at predicted stacks at CREATE/CREATE2
- std::shared_ptr<std::set<evmc::address>> compute_footprint(Transaction const &transaction, CalleePredInfo &callee_pred_info, uint64_t /*tx_index*/=0) {
+ std::shared_ptr<std::set<evmc::address>> compute_footprint(BlockState &block_state, Transaction const &transaction, CalleePredInfo &callee_pred_info, uint64_t /*tx_index*/=0) {
     if(!transaction.to.has_value()) {
         //LOG_INFO("compute_footprint: tx_index: {} has no empty to value", tx_index);
         return nullptr;//this is sound but not optimal for performance. add a way for the ParallelCommitSystem to  know that this is creating a NEW contract, so that we know that there is no conflict with block-pre-existing contracts
@@ -169,7 +160,7 @@ bool insert_callees(std::shared_ptr<std::set<evmc::address>> footprint, std::vec
     evmc::address runningAddress = transaction.to.value();
     std::shared_ptr<std::set<evmc::address>> footprint=std::make_shared<std::set<evmc::address>>();
     footprint->insert(runningAddress);
-    if(address_known_to_be_non_contract_cheat(transaction.to.value(), callee_pred_info)) {
+    if(address_known_to_be_non_contract(block_state, transaction.to.value())) {
         //LOG_INFO("compute_footprint: tx_index: {} address_known_to_be_non_contract: {}", tx_index, runningAddress);
         return footprint;
     }
@@ -182,7 +173,7 @@ bool insert_callees(std::shared_ptr<std::set<evmc::address>> footprint, std::vec
     while((!overapproximated)&&(to_be_explored.size()>0)) {
         evmc::address runningAddress=to_be_explored.back();
         to_be_explored.pop_back();
-        overapproximated=insert_callees(footprint, to_be_explored, seen_delegate_callees, runningAddress, callee_pred_info);
+        overapproximated=insert_callees(block_state, footprint, to_be_explored, seen_delegate_callees, runningAddress, callee_pred_info);
     }
     if(overapproximated) {
         return nullptr;
@@ -249,28 +240,19 @@ Result<std::vector<ExecutionResult>> execute_block(
     parallel_commit_system.reset(block.transactions.size(), block.header.beneficiary);
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         priority_pool.submit(
-            0,
+            i,
             [i = i,
              senders = senders,
              promises = promises,
              &block_state = block_state,
-             &priority_pool = priority_pool,
              &callee_pred_info = callee_pred_info,
              &transaction = block.transactions[i]] {
                 senders[i] = recover_sender(transaction);
-                std::shared_ptr<std::set<evmc::address>> footprint=compute_footprint(transaction, callee_pred_info, i);
+                std::shared_ptr<std::set<evmc::address>> footprint=compute_footprint(block_state, transaction, callee_pred_info, i);
                 insert_to_footprint(footprint, senders[i].value());// because the footprint depends on senders, this cannot be done before senders are computed
                 parallel_commit_system.declareFootprint(i, footprint);
                 //print_footprint(footprint, i);
                 promises[i].set_value();
-                if(footprint) {
-                    for(auto const &addr: *footprint) {
-                        priority_pool.submit(1, [&addr=addr, &block_state] {
-                                block_state.cache_account(addr);
-                        });
-                    }
-                }
-
             });
     }
     block_state.load_preblock_beneficiary_balance();
