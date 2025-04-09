@@ -66,7 +66,7 @@ void BlockState::cache_account(Address const &address)
     // block state
     {
         StateDeltas::const_accessor it{};
-        if (state_.find(it, address)) {
+        if (state_->find(it, address)) {
             return;
         }
     }
@@ -74,7 +74,7 @@ void BlockState::cache_account(Address const &address)
     {
         auto const result = db_.read_account(address);
         StateDeltas::const_accessor it{};
-        state_.emplace(
+        state_->emplace(
             it,
             address,
             StateDelta{.account = {result, result}, .storage = {}});
