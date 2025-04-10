@@ -301,13 +301,13 @@ Result<std::vector<ExecutionResult>> execute_block(
                 parallel_commit_system.declareFootprint(i, footprint);
                 //print_footprint(footprint, i);
                 promises[i].set_value();
-                if(footprint) {
-                    for(auto const &addr: *footprint) {
-                        priority_pool.submit(1, [&addr=addr, &block_state] {
-                                block_state.cache_account(addr);
-                        });
-                    }
-                }
+                // if(footprint) {
+                //     for(auto const &addr: *footprint) {
+                //         priority_pool.submit(1, [&addr=addr, &block_state] {
+                //                 block_state.cache_account(addr);
+                //         });
+                //     }
+                // }
 
             });
     }
