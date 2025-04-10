@@ -130,9 +130,15 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
 //    printPredictions(cinfo.epool, cinfo.predictions, "predictions.txt");
 //    std::terminate();
     initFibers();
+    #ifdef COMPUTE_IDEAL_FP
+        getIdealFP().resize(nblocks);
+    #endif
+    #ifdef USE_IDEAL_FP
+        unserializeIdealFP(getIdealFP(), "/home/abhishek/contracts15m/ideal_fp.bin");
+    #endif
 
 
-
+    setStartBlockNumber(block_num);
     auto batch_begin = std::chrono::steady_clock::now();
     uint64_t ntxs = 0;
 
@@ -224,6 +230,9 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
         log_tps(
             block_num, batch_num_blocks, batch_num_txs, batch_gas, batch_begin);
     }
+    #ifdef COMPUTE_IDEAL_FP
+        serializeIdealFP(getIdealFP(), "/home/abhishek/contracts15m/ideal_fp.bin");
+    #endif    
     return {ntxs, total_gas};
 }
 
