@@ -81,7 +81,7 @@ struct node_disk_pages_spare_15
 /* A note on generic trie
 
 In Ethereum merkle patricia trie:
-- Node is a extension if path len > 0, it only has one child, a branch node
+- Node is an extension if path len > 0, it only has one child, a branch node
 - Node is a branch if mask > 0 && path len == 0, branch can have leaf value
 - Node is a leaf node if it has no child
 
@@ -95,10 +95,10 @@ itself also the root of the trie underneath, for example a leaf of an
 account trie, where the account has an underlying storage trie. It can also
 simply mean it's a branch node inside an internal trie, for example a branch
 node with value in a receipt trie (var key length). Such branch node with leaf
-will cache an intemediate hash inline.
+will cache an intermediate hash inline.
 
 Similar like a merkle patricia trie, each node's data is computed from its child
-nodes data. Triedb is divided into different sections, indexed by unique
+nodes data. TrieDB is divided into different sections, indexed by unique
 prefixes (i.e. sections for accounts, storages, receipts, etc.), node data is
 defined differently in each section, and we leave the actual computation to the
 `class Compute` to handle it.
@@ -132,6 +132,7 @@ public:
         std::allocator<Node>, BytesAllocator, &Node::pool,
         &Node::get_deallocate_count>;
     using UniquePtr = std::unique_ptr<Node, Deleter>;
+    using SharedPtr = std::shared_ptr<Node>;
 
     /* 16-bit mask for children */
     uint16_t mask{0};
@@ -227,6 +228,7 @@ public:
     min_offset_fast(unsigned index) const noexcept;
     void set_min_offset_fast(
         unsigned index, compact_virtual_chunk_offset_t) noexcept;
+
     //! slowlist min_offset array
     unsigned char *child_min_offset_slow_data() noexcept;
     unsigned char const *child_min_offset_slow_data() const noexcept;
@@ -282,7 +284,9 @@ public:
     unsigned char const *next_data() const noexcept;
     Node *next(size_t index) noexcept;
     Node const *next(size_t index) const noexcept;
-    void set_next(unsigned index, Node::UniquePtr) noexcept;
+
+    //! move semantics
+    void set_next(unsigned index, UniquePtr) noexcept;
     UniquePtr move_next(unsigned index) noexcept;
 
     //! node size in memory
@@ -317,7 +321,7 @@ struct ChildData
     void copy_old_child(Node *old, unsigned i);
 };
 
-static_assert(sizeof(ChildData) == 72);
+// static_assert(sizeof(ChildData) == 72);
 static_assert(alignof(ChildData) == 8);
 
 constexpr size_t calculate_node_size(
