@@ -1,12 +1,12 @@
 #pragma once
 
 #include <monad/async/config.hpp>
-#include <monad/lru/static_lru_cache.hpp>
 #include <monad/mpt/compute.hpp>
 #include <monad/mpt/config.hpp>
 #include <monad/mpt/detail/collected_stats.hpp>
 #include <monad/mpt/detail/db_metadata.hpp>
 #include <monad/mpt/node.hpp>
+#include <monad/mpt/node_cache.hpp>
 #include <monad/mpt/node_cursor.hpp>
 #include <monad/mpt/state_machine.hpp>
 #include <monad/mpt/update.hpp>
@@ -1067,9 +1067,6 @@ struct fiber_find_request_t
 static_assert(sizeof(fiber_find_request_t) == 40);
 static_assert(alignof(fiber_find_request_t) == 8);
 static_assert(std::is_trivially_copyable_v<fiber_find_request_t> == true);
-
-using NodeCache = static_lru_cache<
-    chunk_offset_t, std::shared_ptr<Node>, chunk_offset_t_hasher>;
 
 //! \warning this is not threadsafe, should only be called from triedb thread
 // during execution, DO NOT invoke it directly from a transaction fiber, as is

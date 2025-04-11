@@ -414,7 +414,7 @@ struct monad_eth_call_executor
 
     monad_eth_call_executor(
         unsigned const num_threads, unsigned const num_fibers,
-        unsigned const node_lru_size, std::string const &triedb_path)
+        unsigned const node_lru_max_mem, std::string const &triedb_path)
         : pool_{num_threads, num_fibers, true}
         , db_{[&] {
             std::vector<std::filesystem::path> paths;
@@ -432,7 +432,7 @@ struct monad_eth_call_executor
             // thread local storage gets instantiated on the one thread its
             // used
             auto const config = mpt::ReadOnlyOnDiskDbConfig{
-                .dbname_paths = paths, .node_lru_size = node_lru_size};
+                .dbname_paths = paths, .node_lru_max_mem = node_lru_max_mem};
             return mpt::RODb{config};
         }()}
     {
@@ -603,13 +603,13 @@ struct monad_eth_call_executor
 
 monad_eth_call_executor *monad_eth_call_executor_create(
     unsigned const num_threads, unsigned const num_fibers,
-    unsigned const node_lru_size, char const *const dbpath)
+    unsigned const node_lru_max_mem, char const *const dbpath)
 {
     MONAD_ASSERT(dbpath);
     std::string const triedb_path{dbpath};
 
     monad_eth_call_executor *const e = new monad_eth_call_executor(
-        num_threads, num_fibers, node_lru_size, triedb_path);
+        num_threads, num_fibers, node_lru_max_mem, triedb_path);
 
     return e;
 }

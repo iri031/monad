@@ -9,6 +9,7 @@
 #include <monad/execution/trace/rlp/call_frame_rlp.hpp>
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/ondisk_db_config.hpp>
+#include <monad/mpt/trie.hpp>
 #include <monad/rpc/eth_call.h>
 #include <test_resource_data.h>
 
@@ -26,7 +27,8 @@ using namespace monad::test;
 
 namespace
 {
-    constexpr unsigned node_lru_size = 10240;
+    constexpr unsigned node_lru_max_mem =
+        10240 * mpt::NodeCache::AVERAGE_NODE_SIZE;
 
     std::vector<uint8_t> to_vec(byte_string const &bs)
     {
@@ -110,7 +112,7 @@ TEST_F(EthCallFixture, simple_success_call)
         to_vec(rlp::encode_address(std::make_optional(from)));
 
     auto executor = monad_eth_call_executor_create(
-        1, 1, node_lru_size, dbname.string().c_str());
+        1, 1, node_lru_max_mem, dbname.string().c_str());
     auto state_override = monad_state_override_create();
 
     struct callback_context ctx;
@@ -167,7 +169,7 @@ TEST_F(EthCallFixture, insufficient_balance)
         to_vec(rlp::encode_address(std::make_optional(from)));
 
     auto executor = monad_eth_call_executor_create(
-        1, 1, node_lru_size, dbname.string().c_str());
+        1, 1, node_lru_max_mem, dbname.string().c_str());
     auto state_override = monad_state_override_create();
 
     struct callback_context ctx;
@@ -225,7 +227,7 @@ TEST_F(EthCallFixture, on_proposed_block)
         to_vec(rlp::encode_address(std::make_optional(from)));
 
     auto executor = monad_eth_call_executor_create(
-        1, 1, node_lru_size, dbname.string().c_str());
+        1, 1, node_lru_max_mem, dbname.string().c_str());
     auto state_override = monad_state_override_create();
 
     struct callback_context ctx;
@@ -282,7 +284,7 @@ TEST_F(EthCallFixture, failed_to_read)
         to_vec(rlp::encode_address(std::make_optional(from)));
 
     auto executor = monad_eth_call_executor_create(
-        1, 1, node_lru_size, dbname.string().c_str());
+        1, 1, node_lru_max_mem, dbname.string().c_str());
     auto state_override = monad_state_override_create();
 
     struct callback_context ctx;
@@ -341,7 +343,7 @@ TEST_F(EthCallFixture, contract_deployment_success)
         to_vec(rlp::encode_address(std::make_optional(from)));
 
     auto executor = monad_eth_call_executor_create(
-        1, 1, node_lru_size, dbname.string().c_str());
+        1, 1, node_lru_max_mem, dbname.string().c_str());
     auto state_override = monad_state_override_create();
 
     struct callback_context ctx;
@@ -421,7 +423,7 @@ TEST_F(EthCallFixture, from_contract_account)
     auto const rlp_sender = to_vec(rlp::encode_address(std::make_optional(ca)));
 
     auto executor = monad_eth_call_executor_create(
-        1, 1, node_lru_size, dbname.string().c_str());
+        1, 1, node_lru_max_mem, dbname.string().c_str());
     auto state_override = monad_state_override_create();
 
     struct callback_context ctx;
@@ -492,7 +494,7 @@ TEST_F(EthCallFixture, concurrent_eth_calls)
     Transaction tx{.gas_limit = 100000u, .to = ca, .data = from_hex(tx_data)};
 
     auto executor = monad_eth_call_executor_create(
-        2, 10, node_lru_size, dbname.string().c_str());
+        2, 10, node_lru_max_mem, dbname.string().c_str());
 
     std::deque<std::unique_ptr<callback_context>> ctxs;
     std::deque<boost::fibers::future<void>> futures;
@@ -585,7 +587,7 @@ TEST_F(EthCallFixture, transfer_success_with_trace)
         to_vec(rlp::encode_address(std::make_optional(from)));
 
     auto executor = monad_eth_call_executor_create(
-        1, 1, node_lru_size, dbname.string().c_str());
+        1, 1, node_lru_max_mem, dbname.string().c_str());
     auto state_override = monad_state_override_create();
 
     struct callback_context ctx;
@@ -689,7 +691,7 @@ TEST_F(EthCallFixture, static_precompile_OOG_with_trace)
         to_vec(rlp::encode_address(std::make_optional(from)));
 
     auto executor = monad_eth_call_executor_create(
-        1, 1, node_lru_size, dbname.string().c_str());
+        1, 1, node_lru_max_mem, dbname.string().c_str());
     auto state_override = monad_state_override_create();
 
     struct callback_context ctx;

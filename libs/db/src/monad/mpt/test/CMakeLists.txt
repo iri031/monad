@@ -21,6 +21,7 @@ add_trie_test(TARGET fiber_future_wrapped_read_test SOURCES
 add_trie_test(TARGET load_all_test SOURCES "load_all_test.cpp")
 add_trie_test(TARGET locking_trie_test SOURCES "locking_trie_test.cpp"
               LINK_LIBRARIES Boost::thread)
+add_trie_test(TARGET lru_trie_test SOURCES "lru_trie_test.cpp")
 add_trie_test(TARGET many_nested_updates SOURCES "many_nested_updates.cpp"
               LINK_LIBRARIES Boost::json)
 add_trie_test(TARGET merkle_trie_test SOURCES "merkle_trie_test.cpp")

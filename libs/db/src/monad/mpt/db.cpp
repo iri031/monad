@@ -486,11 +486,10 @@ struct OnDiskWithWorkerThreadImpl
             }
         }
 
-        void rodb_run(size_t const node_lru_size)
+        void rodb_run(size_t const node_lru_max_mem)
         {
             inflight_map_owning_t inflight;
-            NodeCache node_cache{
-                node_lru_size, chunk_offset_t::invalid_value(), nullptr};
+            NodeCache node_cache(node_lru_max_mem);
 
             ::boost::container::deque<
                 threadsafe_boost_fibers_promise<find_owning_cursor_result_type>>
@@ -786,7 +785,7 @@ struct OnDiskWithWorkerThreadImpl
                 worker_ = std::make_unique<DbAsyncWorker>(this, options);
                 cond_.notify_one();
             }
-            worker_->rodb_run(options.node_lru_size);
+            worker_->rodb_run(options.node_lru_max_mem);
             std::unique_lock const g(lock_);
             worker_.reset();
         })

@@ -6,6 +6,7 @@
 #include <boost/intrusive/list.hpp>
 
 #include <vector>
+#include <type_traits>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -28,8 +29,9 @@ class static_lru_cache
     using Map = ankerl::unordered_dense::segmented_map<Key, ListIter, Hash>;
 
     std::vector<list_node> array_;
-    boost::intrusive::list<list_node> list_;
-    Map map_;
+    boost::intrusive::list<list_node>
+        list_; // ordering, always same size as storage
+    Map map_; // lookup, but also current valid items
 
 public:
     using ConstAccessor = Map::const_iterator;
@@ -46,25 +48,29 @@ public:
 
     ~static_lru_cache() = default;
 
-    void insert(Key const &key, Value const &value) noexcept
+    // `value` on exit is the former value.
+    Value insert(Key const &key, Value value) noexcept
     {
-        auto it = map_.find(key);
-        if (it != map_.end()) {
-            it->second->val = value;
-            update_lru(it->second);
+        using std::swap;
+        {
+            auto it = map_.find(key);
+            if (it != map_.end()) {
+                swap(it->second->val, value);
+                update_lru(it->second);
+                return value;
+            }
         }
-        else {
-            auto it = std::prev(list_.end());
-            map_.erase(it->key);
-            list_.erase(it);
+        auto it = std::prev(list_.end());
+        map_.erase(it->key);
+        list_.erase(it);
 
-            // Reuse node
-            it->key = key;
-            it->val = value;
+        // Reuse node
+        it->key = key;
+        swap(it->val, value);
 
-            list_.insert(list_.begin(), *it);
-            map_[key] = it;
-        }
+        list_.insert(list_.begin(), *it);
+        map_[key] = it;
+        return value;
     }
 
     bool find(ConstAccessor &acc, Key const &key) noexcept
@@ -85,6 +91,26 @@ public:
     void clear() noexcept
     {
         map_.clear();
+    }
+
+    // Call invocable on oldest member first. Return true to trim. Returning
+    // false exits early.
+    template <class F>
+        requires(std::is_invocable_r_v<bool, F, list_node const &>)
+    void
+    trim_oldest(F &&f, Key const &key = Key(), Value const &value = Value())
+    {
+        size_t const empty_end_slots = list_.size() - map_.size();
+        auto it = list_.rbegin();
+        std::advance(it, empty_end_slots);
+        for (; it != list_.rend(); ++it) {
+            if (!f(*it)) {
+                break;
+            }
+            map_.erase(it->key);
+            it->key = key;
+            it->val = value;
+        }
     }
 
 private:

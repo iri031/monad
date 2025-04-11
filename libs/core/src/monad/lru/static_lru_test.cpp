@@ -94,3 +94,39 @@ TEST(static_lru_test, clear)
     lru.insert(5, "world");
     EXPECT_EQ(lru.size(), 1);
 }
+
+TEST(static_lru_test, trim_oldest)
+{
+    using LruCache = monad::static_lru_cache<int, int>;
+    LruCache lru(110);
+
+    for (int n = 1; n <= 100; n++) {
+        lru.insert(n, 99);
+    }
+    LruCache::ConstAccessor acc;
+
+    for (int n = 1; n <= 50; n++) {
+        ASSERT_TRUE(lru.find(acc, n * 2));
+        EXPECT_EQ(acc->second->val, 99);
+    }
+    EXPECT_EQ(lru.size(), 100);
+
+    std::vector<std::pair<int, int>> ordering;
+    lru.trim_oldest([&](auto const &node) {
+        ordering.emplace_back(node.key, node.val);
+        return true;
+    });
+    EXPECT_EQ(lru.size(), 0);
+    ASSERT_EQ(ordering.size(), 100);
+    size_t idx = 0;
+    // Next fifty items should be odd number,99
+    for (size_t n = 0; idx < 50; idx++, n++) {
+        EXPECT_EQ(ordering[idx].first, n * 2 + 1);
+        EXPECT_EQ(ordering[idx].second, 99);
+    }
+    // Next fifty items should be even number,99
+    for (size_t n = 1; idx < 100; idx++, n++) {
+        EXPECT_EQ(ordering[idx].first, n * 2);
+        EXPECT_EQ(ordering[idx].second, 99);
+    }
+}
