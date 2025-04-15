@@ -173,11 +173,12 @@ constexpr Result<void> static_validate_body(Block const &block)
             return BlockError::FieldBeforeFork;
         }
     }
-    else {
-        if (MONAD_UNLIKELY(!block.withdrawals.has_value())) {
-            return BlockError::MissingField;
-        }
-    }
+    // TODO: Commented out because of archiver encodes it as NULL instead of
+    // empty array else {
+    //     if (MONAD_UNLIKELY(!block.withdrawals.has_value())) {
+    //         return BlockError::MissingField;
+    //     }
+    // }
 
     BOOST_OUTCOME_TRY(static_validate_ommers<rev>(block));
 

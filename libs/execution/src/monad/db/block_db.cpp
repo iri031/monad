@@ -16,6 +16,8 @@
 #include <string>
 #include <string_view>
 
+#include <iostream>
+
 MONAD_NAMESPACE_BEGIN
 
 BlockDb::BlockDb(std::filesystem::path const &dir)
@@ -35,19 +37,24 @@ bool BlockDb::get(uint64_t const num, Block &block) const
     if (!result.has_value()) {
         return false;
     }
-    auto const view = to_byte_string_view(result.value());
-    size_t brotli_size = std::max(result->size() * 100, 1ul << 20); // TODO
-    byte_string brotli_buffer;
-    brotli_buffer.resize(brotli_size);
-    auto const brotli_result = BrotliDecoderDecompress(
-        view.size(), view.data(), &brotli_size, brotli_buffer.data());
-    brotli_buffer.resize(brotli_size);
-    MONAD_ASSERT(brotli_result == BROTLI_DECODER_RESULT_SUCCESS);
-    byte_string_view view2{brotli_buffer};
+    // TODO: Blocks from archiver isn't compressed
+    auto view = to_byte_string_view(result.value());
+    // size_t brotli_size = std::max(result->size() * 100, 1ul << 20); // TODO
+    // byte_string brotli_buffer;
+    // brotli_buffer.resize(brotli_size);
+    // auto const brotli_result = BrotliDecoderDecompress(
+    //     view.size(), view.data(), &brotli_size, brotli_buffer.data());
+    // brotli_buffer.resize(brotli_size);
+    // MONAD_ASSERT(brotli_result == BROTLI_DECODER_RESULT_SUCCESS);
+    // byte_string_view view2{brotli_buffer};
 
-    auto const decoded_block = rlp::decode_block(view2);
+    auto const decoded_block = rlp::decode_block_with_tx_sender(view);
+    if (decoded_block.has_error()) {
+        std::cerr << decoded_block.assume_error().message().c_str()
+                  << std::endl;
+    }
     MONAD_ASSERT(!decoded_block.has_error());
-    MONAD_ASSERT(view2.size() == 0);
+    MONAD_ASSERT(view.size() == 0);
     block = decoded_block.value();
     return true;
 }

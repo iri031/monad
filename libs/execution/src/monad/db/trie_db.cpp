@@ -421,7 +421,12 @@ void TrieDb::commit(
         complete_header.receipts_root = receipts_root();
     }
     complete_header.state_root = state_root();
-    complete_header.withdrawals_root = withdrawals_root();
+    if (complete_header.number == 0) {
+        complete_header.withdrawals_root = std::nullopt;
+    }
+    else {
+        complete_header.withdrawals_root = NULL_ROOT;
+    }
     complete_header.transactions_root = transactions_root();
     complete_header.parent_hash = parent_hash;
     complete_header.gas_used = receipts.empty() ? 0 : receipts.back().gas_used;

@@ -100,6 +100,7 @@ int main(int const argc, char const *argv[])
     cli.option_defaults()->always_capture_default();
 
     monad_chain_config chain_config;
+    bool replay = false;
     fs::path block_db_path;
     uint64_t nblocks = std::numeric_limits<uint64_t>::max();
     unsigned nthreads = 4;
@@ -122,6 +123,8 @@ int main(int const argc, char const *argv[])
     cli.add_option("--chain", chain_config, "select which chain config to run")
         ->transform(CLI::CheckedTransformer(CHAIN_CONFIG_MAP, CLI::ignore_case))
         ->required();
+    cli.add_flag(
+        "--replay", replay, "replay mode (only valid for monad testnet)");
     cli.add_option("--block_db", block_db_path, "block_db directory")
         ->required();
     cli.add_option("--nblocks", nblocks, "number of blocks to execute");
@@ -335,7 +338,9 @@ int main(int const argc, char const *argv[])
     }
     if (!initialized_headers_from_triedb) {
         BlockDb block_db{block_db_path};
-        MONAD_ASSERT(chain_config == CHAIN_CONFIG_ETHEREUM_MAINNET);
+        if (!replay) {
+            MONAD_ASSERT(chain_config == CHAIN_CONFIG_ETHEREUM_MAINNET);
+        }
         MONAD_ASSERT(init_block_hash_buffer_from_blockdb(
             block_db, start_block_num, block_hash_buffer));
     }
@@ -365,16 +370,29 @@ int main(int const argc, char const *argv[])
         case CHAIN_CONFIG_MONAD_DEVNET:
         case CHAIN_CONFIG_MONAD_TESTNET:
         case CHAIN_CONFIG_MONAD_MAINNET:
-            return runloop_monad(
-                *chain,
-                block_db_path,
-                db,
-                db_cache,
-                block_hash_buffer,
-                priority_pool,
-                block_num,
-                end_block_num,
-                stop);
+            if (replay) {
+                return runloop_ethereum(
+                    *chain,
+                    block_db_path,
+                    db_cache,
+                    block_hash_buffer,
+                    priority_pool,
+                    block_num,
+                    end_block_num,
+                    stop);
+            }
+            else {
+                return runloop_monad(
+                    *chain,
+                    block_db_path,
+                    db,
+                    db_cache,
+                    block_hash_buffer,
+                    priority_pool,
+                    block_num,
+                    end_block_num,
+                    stop);
+            }
         }
         MONAD_ABORT_PRINTF("Unsupported chain");
     }();

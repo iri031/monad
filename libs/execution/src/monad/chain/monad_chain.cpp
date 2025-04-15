@@ -7,6 +7,8 @@
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/validate_block.hpp>
 
+#include <quill/Quill.h>
+
 MONAD_NAMESPACE_BEGIN
 
 using BOOST_OUTCOME_V2_NAMESPACE::success;
@@ -27,6 +29,16 @@ Result<void> MonadChain::validate_output_header(
         return BlockError::WrongMerkleRoot;
     }
     if (MONAD_UNLIKELY(input.withdrawals_root != output.withdrawals_root)) {
+        return BlockError::WrongMerkleRoot;
+    }
+
+    // TODO: for replay purpose, add state_root and receipt_root validation
+    if (MONAD_UNLIKELY(input.state_root != output.state_root)) {
+        LOG_ERROR("State root mismatch at block {}", input.number);
+        return BlockError::WrongMerkleRoot;
+    }
+    if (MONAD_UNLIKELY(input.receipts_root != output.receipts_root)) {
+        LOG_ERROR("Receipt root mismatch at block {}", input.number);
         return BlockError::WrongMerkleRoot;
     }
 

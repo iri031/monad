@@ -129,12 +129,14 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
             block.transactions,
             block.ommers,
             block.withdrawals);
-        auto const output_header = db.read_eth_header();
+        auto output_header = db.read_eth_header();
         BOOST_OUTCOME_TRY(
             chain.validate_output_header(block.header, output_header));
 
         db.finalize(block.header.number, block.header.number);
         db.update_verified_block(block.header.number);
+
+        output_header.withdrawals_root = NULL_ROOT;
 
         auto const h =
             to_bytes(keccak256(rlp::encode_block_header(output_header)));
