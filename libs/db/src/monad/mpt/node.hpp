@@ -290,8 +290,8 @@ public:
     UniquePtr move_next(unsigned index) noexcept;
 
     //! shared references of parent <-> children
-    SharedPtr Node::shared_next(unsigned const index, SharedPtr node_ptr) noexcept;
-    SharedPtr Node::move_shared_next(unsigned const index) noexcept;
+    SharedPtr shared_next(unsigned const index, SharedPtr node_ptr) noexcept;
+    SharedPtr move_shared_next(unsigned const index) noexcept;
 
     //! node size in memory
     unsigned get_mem_size() const noexcept;
