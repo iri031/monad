@@ -195,7 +195,7 @@ struct load_all_impl_
             {
                 auto g(impl->aux.unique_lock());
                 MONAD_ASSERT(root.node->next(branch_index) == nullptr);
-                root.node->set_next(
+                root.node->shared_next(
                     branch_index,
                     detail::deserialize_node_from_receiver_result(
                         std::move(buffer_), buffer_off, io_state));
@@ -708,7 +708,7 @@ std::pair<bool, Node::UniquePtr> create_node_with_expired_branches(
             aux.curr_upsert_auto_expire_version);
         node->set_subtrie_min_version(j, orig->subtrie_min_version(orig_j));
         if (tnode->cache_mask & (1u << orig_j)) {
-            node->set_next(j, orig->move_next(orig_j));
+            node->shared_next(j, orig->move_next(orig_j));
         }
         node->set_child_data(j, orig->child_data_view(orig_j));
     }
@@ -1458,7 +1458,7 @@ void fillin_parent_after_expiration(
             if (cache_node) {
                 parent->cache_mask |= static_cast<uint16_t>(1u << index);
             }
-            parent->node->set_next(index, std::move(new_node));
+            parent->node->shared_next(index, std::move(new_node));
             parent->node->set_subtrie_min_version(index, min_version);
             parent->node->set_min_offset_fast(index, min_offset_fast);
             parent->node->set_min_offset_slow(index, min_offset_slow);
