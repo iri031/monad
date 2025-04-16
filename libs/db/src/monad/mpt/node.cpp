@@ -373,6 +373,31 @@ Node::UniquePtr Node::move_next(unsigned const index) noexcept
     return UniquePtr{p};
 }
 
+Node::SharedPtr
+Node::shared_next(unsigned const index, Node::SharedPtr node_ptr) noexcept
+{
+    Node *node = std::move(node_ptr).get();
+
+    if (node_ptr.use_count()) {
+        std::weak_ptr<Node> const nwp(node_ptr);
+
+        if (nwp.lock()) {
+            memcpy(next_data() + index * sizeof(Node *), &node, sizeof(Node *));
+        }
+    } else {
+        memset(next_data() + index * sizeof(Node *), 0, sizeof(Node *));
+    };
+
+    return node_ptr;
+}
+
+Node::SharedPtr Node::move_shared_next(unsigned const index) noexcept
+{
+    Node *p = next(index);
+    shared_next(index, {nullptr});
+    return SharedPtr{p};
+}
+
 unsigned Node::get_mem_size() const noexcept
 {
     auto const *const end = next_data() + sizeof(Node *) * number_of_children();
@@ -548,6 +573,7 @@ Node::UniquePtr make_node(
     return node;
 }
 
+// create
 // all children's offset are set before creating parent
 // create node with at least one child
 Node::UniquePtr create_node_with_children(

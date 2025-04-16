@@ -289,6 +289,10 @@ public:
     void set_next(unsigned index, UniquePtr) noexcept;
     UniquePtr move_next(unsigned index) noexcept;
 
+    //! shared references of parent <-> children
+    SharedPtr Node::shared_next(unsigned const index, SharedPtr node_ptr) noexcept;
+    SharedPtr Node::move_shared_next(unsigned const index) noexcept;
+
     //! node size in memory
     unsigned get_mem_size() const noexcept;
     uint32_t get_disk_size() const noexcept;
