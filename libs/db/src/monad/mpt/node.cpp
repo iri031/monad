@@ -81,7 +81,6 @@ Node::~Node()
 {
     for (uint8_t index = 0; index < number_of_children(); ++index) {
         move_next(index).reset();
-        move_shared_next(index).reset();
     }
 }
 
