@@ -19,6 +19,7 @@
 #include <monad/db/db.hpp>
 #include <monad/execution/trace/call_tracer.hpp>
 #include <monad/state2/state_deltas.hpp>
+#include <monad/state3/account_state.hpp>
 #include <monad/types/incarnation.hpp>
 #include <intx/intx.hpp>
 #include <quill/detail/LogMacros.h>
@@ -93,7 +94,7 @@ public:
         return beneficiary_account.equal_except_balance(other);
     }
 
-    bool can_merge_par(State const &, uint64_t tx_index, bool & beneficiary_touched, bool parallel_beneficiary=false);
+    bool can_merge_par(State &, uint64_t tx_index, bool & beneficiary_touched, bool parallel_beneficiary=false) ;
     inline bool can_merge(State const &state){
         bool beneficiary_touched=false;
         return can_merge_par(state,0,beneficiary_touched,false);
@@ -131,6 +132,11 @@ public:
         std::optional<std::vector<Withdrawal>> const & = {});
 
     void log_debug();
+
+private:
+    bool fix_account_mismatch(
+        State &state, Address const &address, AccountState &original_state,
+        std::optional<Account> const &actual) const;
 };
 
 MONAD_NAMESPACE_END
