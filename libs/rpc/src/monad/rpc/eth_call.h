@@ -75,6 +75,9 @@ void monad_eth_call_executor_submit(
     void (*complete)(monad_eth_call_result *, void *user), void *user,
     bool const trace);
 
+unsigned monad_eth_call_executor_available_capacity(
+    struct monad_eth_call_executor *const executor);
+
 #ifdef __cplusplus
 }
 #endif

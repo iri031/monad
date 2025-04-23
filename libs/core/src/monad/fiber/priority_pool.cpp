@@ -25,6 +25,7 @@ MONAD_FIBER_NAMESPACE_BEGIN
 
 PriorityPool::PriorityPool(
     unsigned const n_threads, unsigned const n_fibers, bool const prevent_spin)
+    : total_fibers_(n_fibers)
 {
     MONAD_ASSERT(n_threads);
     MONAD_ASSERT(n_fibers);
@@ -60,7 +61,9 @@ PriorityPool::PriorityPool(
                            boost::fibers::channel_op_status::success) {
                         properties->set_priority(task.priority);
                         boost::this_fiber::yield();
+                        active_fibers_++;
                         task.task();
+                        active_fibers_--;
                         properties->set_priority(0);
                     }
                 }};

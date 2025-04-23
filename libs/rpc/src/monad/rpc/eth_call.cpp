@@ -596,6 +596,11 @@ struct monad_eth_call_executor
                 complete(result, user);
             });
     }
+
+    unsigned available_capacity() const
+    {
+        return pool_.available_capacity();
+    }
 };
 
 monad_eth_call_executor *monad_eth_call_executor_create(
@@ -662,4 +667,11 @@ void monad_eth_call_executor_submit(
         complete,
         user,
         trace);
+}
+
+unsigned monad_eth_call_executor_available_capacity(
+    monad_eth_call_executor *const executor)
+{
+    MONAD_ASSERT(executor);
+    return executor->available_capacity();
 }
