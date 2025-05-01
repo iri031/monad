@@ -68,14 +68,14 @@ static_assert(alignof(MachineBase) == 8);
 struct InMemoryMachine final : public MachineBase
 {
     virtual bool cache() const override;
-    virtual bool compact() const override;
+    virtual bool compactable() const override;
     virtual std::unique_ptr<StateMachine> clone() const override;
 };
 
 struct OnDiskMachine : public MachineBase
 {
     virtual bool cache() const override;
-    virtual bool compact() const override;
+    virtual bool compactable() const override;
     virtual bool auto_expire() const override;
     virtual std::unique_ptr<StateMachine> clone() const override;
 };

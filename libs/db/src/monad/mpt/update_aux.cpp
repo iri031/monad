@@ -1059,6 +1059,7 @@ Node::UniquePtr UpdateAuxImpl::do_update(
     }
     MONAD_ASSERT(is_on_disk());
     set_can_write_to_fast(can_write_to_fast);
+    sm.set_compact(compaction);
 
     if (prev_root) {
         // previous compaction offset

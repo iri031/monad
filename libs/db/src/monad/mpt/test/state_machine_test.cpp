@@ -83,7 +83,7 @@ namespace
             return path.size() < 2;
         };
 
-        virtual bool compact() const override
+        virtual bool compactable() const override
         {
             return false;
         }

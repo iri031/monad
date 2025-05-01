@@ -101,13 +101,13 @@ namespace monad::test
             return depth < cache_depth;
         }
 
-        virtual constexpr bool compact() const override
+        virtual constexpr bool compactable() const override
         {
             return true;
         }
     };
 
-    static_assert(sizeof(StateMachineMerkleWithPrefix<>) == 16);
+    static_assert(sizeof(StateMachineMerkleWithPrefix<>) == 24);
     static_assert(alignof(StateMachineMerkleWithPrefix<>) == 8);
 
     template <int prefix_len = 2>
@@ -155,13 +155,13 @@ namespace monad::test
             return depth < cache_depth;
         }
 
-        virtual constexpr bool compact() const override
+        virtual constexpr bool compactable() const override
         {
             return true;
         }
     };
 
-    static_assert(sizeof(StateMachineVarLenTrieWithPrefix<>) == 16);
+    static_assert(sizeof(StateMachineVarLenTrieWithPrefix<>) == 24);
     static_assert(alignof(StateMachineVarLenTrieWithPrefix<>) == 8);
 
     struct StateMachineConfig
@@ -206,7 +206,7 @@ namespace monad::test
             return depth < config.cache_depth;
         }
 
-        virtual constexpr bool compact() const override
+        virtual constexpr bool compactable() const override
         {
             return true;
         }

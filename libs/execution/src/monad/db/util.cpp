@@ -569,7 +569,7 @@ bool InMemoryMachine::cache() const
     return true;
 }
 
-bool InMemoryMachine::compact() const
+bool InMemoryMachine::compactable() const
 {
     return false;
 }
@@ -588,7 +588,7 @@ bool OnDiskMachine::cache() const
              table == TableType::TxHash || table == TableType::BlockHash));
 }
 
-bool OnDiskMachine::compact() const
+bool OnDiskMachine::compactable() const
 {
     return depth >= prefix_len();
 }
