@@ -244,9 +244,6 @@ public:
     std::pair<unsigned, unsigned>
     io_uring_ring_entries_left(bool for_wr_ring) const noexcept;
 
-    // Useful for taking a copy of anonymous inode files used by the unit tests
-    void dump_fd_to(size_t which, std::filesystem::path const &path);
-
     // Blocks until at least one completion is processed, returning number
     // of completions processed.
     size_t poll_blocking(size_t count = 1)

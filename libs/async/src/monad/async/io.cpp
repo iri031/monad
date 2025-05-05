@@ -752,29 +752,6 @@ AsyncIO::io_uring_ring_entries_left(bool for_wr_ring) const noexcept
         *ring->cq.kring_entries - io_uring_cq_ready(ring)};
 }
 
-void AsyncIO::dump_fd_to(size_t which, std::filesystem::path const &path)
-{
-    int const tofd = ::creat(path.c_str(), 0600);
-    if (tofd == -1) {
-        throw std::system_error(std::error_code(errno, std::system_category()));
-    }
-    auto untodfd = make_scope_exit([tofd]() noexcept { ::close(tofd); });
-    auto fromfd = seq_chunks_[which].ptr->read_fd();
-    MONAD_ASSERT(fromfd.second <= std::numeric_limits<off64_t>::max());
-    off64_t off_in = static_cast<off64_t>(fromfd.second);
-    off64_t off_out = 0;
-    auto copied = copy_file_range(
-        fromfd.first,
-        &off_in,
-        tofd,
-        &off_out,
-        seq_chunks_[which].ptr->size(),
-        0);
-    if (copied == -1) {
-        throw std::system_error(std::error_code(errno, std::system_category()));
-    }
-}
-
 unsigned char *AsyncIO::poll_uring_while_no_io_buffers_(bool is_write)
 {
     /* Prevent any new i/o initiation as we cannot exit until an i/o
