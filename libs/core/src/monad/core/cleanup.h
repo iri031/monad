@@ -9,6 +9,8 @@ extern "C"
 
 void cleanup_free(char *const *);
 
+void cleanup_free_void(void *const *);
+
 void cleanup_close(int *);
 
 void cleanup_fclose(FILE *const *);

@@ -8,6 +8,11 @@
 
 void cleanup_free(char *const *const ptr)
 {
+    cleanup_free_void((void *const *)ptr);
+}
+
+void cleanup_free_void(void *const *const ptr)
+{
     assert(ptr);
     if (*ptr) {
         free(*ptr);
