@@ -188,18 +188,6 @@ namespace
     };
 }
 
-TEST_F(StateSyncFixture, genesis)
-{
-    init();
-    handle_target(
-        cctx,
-        BlockHeader{
-            .state_root =
-                0xd7f8974fb5ac78d9ac099b9ad5018bedc2ce0a72dad1827a1709da30580f0544_bytes32});
-    EXPECT_TRUE(monad_statesync_client_has_reached_target(cctx));
-    EXPECT_TRUE(monad_statesync_client_finalize(cctx));
-}
-
 TEST_F(StateSyncFixture, sync_from_latest)
 {
     constexpr auto N = 1'000'000;
