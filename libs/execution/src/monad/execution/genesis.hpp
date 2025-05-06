@@ -1,5 +1,10 @@
 #pragma once
 
+#include <monad/chain/chain_config.h>
+#include <monad/chain/ethereum_mainnet.hpp>
+#include <monad/chain/monad_devnet.hpp>
+#include <monad/chain/monad_mainnet.hpp>
+#include <monad/chain/monad_testnet.hpp>
 #include <monad/config.hpp>
 #include <monad/core/account.hpp>
 #include <monad/core/address.hpp>
@@ -10,8 +15,11 @@
 #include <monad/core/monad_block.hpp>
 #include <monad/db/block_db.hpp>
 #include <monad/db/db.hpp>
+#include <monad/execution/validate_block.hpp>
 #include <monad/state2/state_deltas.hpp>
 
+#include <evmc/evmc.h>
+#include <evmc/helpers.h>
 #include <evmc/hex.hpp>
 
 #include <nlohmann/json.hpp>
@@ -20,6 +28,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <optional>
 #include <string>
 
 MONAD_NAMESPACE_BEGIN
@@ -27,8 +36,35 @@ MONAD_NAMESPACE_BEGIN
 // TODO: Different chain_id has different genesis json file (with some of them
 // not having certain field)
 // Issue #131
-inline BlockHeader read_genesis_blockheader(nlohmann::json const &genesis_json)
+inline BlockHeader read_genesis_blockheader(
+    nlohmann::json const &genesis_json, evmc_revision const rev)
 {
+    auto const assert_valid = [&genesis_json, rev](
+                                  char const *const field,
+                                  evmc_revision const since) {
+        bool const present = genesis_json.contains(field);
+        if (rev < since) {
+            MONAD_ASSERT_PRINTF(
+                !present,
+                "unexpected %s for revision %s which is only present since %s",
+                field,
+                evmc_revision_to_string(rev),
+                evmc_revision_to_string(since));
+        }
+        else {
+            MONAD_ASSERT_PRINTF(
+                present,
+                "expected %s is missing for revision %s",
+                field,
+                evmc_revision_to_string(rev));
+        }
+    };
+
+    assert_valid("baseFeePerGas", EVMC_LONDON);
+    assert_valid("blobGasUsed", EVMC_CANCUN);
+    assert_valid("excessBlobGas", EVMC_CANCUN);
+    assert_valid("parentBeaconBlockRoot", EVMC_CANCUN);
+
     BlockHeader block_header{};
 
     block_header.difficulty = intx::from_string<uint256_t>(
@@ -81,7 +117,7 @@ inline BlockHeader read_genesis_blockheader(nlohmann::json const &genesis_json)
             genesis_json["baseFeePerGas"].get<std::string>());
     }
 
-    // Shanghai fork
+    // Cancun fork
     if (genesis_json.contains("blobGasUsed")) {
         block_header.blob_gas_used = std::stoull(
             genesis_json["blobGasUsed"].get<std::string>(), nullptr, 0);
@@ -129,8 +165,9 @@ inline void read_genesis_state(
     }
 }
 
-inline BlockHeader
-read_genesis(std::filesystem::path const &genesis_file, Db &db)
+inline BlockHeader read_genesis(
+    std::filesystem::path const &genesis_file, Db &db,
+    monad_chain_config const chain_config)
 {
     std::ifstream ifile(genesis_file.c_str());
     auto const genesis_json = nlohmann::json::parse(ifile);
@@ -138,28 +175,44 @@ read_genesis(std::filesystem::path const &genesis_file, Db &db)
     StateDeltas state_deltas;
     read_genesis_state(genesis_json, state_deltas);
 
+    uint64_t const timestamp =
+        std::stoull(genesis_json["timestamp"].get<std::string>(), nullptr, 0);
+    auto const chain = [chain_config] -> std::unique_ptr<Chain> {
+        switch (chain_config) {
+        case CHAIN_CONFIG_ETHEREUM_MAINNET:
+            return std::make_unique<EthereumMainnet>();
+        case CHAIN_CONFIG_MONAD_DEVNET:
+            return std::make_unique<MonadDevnet>();
+        case CHAIN_CONFIG_MONAD_TESTNET:
+            return std::make_unique<MonadTestnet>();
+        case CHAIN_CONFIG_MONAD_MAINNET:
+            return std::make_unique<MonadMainnet>();
+        }
+        MONAD_ASSERT(false);
+    }();
+    evmc_revision const rev = chain->get_revision(0, timestamp);
     MonadConsensusBlockHeader consensus_header{};
-    consensus_header.execution_inputs = read_genesis_blockheader(genesis_json);
-    db.commit(state_deltas, Code{}, consensus_header);
+    consensus_header.execution_inputs =
+        read_genesis_blockheader(genesis_json, rev);
+    db.commit(
+        state_deltas,
+        Code{},
+        consensus_header,
+        std::vector<Receipt>{},
+        std::vector<std::vector<CallFrame>>{},
+        std::vector<Address>{},
+        std::vector<Transaction>{},
+        std::vector<BlockHeader>{},
+        rev < EVMC_SHANGHAI ? std::nullopt
+                            : std::make_optional<std::vector<Withdrawal>>());
     db.finalize(0, 0);
-    return db.read_eth_header();
-}
-
-inline void verify_genesis(BlockDb &block_db, BlockHeader const &block_header)
-{
-    Block block{};
-    bool const status = block_db.get(0u, block);
-    MONAD_ASSERT(status);
-    // There should be no txn/receipt for the genesis block, so just asserting
-    // on state root for now
-    MONAD_ASSERT(block_header.state_root == block.header.state_root);
-}
-
-inline void read_and_verify_genesis(
-    BlockDb &block_db, Db &db, std::filesystem::path const &genesis_file_path)
-{
-    auto const block_header = read_genesis(genesis_file_path, db);
-    verify_genesis(block_db, block_header);
+    BlockHeader const ret = db.read_eth_header();
+    Result<void> const validate = static_validate_header(rev, ret);
+    MONAD_ASSERT_PRINTF(
+        validate.has_value(),
+        "bad genesis header parsed: %s",
+        validate.error().message().c_str());
+    return ret;
 }
 
 MONAD_NAMESPACE_END

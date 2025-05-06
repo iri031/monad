@@ -52,6 +52,8 @@ bytes32_t compute_ommers_hash(std::vector<BlockHeader> const &);
 template <evmc_revision rev>
 Result<void> static_validate_header(BlockHeader const &);
 
+Result<void> static_validate_header(evmc_revision, BlockHeader const &);
+
 template <evmc_revision rev>
 Result<void> static_validate_block(Block const &);
 

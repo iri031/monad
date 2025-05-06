@@ -1,3 +1,4 @@
+#include <monad/chain/chain_config.h>
 #include <monad/core/block.hpp>
 #include <monad/core/byte_string.hpp>
 #include <monad/db/block_db.hpp>
@@ -24,7 +25,8 @@ TEST(Genesis, read_ethereum_mainnet_genesis_header)
 
     std::ifstream ifile(genesis_file_path.c_str());
     auto const genesis_json = nlohmann::json::parse(ifile);
-    auto const block_header = read_genesis_blockheader(genesis_json);
+    auto const block_header =
+        read_genesis_blockheader(genesis_json, EVMC_FRONTIER);
 
     EXPECT_EQ(block_header.difficulty, 17179869184);
     auto const extra_data = byte_string(
@@ -55,21 +57,11 @@ TEST(Genesis, ethereum_mainnet_genesis_state_root)
     mpt::Db db{machine};
     TrieDb tdb{db};
 
-    auto const block_header = read_genesis(genesis_file_path, tdb);
+    auto const block_header =
+        read_genesis(genesis_file_path, tdb, CHAIN_CONFIG_ETHEREUM_MAINNET);
 
     // https://etherscan.io/block/0
     auto expected_state_root{
         0xd7f8974fb5ac78d9ac099b9ad5018bedc2ce0a72dad1827a1709da30580f0544_bytes32};
     EXPECT_EQ(block_header.state_root, expected_state_root);
-}
-
-TEST(Genesis, read_and_verify_genesis_block)
-{
-    auto const genesis_file_path =
-        test_resource::ethereum_genesis_dir / "mainnet.json";
-    BlockDb block_db(test_resource::correct_block_data_dir);
-    InMemoryMachine machine;
-    mpt::Db db{machine};
-    TrieDb state_db{db};
-    read_and_verify_genesis(block_db, state_db, genesis_file_path);
 }

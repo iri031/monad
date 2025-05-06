@@ -19,6 +19,7 @@
 #include <monad/execution/block_hash_buffer.hpp>
 #include <monad/execution/genesis.hpp>
 #include <monad/execution/trace/event_trace.hpp>
+#include <monad/execution/validate_block.hpp>
 #include <monad/fiber/priority_pool.hpp>
 #include <monad/mpt/ondisk_db_config.hpp>
 #include <monad/procfs/statm.h>
@@ -258,10 +259,34 @@ int main(int const argc, char const *argv[])
             MONAD_ASSERT(statesync.empty());
             LOG_INFO("loading from genesis {}", genesis);
             TrieDb tdb{db};
-            read_genesis(genesis, tdb);
+            read_genesis(genesis, tdb, chain_config);
         }
         return triedb.get_block_number();
     }();
+
+    auto chain = [chain_config] -> std::unique_ptr<Chain> {
+        switch (chain_config) {
+        case CHAIN_CONFIG_ETHEREUM_MAINNET:
+            return std::make_unique<EthereumMainnet>();
+        case CHAIN_CONFIG_MONAD_DEVNET:
+            return std::make_unique<MonadDevnet>();
+        case CHAIN_CONFIG_MONAD_TESTNET:
+            return std::make_unique<MonadTestnet>();
+        case CHAIN_CONFIG_MONAD_MAINNET:
+            return std::make_unique<MonadMainnet>();
+        }
+        MONAD_ASSERT(false);
+    }();
+
+    if (init_block_num == 0) {
+        BlockHeader const header = triedb.read_eth_header();
+        evmc_revision const rev = chain->get_revision(0, header.timestamp);
+        Result<void> const validate = static_validate_header(rev, header);
+        MONAD_ASSERT_PRINTF(
+            validate.has_value(),
+            "bad genesis header loaded: %s",
+            validate.error().message().c_str());
+    }
 
     std::unique_ptr<monad_statesync_server_context> ctx;
     std::jthread sync_thread;
@@ -311,20 +336,6 @@ int main(int const argc, char const *argv[])
     fiber::PriorityPool priority_pool{nthreads, nfibers};
 
     auto const start_time = std::chrono::steady_clock::now();
-
-    auto chain = [chain_config] -> std::unique_ptr<Chain> {
-        switch (chain_config) {
-        case CHAIN_CONFIG_ETHEREUM_MAINNET:
-            return std::make_unique<EthereumMainnet>();
-        case CHAIN_CONFIG_MONAD_DEVNET:
-            return std::make_unique<MonadDevnet>();
-        case CHAIN_CONFIG_MONAD_TESTNET:
-            return std::make_unique<MonadTestnet>();
-        case CHAIN_CONFIG_MONAD_MAINNET:
-            return std::make_unique<MonadMainnet>();
-        }
-        MONAD_ASSERT(false);
-    }();
 
     BlockHashBufferFinalized block_hash_buffer;
     bool initialized_headers_from_triedb = false;

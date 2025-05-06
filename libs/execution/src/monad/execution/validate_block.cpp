@@ -130,6 +130,13 @@ Result<void> static_validate_header(BlockHeader const &header)
 
 EXPLICIT_EVMC_REVISION(static_validate_header);
 
+Result<void>
+static_validate_header(evmc_revision const rev, BlockHeader const &header)
+{
+    SWITCH_EVMC_REVISION(static_validate_header, header);
+    MONAD_ASSERT(false);
+}
+
 template <evmc_revision rev>
 constexpr Result<void> static_validate_ommers(Block const &block)
 {

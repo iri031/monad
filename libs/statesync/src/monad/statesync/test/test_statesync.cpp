@@ -1,4 +1,5 @@
 #include <monad/async/util.hpp>
+#include <monad/chain/chain_config.h>
 #include <monad/core/assert.h>
 #include <monad/core/basic_formatter.hpp>
 #include <monad/core/byte_string.hpp>
@@ -283,7 +284,7 @@ TEST_F(StateSyncFixture, sync_from_some)
         mpt::Db db{
             machine, OnDiskDbConfig{.append = true, .dbname_paths = {cdbname}}};
         TrieDb tdb{db};
-        read_genesis(genesis, tdb);
+        read_genesis(genesis, tdb, CHAIN_CONFIG_ETHEREUM_MAINNET);
         // commit some proposal to client db
         tdb.commit(
             {},
@@ -291,7 +292,7 @@ TEST_F(StateSyncFixture, sync_from_some)
             MonadConsensusBlockHeader::from_eth_header(
                 BlockHeader{.number = 1}, 0));
 
-        read_genesis(genesis, stdb);
+        read_genesis(genesis, stdb, CHAIN_CONFIG_ETHEREUM_MAINNET);
         init();
     }
     auto const root = sdb.load_root_for_version(0);
@@ -474,8 +475,8 @@ TEST_F(StateSyncFixture, deletion_proposal)
         mpt::Db db{
             machine, OnDiskDbConfig{.append = true, .dbname_paths = {cdbname}}};
         TrieDb tdb{db};
-        read_genesis(genesis, tdb);
-        read_genesis(genesis, stdb);
+        read_genesis(genesis, tdb, CHAIN_CONFIG_ETHEREUM_MAINNET);
+        read_genesis(genesis, stdb, CHAIN_CONFIG_ETHEREUM_MAINNET);
         init();
     }
     auto const root = sdb.load_root_for_version(0);
@@ -531,8 +532,8 @@ TEST_F(StateSyncFixture, duplicate_deletion_round)
         mpt::Db db{
             machine, OnDiskDbConfig{.append = true, .dbname_paths = {cdbname}}};
         TrieDb tdb{db};
-        read_genesis(genesis, tdb);
-        read_genesis(genesis, stdb);
+        read_genesis(genesis, tdb, CHAIN_CONFIG_ETHEREUM_MAINNET);
+        read_genesis(genesis, stdb, CHAIN_CONFIG_ETHEREUM_MAINNET);
         init();
     }
     auto const root = sdb.load_root_for_version(0);

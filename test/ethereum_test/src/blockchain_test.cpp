@@ -216,7 +216,7 @@ void BlockchainTest::TestBody()
         db_t tdb{db};
         {
             auto const genesisJson = j_contents.at("genesisBlockHeader");
-            auto header = read_genesis_blockheader(genesisJson);
+            auto header = read_genesis_blockheader(genesisJson, rev);
             ASSERT_EQ(
                 NULL_ROOT,
                 evmc::from_hex<bytes32_t>(
