@@ -19,7 +19,7 @@ include(cmake/test.cmake)
 function(monad_compile_options target)
   set_property(TARGET ${target} PROPERTY C_STANDARD 23)
   set_property(TARGET ${target} PROPERTY C_STANDARD_REQUIRED ON)
-  set_property(TARGET ${target} PROPERTY CXX_STANDARD 23)
+  set_property(TARGET ${target} PROPERTY CXX_STANDARD 26)
   set_property(TARGET ${target} PROPERTY CXX_STANDARD_REQUIRED ON)
 
   target_compile_options(${target} PRIVATE -Wall -Wextra -Wconversion -Werror)
@@ -80,7 +80,8 @@ add_subdirectory("third_party/quill")
 target_compile_options(
   quill
   PUBLIC
-    $<$<AND:$<CXX_COMPILER_ID:GNU>,$<CONFIG:Release>>:-Wno-stringop-overflow>)
+    $<$<AND:$<CXX_COMPILER_ID:GNU>,$<CONFIG:Release>>:-Wno-stringop-overflow>
+    -Wno-error=deprecated-declarations)
 target_compile_options(
   quill PUBLIC $<$<CXX_COMPILER_ID:GNU>:-Wno-tautological-compare>)
 
