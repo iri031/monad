@@ -1,6 +1,6 @@
 #include "event.hpp"
-#include "runloop_ethereum.hpp"
-#include "runloop_monad.hpp"
+#include "runloop_live.hpp"
+#include "runloop_replay.hpp"
 
 #include <category/core/assert.h>
 #include <category/core/basic_formatter.hpp>
@@ -103,6 +103,7 @@ int main(int const argc, char const *argv[])
     cli.option_defaults()->always_capture_default();
 
     monad_chain_config chain_config;
+    bool replay = false;
     fs::path block_db_path;
     uint64_t nblocks = std::numeric_limits<uint64_t>::max();
     unsigned nthreads = 4;
@@ -127,6 +128,8 @@ int main(int const argc, char const *argv[])
     cli.add_option("--chain", chain_config, "select which chain config to run")
         ->transform(CLI::CheckedTransformer(CHAIN_CONFIG_MAP, CLI::ignore_case))
         ->required();
+    cli.add_flag(
+        "--replay", replay, "replay history mode (must use for eth mainnet)");
     cli.add_option("--block_db", block_db_path, "block_db directory")
         ->required();
     cli.add_option("--nblocks", nblocks, "number of blocks to execute");
@@ -197,6 +200,9 @@ int main(int const argc, char const *argv[])
     catch (CLI::RequiredError const &e) {
         return cli.exit(e);
     }
+
+    // ethereum mainnet can only be run in replay mode
+    MONAD_ASSERT(!(!replay && chain_config == CHAIN_CONFIG_ETHEREUM_MAINNET));
 
     auto stdout_handler = quill::stdout_handler();
     stdout_handler->set_pattern(
@@ -292,7 +298,9 @@ int main(int const argc, char const *argv[])
             BlockDb block_db{block_db_path};
             Block block;
             MONAD_ASSERT_PRINTF(
-                block_db.get(n, block), "FATAL: Could not load block %lu", n);
+                block_db.get(chain_config, n, block),
+                "FATAL: Could not load block %lu",
+                n);
             load_header(db, block.header);
             return n;
         }
@@ -366,9 +374,8 @@ int main(int const argc, char const *argv[])
     }
     if (!initialized_headers_from_triedb) {
         BlockDb block_db{block_db_path};
-        MONAD_ASSERT(chain_config == CHAIN_CONFIG_ETHEREUM_MAINNET);
         MONAD_ASSERT(init_block_hash_buffer_from_blockdb(
-            block_db, start_block_num, block_hash_buffer));
+            chain_config, block_db, start_block_num, block_hash_buffer));
     }
 
     signal(SIGINT, signal_handler);
@@ -383,10 +390,10 @@ int main(int const argc, char const *argv[])
     vm::VM vm;
     DbCache db_cache = ctx ? DbCache{*ctx} : DbCache{triedb};
     auto const result = [&] {
-        switch (chain_config) {
-        case CHAIN_CONFIG_ETHEREUM_MAINNET:
-            return runloop_ethereum(
+        if (replay) {
+            return runloop_replay(
                 *chain,
+                chain_config,
                 block_db_path,
                 db_cache,
                 vm,
@@ -395,11 +402,9 @@ int main(int const argc, char const *argv[])
                 block_num,
                 end_block_num,
                 stop);
-        case CHAIN_CONFIG_MONAD_DEVNET:
-        case CHAIN_CONFIG_MONAD_TESTNET:
-        case CHAIN_CONFIG_MONAD_MAINNET:
-        case CHAIN_CONFIG_MONAD_TESTNET2:
-            return runloop_monad(
+        }
+        else {
+            return runloop_live(
                 dynamic_cast<MonadChain const &>(*chain),
                 block_db_path,
                 db,
@@ -411,7 +416,6 @@ int main(int const argc, char const *argv[])
                 end_block_num,
                 stop);
         }
-        MONAD_ABORT_PRINTF("Unsupported chain");
     }();
 
     if (MONAD_UNLIKELY(result.has_error())) {

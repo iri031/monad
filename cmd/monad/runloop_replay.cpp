@@ -1,5 +1,5 @@
-#include "runloop_ethereum.hpp"
 #include "event.hpp"
+#include "runloop_replay.hpp"
 
 #include <category/core/assert.h>
 #include <category/core/bytes.hpp>
@@ -74,7 +74,7 @@ void log_tps(
 //   7. computation of block hash, appending it to the circular hash buffer
 //   8. emitting a block metrics log line
 static Result<BlockExecOutput> process_ethereum_block(
-    Chain const &chain, Db &db, vm::VM &vm,
+    Chain const &chain, monad_chain_config const chain_config, Db &db, vm::VM &vm,
     BlockHashBufferFinalized &block_hash_buffer,
     fiber::PriorityPool &priority_pool, Block &block, bytes32_t const &block_id,
     bytes32_t const &parent_block_id)
@@ -156,6 +156,26 @@ static Result<BlockExecOutput> process_ethereum_block(
     BOOST_OUTCOME_TRY(
         chain.validate_output_header(block.header, exec_output.eth_header));
 
+
+    // For monad chain replay, we also need to check for state and receipt
+    // roots
+    // Note: This is not ideal, but minimize changes to live runloop
+    if (chain_config != CHAIN_CONFIG_ETHEREUM_MAINNET) {
+        if (MONAD_UNLIKELY(
+                block.header.state_root != exec_output.eth_header.state_root)) {
+            LOG_ERROR(
+                "State root mismatch at block {}", block.header.number);
+            return BlockError::WrongMerkleRoot;
+        }
+        if (MONAD_UNLIKELY(
+                block.header.receipts_root !=
+                exec_output.eth_header.receipts_root)) {
+            LOG_ERROR(
+                "Receipt root mismatch at block {}", block.header.number);
+            return BlockError::WrongMerkleRoot;
+        }
+    }
+
     db.finalize(block.header.number, block_id);
     db.update_verified_block(block.header.number);
 
@@ -225,8 +245,8 @@ MONAD_ANONYMOUS_NAMESPACE_END
 
 MONAD_NAMESPACE_BEGIN
 
-Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
-    Chain const &chain, std::filesystem::path const &ledger_dir, Db &db,
+Result<std::pair<uint64_t, uint64_t>> runloop_replay(
+    Chain const &chain, monad_chain_config const chain_config, std::filesystem::path const &ledger_dir, Db &db,
     vm::VM &vm, BlockHashBufferFinalized &block_hash_buffer,
     fiber::PriorityPool &priority_pool, uint64_t &block_num,
     uint64_t const end_block_num, sig_atomic_t const volatile &stop)
@@ -246,7 +266,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
     while (block_num <= end_block_num && stop == 0) {
         Block block;
         MONAD_ASSERT_PRINTF(
-            block_db.get(block_num, block),
+            block_db.get(chain_config, block_num, block),
             "Could not query %lu from blockdb",
             block_num);
 
@@ -264,6 +284,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
             BlockExecOutput const exec_output,
             record_block_exec_result(process_ethereum_block(
                 chain,
+                chain_config,
                 db,
                 vm,
                 block_hash_buffer,
