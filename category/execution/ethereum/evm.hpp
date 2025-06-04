@@ -50,12 +50,18 @@ class Call
 {
     State &state_;
     CallTracerBase &call_tracer_;
+    Chain const &chain_;
+    uint64_t i_;
+    Transaction const &tx_;
+    void *chain_context_;
 
     std::optional<evmc::Result> pre_call(evmc_message const &);
     void post_call(evmc::Result const &);
 
 public:
-    Call(State &, CallTracerBase &);
+    Call(
+        State &, CallTracerBase &, Chain const &, uint64_t, Transaction const &,
+        void *);
 
     evmc::Result operator()(EvmcHostBase &, evmc_message const &) noexcept;
 };

@@ -13,11 +13,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#include <category/core/config.hpp>
 #include <category/core/assert.h>
+#include <category/core/config.hpp>
 #include <category/core/int.hpp>
 #include <category/execution/ethereum/core/transaction.hpp>
 #include <category/execution/ethereum/explicit_evmc_revision.hpp>
+#include <category/execution/ethereum/switch_evmc_revision.hpp>
 #include <category/execution/ethereum/transaction_gas.hpp>
 
 #include <evmc/evmc.h>
@@ -157,6 +158,14 @@ gas_price(Transaction const &tx, uint256_t const &base_fee_per_gas) noexcept
 }
 
 EXPLICIT_EVMC_REVISION(gas_price);
+
+uint256_t gas_price(
+    evmc_revision rev, Transaction const &tx,
+    uint256_t const &base_fee_per_gas) noexcept
+{
+    SWITCH_EVMC_REVISION(gas_price, tx, base_fee_per_gas);
+    MONAD_ABORT("invalid revision");
+}
 
 template <evmc_revision rev>
 uint256_t calculate_txn_award(

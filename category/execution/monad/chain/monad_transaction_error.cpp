@@ -13,29 +13,26 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#include <category/execution/ethereum/chain/chain.hpp>
+#include <category/execution/monad/chain/monad_transaction_error.hpp>
 
-#include <category/core/config.hpp>
-#include <category/core/result.hpp>
+#include <system_error>
 
-#include <boost/outcome/config.hpp>
-#include <boost/outcome/success_failure.hpp>
+BOOST_OUTCOME_SYSTEM_ERROR2_NAMESPACE_BEGIN
 
-MONAD_NAMESPACE_BEGIN
-
-using BOOST_OUTCOME_V2_NAMESPACE::success;
-
-Result<void> Chain::static_validate_header(BlockHeader const &) const
+std::initializer_list<
+    quick_status_code_from_enum<monad::MonadTransactionError>::mapping> const &
+quick_status_code_from_enum<monad::MonadTransactionError>::value_mappings()
 {
-    return success();
+    using monad::MonadTransactionError;
+
+    static std::initializer_list<mapping> const v = {
+        {MonadTransactionError::Success, "success", {errc::success}},
+        {MonadTransactionError::InsufficientBalanceForFee,
+         "insufficient balance for fee",
+         {}},
+    };
+
+    return v;
 }
 
-bool Chain::revert_transaction(
-    uint64_t, uint64_t, Address const &, Transaction const &, uint256_t const &,
-    uint64_t, State &, void *) const
-
-{
-    return false;
-}
-
-MONAD_NAMESPACE_END
+BOOST_OUTCOME_SYSTEM_ERROR2_NAMESPACE_END

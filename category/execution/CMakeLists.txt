@@ -181,11 +181,15 @@ add_library(
   "monad/chain/monad_testnet2.cpp"
   "monad/chain/monad_testnet2.hpp"
   "monad/chain/monad_testnet2_alloc.hpp"
+  "monad/chain/monad_transaction_error.cpp"
+  "monad/chain/monad_transaction_error.hpp"
   # monad/core
   "monad/core/monad_block.hpp"
   "monad/core/rlp/monad_block_rlp.cpp"
   "monad/core/rlp/monad_block_rlp.hpp"
   # monad/execution
+  "monad/reserve_balance.cpp"
+  "monad/reserve_balance.h"
   "monad/validate_monad_block.cpp"
   "monad/validate_monad_block.hpp"
   # monad/state2

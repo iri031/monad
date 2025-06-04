@@ -21,11 +21,16 @@
 #include <category/execution/ethereum/core/rlp/block_rlp.hpp>
 #include <category/execution/ethereum/core/transaction.hpp>
 #include <category/execution/ethereum/db/trie_db.hpp>
+#include <category/execution/ethereum/state2/block_state.hpp>
+#include <category/execution/ethereum/state3/state.hpp>
+#include <category/execution/ethereum/transaction_gas.hpp>
 #include <category/execution/ethereum/validate_block.hpp>
+#include <category/execution/ethereum/validate_transaction.hpp>
 #include <category/execution/monad/chain/monad_devnet.hpp>
 #include <category/execution/monad/chain/monad_mainnet.hpp>
 #include <category/execution/monad/chain/monad_testnet.hpp>
 #include <category/execution/monad/chain/monad_testnet2.hpp>
+#include <category/execution/monad/reserve_balance.h>
 #include <category/mpt/db.hpp>
 
 #include <gtest/gtest.h>
@@ -128,4 +133,140 @@ TEST(MonadChain, create_inside_delegated)
     EXPECT_FALSE(MonadTestnet{}.get_create_inside_delegated());
     EXPECT_FALSE(MonadTestnet2{}.get_create_inside_delegated());
     EXPECT_TRUE(EthereumMainnet{}.get_create_inside_delegated());
+}
+
+void run_revert_transaction_test(
+    bool const can_dip, uint256_t const &initial_balance,
+    uint64_t const gas_fee, uint256_t const &value, bool const expected)
+{
+    constexpr uint256_t BASE_FEE_PER_GAS = 1;
+    constexpr Address SENDER{1};
+    MonadDevnet const chain;
+    InMemoryMachine machine;
+    mpt::Db db{machine};
+    TrieDb tdb{db};
+    vm::VM vm;
+    BlockState bs{tdb, vm};
+
+    ASSERT_EQ(
+        monad_default_max_reserve_balance(chain.get_monad_revision(0, 0)),
+        10000000000000000000ULL); // 10 MON
+
+    // Set up initial state
+    {
+        State state{bs, Incarnation{0, 0}};
+        state.add_to_balance(SENDER, initial_balance);
+        MONAD_ASSERT(bs.can_merge(state));
+        bs.merge(state);
+    }
+
+    Transaction const tx{
+        .max_fee_per_gas = BASE_FEE_PER_GAS,
+        .gas_limit = gas_fee,
+        .type = TransactionType::legacy,
+        .max_priority_fee_per_gas = 0,
+    };
+
+    std::vector<Address> senders_0;
+    if (!can_dip) {
+        senders_0.emplace_back(SENDER);
+    }
+    std::vector<Address> senders_1;
+    std::vector<Address> senders_2 = {SENDER};
+    std::vector<std::vector<Address>> authorization_lists;
+    std::vector<std::vector<Address>> authorization_lists_2 = {{}};
+
+    MonadChainContext chain_context{
+        .senders_per_block =
+            {std::cref(senders_0), std::cref(senders_1), std::cref(senders_2)},
+        .authorization_lists_per_block = {
+            std::cref(authorization_lists),
+            std::cref(authorization_lists),
+            std::cref(authorization_lists_2)}};
+
+    {
+        State state{bs, Incarnation{1, 0}};
+        state.subtract_from_balance(SENDER, gas_fee);
+        state.subtract_from_balance(SENDER, value);
+        bool should_revert = chain.revert_transaction(
+            1, // block_number
+            0, // timestamp
+            SENDER,
+            tx,
+            BASE_FEE_PER_GAS,
+            0, // transaction index
+            state,
+            &chain_context);
+
+        EXPECT_EQ(should_revert, expected);
+    }
+}
+
+TEST(MonadChain, revert_transaction_no_dip_gas_fee_with_no_value_false)
+{
+    run_revert_transaction_test(
+        false, // can_dip
+        10 * 1000000000000000000ULL, // initial balance
+        2 * 1000000000000000000ULL, // gas fee
+        0, // value
+        false // expected should_revert
+    );
+
+    // now spend whole reserve
+    run_revert_transaction_test(
+        false, // can_dip
+        10 * 1000000000000000000ULL, // initial balance
+        10 * 1000000000000000000ULL, // gas fee
+        0, // value
+        false // expected should_revert
+    );
+}
+
+TEST(MonadChain, revert_transaction_no_dip_gas_fee_with_value_true)
+{
+    run_revert_transaction_test(
+        false, // can_dip
+        10 * 1000000000000000000ULL, // initial balance
+        2 * 1000000000000000000ULL, // gas fee
+        1 * 1000000000000000000ULL, // value
+        true // expected should_revert
+    );
+
+    run_revert_transaction_test(
+        false, // can_dip
+        15 * 1000000000000000000ULL, // initial balance
+        5 * 1000000000000000000ULL, // gas fee
+        6 * 1000000000000000000ULL, // value
+        true // expected should_revert
+    );
+}
+
+TEST(MonadChain, revert_transaction_no_dip_gas_fee_with_value_false)
+{
+    run_revert_transaction_test(
+        false, // can_dip
+        15 * 1000000000000000000ULL, // initial balance
+        5 * 1000000000000000000ULL, // gas fee
+        5 * 1000000000000000000ULL, // value
+        false // expected should_revert
+    );
+}
+
+TEST(MonadChain, revert_transaction_dip_false)
+{
+    run_revert_transaction_test(
+        true, // can_dip
+        10 * 1000000000000000000ULL, // initial balance
+        10 * 1000000000000000000ULL, // gas fee
+        0, // value
+        false // expected should_revert
+    );
+
+    run_revert_transaction_test(
+        true, // can_dip
+        10 * 1000000000000000000ULL, // initial balance
+        1 * 1000000000000000000ULL, // gas fee
+        9 * 1000000000000000000ULL, // value
+        false // expected should_revert
+    );
 }

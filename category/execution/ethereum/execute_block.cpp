@@ -162,7 +162,8 @@ Result<std::vector<Receipt>> execute_block(
     Chain const &chain, Block &block, std::vector<Address> const &senders,
     BlockState &block_state, BlockHashBuffer const &block_hash_buffer,
     fiber::PriorityPool &priority_pool, BlockMetrics &block_metrics,
-    std::vector<std::unique_ptr<CallTracerBase>> &call_tracers)
+    std::vector<std::unique_ptr<CallTracerBase>> &call_tracers,
+    void *const chain_context)
 {
     TRACE_BLOCK_EVENT(StartBlock);
 
@@ -205,7 +206,8 @@ Result<std::vector<Receipt>> execute_block(
              &block_hash_buffer = block_hash_buffer,
              &block_state,
              &block_metrics,
-             &call_tracer = *call_tracers[i]] {
+             &call_tracer = *call_tracers[i],
+             chain_context] {
                 results[i] = ExecuteTransaction<rev>{
                     chain,
                     i,
@@ -216,7 +218,8 @@ Result<std::vector<Receipt>> execute_block(
                     block_state,
                     block_metrics,
                     promises[i],
-                    call_tracer}();
+                    call_tracer,
+                    chain_context}();
                 promises[i + 1].set_value();
             });
     }
@@ -274,7 +277,8 @@ Result<std::vector<Receipt>> execute_block(
     std::vector<Address> const &senders, BlockState &block_state,
     BlockHashBuffer const &block_hash_buffer,
     fiber::PriorityPool &priority_pool, BlockMetrics &block_metrics,
-    std::vector<std::unique_ptr<CallTracerBase>> &call_tracers)
+    std::vector<std::unique_ptr<CallTracerBase>> &call_tracers,
+    void *const chain_context)
 {
     SWITCH_EVMC_REVISION(
         execute_block,
@@ -285,7 +289,8 @@ Result<std::vector<Receipt>> execute_block(
         block_hash_buffer,
         priority_pool,
         block_metrics,
-        call_tracers);
+        call_tracers,
+        chain_context);
     MONAD_ASSERT(false);
 }
 

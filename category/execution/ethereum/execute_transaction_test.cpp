@@ -95,7 +95,8 @@ TEST(TransactionProcessor, irrevocable_gas_and_refund_new_contract)
         bs,
         metrics,
         prev,
-        noop_call_tracer)();
+        noop_call_tracer,
+        nullptr)();
 
     ASSERT_TRUE(!receipt.has_error());
 

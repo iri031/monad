@@ -25,6 +25,7 @@
 
 MONAD_NAMESPACE_BEGIN
 
+class State;
 struct BlockHeader;
 struct Receipt;
 struct Transaction;
@@ -53,6 +54,16 @@ struct Chain
     virtual GenesisState get_genesis_state() const = 0;
 
     virtual bool get_create_inside_delegated() const = 0;
+
+    virtual Result<void> validate_transaction(
+        uint64_t block_number, uint64_t timestamp, Transaction const &,
+        Address const &sender, State &,
+        uint256_t const &base_fee_per_gas) const = 0;
+
+    virtual bool revert_transaction(
+        uint64_t block_number, uint64_t timestamp, Address const &sender,
+        Transaction const &, uint256_t const &base_fee_per_gas, uint64_t i,
+        State &, void *chain_context) const;
 };
 
 MONAD_NAMESPACE_END

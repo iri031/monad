@@ -34,6 +34,7 @@
 #include <category/execution/ethereum/metrics/block_metrics.hpp>
 #include <category/execution/ethereum/state2/block_state.hpp>
 #include <category/execution/ethereum/trace/call_tracer.hpp>
+#include <category/execution/ethereum/transaction_gas.hpp>
 #include <category/execution/ethereum/validate_block.hpp>
 #include <category/execution/ethereum/validate_transaction.hpp>
 #include <category/execution/monad/chain/monad_chain.hpp>
@@ -42,6 +43,7 @@
 #include <category/execution/monad/validate_monad_block.hpp>
 #include <category/mpt/db.hpp>
 
+#include <ankerl/unordered_dense.h>
 #include <boost/outcome/try.hpp>
 #include <quill/Quill.h>
 #include <quill/detail/LogMacros.h>
@@ -55,6 +57,16 @@
 #include <vector>
 
 MONAD_ANONYMOUS_NAMESPACE_BEGIN
+
+struct SendersCacheEntry
+{
+    uint64_t block_number;
+    bytes32_t parent_id;
+    std::vector<Address> senders;
+};
+
+using SendersCache =
+    ankerl::unordered_dense::segmented_map<bytes32_t, SendersCacheEntry>;
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-variable"
@@ -135,7 +147,7 @@ Result<std::pair<bytes32_t, uint64_t>> propose_block(
     MonadConsensusBlockHeader const &consensus_header, Block block,
     BlockHashChain &block_hash_chain, MonadChain const &chain, Db &db,
     vm::VM &vm, fiber::PriorityPool &priority_pool, bool const is_first_block,
-    bool const enable_tracing)
+    bool const enable_tracing, SendersCache &senders_cache)
 {
     [[maybe_unused]] auto const block_start = std::chrono::system_clock::now();
     auto const block_begin = std::chrono::steady_clock::now();
@@ -170,6 +182,14 @@ Result<std::pair<bytes32_t, uint64_t>> propose_block(
             return TransactionError::MissingSender;
         }
     }
+    MONAD_ASSERT(senders_cache
+                     .emplace(
+                         block_id,
+                         SendersCacheEntry{
+                             .block_number = block.header.number,
+                             .parent_id = consensus_header.parent_id(),
+                             .senders = senders})
+                     .second);
 
     // Create call frames vectors for tracers
     std::vector<std::vector<CallFrame>> call_frames{block.transactions.size()};
@@ -184,6 +204,33 @@ Result<std::pair<bytes32_t, uint64_t>> propose_block(
                       std::make_unique<NoopCallTracer>()};
     }
 
+    std::vector<Address> const empty_senders;
+    std::array<
+        std::reference_wrapper<std::vector<Address> const>,
+        EXECUTION_DELAY>
+        senders_per_block{empty_senders, empty_senders, senders};
+
+    if (block.header.number > 1) {
+        bytes32_t const &parent_id = consensus_header.parent_id();
+        MONAD_ASSERT(senders_cache.contains(parent_id));
+        SendersCacheEntry const &parent_entry = senders_cache.at(parent_id);
+        senders_per_block[1] = parent_entry.senders;
+        if (block.header.number > 2) {
+            bytes32_t const &grandparent_id = parent_entry.parent_id;
+            MONAD_ASSERT(senders_cache.contains(grandparent_id));
+            SendersCacheEntry const &grandparent_entry =
+                senders_cache.at(grandparent_id);
+            senders_per_block[0] = grandparent_entry.senders;
+        }
+    }
+
+    // TODO: with eip-7702
+    std::vector<std::vector<Address>> const empty_auth;
+    std::vector<std::vector<Address>> const auth{senders.size()};
+
+    MonadChainContext chain_context{
+        .senders_per_block = senders_per_block,
+        .authorization_lists_per_block = {empty_auth, empty_auth, auth}};
     BlockState block_state(db, vm);
     BlockMetrics block_metrics;
     BOOST_OUTCOME_TRY(
@@ -197,7 +244,8 @@ Result<std::pair<bytes32_t, uint64_t>> propose_block(
             block_hash_buffer,
             priority_pool,
             block_metrics,
-            call_tracers));
+            call_tracers,
+            &chain_context));
 
     block_state.log_debug();
 
@@ -336,6 +384,40 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
     auto const proposed_head = header_dir / "proposed_head";
     auto const finalized_head = header_dir / "finalized_head";
 
+    uint64_t last_finalized_block_number =
+        raw_db.get_latest_finalized_version();
+
+    MONAD_ASSERT(last_finalized_block_number != mpt::INVALID_BLOCK_NUM);
+
+    SendersCache senders_cache;
+    for_each_header(
+        finalized_head,
+        header_dir,
+        chain,
+        last_finalized_block_number > 2 ? last_finalized_block_number - 2 : 0,
+        last_finalized_block_number,
+        [&senders_cache, &priority_pool, body_dir](
+            bytes32_t const &id, auto const &header) {
+            MonadConsensusBlockBody const body =
+                read_body(header.block_body_id, body_dir);
+            std::vector<std::optional<Address>> const recovered =
+                recover_senders(body.transactions, priority_pool);
+            std::vector<Address> senders;
+            senders.reserve(recovered.size());
+            for (std::optional<Address> const &addr : recovered) {
+                MONAD_ASSERT(addr.has_value());
+                senders.emplace_back(addr.value());
+            }
+            MONAD_ASSERT(senders_cache
+                             .emplace(
+                                 id,
+                                 SendersCacheEntry{
+                                     .block_number = header.seqno,
+                                     .parent_id = header.parent_id(),
+                                     .senders = std::move(senders)})
+                             .second);
+        });
+
     uint64_t total_gas = 0;
     uint64_t ntxs = 0;
 
@@ -355,10 +437,6 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
 
     std::deque<ToExecute> to_execute;
     std::deque<ToFinalize> to_finalize;
-    uint64_t last_finalized_block_number =
-        raw_db.get_latest_finalized_version();
-
-    MONAD_ASSERT(last_finalized_block_number != mpt::INVALID_BLOCK_NUM);
 
     while (finalized_block_num < end_block_num && stop == 0) {
         to_finalize.clear();
@@ -429,7 +507,8 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
              &vm,
              &priority_pool,
              start_block_num,
-             enable_tracing](
+             enable_tracing,
+             &senders_cache](
                 bytes32_t const &block_id,
                 auto const &header) -> Result<std::pair<uint64_t, uint64_t>> {
             auto const block_time_start = std::chrono::steady_clock::now();
@@ -460,7 +539,8 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                     vm,
                     priority_pool,
                     block_number == start_block_num,
-                    enable_tracing));
+                    enable_tracing,
+                    senders_cache));
             auto const &[block_hash, gas_used] = propose_result;
             block_hash_chain.propose(
                 block_hash, block_number, block_id, header.parent_id());
@@ -491,6 +571,16 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                 db.update_verified_block(verified_block);
             }
             finalized_block_num = block;
+        }
+
+        if (!to_finalize.empty()) {
+            std::erase_if(
+                senders_cache,
+                [last_finalized = to_finalize.back().block](
+                    std::pair<bytes32_t, SendersCacheEntry> const &entry) {
+                    return last_finalized > 1 &&
+                           entry.second.block_number < last_finalized - 1;
+                });
         }
     }
 

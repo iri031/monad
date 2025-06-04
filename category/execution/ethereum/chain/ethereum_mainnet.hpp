@@ -55,6 +55,11 @@ struct EthereumMainnet : Chain
     virtual GenesisState get_genesis_state() const override;
 
     virtual bool get_create_inside_delegated() const override;
+
+    virtual Result<void> validate_transaction(
+        uint64_t block_number, uint64_t timestamp, Transaction const &,
+        Address const &sender, State &,
+        uint256_t const &base_fee_per_gas) const override;
 };
 
 MONAD_NAMESPACE_END

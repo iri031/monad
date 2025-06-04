@@ -157,7 +157,8 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
                 block_hash_buffer,
                 priority_pool,
                 block_metrics,
-                call_tracers));
+                call_tracers,
+                nullptr));
 
         block_state.log_debug();
         auto const commit_begin = std::chrono::steady_clock::now();

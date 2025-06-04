@@ -24,7 +24,9 @@
 #include <category/execution/ethereum/core/fmt/bytes_fmt.hpp>
 #include <category/execution/ethereum/dao.hpp>
 #include <category/execution/ethereum/execute_transaction.hpp>
+#include <category/execution/ethereum/state3/state.hpp>
 #include <category/execution/ethereum/validate_block.hpp>
+#include <category/execution/ethereum/validate_transaction.hpp>
 
 #include <evmc/evmc.h>
 
@@ -174,6 +176,14 @@ GenesisState EthereumMainnet::get_genesis_state() const
 bool EthereumMainnet::get_create_inside_delegated() const
 {
     return true;
+}
+
+Result<void> EthereumMainnet::validate_transaction(
+    uint64_t, uint64_t, Transaction const &tx, Address const &sender,
+    State &state, uint256_t const &) const
+{
+    auto const acct = state.recent_account(sender);
+    return ::monad::validate_transaction(tx, acct);
 }
 
 MONAD_NAMESPACE_END

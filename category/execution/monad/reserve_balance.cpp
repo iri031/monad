@@ -13,29 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#include <category/execution/ethereum/chain/chain.hpp>
+#include <category/execution/monad/reserve_balance.h>
 
-#include <category/core/config.hpp>
-#include <category/core/result.hpp>
-
-#include <boost/outcome/config.hpp>
-#include <boost/outcome/success_failure.hpp>
-
-MONAD_NAMESPACE_BEGIN
-
-using BOOST_OUTCOME_V2_NAMESPACE::success;
-
-Result<void> Chain::static_validate_header(BlockHeader const &) const
+uint64_t monad_default_max_reserve_balance(monad_revision)
 {
-    return success();
+    return 10000000000000000000ULL; // 10 MON
 }
-
-bool Chain::revert_transaction(
-    uint64_t, uint64_t, Address const &, Transaction const &, uint256_t const &,
-    uint64_t, State &, void *) const
-
-{
-    return false;
-}
-
-MONAD_NAMESPACE_END

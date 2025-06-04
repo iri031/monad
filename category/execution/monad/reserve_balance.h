@@ -13,29 +13,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#include <category/execution/ethereum/chain/chain.hpp>
+#pragma once
 
-#include <category/core/config.hpp>
-#include <category/core/result.hpp>
+#include <category/execution/monad/chain/monad_revision.h>
 
-#include <boost/outcome/config.hpp>
-#include <boost/outcome/success_failure.hpp>
+#include <cstdint>
 
-MONAD_NAMESPACE_BEGIN
-
-using BOOST_OUTCOME_V2_NAMESPACE::success;
-
-Result<void> Chain::static_validate_header(BlockHeader const &) const
+#ifdef __cplusplus
+extern "C"
 {
-    return success();
+#endif
+
+uint64_t monad_default_max_reserve_balance(enum monad_revision);
+
+#ifdef __cplusplus
 }
-
-bool Chain::revert_transaction(
-    uint64_t, uint64_t, Address const &, Transaction const &, uint256_t const &,
-    uint64_t, State &, void *) const
-
-{
-    return false;
-}
-
-MONAD_NAMESPACE_END
+#endif

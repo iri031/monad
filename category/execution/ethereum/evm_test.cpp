@@ -82,8 +82,9 @@ TEST(Evm, create_with_insufficient)
     NoopCallTracer call_tracer;
 
     // Create dummy call and create executors for the host
-    Call<EVMC_SHANGHAI> call{s, call_tracer};
     EthereumMainnet chain;
+    Transaction dummy_tx{};
+    Call<EVMC_SHANGHAI> call{s, call_tracer, chain, 0, dummy_tx, nullptr};
     BlockHeader header;
     Create<EVMC_SHANGHAI> create_executor{chain, s, header, call_tracer};
 
@@ -142,8 +143,9 @@ TEST(Evm, eip684_existing_code)
     NoopCallTracer call_tracer;
 
     // Create dummy call and create executors for the host
-    Call<EVMC_SHANGHAI> call{s, call_tracer};
     EthereumMainnet chain;
+    Transaction dummy_tx{};
+    Call<EVMC_SHANGHAI> call{s, call_tracer, chain, 0, dummy_tx, nullptr};
     BlockHeader header;
     Create<EVMC_SHANGHAI> create_executor{chain, s, header, call_tracer};
 
@@ -177,8 +179,9 @@ TEST(Evm, create_nonce_out_of_range)
     NoopCallTracer call_tracer;
 
     // Create dummy call and create executors for the host
-    Call<EVMC_SHANGHAI> call{s, call_tracer};
     EthereumMainnet chain;
+    Transaction dummy_tx{};
+    Call<EVMC_SHANGHAI> call{s, call_tracer, chain, 0, dummy_tx, nullptr};
     BlockHeader header;
     Create<EVMC_SHANGHAI> create_executor{chain, s, header, call_tracer};
 
@@ -236,8 +239,10 @@ TEST(Evm, static_precompile_execution)
     NoopCallTracer call_tracer;
 
     // Create dummy call and create executors for the host
-    Call<EVMC_SHANGHAI> call_executor{s, call_tracer};
     EthereumMainnet chain;
+    Transaction dummy_tx{};
+    Call<EVMC_SHANGHAI> call_executor{
+        s, call_tracer, chain, 0, dummy_tx, nullptr};
     BlockHeader header;
     Create<EVMC_SHANGHAI> create_executor{chain, s, header, call_tracer};
 
@@ -301,8 +306,10 @@ TEST(Evm, out_of_gas_static_precompile_execution)
     NoopCallTracer call_tracer;
 
     // Create dummy call and create executors for the host
-    Call<EVMC_SHANGHAI> call_executor{s, call_tracer};
     EthereumMainnet chain;
+    Transaction dummy_tx{};
+    Call<EVMC_SHANGHAI> call_executor{
+        s, call_tracer, chain, 0, dummy_tx, nullptr};
     BlockHeader header;
     Create<EVMC_SHANGHAI> create_executor{chain, s, header, call_tracer};
 
@@ -523,9 +530,11 @@ TEST(Evm, create_inside_delegated)
 
     BlockHashBufferFinalized const block_hash_buffer;
     NoopCallTracer call_tracer;
-    Call<EVMC_SHANGHAI> call_executor{s, call_tracer};
     EthereumMainnet chain;
     BlockHeader header;
+    Transaction dummy_tx{};
+    Call<EVMC_SHANGHAI> call_executor{
+        s, call_tracer, chain, 0, dummy_tx, nullptr};
     Create<EVMC_SHANGHAI> create_executor{chain, s, header, call_tracer};
     evm_host_t h{
         call_tracer,

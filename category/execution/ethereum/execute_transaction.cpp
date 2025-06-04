@@ -84,11 +84,13 @@ MONAD_NAMESPACE_BEGIN
 template <evmc_revision rev>
 ExecuteTransactionNoValidation<rev>::ExecuteTransactionNoValidation(
     Chain const &chain, Transaction const &tx, Address const &sender,
-    BlockHeader const &header)
+    BlockHeader const &header, uint64_t const i, void *chain_context)
     : chain_{chain}
     , tx_{tx}
     , sender_{sender}
     , header_{header}
+    , i_{i}
+    , chain_context_{chain_context}
 {
 }
 
@@ -151,7 +153,8 @@ evmc::Result ExecuteTransactionNoValidation<rev>::operator()(
     auto const msg = to_message();
     return (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2)
                ? Create<rev>{chain_, state, header_, call_tracer}(host, msg)
-               : Call<rev>{state, call_tracer}(host, msg);
+               : Call<rev>{state, call_tracer, chain_, i_, tx_, chain_context_}(
+                     host, msg);
 }
 
 template class ExecuteTransactionNoValidation<EVMC_FRONTIER>;
@@ -175,9 +178,9 @@ ExecuteTransaction<rev>::ExecuteTransaction(
     Address const &sender, BlockHeader const &header,
     BlockHashBuffer const &block_hash_buffer, BlockState &block_state,
     BlockMetrics &block_metrics, boost::fibers::promise<void> &prev,
-    CallTracerBase &call_tracer)
-    : ExecuteTransactionNoValidation<rev>{chain, tx, sender, header}
-    , i_{i}
+    CallTracerBase &call_tracer, void *const chain_context)
+    : ExecuteTransactionNoValidation<
+          rev>{chain, tx, sender, header, i, chain_context}
     , block_hash_buffer_{block_hash_buffer}
     , block_state_{block_state}
     , block_metrics_{block_metrics}
@@ -189,12 +192,17 @@ ExecuteTransaction<rev>::ExecuteTransaction(
 template <evmc_revision rev>
 Result<evmc::Result> ExecuteTransaction<rev>::execute_impl2(State &state)
 {
-    auto const sender_account = state.recent_account(sender_);
-    BOOST_OUTCOME_TRY(validate_transaction(tx_, sender_account));
+    BOOST_OUTCOME_TRY(chain_.validate_transaction(
+        header_.number,
+        header_.timestamp,
+        tx_,
+        sender_,
+        state,
+        header_.base_fee_per_gas.value_or(0)));
 
     auto const tx_context =
         get_tx_context<rev>(tx_, sender_, header_, chain_.get_chain_id());
-    Call<rev> call{state, call_tracer_};
+    Call<rev> call{state, call_tracer_, chain_, i_, tx_, chain_context_};
     Create<rev> create{chain_, state, header_, call_tracer_};
     EvmcHost<rev> host{
         call_tracer_,

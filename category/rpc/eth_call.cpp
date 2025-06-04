@@ -212,7 +212,17 @@ namespace
         auto const tx_context = get_tx_context<rev>(
             enriched_txn, sender, header, chain.get_chain_id());
 
-        Call<rev> call{state, call_tracer};
+        // TODO: properly initialize these?
+        std::vector<Address> const empty_senders;
+        std::vector<Address> const senders = {sender};
+        std::vector<std::vector<Address>> const empty_auth;
+        std::vector<std::vector<Address>> const auth = {{}};
+
+        MonadChainContext chain_context{
+            .senders_per_block = {empty_senders, empty_senders, senders},
+            .authorization_lists_per_block = {empty_auth, empty_auth, auth}};
+        Call<rev> call{
+            state, call_tracer, chain, 0, enriched_txn, &chain_context};
         Create<rev> create{chain, state, header, call_tracer};
         EvmcHost<rev> host{
             call_tracer,
@@ -222,8 +232,10 @@ namespace
             chain.get_create_inside_delegated(),
             call,
             create};
-        auto execution_result = ExecuteTransactionNoValidation<rev>{
-            chain, enriched_txn, sender, header}(state, host, call_tracer);
+        auto execution_result =
+            ExecuteTransactionNoValidation<rev>{
+                chain, enriched_txn, sender, header, 0, &chain_context}(
+                state, host, call_tracer);
 
         // compute gas_refund and gas_used
         auto const gas_refund = chain.compute_gas_refund(
