@@ -1,6 +1,7 @@
 #pragma once
 
 #include <monad/core/basic_formatter.hpp>
+#include <monad/core/fmt/address_fmt.hpp>
 #include <monad/core/fmt/signature_fmt.hpp>
 #include <monad/core/transaction.hpp>
 
@@ -87,7 +88,7 @@ struct fmt::formatter<monad::Transaction> : public monad::BasicFormatter
             "data=0x{:02x} "
             "access_list={}"
             "}} ",
-            sender,
+            sender.has_value() ? fmt::format("{}", sender.value()) : "Error{}",
             tx.sc,
             tx.nonce,
             tx.max_priority_fee_per_gas,

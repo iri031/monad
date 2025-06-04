@@ -206,17 +206,16 @@ Result<std::vector<Receipt>> BlockchainTest::execute(
 
     BlockState block_state(db);
     EthereumMainnetRev const chain{rev};
+    BOOST_OUTCOME_TRY(auto const senders, recover_senders(*pool_, block));
     BOOST_OUTCOME_TRY(
         auto const results,
         execute_block<rev>(
-            chain, block, block_state, block_hash_buffer, *pool_));
+            chain, block, senders, block_state, block_hash_buffer, *pool_));
     std::vector<Receipt> receipts(results.size());
     std::vector<std::vector<CallFrame>> call_frames(results.size());
-    std::vector<Address> senders(results.size());
     for (unsigned i = 0; i < results.size(); ++i) {
         receipts[i] = std::move(results[i].receipt);
         call_frames[i] = std::move(results[i].call_frames);
-        senders[i] = results[i].sender;
     }
 
     block_state.log_debug();

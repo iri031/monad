@@ -914,8 +914,15 @@ TYPED_TEST(DBTest, call_frames_stress_test)
 
     fiber::PriorityPool pool{1, 1};
 
+    auto const senders = recover_senders(pool, block.value());
+    ASSERT_TRUE(senders.has_value());
     auto const results = execute_block<EVMC_SHANGHAI>(
-        EthereumMainnet{}, block.value(), bs, block_hash_buffer, pool);
+        EthereumMainnet{},
+        block.value(),
+        senders.value(),
+        bs,
+        block_hash_buffer,
+        pool);
 
     ASSERT_TRUE(!results.has_error());
 
@@ -1011,8 +1018,15 @@ TYPED_TEST(DBTest, call_frames_refund)
 
     fiber::PriorityPool pool{1, 1};
 
+    auto const senders = recover_senders(pool, block.value());
+    ASSERT_TRUE(senders.has_value());
     auto const results = execute_block<EVMC_SHANGHAI>(
-        ShanghaiEthereumMainnet{}, block.value(), bs, block_hash_buffer, pool);
+        ShanghaiEthereumMainnet{},
+        block.value(),
+        senders.value(),
+        bs,
+        block_hash_buffer,
+        pool);
 
     ASSERT_TRUE(!results.has_error());
 

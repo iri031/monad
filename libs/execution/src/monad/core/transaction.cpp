@@ -5,6 +5,7 @@
 #include <monad/core/rlp/transaction_rlp.hpp>
 #include <monad/core/transaction.hpp>
 #include <monad/execution/trace/event_trace.hpp>
+#include <monad/execution/validate_transaction.hpp>
 
 #include <silkpre/ecdsa.h>
 
@@ -20,7 +21,7 @@
 
 MONAD_NAMESPACE_BEGIN
 
-std::optional<Address> recover_sender(Transaction const &tx)
+Result<Address> recover_sender(Transaction const &tx)
 {
     TRACE_TXN_EVENT(StartSenderRecovery);
     byte_string const tx_encoding = rlp::encode_transaction_for_signing(tx);
@@ -45,7 +46,7 @@ std::optional<Address> recover_sender(Transaction const &tx)
             signature,
             tx.sc.odd_y_parity,
             context.get())) {
-        return std::nullopt;
+        return TransactionError::MissingSender;
     }
 
     return result;

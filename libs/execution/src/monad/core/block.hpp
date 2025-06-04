@@ -5,8 +5,10 @@
 #include <monad/core/bytes.hpp>
 #include <monad/core/int.hpp>
 #include <monad/core/receipt.hpp>
+#include <monad/core/result.hpp>
 #include <monad/core/transaction.hpp>
 #include <monad/core/withdrawal.hpp>
+#include <monad/fiber/priority_pool.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -60,5 +62,8 @@ static_assert(alignof(BlockHeader) == 8);
 
 static_assert(sizeof(Block) == 840);
 static_assert(alignof(Block) == 8);
+
+Result<std::vector<Address>>
+recover_senders(fiber::PriorityPool &, Block const &);
 
 MONAD_NAMESPACE_END

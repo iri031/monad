@@ -7,6 +7,7 @@
 #include <monad/core/byte_string.hpp>
 #include <monad/core/bytes.hpp>
 #include <monad/core/int.hpp>
+#include <monad/core/result.hpp>
 #include <monad/core/signature.hpp>
 
 #include <algorithm>
@@ -58,6 +59,6 @@ struct Transaction
 static_assert(sizeof(Transaction) == 304);
 static_assert(alignof(Transaction) == 8);
 
-std::optional<Address> recover_sender(Transaction const &);
+Result<Address> recover_sender(Transaction const &);
 
 MONAD_NAMESPACE_END
