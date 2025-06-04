@@ -199,7 +199,7 @@ namespace
         auto const trace_bs =
             read_trace(PRE_STATE_TRACE_NIBBLE, db, block_number, tx_idx);
         std::vector<uint8_t> trace_cbor(trace_bs.begin(), trace_bs.end());
-        return nlohmann::json::from_cbor(trace_cbor);
+        return nlohmann::json::from_msgpack(trace_cbor);
     }
 
     nlohmann::json read_state_deltas_traces(
@@ -208,7 +208,7 @@ namespace
         auto const trace_bs =
             read_trace(STATE_DELTAS_TRACE_NIBBLE, db, block_number, tx_idx);
         std::vector<uint8_t> trace_cbor(trace_bs.begin(), trace_bs.end());
-        return nlohmann::json::from_cbor(trace_cbor);
+        return nlohmann::json::from_msgpack(trace_cbor);
     }
 
     std::pair<bytes32_t, bytes32_t> read_storage_and_slot(
