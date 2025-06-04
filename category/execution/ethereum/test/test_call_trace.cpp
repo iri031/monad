@@ -143,7 +143,15 @@ TEST(CallTrace, execute_success)
     Create<EVMC_SHANGHAI> create_executor{chain, s, header, call_tracer};
 
     EvmcHost<EVMC_SHANGHAI> host(
-        call_tracer, tx_context, buffer, s, call_executor, create_executor);
+        call_tracer,
+        tx_context,
+        buffer,
+        s,
+        call_executor,
+        create_executor,
+        0,
+        chain,
+        nullptr);
 
     auto const result = ExecuteTransactionNoValidation<EVMC_SHANGHAI>(
         EthereumMainnet{}, tx, sender, BlockHeader{.beneficiary = beneficiary})(
@@ -218,7 +226,15 @@ TEST(CallTrace, execute_reverted_insufficient_balance)
     Create<EVMC_SHANGHAI> create_executor{chain, s, header, call_tracer};
 
     EvmcHost<EVMC_SHANGHAI> host(
-        call_tracer, tx_context, buffer, s, call_executor, create_executor);
+        call_tracer,
+        tx_context,
+        buffer,
+        s,
+        call_executor,
+        create_executor,
+        0,
+        chain,
+        nullptr);
 
     auto const result = ExecuteTransactionNoValidation<EVMC_SHANGHAI>(
         EthereumMainnet{}, tx, sender, BlockHeader{.beneficiary = beneficiary})(

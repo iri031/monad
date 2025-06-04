@@ -21,14 +21,17 @@ EvmcHostBase::EvmcHostBase(
     CallTracerBase &call_tracer, evmc_tx_context const &tx_context,
     BlockHashBuffer const &block_hash_buffer, State &state,
     std::function<evmc::Result(EvmcHostBase &, evmc_message const &)> call,
-    std::function<evmc::Result(EvmcHostBase &, evmc_message const &)>
-        create) noexcept
-    : tx_context_{tx_context}
-    , block_hash_buffer_{block_hash_buffer}
+    std::function<evmc::Result(EvmcHostBase &, evmc_message const &)> create,
+    uint64_t const i, Chain const &chain, void *const chain_context) noexcept
+    : block_hash_buffer_{block_hash_buffer}
+    , tx_context_{tx_context}
     , state_{state}
     , call_tracer_{call_tracer}
     , call_{call}
     , create_{create}
+    , i_{i}
+    , chain_{chain}
+    , chain_context_{chain_context}
 {
 }
 
@@ -47,7 +50,13 @@ evmc_storage_status EvmcHostBase::set_storage(
 
 evmc::uint256be EvmcHostBase::get_balance(Address const &address) const noexcept
 {
-    return state_.get_balance(address);
+    return intx::be::store<bytes32_t>(chain_.get_balance(
+        static_cast<uint64_t>(tx_context_.block_number),
+        static_cast<uint64_t>(tx_context_.block_timestamp),
+        i_,
+        address,
+        state_,
+        chain_context_));
 }
 
 size_t EvmcHostBase::get_code_size(Address const &address) const noexcept

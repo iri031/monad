@@ -238,7 +238,8 @@ Result<std::vector<Receipt>> BlockchainTest::execute(
             block_hash_buffer,
             *pool_,
             metrics,
-            call_tracers));
+            call_tracers,
+            nullptr));
 
     block_state.log_debug();
     block_state.commit(

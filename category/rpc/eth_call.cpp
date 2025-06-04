@@ -27,6 +27,7 @@
 #include <category/execution/monad/chain/monad_mainnet.hpp>
 #include <category/execution/monad/chain/monad_testnet.hpp>
 #include <category/execution/monad/chain/monad_testnet2.hpp>
+#include <category/execution/monad/fee_buffer.hpp>
 #include <category/mpt/db_error.hpp>
 #include <category/mpt/ondisk_db_config.hpp>
 #include <category/mpt/util.hpp>
@@ -196,10 +197,27 @@ namespace
         auto const tx_context = get_tx_context<rev>(
             enriched_txn, sender, header, chain.get_chain_id());
 
+        // TODO: initialize fee_buffer correctly
+        FeeBuffer fee_buffer;
+        fee_buffer.set(block_number, block_id, NULL_HASH_BLAKE3);
+        fee_buffer.note(
+            0,
+            sender,
+            max_gas_cost(enriched_txn.gas_limit, enriched_txn.max_fee_per_gas));
+        fee_buffer.propose();
+        MonadChainContext chain_context{.fee_buffer = fee_buffer};
         Call<rev> call{state, call_tracer};
         Create<rev> create{chain, state, header, call_tracer};
         EvmcHost<rev> host{
-            call_tracer, tx_context, buffer, state, call, create};
+            call_tracer,
+            tx_context,
+            buffer,
+            state,
+            call,
+            create,
+            0,
+            chain,
+            &chain_context};
         auto execution_result = ExecuteTransactionNoValidation<rev>{
             chain, enriched_txn, sender, header}(state, host, call_tracer);
 

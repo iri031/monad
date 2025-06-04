@@ -131,7 +131,15 @@ TEST(EvmcHost, emit_log)
     Create<EVMC_SHANGHAI> create{chain, state, header, call_tracer};
 
     evmc_host_t host{
-        call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, state, call, create};
+        call_tracer,
+        EMPTY_TX_CONTEXT,
+        block_hash_buffer,
+        state,
+        call,
+        create,
+        0,
+        chain,
+        nullptr};
 
     host.emit_log(
         from,
@@ -167,7 +175,15 @@ TEST(EvmcHost, access_precompile)
     Create<EVMC_SHANGHAI> create{chain, state, header, call_tracer};
 
     evmc_host_t host{
-        call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, state, call, create};
+        call_tracer,
+        EMPTY_TX_CONTEXT,
+        block_hash_buffer,
+        state,
+        call,
+        create,
+        0,
+        chain,
+        nullptr};
 
     EXPECT_EQ(
         host.access_account(0x0000000000000000000000000000000000000001_address),

@@ -36,7 +36,7 @@ class Call
     State &state_;
     CallTracerBase &call_tracer_;
 
-    std::optional<evmc::Result> pre_call(evmc_message const &);
+    std::optional<evmc::Result> pre_call(EvmcHostBase const&, evmc_message const &);
     void post_call(evmc::Result const &);
 
 public:

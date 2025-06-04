@@ -19,11 +19,13 @@
 #include <category/execution/ethereum/metrics/block_metrics.hpp>
 #include <category/execution/ethereum/state2/block_state.hpp>
 #include <category/execution/ethereum/trace/call_tracer.hpp>
+#include <category/execution/ethereum/transaction_gas.hpp>
 #include <category/execution/ethereum/validate_block.hpp>
 #include <category/execution/ethereum/validate_transaction.hpp>
 #include <category/execution/monad/chain/monad_chain.hpp>
 #include <category/execution/monad/core/monad_block.hpp>
 #include <category/execution/monad/core/rlp/monad_block_rlp.hpp>
+#include <category/execution/monad/fee_buffer.hpp>
 #include <category/execution/monad/validate_monad_block.hpp>
 #include <category/mpt/db.hpp>
 
@@ -118,8 +120,9 @@ template <class MonadConsensusBlockHeader>
 Result<std::pair<bytes32_t, uint64_t>> propose_block(
     bytes32_t const &block_id,
     MonadConsensusBlockHeader const &consensus_header, Block block,
-    BlockHashChain &block_hash_chain, MonadChain const &chain, Db &db,
-    vm::VM &vm, fiber::PriorityPool &priority_pool, bool const is_first_block,
+    BlockHashChain &block_hash_chain, FeeBuffer &fee_buffer,
+    MonadChain const &chain, Db &db, vm::VM &vm,
+    fiber::PriorityPool &priority_pool, bool const is_first_block,
     bool const enable_tracing)
 {
     [[maybe_unused]] auto const block_start = std::chrono::system_clock::now();
@@ -169,6 +172,14 @@ Result<std::pair<bytes32_t, uint64_t>> propose_block(
                       std::make_unique<NoopCallTracer>()};
     }
 
+    fee_buffer.set(block.header.number, block_id, consensus_header.parent_id());
+    for (unsigned i = 0; i < block.transactions.size(); ++i) {
+        auto const &txn = block.transactions[i];
+        fee_buffer.note(
+            i, senders[i], max_gas_cost(txn.gas_limit, txn.max_fee_per_gas));
+    }
+    fee_buffer.propose();
+    MonadChainContext chain_context{.fee_buffer = fee_buffer};
     BlockState block_state(db, vm);
     BlockMetrics block_metrics;
     BOOST_OUTCOME_TRY(
@@ -182,7 +193,8 @@ Result<std::pair<bytes32_t, uint64_t>> propose_block(
             block_hash_buffer,
             priority_pool,
             block_metrics,
-            call_tracers));
+            call_tracers,
+            &chain_context));
 
     block_state.log_debug();
 
@@ -319,6 +331,32 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
     auto const proposed_head = header_dir / "proposed_head";
     auto const finalized_head = header_dir / "finalized_head";
 
+    // TODO: condition on monad revision
+    FeeBuffer fee_buffer = make_fee_buffer(
+        start_block_num,
+        [&finalized_head, &header_dir, &body_dir](uint64_t const block) {
+            bytes32_t header_id = head_pointer_to_id(finalized_head);
+            while (true) {
+                auto const data = read_file(header_id, header_dir);
+                byte_string_view view{data};
+                auto const header_res = rlp::decode_consensus_block_header<
+                    MonadConsensusBlockHeaderV1>(view);
+                MONAD_ASSERT_PRINTF(
+                    !header_res.has_error(),
+                    "Could not rlp decode header when initializing fee buffer: "
+                    "%s",
+                    evmc::hex(header_id).c_str());
+                auto const &header = header_res.value();
+                MONAD_ASSERT(header.execution_inputs.number >= block);
+                if (header.execution_inputs.number == block) {
+                    auto const body = read_body(header.block_body_id, body_dir);
+                    return std::make_tuple(
+                        header_id, header, body.transactions);
+                }
+                header_id = header.parent_id();
+            }
+        });
+
     uint64_t total_gas = 0;
     uint64_t ntxs = 0;
 
@@ -411,6 +449,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
              &chain,
              &vm,
              &priority_pool,
+             &fee_buffer,
              start_block_num,
              enable_tracing](
                 bytes32_t const &block_id,
@@ -438,6 +477,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                         .ommers = std::move(body.ommers),
                         .withdrawals = std::move(body.withdrawals)},
                     block_hash_chain,
+                    fee_buffer,
                     chain,
                     db,
                     vm,

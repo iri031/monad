@@ -945,7 +945,8 @@ TYPED_TEST(DBTest, call_frames_stress_test)
         block_hash_buffer,
         pool,
         metrics,
-        call_tracers);
+        call_tracers,
+        nullptr);
 
     ASSERT_TRUE(!receipts.has_error());
 
@@ -1058,7 +1059,8 @@ TYPED_TEST(DBTest, call_frames_refund)
         block_hash_buffer,
         pool,
         metrics,
-        call_tracers);
+        call_tracers,
+        nullptr);
 
     ASSERT_TRUE(!receipts.has_error());
 

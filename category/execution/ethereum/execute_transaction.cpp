@@ -150,7 +150,7 @@ ExecuteTransaction<rev>::ExecuteTransaction(
     Address const &sender, BlockHeader const &header,
     BlockHashBuffer const &block_hash_buffer, BlockState &block_state,
     BlockMetrics &block_metrics, boost::fibers::promise<void> &prev,
-    CallTracerBase &call_tracer)
+    CallTracerBase &call_tracer, void *const chain_context)
     : ExecuteTransactionNoValidation<rev>{chain, tx, sender, header}
     , i_{i}
     , block_hash_buffer_{block_hash_buffer}
@@ -158,12 +158,22 @@ ExecuteTransaction<rev>::ExecuteTransaction(
     , block_metrics_{block_metrics}
     , prev_{prev}
     , call_tracer_{call_tracer}
+    , chain_context_{chain_context}
 {
 }
 
 template <evmc_revision rev>
 Result<evmc::Result> ExecuteTransaction<rev>::execute_impl2(State &state)
 {
+    BOOST_OUTCOME_TRY(chain_.validate_transaction(
+        header_.number,
+        header_.timestamp,
+        i_,
+        tx_,
+        sender_,
+        state,
+        chain_context_));
+
     auto const sender_account = state.recent_account(sender_);
     BOOST_OUTCOME_TRY(validate_transaction(tx_, sender_account));
 
@@ -172,7 +182,15 @@ Result<evmc::Result> ExecuteTransaction<rev>::execute_impl2(State &state)
     Call<rev> call{state, call_tracer_};
     Create<rev> create{chain_, state, header_, call_tracer_};
     EvmcHost<rev> host{
-        call_tracer_, tx_context, block_hash_buffer_, state, call, create};
+        call_tracer_,
+        tx_context,
+        block_hash_buffer_,
+        state,
+        call,
+        create,
+        i_,
+        chain_,
+        chain_context_};
 
     return ExecuteTransactionNoValidation<rev>::operator()(
         state, host, call_tracer_);

@@ -2,6 +2,7 @@
 
 #include <category/core/bytes.hpp>
 #include <category/core/config.hpp>
+#include <category/execution/ethereum/chain/chain.hpp>
 #include <category/execution/ethereum/core/address.hpp>
 #include <category/execution/ethereum/precompiles.hpp>
 #include <category/execution/ethereum/state3/state.hpp>
@@ -22,21 +23,26 @@ class BlockHashBuffer;
 
 class EvmcHostBase : public evmc::Host
 {
-    evmc_tx_context const &tx_context_;
     BlockHashBuffer const &block_hash_buffer_;
 
 protected:
+    evmc_tx_context const &tx_context_;
     State &state_;
     CallTracerBase &call_tracer_;
     std::function<evmc::Result(EvmcHostBase &, evmc_message const &)> call_;
     std::function<evmc::Result(EvmcHostBase &, evmc_message const &)> create_;
+    uint64_t i_;
+    Chain const &chain_;
+    void *chain_context_;
 
 public:
     EvmcHostBase(
         CallTracerBase &, evmc_tx_context const &, BlockHashBuffer const &,
         State &,
         std::function<evmc::Result(EvmcHostBase &, evmc_message const &)> call,
-        std::function<evmc::Result(EvmcHostBase &, evmc_message const &)> create) noexcept;
+        std::function<evmc::Result(EvmcHostBase &, evmc_message const &)>
+            create,
+        uint64_t i, Chain const &, void *chain_context) noexcept;
 
     virtual ~EvmcHostBase() noexcept = default;
 

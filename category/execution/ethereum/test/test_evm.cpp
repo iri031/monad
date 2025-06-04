@@ -78,7 +78,10 @@ TEST(Evm, create_with_insufficient)
         block_hash_buffer,
         s,
         call,
-        create_executor};
+        create_executor,
+        0,
+        chain,
+        nullptr};
     auto const result = create_executor(h, m);
 
     EXPECT_EQ(result.status_code, EVMC_INSUFFICIENT_BALANCE);
@@ -137,7 +140,10 @@ TEST(Evm, eip684_existing_code)
         block_hash_buffer,
         s,
         call,
-        create_executor};
+        create_executor,
+        0,
+        chain,
+        nullptr};
     auto const result = create_executor(h, m);
     EXPECT_EQ(result.status_code, EVMC_INVALID_INSTRUCTION);
 }
@@ -171,7 +177,10 @@ TEST(Evm, create_nonce_out_of_range)
         block_hash_buffer,
         s,
         call,
-        create_executor};
+        create_executor,
+        0,
+        chain,
+        nullptr};
 
     commit_sequential(
         tdb,
@@ -229,7 +238,10 @@ TEST(Evm, static_precompile_execution)
         block_hash_buffer,
         s,
         call_executor,
-        create_executor};
+        create_executor,
+        0,
+        chain,
+        nullptr};
 
     commit_sequential(
         tdb,
@@ -293,7 +305,10 @@ TEST(Evm, out_of_gas_static_precompile_execution)
         block_hash_buffer,
         s,
         call_executor,
-        create_executor};
+        create_executor,
+        0,
+        chain,
+        nullptr};
 
     commit_sequential(
         tdb,

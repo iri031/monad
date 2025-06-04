@@ -166,6 +166,10 @@ add_library(
   "monad/core/rlp/monad_block_rlp.cpp"
   "monad/core/rlp/monad_block_rlp.hpp"
   # monad/execution
+  "monad/fee_buffer.cpp"
+  "monad/fee_buffer.hpp"
+  "monad/reserve_balance.cpp"
+  "monad/reserve_balance.h"
   "monad/validate_monad_block.cpp"
   "monad/validate_monad_block.hpp"
   # monad/state2
@@ -189,6 +193,7 @@ target_link_libraries(
   PRIVATE PkgConfig::brotli
   PUBLIC ethash::keccak
   PUBLIC evmc
+  PUBLIC immer
   PUBLIC intx::intx
   PUBLIC nlohmann_json::nlohmann_json
   PUBLIC quill::quill

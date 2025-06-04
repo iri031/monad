@@ -9,7 +9,9 @@
 #include <category/execution/ethereum/core/fmt/bytes_fmt.hpp>
 #include <category/execution/ethereum/dao.hpp>
 #include <category/execution/ethereum/execute_transaction.hpp>
+#include <category/execution/ethereum/state3/state.hpp>
 #include <category/execution/ethereum/validate_block.hpp>
+#include <category/execution/ethereum/validate_transaction.hpp>
 
 #include <evmc/evmc.h>
 
@@ -154,6 +156,25 @@ GenesisState EthereumMainnet::get_genesis_state() const
                                        "db3db69cbdb7a38e1e50b1b82fa")
                             .value();
     return {header, ETHEREUM_MAINNET_ALLOC};
+}
+
+uint256_t EthereumMainnet::get_balance(
+    uint64_t, uint64_t, uint64_t, Address const &sender, State &state,
+    void *) const
+{
+    auto const acct = state.recent_account(sender);
+    if (!acct.has_value()) {
+        return 0;
+    }
+    return acct.value().balance;
+}
+
+Result<void> EthereumMainnet::validate_transaction(
+    uint64_t, uint64_t, uint64_t, Transaction const &tx, Address const &sender,
+    State &state, void *const) const
+{
+    auto const acct = state.recent_account(sender);
+    return ::monad::validate_transaction(tx, acct);
 }
 
 MONAD_NAMESPACE_END

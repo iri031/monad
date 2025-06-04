@@ -11,6 +11,12 @@ MONAD_NAMESPACE_BEGIN
 
 struct BlockHeader;
 struct Transaction;
+class FeeBuffer;
+
+struct MonadChainContext
+{
+    FeeBuffer const &fee_buffer;
+};
 
 struct MonadChain : Chain
 {
@@ -29,6 +35,17 @@ struct MonadChain : Chain
 
     virtual size_t
     get_max_code_size(uint64_t block_number, uint64_t timestamp) const override;
+
+    virtual uint256_t get_balance(
+        uint64_t block_number, uint64_t timestamp, uint64_t i, Address const &,
+        State &, void *chain_context) const override;
+
+    virtual Result<void> validate_transaction(
+        uint64_t block_number, uint64_t timestamp, uint64_t i,
+        Transaction const &, Address const &sender, State &,
+        void *chain_context) const override;
 };
+
+uint256_t get_max_reserve(monad_revision, Address const &, State &);
 
 MONAD_NAMESPACE_END
