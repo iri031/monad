@@ -109,6 +109,7 @@ add_library(
   "src/monad/mem/batch_mem_pool.hpp"
   "src/monad/synchronization/spin_lock.hpp"
   # fiber
+  "src/monad/fiber/algorithm.hpp"
   "src/monad/fiber/config.hpp"
   "src/monad/fiber/priority_algorithm.cpp"
   "src/monad/fiber/priority_algorithm.hpp"
