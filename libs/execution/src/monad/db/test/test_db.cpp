@@ -36,8 +36,6 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <test_resource_data.h>
-
 #include <algorithm>
 #include <bit>
 #include <cstdint>
@@ -46,6 +44,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <test_resource_data.h>
 #include <utility>
 #include <vector>
 

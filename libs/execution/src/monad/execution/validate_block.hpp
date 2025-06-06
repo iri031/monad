@@ -39,7 +39,8 @@ enum class BlockError
     WrongDaoExtraData,
     WrongLogsBloom,
     InvalidGasUsed,
-    WrongMerkleRoot
+    WrongMerkleRoot,
+    OutOfReserveBalance,
 };
 
 struct Block;

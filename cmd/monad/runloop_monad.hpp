@@ -11,7 +11,7 @@
 
 MONAD_NAMESPACE_BEGIN
 
-struct Chain;
+struct MonadChain;
 struct Db;
 class BlockHashBufferFinalized;
 
@@ -26,7 +26,7 @@ namespace fiber
 }
 
 Result<std::pair<uint64_t, uint64_t>> runloop_monad(
-    Chain const &, std::filesystem::path const &, mpt::Db &, Db &,
+    MonadChain const &, std::filesystem::path const &, mpt::Db &, Db &,
     BlockHashBufferFinalized &, fiber::PriorityPool &, uint64_t &, uint64_t,
     sig_atomic_t const volatile &);
 

@@ -1,10 +1,14 @@
 #include <monad/chain/ethereum_mainnet.hpp>
 #include <monad/chain/monad_chain.hpp>
 #include <monad/config.hpp>
+#include <monad/core/account.hpp>
 #include <monad/core/block.hpp>
 #include <monad/core/likely.h>
 #include <monad/core/result.hpp>
+#include <monad/db/db.hpp>
 #include <monad/execution/execute_transaction.hpp>
+#include <monad/execution/inflight_expenses_buffer.hpp>
+#include <monad/execution/transaction_gas.hpp>
 #include <monad/execution/validate_block.hpp>
 
 MONAD_NAMESPACE_BEGIN
@@ -68,6 +72,39 @@ size_t MonadChain::get_max_code_size(
     else {
         MONAD_ABORT("invalid revision");
     }
+}
+
+uint512_t get_inflight_expense(monad_revision const, Transaction const &tx)
+{
+    return tx.value + max_gas_cost(tx.gas_limit, tx.max_fee_per_gas);
+}
+
+uint256_t
+get_max_reserve_balance(monad_revision const, Address const &sender, Db &db)
+{
+    std::optional<Account> const account = db.read_account(sender);
+    if (account.has_value()) {
+        return account.value().balance;
+    }
+    return 0;
+}
+
+Result<void> validate_block(
+    Block const &block, std::vector<Address> const &senders,
+    std::vector<uint256_t> const &max_reserve_balances,
+    InflightExpensesBuffer const &inflight_expenses)
+{
+    MONAD_ASSERT(
+        block.transactions.size() == senders.size() &&
+        block.transactions.size() == max_reserve_balances.size());
+    for (unsigned i = 0; i < senders.size(); ++i) {
+        uint512_t const expense = inflight_expenses.sum(senders[i]);
+        MONAD_ASSERT(expense);
+        if (max_reserve_balances[i] < expense) {
+            return BlockError::OutOfReserveBalance;
+        }
+    }
+    return outcome::success();
 }
 
 MONAD_NAMESPACE_END

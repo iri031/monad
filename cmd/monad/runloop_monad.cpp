@@ -1,7 +1,7 @@
 #include "runloop_monad.hpp"
 #include "file_io.hpp"
 
-#include <monad/chain/chain.hpp>
+#include <monad/chain/monad_chain.hpp>
 #include <monad/config.hpp>
 #include <monad/core/assert.h>
 #include <monad/core/blake3.hpp>
@@ -15,6 +15,7 @@
 #include <monad/execution/block_hash_buffer.hpp>
 #include <monad/execution/execute_block.hpp>
 #include <monad/execution/execute_transaction.hpp>
+#include <monad/execution/inflight_expenses_buffer.hpp>
 #include <monad/execution/validate_block.hpp>
 #include <monad/execution/validate_transaction.hpp>
 #include <monad/execution/wal_reader.hpp>
@@ -131,8 +132,9 @@ bool validate_delayed_execution_results(
 
 Result<std::pair<bytes32_t, uint64_t>> propose_block(
     MonadConsensusBlockHeader const &consensus_header, Block block,
-    BlockHashChain &block_hash_chain, Chain const &chain, Db &db,
-    fiber::PriorityPool &priority_pool, bool const is_first_block)
+    BlockHashChain &block_hash_chain, InflightExpensesBuffer &inflight_expenses,
+    MonadChain const &chain, Db &db, fiber::PriorityPool &priority_pool,
+    bool const is_first_block)
 {
     auto const &block_hash_buffer =
         block_hash_chain.find_chain(consensus_header.parent_round());
@@ -160,6 +162,29 @@ Result<std::pair<bytes32_t, uint64_t>> propose_block(
             return TransactionError::MissingSender;
         }
     }
+
+    monad_revision const monad_rev =
+        chain.get_monad_revision(block.header.number, block.header.timestamp);
+    std::vector<uint256_t> max_reserve_balances(block.transactions.size());
+    for (unsigned i = 0; i < block.transactions.size(); ++i) {
+        max_reserve_balances[i] =
+            get_max_reserve_balance(monad_rev, senders[i], db);
+    }
+
+    inflight_expenses.set(
+        block.header.number,
+        consensus_header.round,
+        consensus_header.parent_round());
+    for (unsigned i = 0; i < block.transactions.size(); ++i) {
+        uint512_t const expense =
+            get_inflight_expense(monad_rev, block.transactions[i]);
+        inflight_expenses.add(senders[i], expense);
+    }
+    inflight_expenses.propose();
+
+    BOOST_OUTCOME_TRY(validate_block(
+        block, senders, max_reserve_balances, inflight_expenses));
+
     BlockState block_state(db);
     BOOST_OUTCOME_TRY(
         auto results,
@@ -204,7 +229,7 @@ MONAD_ANONYMOUS_NAMESPACE_END
 MONAD_NAMESPACE_BEGIN
 
 Result<std::pair<uint64_t, uint64_t>> runloop_monad(
-    Chain const &chain, std::filesystem::path const &ledger_dir,
+    MonadChain const &chain, std::filesystem::path const &ledger_dir,
     mpt::Db &raw_db, Db &db, BlockHashBufferFinalized &block_hash_buffer,
     fiber::PriorityPool &priority_pool, uint64_t &finalized_block_num,
     uint64_t const end_block_num, sig_atomic_t const volatile &stop)
@@ -212,6 +237,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
     constexpr auto SLEEP_TIME = std::chrono::microseconds(100);
     uint64_t const start_block_num = finalized_block_num;
     BlockHashChain block_hash_chain(block_hash_buffer);
+    InflightExpensesBuffer inflight_expenses;
     init_block_hash_chain_proposals(raw_db, block_hash_chain, start_block_num);
 
     auto const body_dir = ledger_dir / "bodies";
@@ -341,6 +367,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                         .ommers = std::move(consensus_body.ommers),
                         .withdrawals = std::move(consensus_body.withdrawals)},
                     block_hash_chain,
+                    inflight_expenses,
                     chain,
                     db,
                     priority_pool,

@@ -239,7 +239,8 @@ quick_status_code_from_enum<monad::BlockError>::value_mappings()
         {BlockError::WrongDaoExtraData, "wrong dao extra data", {}},
         {BlockError::WrongLogsBloom, "wrong logs bloom", {}},
         {BlockError::InvalidGasUsed, "invalid gas used", {}},
-        {BlockError::WrongMerkleRoot, "wrong merkle root", {}}};
+        {BlockError::WrongMerkleRoot, "wrong merkle root", {}},
+        {BlockError::OutOfReserveBalance, "out of reserve balance", {}}};
 
     return v;
 }
