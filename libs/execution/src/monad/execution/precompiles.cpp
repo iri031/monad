@@ -5,6 +5,7 @@
 #include <monad/core/likely.h>
 #include <monad/execution/explicit_evmc_revision.hpp>
 #include <monad/execution/precompiles.hpp>
+#include <monad/execution/switch_evmc_revision.hpp>
 
 #include <silkpre/precompile.h>
 
@@ -128,5 +129,12 @@ std::optional<evmc::Result> check_call_precompile(evmc_message const &msg)
 }
 
 EXPLICIT_EVMC_REVISION(check_call_precompile);
+
+std::optional<evmc::Result>
+check_call_precompile(evmc_revision const rev, evmc_message const &msg)
+{
+    SWITCH_EVMC_REVISION(check_call_precompile, msg);
+    MONAD_ASSERT(false);
+}
 
 MONAD_NAMESPACE_END

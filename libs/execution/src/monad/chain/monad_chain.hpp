@@ -35,6 +35,9 @@ struct MonadChain : Chain
     virtual monad_revision get_monad_revision() const = 0;
 
     virtual size_t get_max_code_size() const override;
+
+    virtual std::optional<evmc::Result>
+    check_call_precompile(evmc_message const &, State &) const override;
 };
 
 uint512_t get_inflight_expense(monad_revision, Transaction const &);

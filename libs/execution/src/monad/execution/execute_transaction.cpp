@@ -102,9 +102,9 @@ constexpr evmc_message to_message(Transaction const &tx, Address const &sender)
 
 template <evmc_revision rev>
 evmc::Result execute_impl_no_validation(
-    State &state, EvmcHost<rev> &host, Transaction const &tx,
-    Address const &sender, uint256_t const &base_fee_per_gas,
-    Address const &beneficiary, size_t const max_code_size)
+    State &state, Chain const &chain, EvmcHost<rev> &host,
+    Transaction const &tx, Address const &sender,
+    uint256_t const &base_fee_per_gas, Address const &beneficiary)
 {
     irrevocable_change<rev>(state, tx, sender, base_fee_per_gas);
 
@@ -127,8 +127,9 @@ evmc::Result execute_impl_no_validation(
     auto const msg = to_message<rev>(tx, sender);
 
     return (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2)
-               ? ::monad::create<rev>(&host, state, msg, max_code_size)
-               : ::monad::call(&host, state, msg);
+               ? ::monad::create<rev>(
+                     &host, state, msg, chain.get_max_code_size())
+               : ::monad::call(&host, chain, state, msg);
 }
 
 EXPLICIT_EVMC_REVISION(execute_impl_no_validation);
@@ -194,21 +195,19 @@ Result<evmc::Result> execute_impl2(
     auto const sender_account = state.recent_account(sender);
     BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
 
-    size_t const max_code_size = chain.get_max_code_size();
-
     auto const tx_context =
         get_tx_context<rev>(tx, sender, hdr, chain.get_chain_id());
     EvmcHost<rev> host{
-        call_tracer, tx_context, block_hash_buffer, state, max_code_size};
+        call_tracer, tx_context, block_hash_buffer, state, chain};
 
     return execute_impl_no_validation<rev>(
         state,
+        chain,
         host,
         tx,
         sender,
         hdr.base_fee_per_gas.value_or(0),
-        hdr.beneficiary,
-        max_code_size);
+        hdr.beneficiary);
 }
 
 template <evmc_revision rev>

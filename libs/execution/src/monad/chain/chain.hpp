@@ -8,8 +8,11 @@
 
 #include <evmc/evmc.h>
 
+#include <optional>
+
 MONAD_NAMESPACE_BEGIN
 
+class State;
 struct BlockHeader;
 struct Receipt;
 struct Transaction;
@@ -40,6 +43,9 @@ public:
     virtual size_t get_max_code_size() const = 0;
 
     virtual GenesisState get_genesis_state() const = 0;
+
+    virtual std::optional<evmc::Result>
+    check_call_precompile(evmc_message const &, State &) const = 0;
 };
 
 MONAD_NAMESPACE_END

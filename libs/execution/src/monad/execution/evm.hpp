@@ -8,6 +8,8 @@
 
 MONAD_NAMESPACE_BEGIN
 
+class Chain;
+
 template <evmc_revision rev>
 struct EvmcHost;
 
@@ -23,6 +25,7 @@ evmc::Result create(
     size_t max_code_size) noexcept;
 
 template <evmc_revision rev>
-evmc::Result call(EvmcHost<rev> *, State &, evmc_message const &) noexcept;
+evmc::Result
+call(EvmcHost<rev> *, Chain const &, State &, evmc_message const &) noexcept;
 
 MONAD_NAMESPACE_END

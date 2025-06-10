@@ -19,6 +19,9 @@ bool is_precompile(Address const &) noexcept;
 template <evmc_revision rev>
 std::optional<evmc::Result> check_call_precompile(evmc_message const &);
 
+std::optional<evmc::Result>
+check_call_precompile(evmc_revision, evmc_message const &);
+
 using precompiled_gas_cost_fn = uint64_t(byte_string_view, evmc_revision);
 
 uint64_t ecrecover_gas_cost(byte_string_view, evmc_revision);

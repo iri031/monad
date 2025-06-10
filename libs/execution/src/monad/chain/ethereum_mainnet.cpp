@@ -1,5 +1,4 @@
 #include <monad/chain/ethereum_mainnet.hpp>
-
 #include <monad/chain/ethereum_mainnet_alloc.hpp>
 #include <monad/config.hpp>
 #include <monad/core/block.hpp>
@@ -9,6 +8,7 @@
 #include <monad/core/result.hpp>
 #include <monad/execution/ethereum/dao.hpp>
 #include <monad/execution/execute_transaction.hpp>
+#include <monad/execution/precompiles.hpp>
 #include <monad/execution/validate_block.hpp>
 
 #include <evmc/evmc.h>
@@ -151,6 +151,12 @@ GenesisState EthereumMainnet::get_genesis_state() const
                                        "db3db69cbdb7a38e1e50b1b82fa")
                             .value();
     return {header, ETHEREUM_MAINNET_ALLOC};
+}
+
+std::optional<evmc::Result>
+EthereumMainnet::check_call_precompile(evmc_message const &msg, State &) const
+{
+    return ::monad::check_call_precompile(get_revision(), msg);
 }
 
 MONAD_NAMESPACE_END

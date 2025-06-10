@@ -205,16 +205,15 @@ namespace
             }
         }();
 
-        EvmcHost<rev> host{
-            *call_tracer, tx_context, buffer, state, max_code_size};
+        EvmcHost<rev> host{*call_tracer, tx_context, buffer, state, chain};
         auto execution_result = execute_impl_no_validation<rev>(
             state,
+            chain,
             host,
             enriched_txn,
             sender,
             header.base_fee_per_gas.value_or(0),
-            header.beneficiary,
-            max_code_size);
+            header.beneficiary);
 
         // compute gas_refund and gas_used
         auto const gas_refund = chain.compute_gas_refund(

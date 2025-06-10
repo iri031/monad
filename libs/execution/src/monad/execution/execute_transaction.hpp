@@ -38,9 +38,9 @@ uint64_t g_star(
 
 template <evmc_revision rev>
 evmc::Result execute_impl_no_validation(
-    State &state, EvmcHost<rev> &host, Transaction const &tx,
-    Address const &sender, uint256_t const &base_fee_per_gas,
-    Address const &beneficiary, uint64_t max_code_size);
+    State &state, Chain const &chain, EvmcHost<rev> &host,
+    Transaction const &tx, Address const &sender,
+    uint256_t const &base_fee_per_gas, Address const &beneficiary);
 
 template <evmc_revision rev>
 Result<ExecutionResult> execute(

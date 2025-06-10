@@ -133,10 +133,10 @@ TEST(CallTrace, execute_success)
     BlockHashBufferFinalized buffer{};
     CallTracer call_tracer{tx};
     EvmcHost<EVMC_SHANGHAI> host(
-        call_tracer, tx_context, buffer, s, MAX_CODE_SIZE_EIP170);
+        call_tracer, tx_context, buffer, s, EthereumMainnet{});
 
     auto const result = execute_impl_no_validation<EVMC_SHANGHAI>(
-        s, host, tx, sender, 1, beneficiary, MAX_CODE_SIZE_EIP170);
+        s, EthereumMainnet{}, host, tx, sender, 1, beneficiary);
     EXPECT_TRUE(result.status_code == EVMC_SUCCESS);
 
     auto const call_frames = std::move(call_tracer).get_frames();
@@ -201,10 +201,10 @@ TEST(CallTrace, execute_reverted_insufficient_balance)
     BlockHashBufferFinalized buffer{};
     CallTracer call_tracer{tx};
     EvmcHost<EVMC_SHANGHAI> host(
-        call_tracer, tx_context, buffer, s, MAX_CODE_SIZE_EIP170);
+        call_tracer, tx_context, buffer, s, EthereumMainnet{});
 
     auto const result = execute_impl_no_validation<EVMC_SHANGHAI>(
-        s, host, tx, sender, 1, beneficiary, MAX_CODE_SIZE_EIP170);
+        s, EthereumMainnet{}, host, tx, sender, 1, beneficiary);
     EXPECT_TRUE(result.status_code == EVMC_INSUFFICIENT_BALANCE);
 
     auto const call_frames = std::move(call_tracer).get_frames();

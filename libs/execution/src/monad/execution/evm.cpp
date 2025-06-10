@@ -11,7 +11,6 @@
 #include <monad/execution/evm.hpp>
 #include <monad/execution/evmc_host.hpp>
 #include <monad/execution/explicit_evmc_revision.hpp>
-#include <monad/execution/precompiles.hpp>
 #include <monad/state3/state.hpp>
 
 #include <evmone/baseline.hpp>
@@ -24,6 +23,7 @@
 #include <intx/intx.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <utility>
@@ -245,8 +245,9 @@ evmc::Result create(
 EXPLICIT_EVMC_REVISION(create);
 
 template <evmc_revision rev>
-evmc::Result
-call(EvmcHost<rev> *const host, State &state, evmc_message const &msg) noexcept
+evmc::Result call(
+    EvmcHost<rev> *const host, Chain const &chain, State &state,
+    evmc_message const &msg) noexcept
 {
     MONAD_ASSERT(
         msg.kind == EVMC_DELEGATECALL || msg.kind == EVMC_CALLCODE ||
@@ -261,7 +262,7 @@ call(EvmcHost<rev> *const host, State &state, evmc_message const &msg) noexcept
     }
 
     evmc::Result result;
-    if (auto maybe_result = check_call_precompile<rev>(msg);
+    if (auto maybe_result = chain.check_call_precompile(msg, state);
         maybe_result.has_value()) {
         result = std::move(maybe_result.value());
     }

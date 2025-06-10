@@ -8,6 +8,7 @@
 #include <monad/db/db.hpp>
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/inflight_expenses_buffer.hpp>
+#include <monad/execution/precompiles.hpp>
 #include <monad/execution/transaction_gas.hpp>
 #include <monad/execution/validate_block.hpp>
 
@@ -102,6 +103,12 @@ Result<void> validate_block(
         }
     }
     return outcome::success();
+}
+
+std::optional<evmc::Result>
+MonadChain::check_call_precompile(evmc_message const &msg, State &) const
+{
+    return ::monad::check_call_precompile(get_revision(), msg);
 }
 
 MONAD_NAMESPACE_END
