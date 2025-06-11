@@ -8,6 +8,7 @@
 #include <monad/db/db.hpp>
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/inflight_expenses_buffer.hpp>
+#include <monad/execution/monad_precompiles.hpp>
 #include <monad/execution/precompiles.hpp>
 #include <monad/execution/transaction_gas.hpp>
 #include <monad/execution/validate_block.hpp>
@@ -72,6 +73,17 @@ size_t MonadChain::get_max_code_size() const
     }
 }
 
+std::optional<evmc::Result>
+MonadChain::check_call_precompile(evmc_message const &msg, State &state) const
+{
+    auto maybe_result =
+        check_call_monad_precompile(get_monad_revision(), msg, state);
+    if (maybe_result.has_value()) {
+        return maybe_result;
+    }
+    return ::monad::check_call_precompile(get_revision(), msg);
+}
+
 uint512_t get_inflight_expense(monad_revision const, Transaction const &tx)
 {
     return tx.value + max_gas_cost(tx.gas_limit, tx.max_fee_per_gas);
@@ -103,12 +115,6 @@ Result<void> validate_block(
         }
     }
     return outcome::success();
-}
-
-std::optional<evmc::Result>
-MonadChain::check_call_precompile(evmc_message const &msg, State &) const
-{
-    return ::monad::check_call_precompile(get_revision(), msg);
 }
 
 MONAD_NAMESPACE_END

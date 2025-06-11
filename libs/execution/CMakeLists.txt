@@ -119,6 +119,8 @@ add_library(
   "src/monad/execution/fmt/event_trace_fmt.hpp"
   "src/monad/execution/inflight_expenses_buffer.hpp"
   "src/monad/execution/inflight_expenses_buffer.cpp"
+  "src/monad/execution/monad_precompiles.cpp"
+  "src/monad/execution/monad_precompiles.hpp"
   "src/monad/execution/precompiles.cpp"
   "src/monad/execution/precompiles.hpp"
   "src/monad/execution/precompiles_bls12.cpp"
