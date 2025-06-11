@@ -615,19 +615,6 @@ void create_node_compute_data_possibly_async(
     UpdateAuxImpl &aux, StateMachine &sm, UpdateTNode &parent, ChildData &entry,
     tnode_unique_ptr tnode, bool const might_on_disk)
 {
-    // erase outdated node
-    for (auto &child : tnode->children) {
-        if (child.is_valid() && child.metadata.offset != INVALID_OFFSET) {
-            sm.down(child.branch);
-            if (sm.auto_expire() &&
-                !verify_node_offset_is_valid(
-                    aux, sm, child.metadata.offset, child.metadata.version)) {
-                tnode->mask &= static_cast<uint16_t>(~(1u << child.branch));
-                child.erase();
-            }
-            sm.up(1);
-        }
-    }
     if (might_on_disk && tnode->number_of_children() == 1) {
         auto &child = tnode->children[bitmask_index(
             tnode->orig_mask,
@@ -991,11 +978,12 @@ void dispatch_updates_impl_(
             children[index].branch = branch;
             sm.down(branch);
             if ((1 << branch) & old->mask &&
-                verify_node_offset_is_valid(
-                    aux,
-                    sm,
-                    old->fnext(old->to_child_index(branch)),
-                    old->child_version(old->to_child_index(branch)))) {
+                (aux.is_in_memory() ||
+                 verify_node_offset_is_valid(
+                     aux,
+                     sm,
+                     old->fnext(old->to_child_index(branch)),
+                     old->child_version(old->to_child_index(branch))))) {
                 unsigned const old_child_index = old->to_child_index(branch);
                 upsert_(
                     aux,
@@ -1023,6 +1011,17 @@ void dispatch_updates_impl_(
         else if ((1 << branch) & old->mask) {
             auto &child = children[index];
             child.copy_old_child(old, branch);
+            sm.down(branch);
+            if (aux.is_on_disk() &&
+                !verify_node_offset_is_valid(
+                    aux, sm, child.metadata.offset, child.metadata.version)) {
+                child.erase();
+                tnode->mask &= static_cast<uint16_t>(~(1u << branch));
+                --tnode->npending;
+                sm.up(1);
+                continue;
+            }
+            sm.up(1);
             if (aux.is_on_disk() && sm.compact() &&
                 (child.metadata.min_offset_fast < aux.compact_offset_fast ||
                  child.metadata.min_offset_slow < aux.compact_offset_slow)) {
@@ -1074,7 +1073,12 @@ void mismatch_handler_(
         if ((1 << branch) & requests.mask) {
             children[index].branch = branch;
             sm.down(branch);
-            if (branch == old_nibble) {
+            if (branch == old_nibble &&
+                (aux.is_in_memory() || verify_node_offset_is_valid(
+                                           aux,
+                                           sm,
+                                           old_branch_metadata.offset,
+                                           old_branch_metadata.version))) {
                 upsert_(
                     aux,
                     sm,
@@ -1099,6 +1103,17 @@ void mismatch_handler_(
         }
         else if (branch == old_nibble) {
             sm.down(old_nibble);
+            if (aux.is_on_disk() && !verify_node_offset_is_valid(
+                                        aux,
+                                        sm,
+                                        old_branch_metadata.offset,
+                                        old_branch_metadata.version)) {
+                entry.erase();
+                parent.mask &= static_cast<uint16_t>(~(1u << old_nibble));
+                sm.up(1);
+                --tnode->npending;
+                continue;
+            }
             // nexts[j] is a path-shortened old node, trim prefix
             auto const relpath_start_index = prefix_index + 1;
             NibblesView const child_new_relpath =
@@ -1142,6 +1157,7 @@ void compact_(
     UpdateAuxImpl &aux, StateMachine &sm, CompactTNode::unique_ptr_type tnode,
     chunk_offset_t const node_offset, bool const copy_node_for_fast_or_slow)
 {
+    MONAD_ASSERT(sm.compact() && !sm.auto_expire());
     MONAD_ASSERT(tnode->type == tnode_type::compact);
     if (!tnode->node) {
         compaction_receiver receiver(

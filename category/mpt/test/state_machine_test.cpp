@@ -16,13 +16,14 @@
 #include "test_fixtures_base.hpp"
 #include "test_fixtures_gtest.hpp"
 
-#include <cstddef>
-#include <memory>
 #include <category/core/byte_string.hpp>
 #include <category/core/hex_literal.hpp>
 #include <category/mpt/state_machine.hpp>
 #include <category/mpt/trie.hpp>
 #include <category/mpt/update.hpp>
+
+#include <cstddef>
+#include <memory>
 
 #include <category/core/test_util/gtest_signal_stacktrace_printer.hpp> // NOLINT
 
@@ -129,6 +130,7 @@ struct StateMachineTestFixture : public Base
             this->aux,
             *this->sm,
             std::move(this->root),
+            0,
             make_update(key1, monad::byte_string_view{}),
             make_update(key2, monad::byte_string_view{}));
     }
@@ -178,20 +180,22 @@ TYPED_TEST_SUITE(StateMachineTest, StateMachineTestTypes);
 
 TYPED_TEST(StateMachineTest, create_new_trie)
 {
-    this->validate_down_calls(DownCalls{
-        {{}, 1},
-        {{1}, 1},
-        {{1, 1}, 1},
-        {{1, 1}, 2},
-        {{1, 1, 1}, 1},
-        {{1, 1, 2}, 2}});
+    this->validate_down_calls(
+        DownCalls{
+            {{}, 1},
+            {{1}, 1},
+            {{1, 1}, 1},
+            {{1, 1}, 2},
+            {{1, 1, 1}, 1},
+            {{1, 1, 2}, 2}});
 
-    this->validate_up_calls(UpCalls{
-        {{1, 1, 2, 2}, 1},
-        {{1, 1, 2}, 1},
-        {{1, 1}, 2},
-        {{1, 1, 1, 1}, 1},
-        {{1, 1, 1}, 1}});
+    this->validate_up_calls(
+        UpCalls{
+            {{1, 1, 2, 2}, 1},
+            {{1, 1, 2}, 1},
+            {{1, 1}, 2},
+            {{1, 1, 1, 1}, 1},
+            {{1, 1, 1}, 1}});
 
     this->validate_compute_calls(
         ComputeCalls{{1, 1, 1, 1}, {1, 1, 2, 2}, {1, 1}});
@@ -213,24 +217,21 @@ TYPED_TEST(StateMachineTest, modify_existing)
         this->aux,
         *this->sm,
         std::move(this->root),
+        0,
         make_update(0x1122_hex, monad::byte_string_view{}));
+
+    this->validate_down_calls(
+        DownCalls{
+            {{}, {1}}, {{1}, 1}, {{1, 1}, 1}, {{1, 1}, 2}, {{1, 1, 2}, 2}});
+
+    this->validate_up_calls(
+        UpCalls{
+            {{1, 1, 2, 2}, 1}, {{1, 1, 1}, 1}, {{1, 1, 2}, 1}, {{1, 1}, 2}});
 
     this->validate_compute_calls(ComputeCalls{{1, 1, 2, 2}, {1, 1}});
 
     if (this->aux.is_on_disk()) {
-        this->validate_down_calls(DownCalls{
-            {{}, {1}}, {{1}, 1}, {{1, 1}, 1}, {{1, 1}, 2}, {{1, 1, 2}, 2}});
-
-        this->validate_up_calls(UpCalls{
-            {{1, 1, 2, 2}, 1}, {{1, 1, 1}, 1}, {{1, 1, 2}, 1}, {{1, 1}, 2}});
         this->validate_cache_calls(CacheCalls{{1, 1}, {1, 1, 2, 2}});
-    }
-    else {
-        this->validate_down_calls(
-            DownCalls{{{}, {1}}, {{1}, 1}, {{1, 1}, 2}, {{1, 1, 2}, 2}});
-
-        this->validate_up_calls(
-            UpCalls{{{1, 1, 2, 2}, 1}, {{1, 1, 2}, 1}, {{1, 1}, 2}});
     }
 }
 
@@ -245,6 +246,7 @@ TYPED_TEST(StateMachineTest, mismatch)
         this->aux,
         *this->sm,
         std::move(this->root),
+        0,
         make_update(0x1222_hex, monad::byte_string_view{}));
 
     this->validate_down_calls(
@@ -271,10 +273,17 @@ TYPED_TEST(StateMachineTest, mismatch_with_extension)
         this->aux,
         *this->sm,
         std::move(this->root),
+        0,
         make_update(0x2222_hex, monad::byte_string_view{}));
 
-    this->validate_down_calls(DownCalls{
-        {{}, {2}}, {{2}, 2}, {{2, 2}, 2}, {{2, 2, 2}, 2}, {{}, 1}, {{1}, 1}});
+    this->validate_down_calls(
+        DownCalls{
+            {{}, {2}},
+            {{2}, 2},
+            {{2, 2}, 2},
+            {{2, 2, 2}, 2},
+            {{}, 1},
+            {{1}, 1}});
 
     this->validate_compute_calls(ComputeCalls{{}, {1, 1}, {2, 2, 2, 2}});
 
@@ -300,30 +309,25 @@ TYPED_TEST(StateMachineTest, add_to_branch)
         this->aux,
         *this->sm,
         std::move(this->root),
+        0,
         make_update(0x1133_hex, monad::byte_string_view{}));
 
     this->validate_compute_calls(ComputeCalls{{1, 1}, {1, 1, 3, 3}});
 
-    if (this->aux.is_on_disk()) {
-        this->validate_down_calls(DownCalls{
+    this->validate_down_calls(
+        DownCalls{
             {{}, 1},
             {{1}, 1},
             {{1, 1}, 1},
             {{1, 1}, 2},
             {{1, 1}, 3},
             {{1, 1, 3}, 3}});
-        this->validate_up_calls(UpCalls{
+    this->validate_up_calls(
+        UpCalls{
             {{1, 1, 3, 3}, 1},
             {{1, 1, 3}, 1},
             {{1, 1, 2}, 1},
             {{1, 1, 1}, 1},
             {{1, 1}, 2}});
-        this->validate_cache_calls(CacheCalls{{1, 1}, {1, 1, 3, 3}});
-    }
-    else {
-        this->validate_down_calls(
-            DownCalls{{{}, 1}, {{1}, 1}, {{1, 1}, 3}, {{1, 1, 3}, 3}});
-        this->validate_up_calls(
-            UpCalls{{{1, 1, 3, 3}, 1}, {{1, 1, 3}, 1}, {{1, 1}, 2}});
-    }
+    this->validate_cache_calls(CacheCalls{{1, 1}, {1, 1, 3, 3}});
 }

@@ -143,6 +143,8 @@ int main(int argc, char *const argv[])
 
         quill::start(true);
 
+        using TestStateMachine = StateMachineAlwaysMerkle;
+
         struct sigaction sig;
         sig.sa_handler = &on_signal;
         sig.sa_flags = 0;
@@ -204,7 +206,7 @@ int main(int argc, char *const argv[])
             ReadOnlyOnDiskDbConfig const ro_config{
                 .dbname_paths = {dbname_paths}};
             AsyncIOContext io_ctx{ro_config};
-            Db ro_db{io_ctx, std::make_unique<StateMachineAlwaysMerkle>()};
+            Db ro_db{io_ctx, std::make_unique<TestStateMachine>()};
 
             while (ro_db.get_latest_version() == INVALID_BLOCK_NUM && !g_done) {
             }
@@ -252,7 +254,7 @@ int main(int argc, char *const argv[])
             ReadOnlyOnDiskDbConfig const ro_config{
                 .dbname_paths = {dbname_paths}};
             AsyncIOContext io_ctx{ro_config};
-            Db ro_db{io_ctx, std::make_unique<StateMachineAlwaysMerkle>()};
+            Db ro_db{io_ctx, std::make_unique<TestStateMachine>()};
             auto async_ctx = async_context_create(ro_db);
 
             unsigned nsuccess = 0;
@@ -348,7 +350,7 @@ int main(int argc, char *const argv[])
             ReadOnlyOnDiskDbConfig const ro_config{
                 .dbname_paths = {dbname_paths}};
             AsyncIOContext io_ctx{ro_config};
-            Db ro_db{io_ctx, std::make_unique<StateMachineAlwaysMerkle>()};
+            Db ro_db{io_ctx, std::make_unique<TestStateMachine>()};
 
             unsigned nsuccess = 0;
             unsigned nfailed = 0;
@@ -466,7 +468,7 @@ int main(int argc, char *const argv[])
                 ReadOnlyOnDiskDbConfig const ro_config{
                     .dbname_paths = dbname_paths};
                 AsyncIOContext io_ctx{ro_config};
-                Db ro_db{io_ctx, std::make_unique<StateMachineAlwaysMerkle>()};
+                Db ro_db{io_ctx, std::make_unique<TestStateMachine>()};
                 auto const version = ro_db.get_earliest_version() + 1;
                 auto const value =
                     serialize_as_big_endian<sizeof(uint64_t)>(version);
@@ -493,8 +495,10 @@ int main(int argc, char *const argv[])
 
         auto async_read_nonblocking_rodb = [&] {
             // RODb
-            RODb ro_db{ReadOnlyOnDiskDbConfig{
-                .dbname_paths = dbname_paths, .node_lru_size = 10240}};
+            RODb ro_db{
+                ReadOnlyOnDiskDbConfig{
+                    .dbname_paths = dbname_paths, .node_lru_size = 10240},
+                std::make_unique<TestStateMachine>()};
 
             constexpr unsigned num_fibers = 16;
             monad::fiber::PriorityPool pool(
@@ -542,7 +546,7 @@ int main(int argc, char *const argv[])
         };
 
         // construct RWDb
-        StateMachineAlwaysMerkle machine{};
+        TestStateMachine machine{};
 
         auto const config =
             overwrite_keys_mode

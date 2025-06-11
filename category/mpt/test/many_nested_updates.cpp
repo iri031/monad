@@ -146,6 +146,7 @@ inline void do_upsert_corpus(State *self, ::boost::json::object const &updates)
                         self->aux,
                         *self->sm,
                         std::move(self->root),
+                        0,
                         make_update(
                             to_byte_string(i.key()), to_byte_string(item)));
                 }
@@ -160,6 +161,7 @@ inline void do_upsert_corpus(State *self, ::boost::json::object const &updates)
                         self->aux,
                         *self->sm,
                         std::move(self->root),
+                        0,
                         make_update(
                             to_byte_string(i.key()),
                             to_byte_string(item.at("value").as_string()),
@@ -183,6 +185,7 @@ inline void do_erase_corpus(State *self, ::boost::json::object const &updates)
             self->aux,
             *self->sm,
             std::move(self->root),
+            0,
             make_erase(to_byte_string(i.key())));
     }
 }
@@ -200,6 +203,7 @@ TYPED_TEST(ManyNestedUpdates, simple_fixed_test_not_from_json)
         this->aux,
         *this->sm,
         nullptr,
+        0,
         make_update(key1, val1),
         make_update(key2, val2));
     EXPECT_EQ(

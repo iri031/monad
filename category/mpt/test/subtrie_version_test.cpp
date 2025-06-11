@@ -41,6 +41,7 @@ TEST_F(OnDiskMerkleTrieGTest, recursively_verify_versions)
     struct ExpectedSubtrieVersion
     {
         Node *root{nullptr};
+        int64_t root_version{0};
         // record the calculated min max versions in traversal
         int64_t min_subtrie_version{
             std::numeric_limits<int64_t>::max()}; // include node itself
@@ -64,7 +65,8 @@ TEST_F(OnDiskMerkleTrieGTest, recursively_verify_versions)
         {
             records.push(ExpectedSubtrieVersion{
                 .root = const_cast<Node *>(&subtrie.node),
-                .min_subtrie_version = subtrie.node.version,
+                .root_version = subtrie.node_version,
+                .min_subtrie_version = subtrie.node_version,
                 .max_children_version = 0});
             return true;
         }
@@ -85,17 +87,19 @@ TEST_F(OnDiskMerkleTrieGTest, recursively_verify_versions)
                 auto &parent_record = records.top();
                 Node *const parent = parent_record.root;
                 // verify version decreasing
-                EXPECT_TRUE(parent->version >= node.version);
+                EXPECT_TRUE(parent_record.root_version >= subtrie.node_version);
 
                 // verify max_children_version for non leaf nodes
                 if (!node.has_value()) {
                     if (done_erase) {
                         EXPECT_TRUE(
-                            node.version >= node_record.max_children_version);
+                            subtrie.node_version >=
+                            node_record.max_children_version);
                     }
                     else {
                         EXPECT_EQ(
-                            node.version, node_record.max_children_version);
+                            subtrie.node_version,
+                            node_record.max_children_version);
                     }
                 }
                 else {
@@ -110,8 +114,8 @@ TEST_F(OnDiskMerkleTrieGTest, recursively_verify_versions)
                 parent_record.min_subtrie_version = std::min(
                     parent_record.min_subtrie_version,
                     node_record.min_subtrie_version);
-                parent_record.max_children_version =
-                    std::max(parent_record.max_children_version, node.version);
+                parent_record.max_children_version = std::max(
+                    parent_record.max_children_version, subtrie.node_version);
             }
         }
 

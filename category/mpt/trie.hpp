@@ -1068,13 +1068,13 @@ using find_owning_cursor_result_type = find_result_type<OwningNodeCursor>;
 using inflight_map_t = unordered_dense_map<
     chunk_offset_t,
     std::vector<std::function<MONAD_ASYNC_NAMESPACE::result<void>(
-        Node &, std::unique_ptr<StateMachine> &)>>,
+        Node &, std::unique_ptr<StateMachine>)>>,
     chunk_offset_t_hasher>;
 
 using inflight_map_owning_t = unordered_dense_map<
     virtual_chunk_offset_t,
     std::vector<std::function<MONAD_ASYNC_NAMESPACE::result<void>(
-        std::shared_ptr<Node> &, std::unique_ptr<StateMachine> &)>>,
+        std::shared_ptr<Node> &, std::unique_ptr<StateMachine>)>>,
     virtual_chunk_offset_t_hasher>;
 
 // The request type to put to the fiber buffered channel for triedb thread
@@ -1101,13 +1101,14 @@ using NodeCache = static_lru_cache<
 void find_notify_fiber_future(
     UpdateAuxImpl &, inflight_map_t &,
     threadsafe_boost_fibers_promise<find_cursor_result_type> &,
-    NodeCursor start, NibblesView key, StateMachine &);
+    NodeCursor start, NibblesView key, std::unique_ptr<StateMachine>);
 
 // rodb
 void find_owning_notify_fiber_future(
     UpdateAuxImpl &, NodeCache &, inflight_map_owning_t &,
     threadsafe_boost_fibers_promise<find_owning_cursor_result_type> &promise,
-    OwningNodeCursor &start, NibblesView, uint64_t version, StateMachine &);
+    OwningNodeCursor &start, NibblesView, uint64_t version,
+    std::unique_ptr<StateMachine>);
 
 // rodb load root
 void load_root_notify_fiber_future(

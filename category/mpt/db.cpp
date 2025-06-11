@@ -523,6 +523,9 @@ struct OnDiskWithWorkerThreadImpl
                             std::move(*req->promise));
                         req->promise = &find_owning_cursor_promises.back();
                         if (req->start.is_valid()) {
+                            MONAD_ASSERT(req->machine.get().get_depth() == 0);
+                            // TODO: templated statemachine, and
+                            // make_unique<TemplateType> here
                             find_owning_notify_fiber_future(
                                 aux,
                                 node_cache,
@@ -531,7 +534,7 @@ struct OnDiskWithWorkerThreadImpl
                                 req->start,
                                 req->key,
                                 req->version,
-                                *req->machine.get().clone());
+                                req->machine.get().clone());
                         }
                         else {
                             MONAD_ASSERT(req->key.empty());
@@ -621,7 +624,7 @@ struct OnDiskWithWorkerThreadImpl
                             *req->promise,
                             req->start,
                             req->key,
-                            *req->machine->clone());
+                            req->machine->clone());
                     }
                     else if (auto *req = std::get_if<2>(&request);
                              req != nullptr) {

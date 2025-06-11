@@ -1432,6 +1432,8 @@ void UpdateAuxImpl::advance_compact_offsets()
         slow_list_usage > slow_usage_limit_start_compact_slow) {
         // Compact slow ring: the offset is based on slow list garbage
         // collection ratio of last block
+        // TODO: prevent compact offset slow to grow pass slow writer offset
+        // head
         compact_offset_range_slow_.set_value(
             (stats.compacted_bytes_in_slow != 0 &&
              compact_offset_range_slow_ != 0)

@@ -1226,7 +1226,7 @@ TEST_F(OnDiskDbWithFileFixture, load_correct_root_upon_reopen_nonempty_db)
 
 TEST(DbTest, out_of_order_upserts_to_nonexist_earlier_version)
 {
-    auto const dbname = create_temp_file(2); // 2Gb db
+    auto const dbname = create_temp_file(3); // 2Gb db
     auto undb = monad::make_scope_exit(
         [&]() noexcept { std::filesystem::remove(dbname); });
     StateMachineAlwaysEmpty machine{};

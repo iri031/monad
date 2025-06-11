@@ -73,20 +73,32 @@ namespace monad::test
     };
 
     template <int prefix_len = 2>
-    class StateMachineMerkleWithPrefix final : public StateMachine
+    class StateMachineMerkleWithPrefix : public StateMachine
     {
     private:
-        static constexpr auto cache_depth = prefix_len + 6;
+        static constexpr auto cache_depth = prefix_len + 5;
         static constexpr auto max_depth = prefix_len + 64 + 64;
 
+        Nibbles const common_prefix_;
+
     public:
-        virtual std::unique_ptr<StateMachine> clone() const override
+        StateMachineMerkleWithPrefix(Nibbles const prefix)
+            : common_prefix_(prefix)
         {
-            return std::make_unique<StateMachineMerkleWithPrefix>(*this);
         }
 
-        virtual void down(unsigned char) override
+        virtual std::unique_ptr<StateMachine> clone() const override
         {
+            return std::make_unique<StateMachineMerkleWithPrefix<prefix_len>>(
+                *this);
+        }
+
+        virtual void down(unsigned char const branch) override
+        {
+            if (depth < common_prefix_.nibble_size()) {
+                MONAD_ASSERT(depth <= std::numeric_limits<unsigned>::max());
+                MONAD_ASSERT(branch == common_prefix_.get((unsigned)depth));
+            }
             ++depth;
         }
 
@@ -127,24 +139,36 @@ namespace monad::test
         }
     };
 
-    static_assert(sizeof(StateMachineMerkleWithPrefix<>) == 16);
+    static_assert(sizeof(StateMachineMerkleWithPrefix<>) == 32);
     static_assert(alignof(StateMachineMerkleWithPrefix<>) == 8);
 
     template <int prefix_len = 2>
     class StateMachineVarLenTrieWithPrefix final : public StateMachine
     {
     private:
-        static constexpr auto cache_depth = prefix_len + 6;
-        static constexpr auto max_depth = prefix_len + 65;
+        static constexpr auto cache_depth = prefix_len + 5;
+        static constexpr auto max_depth = prefix_len + 64;
+
+        Nibbles const common_prefix_;
 
     public:
-        virtual std::unique_ptr<StateMachine> clone() const override
+        StateMachineVarLenTrieWithPrefix(Nibbles const prefix)
+            : common_prefix_(prefix)
         {
-            return std::make_unique<StateMachineVarLenTrieWithPrefix>(*this);
         }
 
-        virtual void down(unsigned char) override
+        virtual std::unique_ptr<StateMachine> clone() const override
         {
+            return std::make_unique<
+                StateMachineVarLenTrieWithPrefix<prefix_len>>(*this);
+        }
+
+        virtual void down(unsigned char const branch) override
+        {
+            if (depth < common_prefix_.nibble_size()) {
+                MONAD_ASSERT(depth <= std::numeric_limits<unsigned>::max());
+                MONAD_ASSERT(branch == common_prefix_.get((unsigned)depth));
+            }
             ++depth;
         }
 
@@ -185,7 +209,7 @@ namespace monad::test
         }
     };
 
-    static_assert(sizeof(StateMachineVarLenTrieWithPrefix<>) == 16);
+    static_assert(sizeof(StateMachineVarLenTrieWithPrefix<>) == 32);
     static_assert(alignof(StateMachineVarLenTrieWithPrefix<>) == 8);
 
     struct StateMachineConfig
@@ -378,10 +402,13 @@ namespace monad::test
         OnDiskTrieBase()
             : ring1(2)
             , ring2(4)
-            , rwbuf(monad::io::make_buffers_for_segregated_read_write(
-                  ring1, ring2, 2, 4,
-                  MONAD_ASYNC_NAMESPACE::AsyncIO::MONAD_IO_BUFFERS_READ_SIZE,
-                  MONAD_ASYNC_NAMESPACE::AsyncIO::MONAD_IO_BUFFERS_WRITE_SIZE))
+            , rwbuf(
+                  monad::io::make_buffers_for_segregated_read_write(
+                      ring1, ring2, 2, 4,
+                      MONAD_ASYNC_NAMESPACE::AsyncIO::
+                          MONAD_IO_BUFFERS_READ_SIZE,
+                      MONAD_ASYNC_NAMESPACE::AsyncIO::
+                          MONAD_IO_BUFFERS_WRITE_SIZE))
             , io(pool, rwbuf)
             , root()
             , aux(&io, MPT_TEST_HISTORY_LENGTH)
@@ -475,9 +502,9 @@ namespace monad::test
         {
             MONAD_ASYNC_NAMESPACE::storage_pool pool{[] {
                 MONAD_ASYNC_NAMESPACE::storage_pool::creation_flags flags;
-                auto const bitpos =
-                    std::countr_zero(MONAD_ASYNC_NAMESPACE::AsyncIO::
-                                         MONAD_IO_BUFFERS_WRITE_SIZE);
+                auto const bitpos = std::countr_zero(
+                    MONAD_ASYNC_NAMESPACE::AsyncIO::
+                        MONAD_IO_BUFFERS_WRITE_SIZE);
                 flags.chunk_capacity = bitpos;
                 if constexpr (Config.use_anonymous_inode) {
                     return MONAD_ASYNC_NAMESPACE::storage_pool(

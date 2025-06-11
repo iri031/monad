@@ -575,7 +575,8 @@ TYPED_TEST(TrieTest, verify_correct_compute_at_section_edge)
 {
     auto const prefix1 = 0x00_hex;
     auto const prefix2 = 0x01_hex;
-    this->sm = std::make_unique<StateMachineMerkleWithPrefix<2>>();
+    this->sm = std::make_unique<StateMachineMerkleWithPrefix<2>>(
+        concat((unsigned char)0));
 
     auto const key = 0x123456_hex;
     auto const value = 0xdeadbeef_hex;
@@ -607,6 +608,66 @@ TYPED_TEST(TrieTest, verify_correct_compute_at_section_edge)
         0x82efc3b165cba3705dec8fe0f7d8ec6692ae82605bdea6058d2237535dc6aa9b_hex);
 }
 
+TYPED_TEST(TrieTest, find_blocking_from_intermediate_node)
+{
+    auto const prefix1 = 0x00_hex;
+    auto const prefix2 = 0x01_hex;
+    this->sm = std::make_unique<StateMachineMerkleWithPrefix<2>>(
+        concat((unsigned char)0));
+
+    auto const key = 0x123456_hex;
+    auto const value = 0xdeadbeef_hex;
+
+    UpdateList next;
+    Update update = make_update(key, value);
+    next.push_front(update);
+
+    monad::byte_string_view const empty_value{};
+    this->root = upsert_updates(
+        this->aux,
+        *this->sm,
+        {},
+        0,
+        make_update(prefix1, empty_value),
+        make_update(prefix2, empty_value, false, std::move(next)));
+
+    {
+        auto machine = this->sm->clone();
+        auto [prefix1_root, res] =
+            find_blocking(this->aux, {*this->root}, prefix1, 0, *machine);
+        EXPECT_EQ(res, find_result::success);
+        EXPECT_EQ(prefix1_root.node->value(), empty_value);
+        EXPECT_EQ(machine->get_depth(), NibblesView{prefix1}.nibble_size());
+
+        auto machine2 = this->sm->clone();
+        auto [nonexist, res2] =
+            find_blocking(this->aux, prefix1_root, key, 0, *machine2);
+        EXPECT_NE(res2, find_result::success);
+    }
+
+    {
+        // find prefix2 and its key
+        auto machine = this->sm->clone();
+        auto [prefix2_root, res] =
+            find_blocking(this->aux, {*this->root}, prefix2, 0, *machine);
+        EXPECT_EQ(res, find_result::success);
+        EXPECT_EQ(prefix2_root.node->value(), empty_value);
+        EXPECT_EQ(
+            prefix2_root.node->data(),
+            0x82efc3b165cba3705dec8fe0f7d8ec6692ae82605bdea6058d2237535dc6aa9b_hex);
+        EXPECT_EQ(machine->get_depth(), NibblesView{prefix2}.nibble_size());
+
+        auto machine2 = this->sm->clone();
+        auto [key_cursor, res2] =
+            find_blocking(this->aux, prefix2_root, key, 0, *machine2);
+        EXPECT_EQ(res2, find_result::success);
+        EXPECT_EQ(key_cursor.node->value(), value);
+        EXPECT_EQ(
+            machine2->get_depth(),
+            concat(NibblesView{prefix2}, NibblesView{key}).nibble_size());
+    }
+}
+
 TYPED_TEST(TrieTest, root_data_always_hashed)
 {
     auto const key1 = 0x12_hex;
@@ -629,7 +690,8 @@ TYPED_TEST(TrieTest, root_data_always_hashed)
 TYPED_TEST(TrieTest, aux_do_update_fixed_history_len)
 {
     auto const prefix = 0x00_hex;
-    this->sm = std::make_unique<StateMachineMerkleWithPrefix<2>>();
+    this->sm =
+        std::make_unique<StateMachineMerkleWithPrefix<2>>(Nibbles{prefix});
 
     auto const &kv = fixed_updates::kv;
     uint64_t const start_block_id = 0x123;
@@ -759,7 +821,8 @@ TYPED_TEST(TrieTest, variable_length_trie_with_prefix)
     constexpr uint64_t version = 0;
     auto const prefix = 0x00_hex;
 
-    this->sm = std::make_unique<StateMachineVarLenTrieWithPrefix<2>>();
+    this->sm =
+        std::make_unique<StateMachineVarLenTrieWithPrefix<2>>(Nibbles{prefix});
 
     auto const key0 = 0x80_hex;
     auto const key1 = 0x01_hex;
@@ -813,7 +876,8 @@ TYPED_TEST(TrieTest, variable_length_trie_with_prefix)
 TYPED_TEST(TrieTest, single_value_variable_length_trie_with_prefix)
 {
     auto const prefix = 0x00_hex;
-    this->sm = std::make_unique<StateMachineVarLenTrieWithPrefix<2>>();
+    this->sm =
+        std::make_unique<StateMachineVarLenTrieWithPrefix<2>>(Nibbles{prefix});
 
     auto const keylong = 0x808182_hex;
     auto const value = 0xbeef_hex;

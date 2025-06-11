@@ -37,6 +37,7 @@ struct SubtrieInfo
 {
     Node const &node;
     unsigned relpath_start_index{0};
+    int64_t node_version{0};
 
     NibblesView node_relative_path() const noexcept
     {
@@ -106,7 +107,9 @@ namespace detail
                 }
                 MONAD_ASSERT(next != nullptr);
                 SubtrieInfo const next_subtrie{
-                    *next, node.next_relpath_start_index()};
+                    *next,
+                    node.next_relpath_start_index(),
+                    node.child_version(idx)};
                 if (!preorder_traverse_blocking_impl(
                         aux, branch, next_subtrie, traverse, version)) {
                     return false;
@@ -146,18 +149,20 @@ namespace detail
             unsigned bytes_to_read;
             uint16_t buffer_off;
             unsigned char const branch;
+            int64_t node_version;
 
             receiver_t(
                 TraverseSender *sender,
                 async::erased_connected_operation *const traverse_state,
                 unsigned char const branch, chunk_offset_t const offset,
                 unsigned const next_node_relpath_start_index,
-                std::unique_ptr<TraverseMachine> machine)
+                int64_t node_version, std::unique_ptr<TraverseMachine> machine)
                 : sender(sender)
                 , traverse_state(traverse_state)
                 , machine(std::move(machine))
                 , next_node_relpath_start_index(next_node_relpath_start_index)
                 , branch(branch)
+                , node_version(node_version)
             {
                 auto const num_pages_to_load_node =
                     node_disk_pages_spare_15{offset}.to_pages();
@@ -196,7 +201,9 @@ namespace detail
                         *sender,
                         traverse_state,
                         SubtrieInfo{
-                            *next_node_on_disk, next_node_relpath_start_index},
+                            *next_node_on_disk,
+                            next_node_relpath_start_index,
+                            node_version},
                         *machine,
                         branch);
                     sender->within_recursion_count--;
@@ -213,7 +220,7 @@ namespace detail
             }
         };
 
-        static_assert(sizeof(receiver_t) == 48);
+        static_assert(sizeof(receiver_t) == 56);
         static_assert(alignof(receiver_t) == 8);
 
         using result_type = async::result<bool>;
@@ -350,6 +357,7 @@ namespace detail
                         branch,
                         node.fnext(idx),
                         node.next_relpath_start_index(),
+                        node.child_version(idx),
                         machine.clone());
                     unsigned const this_child_read = children_read++;
                     if (sender.outstanding_reads >=
@@ -385,7 +393,10 @@ namespace detail
                     async_parallel_preorder_traverse_impl(
                         sender,
                         traverse_state,
-                        SubtrieInfo{*next, node.next_relpath_start_index()},
+                        SubtrieInfo{
+                            *next,
+                            node.next_relpath_start_index(),
+                            node.child_version(idx)},
                         machine,
                         branch);
                     if (sender.version_expired_before_complete) {
@@ -405,7 +416,8 @@ inline bool preorder_traverse_blocking(
     return detail::preorder_traverse_blocking_impl(
         aux,
         INVALID_BRANCH,
-        SubtrieInfo{node, node.path_nibbles_len()},
+        SubtrieInfo{
+            node, node.path_nibbles_len(), calc_max_subtrie_version(node)},
         traverse,
         version);
 }
