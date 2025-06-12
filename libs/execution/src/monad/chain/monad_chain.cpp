@@ -12,6 +12,17 @@
 #include <monad/execution/precompiles.hpp>
 #include <monad/execution/transaction_gas.hpp>
 #include <monad/execution/validate_block.hpp>
+#include <monad/rlp/decode.hpp>
+#include <monad/rlp/encode2.hpp>
+
+MONAD_ANONYMOUS_NAMESPACE_BEGIN
+
+constexpr uint256_t default_max_reserve_balance(monad_revision)
+{
+    return 1;
+}
+
+MONAD_ANONYMOUS_NAMESPACE_END
 
 MONAD_NAMESPACE_BEGIN
 
@@ -90,13 +101,23 @@ uint512_t get_inflight_expense(monad_revision const, Transaction const &tx)
 }
 
 uint256_t
-get_max_reserve_balance(monad_revision const, Address const &sender, Db &db)
+get_max_reserve_balance(monad_revision const rev, Address const &sender, Db &db)
 {
+    MONAD_ASSERT(rev >= MONAD_THREE);
     std::optional<Account> const account = db.read_account(sender);
-    if (account.has_value()) {
-        return account.value().balance;
+    if (!account.has_value()) {
+        return 0;
     }
-    return 0;
+    bytes32_t const val = db.read_storage(
+        MAX_RESERVE_BALANCE_ADDRESS,
+        account.value().incarnation,
+        to_bytes(to_byte_string_view(sender.bytes)));
+    Result<uint256_t> const res = rlp::decode_raw_num<uint256_t>(
+        rlp::zeroless_view(to_byte_string_view(val.bytes)));
+    MONAD_ASSERT(res.has_value());
+    uint256_t const max_reserve =
+        res.value() == 0 ? default_max_reserve_balance(rev) : res.value();
+    return std::min(account.value().balance, max_reserve);
 }
 
 Result<void> validate_block(

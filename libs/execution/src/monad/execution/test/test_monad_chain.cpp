@@ -8,12 +8,16 @@
 #include <monad/core/bytes.hpp>
 #include <monad/core/keccak.hpp>
 #include <monad/core/rlp/block_rlp.hpp>
+#include <monad/core/rlp/int_rlp.hpp>
 #include <monad/core/transaction.hpp>
 #include <monad/db/trie_db.hpp>
 #include <monad/execution/inflight_expenses_buffer.hpp>
+#include <monad/execution/monad_precompiles.hpp>
 #include <monad/execution/transaction_gas.hpp>
 #include <monad/execution/validate_block.hpp>
 #include <monad/mpt/db.hpp>
+#include <monad/state2/block_state.hpp>
+#include <monad/state3/state.hpp>
 
 #include <gtest/gtest.h>
 
@@ -137,9 +141,54 @@ TEST(MonadChain, get_max_reserve_balance)
             {ADDRESS, StateDelta{{std::nullopt, Account{.balance = 100}}}}},
         Code{},
         MonadConsensusBlockHeader{});
-    for (monad_revision const rev : {MONAD_ONE, MONAD_TWO}) {
-        EXPECT_EQ(get_max_reserve_balance(rev, ADDRESS, tdb), 100);
+
+    EXPECT_EQ(get_max_reserve_balance(MONAD_THREE, ADDRESS, tdb), 1);
+
+    {
+        BlockState bs{tdb};
+        State state{bs, Incarnation{0, 0}};
+        byte_string set_data = {0x1};
+        set_data += rlp::encode_unsigned(uint256_t{50});
+        evmc_message const msg{
+            .depth = 0,
+            .gas = 100'000,
+            .sender = ADDRESS,
+            .input_data = set_data.data(),
+            .input_size = set_data.size(),
+            .code_address = MAX_RESERVE_BALANCE_ADDRESS};
+        auto const result =
+            check_call_monad_precompile(MONAD_THREE, msg, state);
+        ASSERT_TRUE(result.has_value());
+        ASSERT_EQ(result.value().status_code, EVMC_SUCCESS);
+        ASSERT_TRUE(bs.can_merge(state));
+        bs.merge(state);
+        bs.commit({});
     }
+
+    EXPECT_EQ(get_max_reserve_balance(MONAD_THREE, ADDRESS, tdb), 50);
+
+    {
+        BlockState bs{tdb};
+        State state{bs, Incarnation{0, 0}};
+        byte_string set_data = {0x1};
+        set_data += rlp::encode_unsigned(uint256_t{10'000});
+        evmc_message const msg{
+            .depth = 0,
+            .gas = 100'000,
+            .sender = ADDRESS,
+            .input_data = set_data.data(),
+            .input_size = set_data.size(),
+            .code_address = MAX_RESERVE_BALANCE_ADDRESS};
+        auto const result =
+            check_call_monad_precompile(MONAD_THREE, msg, state);
+        ASSERT_TRUE(result.has_value());
+        ASSERT_EQ(result.value().status_code, EVMC_SUCCESS);
+        ASSERT_TRUE(bs.can_merge(state));
+        bs.merge(state);
+        bs.commit({});
+    }
+
+    EXPECT_EQ(get_max_reserve_balance(MONAD_THREE, ADDRESS, tdb), 100);
 }
 
 TEST(MonadChain, ValidateBlock)
