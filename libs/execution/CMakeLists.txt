@@ -131,6 +131,7 @@ add_library(
   "src/monad/execution/trace/prestate_tracer.hpp"
   "src/monad/execution/trace/rlp/call_frame_rlp.cpp"
   "src/monad/execution/trace/rlp/call_frame_rlp.hpp"
+  "src/monad/execution/trace/tracer_config.h"
   "src/monad/execution/transaction_gas.cpp"
   "src/monad/execution/transaction_gas.hpp"
   "src/monad/execution/tx_context.cpp"

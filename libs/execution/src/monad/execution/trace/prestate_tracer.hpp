@@ -24,6 +24,8 @@ struct PrestateTracerBase
 
     virtual Map<Address, AccountState> &&get_pre_state() = 0;
     virtual StateDeltas &&get_state_deltas() = 0;
+
+    virtual ~PrestateTracerBase() = default;
 };
 
 struct NoopPrestateTracer final : public PrestateTracerBase
