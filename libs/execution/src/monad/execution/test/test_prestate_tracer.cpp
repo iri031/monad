@@ -7,6 +7,7 @@
 #include <monad/execution/evmc_host.hpp>
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/trace/prestate_tracer.hpp>
+#include <monad/state2/block_state.hpp>
 #include <monad/state3/account_state.hpp>
 
 #include <ankerl/unordered_dense.h>
@@ -47,11 +48,24 @@ TEST(PrestateTracer, pre_state_to_json)
     PreState prestate;
     prestate.emplace(ADDR_A, as);
 
+    InMemoryMachine machine;
+    mpt::Db db{machine};
+    TrieDb tdb{db};
+
+    commit_sequential(
+        tdb,
+        StateDeltas{},
+        Code{{A_CODE_HASH, A_CODE_ANALYSIS}},
+        BlockHeader{.number = 0});
+
+    BlockState bs(tdb);
+    State s(bs, Incarnation{0, 0});
+
     auto const json_str = R"(
     {
         "0x0000000000000000000000000000000000000100":{
             "balance":"0x3e8",
-            "code_hash":"0x15b81cad95d9a1bc40708726211eb3d63023f8e6e14fd7459d4c383fc75d2eef",
+            "code":"0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0160005500",
             "nonce":1,
             "storage":{
                 "0x00000000000000000000000000000000000000000000000000000000cafebabe":"0x0000000000000000000000000000000000000000000000000000000000000003",
@@ -62,5 +76,5 @@ TEST(PrestateTracer, pre_state_to_json)
         
     })";
 
-    EXPECT_EQ(state_to_json(prestate), nlohmann::json::parse(json_str));
+    EXPECT_EQ(state_to_json(prestate, s), nlohmann::json::parse(json_str));
 }

@@ -54,13 +54,13 @@ public:
 
 using PreState = PrestateTracerBase::Map<Address, AccountState>;
 
-// debug methods
-nlohmann::json state_to_json(PreState const &);
-nlohmann::json state_deltas_to_json(StateDeltas const &);
+nlohmann::json state_to_json(PreState const &, State &);
+nlohmann::json state_deltas_to_json(StateDeltas const &, State &);
 
+// debug methods
 nlohmann::json
-state_to_json_with_tx_hash(PreState const &, Transaction const &);
-nlohmann::json
-state_deltas_to_json_with_tx_hash(StateDeltas const &, Transaction const &);
+state_to_json_with_tx_hash(PreState const &, Transaction const &, State &);
+nlohmann::json state_deltas_to_json_with_tx_hash(
+    StateDeltas const &, Transaction const &, State &);
 
 MONAD_NAMESPACE_END

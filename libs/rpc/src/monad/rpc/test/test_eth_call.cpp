@@ -12,6 +12,8 @@
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/ondisk_db_config.hpp>
 #include <monad/rpc/eth_call.h>
+#include <monad/state2/block_state.hpp>
+#include <monad/state3/state.hpp>
 #include <test_resource_data.h>
 
 #include <boost/fiber/future/promise.hpp>
@@ -772,6 +774,9 @@ TEST_F(EthCallFixture, transfer_success_with_state_trace)
         Code{},
         header);
 
+    BlockState bs{tdb};
+    State s{bs, Incarnation{0, 0}};
+
     Transaction const tx{
         .max_fee_per_gas = 1,
         .gas_limit = 500'000u,
@@ -829,7 +834,7 @@ TEST_F(EthCallFixture, transfer_success_with_state_trace)
         }
 
         EXPECT_EQ(
-            state_to_json(expected),
+            state_to_json(expected, s),
             nlohmann::json::from_cbor(encoded_pre_state_trace));
     }
 
@@ -876,7 +881,7 @@ TEST_F(EthCallFixture, transfer_success_with_state_trace)
         };
 
         EXPECT_EQ(
-            state_deltas_to_json(expected),
+            state_deltas_to_json(expected, s),
             nlohmann::json::from_cbor(encoded_state_delta_trace));
     }
 

@@ -434,6 +434,15 @@ public:
      * TODO code return reference
      */
 
+    std::shared_ptr<CodeAnalysis> get_code_with_hash(bytes32_t const &code_hash)
+    {
+        auto const it = code_.find(code_hash);
+        if (it != code_.end()) {
+            return it->second;
+        }
+        return block_state_.read_code(code_hash);
+    }
+
     std::shared_ptr<CodeAnalysis> get_code(Address const &address)
     {
         auto const &account = recent_account(address);
@@ -441,13 +450,7 @@ public:
             return std::make_shared<CodeAnalysis>(analyze({}));
         }
         bytes32_t const &code_hash = account.value().code_hash;
-        {
-            auto const it = code_.find(code_hash);
-            if (it != code_.end()) {
-                return it->second;
-            }
-        }
-        return block_state_.read_code(code_hash);
+        return get_code_with_hash(code_hash);
     }
 
     size_t get_code_size(Address const &address)

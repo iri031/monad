@@ -257,11 +257,11 @@ namespace
             }
             case PRESTATE_TRACER: {
                 return nlohmann::json::to_cbor(
-                    state_to_json(prestate_tracer->get_pre_state()));
+                    state_to_json(prestate_tracer->get_pre_state(), state));
             }
             case STATEDIFF_TRACER: {
-                return nlohmann::json::to_cbor(
-                    state_deltas_to_json(prestate_tracer->get_state_deltas()));
+                return nlohmann::json::to_cbor(state_deltas_to_json(
+                    prestate_tracer->get_state_deltas(), state));
             }
             }
             MONAD_ASSERT(false);
