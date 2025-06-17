@@ -32,7 +32,14 @@
 #include <cstdint>
 #include <utility>
 
+#include <fstream>
+#include <iostream>
+#include <monad/execution/trace/prestate_tracer.hpp>
+
 MONAD_NAMESPACE_BEGIN
+
+static std::ofstream o_pre("prestate_trace.txt", std::ios::app);
+static std::ofstream o_diff("statediff_trace.txt", std::ios::app);
 
 // YP Sec 6.2 "irrevocable_change"
 template <evmc_revision rev>
@@ -251,6 +258,10 @@ Result<ExecutionResult> execute_impl(
                 hdr.beneficiary);
             call_tracer.on_finish(receipt.gas_used);
             block_state.merge(state);
+
+            PrestateTracer prestate_tracer(state);
+            o_pre << state_to_json_with_tx_hash(prestate_tracer.get_pre_state(), tx, state).dump() << std::endl;
+            o_diff << state_deltas_to_json_with_tx_hash(prestate_tracer.get_state_deltas(), tx, state).dump() << std::endl;
 
             return ExecutionResult{
                 .receipt = receipt,
