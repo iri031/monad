@@ -24,7 +24,7 @@ Address hash_and_clip(byte_string const &b)
 }
 
 // YP Sec 7: Eq 87, top
-Address create_contract_address(Address const &from, uint64_t const nonce)
+Address create_contract_address(Address const &from, uint256_t const nonce)
 {
     byte_string const b = rlp::encode_list2(
         rlp::encode_address(from) + rlp::encode_unsigned(nonce));

@@ -666,8 +666,7 @@ nlohmann::json TrieDb::to_json(size_t const concurrency_limit)
             json[key]["address"] = fmt::format("{}", acct.value().first);
             json[key]["balance"] =
                 fmt::format("{}", acct.value().second.balance);
-            json[key]["nonce"] =
-                fmt::format("0x{:x}", acct.value().second.nonce);
+            json[key]["nonce"] = fmt::format("{}", acct.value().second.nonce);
 
             auto const code_analysis =
                 db.read_code(acct.value().second.code_hash);

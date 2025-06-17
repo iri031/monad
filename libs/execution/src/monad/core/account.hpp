@@ -14,16 +14,16 @@ struct Account
 {
     uint256_t balance{0}; // sigma[a]_b
     bytes32_t code_hash{NULL_HASH}; // sigma[a]_c
-    uint64_t nonce{0}; // sigma[a]_n
+    uint256_t nonce{0}; // sigma[a]_n
     Incarnation incarnation{0, 0};
 
     friend bool operator==(Account const &, Account const &) = default;
 };
 
-static_assert(sizeof(Account) == 80);
+static_assert(sizeof(Account) == 104);
 static_assert(alignof(Account) == 8);
 
-static_assert(sizeof(std::optional<Account>) == 88);
+static_assert(sizeof(std::optional<Account>) == 112);
 static_assert(alignof(std::optional<Account>) == 8);
 
 // YP (14)

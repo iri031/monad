@@ -152,7 +152,7 @@ public:
         return recent_account_state(address).account_;
     }
 
-    void set_original_nonce(Address const &address, uint64_t const nonce)
+    void set_original_nonce(Address const &address, uint256_t const nonce)
     {
         auto &account_state = original_account_state(address);
         auto &account = account_state.account_;
@@ -174,7 +174,7 @@ public:
         return is_dead(recent_account(address));
     }
 
-    uint64_t get_nonce(Address const &address)
+    uint256_t get_nonce(Address const &address)
     {
         auto const &account = recent_account(address);
         if (MONAD_LIKELY(account.has_value())) {
@@ -261,7 +261,7 @@ public:
 
     ////////////////////////////////////////
 
-    void set_nonce(Address const &address, uint64_t const nonce)
+    void set_nonce(Address const &address, uint256_t const nonce)
     {
         auto &account = current_account(address);
         if (MONAD_UNLIKELY(!account.has_value())) {

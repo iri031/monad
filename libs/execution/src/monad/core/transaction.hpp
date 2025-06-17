@@ -42,7 +42,7 @@ static_assert(alignof(AccessList) == 8);
 struct Transaction
 {
     SignatureAndChain sc{};
-    uint64_t nonce{};
+    uint256_t nonce{};
     uint256_t max_fee_per_gas{}; // gas_price
     uint64_t gas_limit{};
     uint256_t value{};
@@ -55,7 +55,7 @@ struct Transaction
     friend bool operator==(Transaction const &, Transaction const &) = default;
 };
 
-static_assert(sizeof(Transaction) == 304);
+static_assert(sizeof(Transaction) == 328);
 static_assert(alignof(Transaction) == 8);
 
 std::optional<Address> recover_sender(Transaction const &);

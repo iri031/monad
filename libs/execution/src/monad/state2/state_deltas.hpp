@@ -24,7 +24,7 @@ using Delta = std::pair<T const, T>;
 
 using AccountDelta = Delta<std::optional<Account>>;
 
-static_assert(sizeof(AccountDelta) == 176);
+static_assert(sizeof(AccountDelta) == 224);
 static_assert(alignof(AccountDelta) == 8);
 
 using StorageDelta = Delta<bytes32_t>;
@@ -43,7 +43,7 @@ struct StateDelta
     StorageDeltas storage{};
 };
 
-static_assert(sizeof(StateDelta) == 752);
+static_assert(sizeof(StateDelta) == 800);
 static_assert(alignof(StateDelta) == 8);
 
 using StateDeltas = oneapi::tbb::concurrent_hash_map<Address, StateDelta>;

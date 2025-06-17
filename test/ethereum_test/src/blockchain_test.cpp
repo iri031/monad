@@ -271,8 +271,8 @@ void BlockchainTest::validate_post_state(
 
         auto const expected_balance =
             fmt::format("{}", j_account.at("balance").get<uint256_t>());
-        auto const expected_nonce = fmt::format(
-            "0x{:x}", integer_from_json<uint64_t>(j_account.at("nonce")));
+        auto const expected_nonce =
+            std::to_string(integer_from_json<uint64_t>(j_account.at("nonce")));
         auto const code = j_account.contains("code")
                               ? j_account.at("code").get<monad::byte_string>()
                               : monad::byte_string{};
