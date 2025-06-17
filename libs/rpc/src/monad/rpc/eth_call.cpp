@@ -256,10 +256,12 @@ namespace
                     encoded_cf.begin(), encoded_cf.end()};
             }
             case PRESTATE_TRACER: {
+                LOG_INFO("Json prestate trace: {}", state_to_json(prestate_tracer->get_pre_state(), state).dump());
                 return nlohmann::json::to_cbor(
                     state_to_json(prestate_tracer->get_pre_state(), state));
             }
             case STATEDIFF_TRACER: {
+                 LOG_INFO("Json statediff trace: {}", state_deltas_to_json(prestate_tracer->get_state_deltas(), state).dump());
                 return nlohmann::json::to_cbor(state_deltas_to_json(
                     prestate_tracer->get_state_deltas(), state));
             }
