@@ -235,14 +235,13 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
     MONAD_ASSERT(
         raw_db.get_latest_finalized_block_id() != mpt::INVALID_BLOCK_ID);
 
+    uint64_t last_finalized_by_execution =
+            raw_db.get_latest_finalized_block_id();
     while (finalized_block_num < end_block_num && stop == 0) {
         bytes32_t id;
         MonadConsensusBlockHeader header;
         to_finalize.clear();
         to_execute.clear();
-
-        uint64_t const last_finalized_by_execution =
-            raw_db.get_latest_finalized_block_id();
 
         // read from finalized head if we are behind
         id = head_pointer_to_id(finalized_head);
@@ -368,6 +367,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                 block,
                 round);
             db.finalize(block, round);
+            last_finalized_by_execution = std::max(last_finalized_by_execution, block);
             block_hash_chain.finalize(round);
             db.update_verified_block(verified_block);
             finalized_block_num = block;
