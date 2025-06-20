@@ -10,8 +10,12 @@
 #include <monad/core/rlp/block_rlp.hpp>
 #include <monad/core/transaction.hpp>
 #include <monad/db/trie_db.hpp>
+#include <monad/execution/fee_buffer.hpp>
 #include <monad/execution/validate_block.hpp>
 #include <monad/mpt/db.hpp>
+#include <monad/state2/block_state.hpp>
+#include <monad/state3/state.hpp>
+#include <monad/vm/vm.hpp>
 
 #include <gtest/gtest.h>
 
@@ -103,5 +107,53 @@ TEST(MonadChain, Genesis)
             hash,
             0xFE557D7B2B42D6352B985949AA37EDA10FB02C90FEE62EB29E68839F2FB72B31_bytes32);
         EXPECT_TRUE(static_validate_header<EVMC_CANCUN>(header).has_value());
+    }
+}
+
+TEST(MonadChain, get_balance)
+{
+    constexpr Address ADDRESS{1};
+    // TODO: other chains
+    {
+        MonadDevnet const chain;
+        InMemoryMachine machine;
+        mpt::Db db{machine};
+        vm::VM vm;
+        TrieDb tdb{db};
+        BlockState bs{tdb, vm};
+        State state{bs, Incarnation{0, 0}};
+        auto const max_reserve =
+            get_max_reserve(chain.get_monad_revision(0, 0), ADDRESS, state);
+        state.add_to_balance(ADDRESS, max_reserve);
+        FeeBuffer fee_buffer;
+        MonadChainContext context{.fee_buffer = fee_buffer};
+
+        // entire balance is available (special case)
+        fee_buffer.set(0, 0, 0);
+        fee_buffer.note(0, ADDRESS, max_reserve / 2);
+        fee_buffer.propose();
+        EXPECT_EQ(
+            chain.get_balance(0, 0, 0, ADDRESS, state, &context), max_reserve);
+
+        // entire reserve is depleted
+        fee_buffer.set(1, 1, 0);
+        fee_buffer.note(0, ADDRESS, max_reserve / 2);
+        fee_buffer.propose();
+        EXPECT_EQ(
+            chain.get_balance(0, 0, 0, ADDRESS, state, &context), max_reserve);
+
+        // half of balance is reserved
+        fee_buffer.set(2, 2, 1);
+        fee_buffer.propose();
+        fee_buffer.set(3, 3, 2);
+        fee_buffer.note(0, ADDRESS, 0);
+        fee_buffer.propose();
+        EXPECT_EQ(
+            chain.get_balance(0, 0, 0, ADDRESS, state, &context),
+            max_reserve / 2);
+
+        // entire balance is reserved
+        state.subtract_from_balance(ADDRESS, max_reserve / 2);
+        EXPECT_EQ(chain.get_balance(0, 0, 0, ADDRESS, state, &context), 0);
     }
 }

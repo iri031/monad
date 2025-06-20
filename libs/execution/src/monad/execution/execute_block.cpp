@@ -145,7 +145,7 @@ template <evmc_revision rev>
 Result<std::vector<ExecutionResult>> execute_block(
     Chain const &chain, Block &block, std::vector<Address> const &senders,
     BlockState &block_state, BlockHashBuffer const &block_hash_buffer,
-    fiber::PriorityPool &priority_pool)
+    fiber::PriorityPool &priority_pool, void *const chain_context)
 {
     TRACE_BLOCK_EVENT(StartBlock);
 
@@ -184,7 +184,8 @@ Result<std::vector<ExecutionResult>> execute_block(
              &sender = senders[i],
              &header = block.header,
              &block_hash_buffer = block_hash_buffer,
-             &block_state] {
+             &block_state,
+             chain_context] {
                 results[i] = execute<rev>(
                     chain,
                     i,
@@ -193,6 +194,7 @@ Result<std::vector<ExecutionResult>> execute_block(
                     header,
                     block_hash_buffer,
                     block_state,
+                    chain_context,
                     promises[i]);
                 promises[i + 1].set_value();
             });
@@ -247,7 +249,7 @@ Result<std::vector<ExecutionResult>> execute_block(
     Chain const &chain, evmc_revision const rev, Block &block,
     std::vector<Address> const &senders, BlockState &block_state,
     BlockHashBuffer const &block_hash_buffer,
-    fiber::PriorityPool &priority_pool)
+    fiber::PriorityPool &priority_pool, void *const chain_context)
 {
     SWITCH_EVMC_REVISION(
         execute_block,
@@ -256,7 +258,8 @@ Result<std::vector<ExecutionResult>> execute_block(
         senders,
         block_state,
         block_hash_buffer,
-        priority_pool);
+        priority_pool,
+        chain_context);
     MONAD_ASSERT(false);
 }
 

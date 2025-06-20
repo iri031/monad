@@ -10,6 +10,7 @@
 
 MONAD_NAMESPACE_BEGIN
 
+class State;
 struct BlockHeader;
 struct Receipt;
 struct Transaction;
@@ -36,6 +37,10 @@ struct Chain
     get_max_code_size(uint64_t block_number, uint64_t timestamp) const = 0;
 
     virtual GenesisState get_genesis_state() const = 0;
+
+    virtual uint256_t get_balance(
+        uint64_t block_number, uint64_t timestamp, uint64_t i, Address const &,
+        State &, void *chain_context) const = 0;
 };
 
 MONAD_NAMESPACE_END

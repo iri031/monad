@@ -65,8 +65,9 @@ TEST(Evm, create_with_insufficient)
 
     BlockHashBufferFinalized const block_hash_buffer;
     NoopCallTracer call_tracer;
+    EthereumMainnet chain;
     evm_host_t h{
-        call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, s, EthereumMainnet{}};
+        call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, s, 0, chain, nullptr};
     auto const result = create<EVMC_SHANGHAI>(&h, s, m, MAX_CODE_SIZE_EIP170);
 
     EXPECT_EQ(result.status_code, EVMC_INSUFFICIENT_BALANCE);
@@ -112,8 +113,9 @@ TEST(Evm, eip684_existing_code)
 
     BlockHashBufferFinalized const block_hash_buffer;
     NoopCallTracer call_tracer;
+    EthereumMainnet chain;
     evm_host_t h{
-        call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, s, EthereumMainnet{}};
+        call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, s, 0, chain, nullptr};
     auto const result = create<EVMC_SHANGHAI>(&h, s, m, MAX_CODE_SIZE_EIP170);
     EXPECT_EQ(result.status_code, EVMC_INVALID_INSTRUCTION);
 }
@@ -134,8 +136,9 @@ TEST(Evm, create_nonce_out_of_range)
 
     BlockHashBufferFinalized const block_hash_buffer;
     NoopCallTracer call_tracer;
+    EthereumMainnet chain;
     evm_host_t h{
-        call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, s, EthereumMainnet{}};
+        call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, s, 0, chain, nullptr};
 
     commit_sequential(
         tdb,
@@ -180,8 +183,9 @@ TEST(Evm, static_precompile_execution)
 
     BlockHashBufferFinalized const block_hash_buffer;
     NoopCallTracer call_tracer;
+    EthereumMainnet chain;
     evm_host_t h{
-        call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, s, EthereumMainnet{}};
+        call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, s, 0, chain, nullptr};
 
     commit_sequential(
         tdb,
@@ -232,8 +236,9 @@ TEST(Evm, out_of_gas_static_precompile_execution)
 
     BlockHashBufferFinalized const block_hash_buffer;
     NoopCallTracer call_tracer;
+    EthereumMainnet chain;
     evm_host_t h{
-        call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, s, EthereumMainnet{}};
+        call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, s, 0, chain, nullptr};
 
     commit_sequential(
         tdb,

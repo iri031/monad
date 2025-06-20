@@ -929,7 +929,13 @@ TYPED_TEST(DBTest, call_frames_stress_test)
         senders[i] = recovered_senders[i].value();
     }
     auto const results = execute_block<EVMC_SHANGHAI>(
-        EthereumMainnet{}, block.value(), senders, bs, block_hash_buffer, pool);
+        EthereumMainnet{},
+        block.value(),
+        senders,
+        bs,
+        block_hash_buffer,
+        pool,
+        nullptr);
 
     ASSERT_TRUE(!results.has_error());
 
@@ -1038,7 +1044,8 @@ TYPED_TEST(DBTest, call_frames_refund)
         senders,
         bs,
         block_hash_buffer,
-        pool);
+        pool,
+        nullptr);
 
     ASSERT_TRUE(!results.has_error());
 

@@ -2,6 +2,7 @@
 #include "file_io.hpp"
 
 #include <monad/chain/chain.hpp>
+#include <monad/chain/monad_chain.hpp>
 #include <monad/config.hpp>
 #include <monad/core/assert.h>
 #include <monad/core/blake3.hpp>
@@ -15,6 +16,7 @@
 #include <monad/execution/block_hash_buffer.hpp>
 #include <monad/execution/execute_block.hpp>
 #include <monad/execution/execute_transaction.hpp>
+#include <monad/execution/fee_buffer.hpp>
 #include <monad/execution/validate_block.hpp>
 #include <monad/execution/validate_transaction.hpp>
 #include <monad/execution/wal_reader.hpp>
@@ -131,8 +133,8 @@ bool validate_delayed_execution_results(
 
 Result<std::pair<bytes32_t, uint64_t>> propose_block(
     MonadConsensusBlockHeader const &consensus_header, Block block,
-    BlockHashChain &block_hash_chain, Chain const &chain, Db &db,
-    vm::VM &vm, fiber::PriorityPool &priority_pool, bool const is_first_block)
+    BlockHashChain &block_hash_chain, Chain const &chain, Db &db, vm::VM &vm,
+    fiber::PriorityPool &priority_pool, bool const is_first_block)
 {
     auto const &block_hash_buffer =
         block_hash_chain.find_chain(consensus_header.parent_round());
@@ -161,6 +163,8 @@ Result<std::pair<bytes32_t, uint64_t>> propose_block(
         }
     }
     BlockState block_state(db, vm);
+    FeeBuffer fee_buffer;
+    MonadChainContext chain_context{.fee_buffer = fee_buffer};
     BOOST_OUTCOME_TRY(
         auto results,
         execute_block(
@@ -170,7 +174,8 @@ Result<std::pair<bytes32_t, uint64_t>> propose_block(
             senders,
             block_state,
             block_hash_buffer,
-            priority_pool));
+            priority_pool,
+            &chain_context));
 
     std::vector<Receipt> receipts(results.size());
     std::vector<std::vector<CallFrame>> call_frames(results.size());

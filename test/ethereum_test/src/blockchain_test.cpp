@@ -221,7 +221,13 @@ Result<std::vector<Receipt>> BlockchainTest::execute(
     BOOST_OUTCOME_TRY(
         auto const results,
         execute_block<rev>(
-            chain, block, senders, block_state, block_hash_buffer, *pool_));
+            chain,
+            block,
+            senders,
+            block_state,
+            block_hash_buffer,
+            *pool_,
+            nullptr));
     std::vector<Receipt> receipts(results.size());
     std::vector<std::vector<CallFrame>> call_frames(results.size());
     for (unsigned i = 0; i < results.size(); ++i) {

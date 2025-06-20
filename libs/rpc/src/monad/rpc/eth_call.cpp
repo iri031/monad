@@ -15,6 +15,7 @@
 #include <monad/execution/block_hash_buffer.hpp>
 #include <monad/execution/evmc_host.hpp>
 #include <monad/execution/execute_transaction.hpp>
+#include <monad/execution/fee_buffer.hpp>
 #include <monad/execution/switch_evmc_revision.hpp>
 #include <monad/execution/trace/rlp/call_frame_rlp.hpp>
 #include <monad/execution/tx_context.hpp>
@@ -208,8 +209,17 @@ namespace
                 return std::make_unique<NoopCallTracer>();
             }
         }();
-
-        EvmcHost<rev> host{*call_tracer, tx_context, buffer, state, chain};
+        // TODO: initialize fee_buffer correctly
+        FeeBuffer fee_buffer;
+        fee_buffer.set(block_number, round, 0);
+        fee_buffer.note(
+            0,
+            sender,
+            max_gas_cost(enriched_txn.gas_limit, enriched_txn.max_fee_per_gas));
+        fee_buffer.propose();
+        MonadChainContext chain_context{.fee_buffer = fee_buffer};
+        EvmcHost<rev> host{
+            *call_tracer, tx_context, buffer, state, 0, chain, &chain_context};
         auto execution_result = execute_impl_no_validation<rev>(
             state,
             host,

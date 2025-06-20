@@ -65,7 +65,15 @@ TEST(TransactionProcessor, irrevocable_gas_and_refund_new_contract)
     prev.set_value();
 
     auto const result = execute<EVMC_SHANGHAI>(
-        EthereumMainnet{}, 0, tx, from, header, block_hash_buffer, bs, prev);
+        EthereumMainnet{},
+        0,
+        tx,
+        from,
+        header,
+        block_hash_buffer,
+        bs,
+        nullptr,
+        prev);
 
     ASSERT_TRUE(!result.has_error());
 

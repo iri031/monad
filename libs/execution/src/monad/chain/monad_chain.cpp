@@ -5,7 +5,10 @@
 #include <monad/core/likely.h>
 #include <monad/core/result.hpp>
 #include <monad/execution/execute_transaction.hpp>
+#include <monad/execution/fee_buffer.hpp>
+#include <monad/execution/reserve_balance.h>
 #include <monad/execution/validate_block.hpp>
+#include <monad/state3/state.hpp>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -68,6 +71,41 @@ size_t MonadChain::get_max_code_size(
     else {
         MONAD_ABORT("invalid revision");
     }
+}
+
+uint256_t MonadChain::get_balance(
+    uint64_t const block_number, uint64_t const timestamp, uint64_t const i,
+    Address const &sender, State &state, void *const chain_context) const
+{
+    auto const acct = state.recent_account(sender);
+    if (!acct.has_value()) {
+        return 0;
+    }
+    auto const balance = acct.value().balance;
+    auto const monad_rev = get_monad_revision(block_number, timestamp);
+    if (MONAD_LIKELY(monad_rev >= MONAD_THREE)) {
+        auto const &context = *static_cast<MonadChainContext *>(chain_context);
+        auto const [fees, fee_count] = context.fee_buffer.get_fees(i, sender);
+        if (acct.value().code_hash == NULL_HASH && fee_count == 1) {
+            return balance;
+        }
+        auto const max_reserve = get_max_reserve(monad_rev, sender, state);
+        MONAD_ASSERT(fees <= max_reserve);
+        auto const effective_reserve = max_reserve - uint256_t{fees};
+        return balance - std::min(balance, effective_reserve);
+    }
+    else if (monad_rev >= MONAD_ZERO) {
+        return balance;
+    }
+    else {
+        MONAD_ABORT("invalid revision");
+    }
+}
+
+uint256_t get_max_reserve(monad_revision const rev, Address const &, State &)
+{
+    // TODO: read from precompile
+    return monad_default_max_reserve_balance(rev);
 }
 
 MONAD_NAMESPACE_END

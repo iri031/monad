@@ -121,6 +121,8 @@ add_library(
   "src/monad/execution/precompiles_bls12.cpp"
   "src/monad/execution/precompiles_bls12.hpp"
   "src/monad/execution/precompiles_impl.cpp"
+  "src/monad/execution/reserve_balance.h"
+  "src/monad/execution/reserve_balance.cpp"
   "src/monad/execution/switch_evmc_revision.hpp"
   "src/monad/execution/trace/call_frame.cpp"
   "src/monad/execution/trace/call_frame.hpp"

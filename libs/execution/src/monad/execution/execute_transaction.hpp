@@ -46,6 +46,6 @@ template <evmc_revision rev>
 Result<ExecutionResult> execute(
     Chain const &, uint64_t i, Transaction const &, Address const &,
     BlockHeader const &, BlockHashBuffer const &, BlockState &,
-    boost::fibers::promise<void> &prev);
+    void *chain_context, boost::fibers::promise<void> &prev);
 
 MONAD_NAMESPACE_END
