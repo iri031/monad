@@ -167,4 +167,12 @@ uint256_t EthereumMainnet::get_balance(
     return acct.value().balance;
 }
 
+Result<void> EthereumMainnet::validate_transaction(
+    uint64_t, uint64_t, uint64_t, Transaction const &tx, Address const &sender,
+    State &state, void *const) const
+{
+    auto const acct = state.recent_account(sender);
+    return ::monad::validate_transaction(tx, acct);
+}
+
 MONAD_NAMESPACE_END

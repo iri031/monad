@@ -196,8 +196,8 @@ Result<evmc::Result> execute_impl2(
     BlockHashBuffer const &block_hash_buffer, State &state,
     void *const chain_context)
 {
-    auto const sender_account = state.recent_account(sender);
-    BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
+    BOOST_OUTCOME_TRY(chain.validate_transaction(
+        hdr.number, hdr.timestamp, i, tx, sender, state, chain_context));
 
     size_t const max_code_size =
         chain.get_max_code_size(hdr.number, hdr.timestamp);
