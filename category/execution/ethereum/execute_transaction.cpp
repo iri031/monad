@@ -204,7 +204,7 @@ Result<evmc::Result> execute_impl2(
     auto const tx_context =
         get_tx_context<rev>(tx, sender, hdr, chain.get_chain_id());
     EvmcHost<rev> host{
-        call_tracer, tx_context, block_hash_buffer, state, max_code_size};
+        call_tracer, tx_context, block_hash_buffer, state, chain};
 
     return execute_impl_no_validation<rev>(
         state,
