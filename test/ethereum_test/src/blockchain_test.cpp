@@ -229,7 +229,8 @@ Result<std::vector<Receipt>> BlockchainTest::execute(
             block_state,
             block_hash_buffer,
             *pool_,
-            metrics));
+            metrics,
+            nullptr));
     std::vector<Receipt> receipts(results.size());
     std::vector<std::vector<CallFrame>> call_frames(results.size());
     for (unsigned i = 0; i < results.size(); ++i) {

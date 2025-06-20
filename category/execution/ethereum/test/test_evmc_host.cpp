@@ -127,7 +127,9 @@ TEST(EvmcHost, emit_log)
         EMPTY_TX_CONTEXT,
         block_hash_buffer,
         state,
-        EthereumMainnet{}};
+        0,
+        EthereumMainnet{},
+        nullptr};
 
     host.emit_log(
         from,
@@ -160,7 +162,9 @@ TEST(EvmcHost, access_precompile)
         EMPTY_TX_CONTEXT,
         block_hash_buffer,
         state,
-        EthereumMainnet{}};
+        0,
+        EthereumMainnet{},
+        nullptr};
 
     EXPECT_EQ(
         host.access_account(0x0000000000000000000000000000000000000001_address),

@@ -133,8 +133,9 @@ TEST(CallTrace, execute_success)
     evmc_tx_context const tx_context{};
     BlockHashBufferFinalized buffer{};
     CallTracer call_tracer{tx};
+    EthereumMainnet chain;
     EvmcHost<EVMC_SHANGHAI> host(
-        call_tracer, tx_context, buffer, s, EthereumMainnet{});
+        call_tracer, tx_context, buffer, s, 0, chain, nullptr);
 
     auto const result = execute_impl_no_validation<EVMC_SHANGHAI>(
         s, host, tx, sender, 1, beneficiary, MAX_CODE_SIZE_EIP170);
@@ -202,8 +203,9 @@ TEST(CallTrace, execute_reverted_insufficient_balance)
     evmc_tx_context const tx_context{};
     BlockHashBufferFinalized buffer{};
     CallTracer call_tracer{tx};
+    EthereumMainnet chain;
     EvmcHost<EVMC_SHANGHAI> host(
-        call_tracer, tx_context, buffer, s, EthereumMainnet{});
+        call_tracer, tx_context, buffer, s, 0, chain, nullptr);
 
     auto const result = execute_impl_no_validation<EVMC_SHANGHAI>(
         s, host, tx, sender, 1, beneficiary, MAX_CODE_SIZE_EIP170);

@@ -28,12 +28,14 @@ protected:
     evmc_tx_context const &tx_context_;
     State &state_;
     CallTracerBase &call_tracer_;
+    uint64_t i_;
     Chain const &chain_;
+    void *chain_context_;
 
 public:
     EvmcHostBase(
         CallTracerBase &, evmc_tx_context const &, BlockHashBuffer const &,
-        State &, Chain const &) noexcept;
+        State &, uint64_t i, Chain const &, void *chain_context) noexcept;
 
     virtual ~EvmcHostBase() noexcept = default;
 

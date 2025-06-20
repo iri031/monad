@@ -74,6 +74,7 @@ TEST(TransactionProcessor, irrevocable_gas_and_refund_new_contract)
         block_hash_buffer,
         bs,
         metrics,
+        nullptr,
         prev);
 
     ASSERT_TRUE(!result.has_error());

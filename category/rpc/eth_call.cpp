@@ -26,10 +26,10 @@
 #include <category/execution/monad/chain/monad_mainnet.hpp>
 #include <category/execution/monad/chain/monad_testnet.hpp>
 #include <category/execution/monad/chain/monad_testnet2.hpp>
-#include <category/rpc/eth_call.h>
 #include <category/mpt/db_error.hpp>
 #include <category/mpt/ondisk_db_config.hpp>
 #include <category/mpt/util.hpp>
+#include <category/rpc/eth_call.h>
 
 #include <boost/fiber/future/promise.hpp>
 #include <boost/outcome/try.hpp>
@@ -207,8 +207,17 @@ namespace
                 return std::make_unique<NoopCallTracer>();
             }
         }();
-
-        EvmcHost<rev> host{*call_tracer, tx_context, buffer, state, chain};
+        // TODO: initialize fee_buffer correctly
+        FeeBuffer fee_buffer;
+        fee_buffer.set(block_number, round, 0);
+        fee_buffer.note(
+            0,
+            sender,
+            max_gas_cost(enriched_txn.gas_limit, enriched_txn.max_fee_per_gas));
+        fee_buffer.propose();
+        MonadChainContext chain_context{.fee_buffer = fee_buffer};
+        EvmcHost<rev> host{
+            *call_tracer, tx_context, buffer, state, 0, chain, &chain_context};
         auto execution_result = execute_impl_no_validation<rev>(
             state,
             host,

@@ -124,7 +124,8 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
                 block_state,
                 block_hash_buffer,
                 priority_pool,
-                block_metrics));
+                block_metrics,
+                nullptr));
 
         std::vector<Receipt> receipts(results.size());
         std::vector<std::vector<CallFrame>> call_frames(results.size());

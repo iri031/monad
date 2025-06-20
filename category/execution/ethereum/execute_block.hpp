@@ -24,12 +24,13 @@ struct ExecutionResult;
 template <evmc_revision rev>
 Result<std::vector<ExecutionResult>> execute_block(
     Chain const &, Block &, std::vector<Address> const &senders, BlockState &,
-    BlockHashBuffer const &, fiber::PriorityPool &, BlockMetrics &);
+    BlockHashBuffer const &, fiber::PriorityPool &, BlockMetrics &,
+    void *chain_context);
 
 Result<std::vector<ExecutionResult>> execute_block(
     Chain const &, evmc_revision, Block &, std::vector<Address> const &senders,
     BlockState &, BlockHashBuffer const &, fiber::PriorityPool &,
-    BlockMetrics &);
+    BlockMetrics &, void *chain_context);
 
 std::vector<std::optional<Address>>
 recover_senders(std::vector<Transaction> const &, fiber::PriorityPool &);

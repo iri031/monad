@@ -191,9 +191,10 @@ Receipt execute_final(
 
 template <evmc_revision rev>
 Result<evmc::Result> execute_impl2(
-    CallTracerBase &call_tracer, Chain const &chain, Transaction const &tx,
-    Address const &sender, BlockHeader const &hdr,
-    BlockHashBuffer const &block_hash_buffer, State &state)
+    uint64_t const i, CallTracerBase &call_tracer, Chain const &chain,
+    Transaction const &tx, Address const &sender, BlockHeader const &hdr,
+    BlockHashBuffer const &block_hash_buffer, State &state,
+    void *const chain_context)
 {
     auto const sender_account = state.recent_account(sender);
     BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
@@ -204,7 +205,13 @@ Result<evmc::Result> execute_impl2(
     auto const tx_context =
         get_tx_context<rev>(tx, sender, hdr, chain.get_chain_id());
     EvmcHost<rev> host{
-        call_tracer, tx_context, block_hash_buffer, state, chain};
+        call_tracer,
+        tx_context,
+        block_hash_buffer,
+        state,
+        i,
+        chain,
+        chain_context};
 
     return execute_impl_no_validation<rev>(
         state,
@@ -221,7 +228,8 @@ Result<ExecutionResult> execute(
     Chain const &chain, uint64_t const i, Transaction const &tx,
     Address const &sender, BlockHeader const &hdr,
     BlockHashBuffer const &block_hash_buffer, BlockState &block_state,
-    BlockMetrics &block_metrics, boost::fibers::promise<void> &prev)
+    BlockMetrics &block_metrics, void *const chain_context,
+    boost::fibers::promise<void> &prev)
 {
     TRACE_TXN_EVENT(StartTxn);
 
@@ -244,7 +252,15 @@ Result<ExecutionResult> execute(
 #endif
 
         auto result = execute_impl2<rev>(
-            call_tracer, chain, tx, sender, hdr, block_hash_buffer, state);
+            i,
+            call_tracer,
+            chain,
+            tx,
+            sender,
+            hdr,
+            block_hash_buffer,
+            state,
+            chain_context);
 
         {
             TRACE_TXN_EVENT(StartStall);
@@ -285,7 +301,15 @@ Result<ExecutionResult> execute(
 #endif
 
         auto result = execute_impl2<rev>(
-            call_tracer, chain, tx, sender, hdr, block_hash_buffer, state);
+            i,
+            call_tracer,
+            chain,
+            tx,
+            sender,
+            hdr,
+            block_hash_buffer,
+            state,
+            chain_context);
 
         MONAD_ASSERT(block_state.can_merge(state));
         if (result.has_error()) {

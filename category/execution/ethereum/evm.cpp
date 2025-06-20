@@ -29,11 +29,13 @@
 
 MONAD_NAMESPACE_BEGIN
 
-bool sender_has_balance(State &state, evmc_message const &msg) noexcept
+template <evmc_revision rev>
+bool sender_has_balance(
+    EvmcHost<rev> const &host, evmc_message const &msg) noexcept
 {
     auto const value = intx::be::load<uint256_t>(msg.value);
     auto const balance =
-        intx::be::load<uint256_t>(state.get_balance(msg.sender));
+        intx::be::load<uint256_t>(host.get_balance(msg.sender));
     return balance >= value;
 }
 
@@ -95,12 +97,13 @@ evmc::Result deploy_contract_code(
 EXPLICIT_EVMC_REVISION(deploy_contract_code);
 
 template <evmc_revision rev>
-std::optional<evmc::Result> pre_call(evmc_message const &msg, State &state)
+std::optional<evmc::Result>
+pre_call(EvmcHost<rev> const &host, evmc_message const &msg, State &state)
 {
     state.push();
 
     if (msg.kind != EVMC_DELEGATECALL) {
-        if (MONAD_UNLIKELY(!sender_has_balance(state, msg))) {
+        if (MONAD_UNLIKELY(!sender_has_balance(host, msg))) {
             state.pop_reject();
             return evmc::Result{EVMC_INSUFFICIENT_BALANCE, msg.gas};
         }
@@ -150,7 +153,7 @@ evmc::Result create(
     auto &call_tracer = host->get_call_tracer();
     call_tracer.on_enter(msg);
 
-    if (MONAD_UNLIKELY(!sender_has_balance(state, msg))) {
+    if (MONAD_UNLIKELY(!sender_has_balance(*host, msg))) {
         evmc::Result result{EVMC_INSUFFICIENT_BALANCE, msg.gas};
         call_tracer.on_exit(result);
         return result;
@@ -257,7 +260,7 @@ call(EvmcHost<rev> *const host, State &state, evmc_message const &msg) noexcept
     auto &call_tracer = host->get_call_tracer();
     call_tracer.on_enter(msg);
 
-    if (auto result = pre_call<rev>(msg, state); result.has_value()) {
+    if (auto result = pre_call<rev>(*host, msg, state); result.has_value()) {
         call_tracer.on_exit(result.value());
         return std::move(result.value());
     }

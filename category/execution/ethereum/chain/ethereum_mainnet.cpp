@@ -156,4 +156,15 @@ GenesisState EthereumMainnet::get_genesis_state() const
     return {header, ETHEREUM_MAINNET_ALLOC};
 }
 
+uint256_t EthereumMainnet::get_balance(
+    uint64_t, uint64_t, uint64_t, Address const &sender, State &state,
+    void *) const
+{
+    auto const acct = state.recent_account(sender);
+    if (!acct.has_value()) {
+        return 0;
+    }
+    return acct.value().balance;
+}
+
 MONAD_NAMESPACE_END

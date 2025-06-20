@@ -155,6 +155,8 @@ Result<std::pair<bytes32_t, uint64_t>> propose_block(
     }
     BlockState block_state(db, vm);
     BlockMetrics block_metrics;
+    FeeBuffer fee_buffer;
+    MonadChainContext chain_context{.fee_buffer = fee_buffer};
     BOOST_OUTCOME_TRY(
         auto results,
         execute_block(
@@ -165,7 +167,8 @@ Result<std::pair<bytes32_t, uint64_t>> propose_block(
             block_state,
             block_hash_buffer,
             priority_pool,
-            block_metrics));
+            block_metrics,
+            &chain_context));
 
     std::vector<Receipt> receipts(results.size());
     std::vector<std::vector<CallFrame>> call_frames(results.size());

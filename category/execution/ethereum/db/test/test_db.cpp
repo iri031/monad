@@ -933,7 +933,8 @@ TYPED_TEST(DBTest, call_frames_stress_test)
         bs,
         block_hash_buffer,
         pool,
-        metrics);
+        metrics,
+        nullptr);
 
     ASSERT_TRUE(!results.has_error());
 
@@ -1047,7 +1048,8 @@ TYPED_TEST(DBTest, call_frames_refund)
         bs,
         block_hash_buffer,
         pool,
-        metrics);
+        metrics,
+        nullptr);
 
     ASSERT_TRUE(!results.has_error());
 
