@@ -11,7 +11,9 @@
 #include <monad/core/transaction.hpp>
 #include <monad/db/trie_db.hpp>
 #include <monad/execution/fee_buffer.hpp>
+#include <monad/execution/transaction_gas.hpp>
 #include <monad/execution/validate_block.hpp>
+#include <monad/execution/validate_transaction.hpp>
 #include <monad/mpt/db.hpp>
 #include <monad/state2/block_state.hpp>
 #include <monad/state3/state.hpp>
@@ -155,5 +157,70 @@ TEST(MonadChain, get_balance)
         // entire balance is reserved
         state.subtract_from_balance(ADDRESS, max_reserve / 2);
         EXPECT_EQ(chain.get_balance(0, 0, 0, ADDRESS, state, &context), 0);
+    }
+}
+
+TEST(MonadChain, validate_transaction)
+{
+    constexpr Address SENDER{1};
+    // TODO: other chains
+    {
+        MonadDevnet const chain;
+        InMemoryMachine machine;
+        mpt::Db db{machine};
+        TrieDb tdb{db};
+        vm::VM vm;
+        BlockState bs{tdb, vm};
+        State state{bs, Incarnation{0, 0}};
+        FeeBuffer fee_buffer;
+        MonadChainContext context{.fee_buffer = fee_buffer};
+
+        // 1. Valid errors still propagate
+        state.set_nonce(SENDER, 10);
+        auto res = chain.validate_transaction(
+            0, 0, 0, Transaction{}, SENDER, state, &context);
+        ASSERT_TRUE(res.has_error());
+        EXPECT_EQ(res.error(), TransactionError::BadNonce);
+
+        // 2. InsufficentReserveBalance
+        auto const max_reserve =
+            get_max_reserve(chain.get_monad_revision(0, 0), SENDER, state);
+        Transaction const tx1{
+            .nonce = 10,
+            .max_fee_per_gas = 1500000000000,
+            .gas_limit = 1000000,
+        };
+        fee_buffer.set(0, 0, 0);
+        fee_buffer.note(
+            0, SENDER, max_gas_cost(tx1.gas_limit, tx1.max_fee_per_gas));
+        fee_buffer.propose();
+        res = chain.validate_transaction(0, 0, 0, tx1, SENDER, state, &context);
+        ASSERT_TRUE(res.has_error());
+        EXPECT_EQ(res.error(), TransactionError::InsufficientReserveBalance);
+
+        // clear out
+        fee_buffer.set(1, 1, 0);
+        fee_buffer.propose();
+        fee_buffer.set(2, 2, 1);
+        fee_buffer.propose();
+        fee_buffer.set(3, 3, 2);
+        fee_buffer.propose();
+
+        // try it again
+        state.add_to_balance(SENDER, max_reserve / 2);
+        Transaction const tx2{
+            .nonce = 10, .max_fee_per_gas = 25000000000000, .gas_limit = 30000};
+        fee_buffer.set(4, 4, 3);
+        fee_buffer.note(
+            0, SENDER, max_gas_cost(tx2.gas_limit, tx2.max_fee_per_gas));
+        fee_buffer.propose();
+        res = chain.validate_transaction(0, 0, 0, tx2, SENDER, state, &context);
+        ASSERT_TRUE(res.has_error());
+        EXPECT_EQ(res.error(), TransactionError::InsufficientReserveBalance);
+
+        // 3. Success
+        state.add_to_balance(SENDER, max_reserve / 2);
+        res = chain.validate_transaction(0, 0, 0, tx2, SENDER, state, &context);
+        ASSERT_TRUE(res.has_value());
     }
 }

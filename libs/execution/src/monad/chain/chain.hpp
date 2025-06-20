@@ -41,6 +41,11 @@ struct Chain
     virtual uint256_t get_balance(
         uint64_t block_number, uint64_t timestamp, uint64_t i, Address const &,
         State &, void *chain_context) const = 0;
+
+    virtual Result<void> validate_transaction(
+        uint64_t block_number, uint64_t timestamp, uint64_t i,
+        Transaction const &, Address const &sender, State &,
+        void *chain_context) const = 0;
 };
 
 MONAD_NAMESPACE_END
