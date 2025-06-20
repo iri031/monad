@@ -1,5 +1,6 @@
 #pragma once
 
+#include <monad/chain/chain.hpp>
 #include <monad/config.hpp>
 #include <monad/core/address.hpp>
 #include <monad/core/bytes.hpp>
@@ -22,18 +23,18 @@ class BlockHashBuffer;
 
 class EvmcHostBase : public evmc::Host
 {
-    evmc_tx_context const &tx_context_;
     BlockHashBuffer const &block_hash_buffer_;
 
 protected:
+    evmc_tx_context const &tx_context_;
     State &state_;
     CallTracerBase &call_tracer_;
-    size_t const max_code_size_;
+    Chain const &chain_;
 
 public:
     EvmcHostBase(
         CallTracerBase &, evmc_tx_context const &, BlockHashBuffer const &,
-        State &, size_t max_code_size) noexcept;
+        State &, Chain const &) noexcept;
 
     virtual ~EvmcHostBase() noexcept = default;
 
@@ -97,8 +98,13 @@ struct EvmcHost final : public EvmcHostBase
     virtual evmc::Result call(evmc_message const &msg) noexcept override
     {
         if (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2) {
-            auto result =
-                ::monad::create<rev>(this, state_, msg, max_code_size_);
+            auto result = ::monad::create<rev>(
+                this,
+                state_,
+                msg,
+                chain_.get_max_code_size(
+                    static_cast<uint64_t>(tx_context_.block_number),
+                    static_cast<uint64_t>(tx_context_.block_timestamp)));
 
             // EIP-211
             if (result.status_code != EVMC_REVERT) {
