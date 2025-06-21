@@ -25,7 +25,7 @@ struct SnapshotShardStream
     blake3_hasher hasher;
 };
 
-using SnapshotShard = std::array<SnapshotShardStream, 4>;
+using SnapshotShard = std::array<SnapshotShardStream, 5>;
 
 MONAD_ANONYMOUS_NAMESPACE_END
 
@@ -81,7 +81,7 @@ uint64_t monad_db_snapshot_write_filesystem(
             context->shard.emplace(shard, monad::SnapshotShard{});
         MONAD_ASSERT(success);
         constexpr std::array files = {
-            "eth_header", "account", "storage", "code"};
+            "eth_header", "account", "storage", "code", "transactions"};
         for (size_t i = 0; i < it->second.size(); ++i) {
             auto &[foutput, fchecksum, hasher] = it->second.at(i);
             std::filesystem::path const output = shard_dir / files[i];
@@ -162,6 +162,8 @@ void monad_db_snapshot_load_filesystem(
         auto const [storage_fd, storage, storage_len] =
             do_mmap(dir.path() / "storage");
         auto const [code_fd, code, code_len] = do_mmap(dir.path() / "code");
+        auto const [transactions_fd, transactions, transactions_len] =
+            do_mmap(dir.path() / "transactions");
         monad_db_snapshot_loader_load(
             loader,
             shard,
@@ -172,7 +174,9 @@ void monad_db_snapshot_load_filesystem(
             storage,
             storage_len,
             code,
-            code_len);
+            code_len,
+            transactions,
+            transactions_len);
         if (eth_header) {
             munmap((void *)eth_header, eth_header_len);
         }
@@ -185,10 +189,14 @@ void monad_db_snapshot_load_filesystem(
         if (code) {
             munmap((void *)code, code_len);
         }
+        if (transactions) {
+            munmap((void *)transactions, transactions_len);
+        }
         close(eth_header_fd);
         close(account_fd);
         close(storage_fd);
         close(code_fd);
+        close(transactions_fd);
     }
 
     monad_db_snapshot_loader_destroy(loader);

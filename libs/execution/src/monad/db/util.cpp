@@ -617,6 +617,13 @@ Result<std::pair<Receipt, size_t>> decode_receipt_db(byte_string_view &enc)
     return std::make_pair(receipt, log_index_begin);
 }
 
+byte_string
+encode_transaction_db(byte_string_view const encoded_tx, Address const &sender)
+{
+    return rlp::encode_list2(
+        rlp::encode_string2(encoded_tx), rlp::encode_address(sender));
+}
+
 Result<std::pair<Transaction, Address>>
 decode_transaction_db(byte_string_view &enc)
 {
@@ -877,6 +884,135 @@ std::optional<MonadConsensusBlockHeader> read_consensus_header(
             MONAD_ASSERT(decoded.has_value());
             return decoded.value();
         });
+}
+
+bool load_transactions(
+    std::vector<Transaction> const &transactions, mpt::Db &db,
+    uint64_t const block_number)
+{
+    UpdateList transaction_updates;
+    std::deque<Update> update_alloc;
+    std::deque<byte_string> bytes_alloc;
+    for (size_t i = 0; i < transactions.size(); ++i) {
+        auto const &rlp_index =
+            bytes_alloc.emplace_back(rlp::encode_unsigned(i));
+        auto const encoded_tx = rlp::encode_transaction(transactions[i]);
+        auto const sender = recover_sender(transactions[i]);
+        if (!sender.has_value()) {
+            return false;
+        }
+        transaction_updates.push_front(update_alloc.emplace_back(Update{
+            .key = NibblesView{rlp_index},
+            .value = bytes_alloc.emplace_back(
+                encode_transaction_db(encoded_tx, sender.value())),
+            .incarnation = false,
+            .next = UpdateList{},
+            .version = static_cast<int64_t>(block_number)}));
+    }
+
+    Update transactions_update{
+        .key = transaction_nibbles,
+        .value = byte_string_view{},
+        .incarnation = true,
+        .next = std::move(transaction_updates),
+        .version = static_cast<int64_t>(block_number)};
+    UpdateList updates;
+    updates.push_front(transactions_update);
+    UpdateList finalized_updates;
+    Update finalized{
+        .key = finalized_nibbles,
+        .value = byte_string_view{},
+        .incarnation = false,
+        .next = std::move(updates),
+        .version = static_cast<int64_t>(block_number)};
+    finalized_updates.push_front(finalized);
+    db.upsert(std::move(finalized_updates), block_number, false, false);
+    return true;
+}
+
+std::optional<byte_string> read_transactions(mpt::Db &db, uint64_t const block)
+{
+    class TxnTraverseMachine final : public TraverseMachine
+    {
+        std::vector<Transaction> &txns_;
+        Nibbles path_;
+
+    public:
+        explicit TxnTraverseMachine(std::vector<Transaction> &txns)
+            : txns_{txns}
+        {
+        }
+
+        TxnTraverseMachine(TxnTraverseMachine const &) = default;
+
+        virtual bool down(unsigned char const branch, Node const &node) override
+        {
+            if (branch == INVALID_BRANCH) {
+                MONAD_ASSERT(path_.nibble_size() == 0);
+                path_ = node.path_nibble_view();
+                return true;
+            }
+
+            path_ = concat(NibblesView{path_}, branch, node.path_nibble_view());
+            if (node.has_value()) {
+                byte_string_view enc = node.value();
+                auto const res = decode_transaction_db(enc);
+                MONAD_ASSERT(res.has_value());
+                byte_string_view idx_enc = path_.data();
+                auto const idx = rlp::decode_unsigned<uint64_t>(idx_enc);
+                MONAD_ASSERT(idx.has_value());
+                if (idx.value() >= txns_.size()) {
+                    txns_.resize(idx.value() + 1);
+                }
+                txns_[idx.value()] = res.value().first;
+            }
+            return true;
+        }
+
+        virtual void up(unsigned char const branch, Node const &node) override
+        {
+            auto const path_view = monad::mpt::NibblesView{path_};
+            unsigned const prefix_size =
+                branch == monad::mpt::INVALID_BRANCH
+                    ? 0
+                    : path_view.nibble_size() - node.path_nibbles_len() - 1;
+            path_ = path_view.substr(0, prefix_size);
+        }
+
+        virtual std::unique_ptr<TraverseMachine> clone() const override
+        {
+            return std::make_unique<TxnTraverseMachine>(*this);
+        }
+    };
+
+    auto const root = db.load_root_for_version(block);
+    if (!root.is_valid()) {
+        return std::nullopt;
+    }
+    auto const finalized_root_res = db.find(root, finalized_nibbles, block);
+    if (!finalized_root_res.has_value()) {
+        return std::nullopt;
+    }
+    auto const &transaction_root =
+        db.find(finalized_root_res.value(), transaction_nibbles, block);
+    if (!transaction_root.has_value()) {
+        return std::nullopt;
+    }
+    std::vector<Transaction> txns;
+    TxnTraverseMachine traverse(txns);
+    if (!db.traverse(transaction_root.value(), traverse, block)) {
+        return std::nullopt;
+    }
+    byte_string rlp;
+    for (auto const &txn : txns) {
+        if (txn.type == TransactionType::legacy) {
+            rlp += rlp::encode_transaction(txn);
+        }
+        else {
+            rlp += rlp::encode_string2(rlp::encode_transaction(txn));
+        }
+    }
+    return rlp::encode_list2(rlp);
 }
 
 MONAD_NAMESPACE_END

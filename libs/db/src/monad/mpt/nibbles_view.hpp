@@ -78,6 +78,11 @@ public:
         return !data_;
     }
 
+    byte_string_view data() const
+    {
+        return {data_.get(), data_size()};
+    }
+
     constexpr unsigned data_size() const noexcept
     {
         return (static_cast<size_type>(begin_nibble_) == end_nibble_)

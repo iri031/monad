@@ -16,6 +16,7 @@ add_library(
   monad_execution STATIC
   # chain
   "src/monad/chain/chain_config.h"
+  "src/monad/chain/chain_constants.h"
   "src/monad/chain/chain.cpp"
   "src/monad/chain/chain.hpp"
   "src/monad/chain/ethereum_mainnet.cpp"

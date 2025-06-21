@@ -131,6 +131,9 @@ Result<std::pair<bytes32_t, bytes32_t>> decode_storage_db(byte_string_view &);
 Result<byte_string_view> decode_storage_db_ignore_slot(byte_string_view &);
 
 Result<std::pair<Receipt, size_t>> decode_receipt_db(byte_string_view &);
+
+byte_string
+encode_transaction_db(byte_string_view encoded_tx, Address const &sender);
 Result<std::pair<Transaction, Address>>
 decode_transaction_db(byte_string_view &);
 
@@ -157,5 +160,10 @@ std::optional<byte_string> query_consensus_header(
 
 std::optional<MonadConsensusBlockHeader> read_consensus_header(
     mpt::Db const &db, uint64_t block, mpt::NibblesView prefix);
+
+bool load_transactions(
+    std::vector<Transaction> const &, mpt::Db &, uint64_t block_number);
+// return rlp encoded list of transactions
+std::optional<byte_string> read_transactions(mpt::Db &, uint64_t block);
 
 MONAD_NAMESPACE_END

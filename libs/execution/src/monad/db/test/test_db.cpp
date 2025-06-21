@@ -1077,3 +1077,34 @@ TYPED_TEST(DBTest, call_frames_refund)
     EXPECT_EQ(actual_call_frames.size(), 0);
 #endif
 }
+
+TYPED_TEST(DBTest, read_transactions)
+{
+    std::vector<Transaction> txns;
+    std::vector<Receipt> receipts;
+    std::vector<Address> senders;
+    std::vector<std::vector<CallFrame>> frames;
+    for (uint64_t i = 0; i < 1'000; ++i) {
+        txns.emplace_back(
+            Transaction{.nonce = i, .value = 10, .to = Address{i}});
+        receipts.emplace_back();
+        senders.emplace_back();
+        frames.emplace_back();
+    }
+    TrieDb tdb{this->db};
+    commit_sequential(
+        tdb,
+        StateDeltas{},
+        Code{},
+        BlockHeader{},
+        receipts,
+        frames,
+        senders,
+        txns);
+    auto const res = read_transactions(this->db, 0);
+    EXPECT_TRUE(res.has_value());
+    byte_string_view enc{res.value()};
+    auto const decoded_txns = rlp::decode_transaction_list(enc);
+    EXPECT_TRUE(decoded_txns.has_value());
+    EXPECT_EQ(txns, decoded_txns.value());
+}

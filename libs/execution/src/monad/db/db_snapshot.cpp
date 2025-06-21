@@ -1,10 +1,13 @@
+#include <monad/chain/chain_constants.h>
 #include <monad/config.hpp>
 #include <monad/core/assert.h>
 #include <monad/core/byte_string.hpp>
 #include <monad/core/endian.hpp> // little endian
 #include <monad/core/rlp/block_rlp.hpp>
+#include <monad/core/rlp/transaction_rlp.hpp>
 #include <monad/core/unaligned.hpp>
 #include <monad/db/db_snapshot.h>
+#include <monad/db/trie_db.hpp>
 #include <monad/db/util.hpp>
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/ondisk_db_config.hpp>
@@ -26,6 +29,7 @@ struct monad_db_snapshot_loader
     monad::OnDiskMachine machine;
     monad::mpt::Db db;
     std::array<monad::byte_string, 256> eth_headers;
+    std::array<monad::byte_string, MONAD_EXECUTION_DELAY - 1> transactions;
     std::deque<monad::hash256> hash_alloc;
     std::deque<monad::mpt::Update> update_alloc;
     std::array<
@@ -266,10 +270,11 @@ MONAD_ANONYMOUS_NAMESPACE_END
 // Directory Format
 //   block number
 //     shard
-//       account    -> empty | leaf.value(), ...
-//       storage    -> empty | [account_offset, leaf.value()], ...
-//       code       -> empty | [size, code], ...
-//       eth header -> empty | rlp(header)
+//       account      -> empty | leaf.value(), ...
+//       storage      -> empty | [account_offset, leaf.value()], ...
+//       code         -> empty | [size, code], ...
+//       eth header   -> empty | rlp(header)
+//       transactions -> empty | rlp(txns)
 bool monad_db_dump_snapshot(
     char const *const *const dbname_paths, size_t const len,
     unsigned const sq_thread_cpu, uint64_t const block,
@@ -287,7 +292,22 @@ bool monad_db_dump_snapshot(
                              : std::nullopt,
         .dbname_paths = {dbname_paths, dbname_paths + len}};
     AsyncIOContext io_context{config};
-    Db db{io_context};
+    mpt::Db db{io_context};
+
+    for (uint64_t i = 0; i < (MONAD_EXECUTION_DELAY - 1) && i <= block; ++i) {
+        auto const txns_rlp = read_transactions(db, block - i);
+        if (!txns_rlp.has_value()) {
+            LOG_INFO("Could not read transactions for block {}", block - i);
+            return false;
+        }
+        MONAD_ASSERT(
+            write(
+                i,
+                MONAD_SNAPSHOT_TRANSACTIONS,
+                txns_rlp.value().data(),
+                txns_rlp.value().size(),
+                user) == txns_rlp.value().size());
+    }
 
     for (uint64_t b = block < 256 ? 0 : block - 255; b <= block; ++b) {
         auto const header = db.get(
@@ -351,7 +371,8 @@ void monad_db_snapshot_loader_load(
     unsigned char const *const eth_header, size_t const eth_header_len,
     unsigned char const *const account, size_t const account_len,
     unsigned char const *const storage, size_t const storage_len,
-    unsigned char const *const code, size_t const code_len)
+    unsigned char const *const code, size_t const code_len,
+    unsigned char const *const transactions, size_t const transactions_len)
 {
     using namespace monad;
     using namespace monad::mpt;
@@ -430,6 +451,10 @@ void monad_db_snapshot_loader_load(
         // stash to upsert versions last
         loader->eth_headers.at(shard).assign(eth_header, eth_header_len);
     }
+
+    if (transactions) {
+        loader->transactions.at(shard).assign(transactions, transactions_len);
+    }
     monad_db_snapshot_loader_flush(loader);
 }
 
@@ -460,6 +485,24 @@ void monad_db_snapshot_loader_destroy(monad_db_snapshot_loader *loader)
             .version = static_cast<int64_t>(block)};
         finalized_updates.push_front(finalized);
         loader->db.upsert(std::move(finalized_updates), block, false, false);
+    }
+    for (size_t i = 0; i < loader->transactions.size(); ++i) {
+        auto const &enc = loader->transactions[i];
+        if (enc.empty()) {
+            continue;
+        }
+        uint64_t const block = loader->block - i;
+        byte_string_view view{enc};
+        auto const decoded_txns = rlp::decode_transaction_list(view);
+        MONAD_ASSERT(decoded_txns.has_value());
+        MONAD_ASSERT(
+            load_transactions(decoded_txns.value(), loader->db, block));
+        TrieDb tdb{loader->db};
+        tdb.set_block_and_round(block);
+        auto const header = tdb.read_eth_header();
+        MONAD_ASSERT(
+            tdb.transactions_root() == header.transactions_root,
+            "transactions root mismatch");
     }
     loader->db.update_finalized_block(loader->block);
     delete loader;

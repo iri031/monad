@@ -71,13 +71,6 @@ namespace
             rlp::encode_string2(rlp::encode_receipt(receipt)),
             rlp::encode_unsigned(log_index_begin));
     }
-
-    byte_string encode_transaction_db(
-        byte_string_view const encoded_tx, Address const &sender)
-    {
-        return rlp::encode_list2(
-            rlp::encode_string2(encoded_tx), rlp::encode_address(sender));
-    }
 }
 
 TrieDb::TrieDb(mpt::Db &db)

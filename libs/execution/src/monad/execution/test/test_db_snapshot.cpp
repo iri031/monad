@@ -3,12 +3,15 @@
 #include <monad/core/block.hpp>
 #include <monad/core/byte_string.hpp>
 #include <monad/core/monad_block.hpp>
+#include <monad/core/rlp/transaction_rlp.hpp>
+#include <monad/db/block_db.hpp>
 #include <monad/db/db_snapshot.h>
 #include <monad/db/db_snapshot_filesystem.h>
 #include <monad/db/trie_db.hpp>
 #include <monad/db/util.hpp>
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/ondisk_db_config.hpp>
+#include <test_resource_data.h>
 
 #include <ankerl/unordered_dense.h>
 #include <gtest/gtest.h>
@@ -45,49 +48,57 @@ TEST(DbBinarySnapshot, Basic)
 
     auto const src_db = tmp_dbname();
 
+    Block block{};
+    BlockDb const block_db(test_resource::correct_block_data_dir);
+    bool const res = block_db.get(14'000'000u, block);
+    ASSERT_TRUE(res);
+    auto const transactions = block.transactions;
+
     bytes32_t root;
     Code code_delta;
-    BlockHeader last_header;
+    std::vector<BlockHeader> expected_headers;
     {
         OnDiskMachine machine;
         mpt::Db db{machine, OnDiskDbConfig{.dbname_paths = {src_db}}};
-        for (uint64_t i = 0; i < 100; ++i) {
-            load_header(db, BlockHeader{.number = i});
-        }
-        db.update_finalized_block(99);
-        StateDeltas deltas;
-        for (uint64_t i = 0; i < 100'000; ++i) {
-            StorageDeltas storage;
-            if ((i % 100) == 0) {
-                for (uint64_t j = 0; j < 10; ++j) {
-                    storage.emplace(
-                        bytes32_t{j}, StorageDelta{bytes32_t{}, bytes32_t{j}});
-                }
-            }
-            deltas.emplace(
-                Address{i},
-                StateDelta{
-                    .account =
-                        {std::nullopt, Account{.balance = i, .nonce = i}},
-                    .storage = storage});
-        }
-        for (uint64_t i = 0; i < 1'000; ++i) {
-            std::vector<uint64_t> const bytes(100, i);
-            byte_string_view const code{
-                reinterpret_cast<unsigned char const *>(bytes.data()),
-                bytes.size() * sizeof(uint64_t)};
-            bytes32_t const hash = to_bytes(keccak256(code));
-            auto const analysis = std::make_shared<CodeAnalysis>(analyze(code));
-            code_delta.emplace(hash, analysis);
-        }
         TrieDb tdb{db};
+        for (uint64_t i = 0; i < 100; ++i) {
+            tdb.commit(
+                StateDeltas{},
+                Code{},
+                MonadConsensusBlockHeader::from_eth_header(
+                    BlockHeader{.number = i}),
+                std::vector<Receipt>{transactions.size()},
+                std::vector<std::vector<CallFrame>>{transactions.size()},
+                std::vector<Address>{transactions.size()},
+                transactions);
+            tdb.finalize(i, i);
+            tdb.set_block_and_round(i);
+            expected_headers.emplace_back(tdb.read_eth_header());
+        }
+        byte_string const code(100, 'h');
+        bytes32_t const hash = to_bytes(keccak256(code));
+        auto const analysis = std::make_shared<CodeAnalysis>(analyze(code));
+        code_delta.emplace(hash, analysis);
         tdb.commit(
-            deltas,
-            code_delta,
+            StateDeltas{
+                {Address{100},
+                 StateDelta{
+                     .account =
+                         {std::nullopt, Account{.balance = 100, .nonce = 100}},
+                     .storage =
+                         StorageDeltas{
+                             {bytes32_t{}, {bytes32_t{}, bytes32_t{100}}}}}}},
+            Code{{hash, analysis}},
             MonadConsensusBlockHeader::from_eth_header(
-                BlockHeader{.number = 100}));
+                BlockHeader{.number = 100}),
+            std::vector<Receipt>{transactions.size()},
+            std::vector<std::vector<CallFrame>>{transactions.size()},
+            std::vector<Address>{transactions.size()},
+            transactions);
         tdb.finalize(100, 100);
-        last_header = tdb.read_eth_header();
+        tdb.set_block_and_round(100);
+        expected_headers.emplace_back(tdb.read_eth_header());
+        code_delta.emplace(hash, analysis);
         root = tdb.state_root();
     }
 
@@ -98,7 +109,7 @@ TEST(DbBinarySnapshot, Basic)
             monad_db_snapshot_filesystem_write_user_context_create(
                 root.c_str(), 100);
         char const *dbname_paths[] = {src_db.c_str()};
-        EXPECT_TRUE(monad_db_dump_snapshot(
+        ASSERT_TRUE(monad_db_dump_snapshot(
             dbname_paths,
             1,
             static_cast<unsigned>(-1),
@@ -120,12 +131,18 @@ TEST(DbBinarySnapshot, Basic)
             ReadOnlyOnDiskDbConfig{.dbname_paths = {dest_db}}};
         mpt::Db db{io_context};
         TrieDb tdb{db};
-        for (uint64_t i = 0; i < 100; ++i) {
+        for (uint64_t i = 0; i <= 100; ++i) {
             tdb.set_block_and_round(i);
-            EXPECT_EQ(tdb.read_eth_header(), BlockHeader{.number = i});
+            EXPECT_EQ(tdb.read_eth_header(), expected_headers.at(i));
+            if (i == 99 || i == 100) {
+                auto const txns = read_transactions(db, i);
+                MONAD_ASSERT(txns.has_value());
+                byte_string_view enc{txns.value()};
+                auto const decoded_txns = rlp::decode_transaction_list(enc);
+                MONAD_ASSERT(decoded_txns.has_value());
+                EXPECT_EQ(decoded_txns.value(), transactions);
+            }
         }
-        tdb.set_block_and_round(100);
-        EXPECT_EQ(tdb.read_eth_header(), last_header);
         EXPECT_EQ(tdb.state_root(), root);
         for (auto const &[hash, analysis] : code_delta) {
             auto const from_db = tdb.read_code(hash);
