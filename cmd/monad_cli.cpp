@@ -100,6 +100,8 @@ std::string_view table_as_string(unsigned char table_id)
         return "code";
     case RECEIPT_NIBBLE:
         return "receipt";
+    case TRANSACTION_NIBBLE:
+        return "transaction";
     default:
         return "invalid";
     }
@@ -277,7 +279,7 @@ struct DbStateMachine
         MONAD_ASSERT(curr_section_prefix.nibble_size() > 0);
 
         if (table_id == STATE_NIBBLE || table_id == CODE_NIBBLE ||
-            table_id == RECEIPT_NIBBLE) {
+            table_id == RECEIPT_NIBBLE || table_id == TRANSACTION_NIBBLE) {
             fmt::println(
                 "Setting cursor to version {}, table {} ...",
                 curr_version,
@@ -378,7 +380,7 @@ void print_help()
         "proposal [round_number] or finalized -- Set the section to query\n"
         "list sections                -- List any proposal or finalized "
         "section in current version\n"
-        "table [state/receipt/code]   -- Set the table to query\n"
+        "table [state/receipt/code/transaction]   -- Set the table to query\n"
         "get [key [extradata]]        -- Get the value for the given key\n"
         "node_stats                   -- Print node statistics for the given "
         "table\n"
@@ -427,6 +429,9 @@ void do_table(DbStateMachine &sm, std::string_view const table_name)
     }
     else if (table_name == "code") {
         table_nibble = CODE_NIBBLE;
+    }
+    else if (table_name == "transaction") {
+        table_nibble = TRANSACTION_NIBBLE;
     }
 
     if (table_nibble == INVALID_NIBBLE) {
