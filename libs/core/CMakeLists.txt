@@ -109,6 +109,7 @@ add_library(
   "src/monad/core/unaligned.hpp"
   "src/monad/core/unordered_map.hpp"
   "src/monad/lru/lru_cache.hpp"
+  "src/monad/lru/clock.hpp"
   "src/monad/lru/static_lru_cache.hpp"
   "src/monad/mem/batch_mem_pool.hpp"
   "src/monad/synchronization/spin_lock.hpp"
@@ -146,7 +147,10 @@ add_library(
   # test
   "src/monad/test/gtest_signal_stacktrace_printer.hpp"
   # util
-  "src/monad/util/stopwatch.hpp")
+  "src/monad/util/stopwatch.hpp"
+  "src/monad/util/zipfian.hpp"
+  "src/monad/util/concurrentqueue.h"
+)
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   # Append Linux-specific implementation files
@@ -194,6 +198,7 @@ target_link_libraries(monad_core PUBLIC ethash::keccak)
 target_link_libraries(monad_core PUBLIC evmc)
 target_link_libraries(monad_core PUBLIC intx)
 target_link_libraries(monad_core PUBLIC unordered_dense)
+target_link_libraries(monad_core PUBLIC nanobench)
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   target_link_libraries(monad_core PUBLIC cgroup uring)
 endif()
