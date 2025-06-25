@@ -29,6 +29,26 @@ namespace
 
 }
 
+uint64_t
+read_header_timestamp_s(bytes32_t const &id, std::filesystem::path const &dir)
+{
+    auto const filename = evmc::hex(id);
+    auto const path = dir / filename;
+    MONAD_ASSERT(std::filesystem::exists(path));
+    auto const data = slurp_file(path);
+    auto const checksum = to_bytes(blake3(data));
+    MONAD_ASSERT_PRINTF(
+        checksum == id, "Checksum failed for bft header: %s", filename.c_str());
+    byte_string_view view{data};
+    auto const res = rlp::decode_consensus_block_header_timestamp_s(view);
+    MONAD_ASSERT_PRINTF(
+        !res.has_error(),
+        "Could not rlp decode timestamp file: %s",
+        filename.c_str());
+    return res.value();
+}
+
+template <class MonadConsensusBlockHeader>
 MonadConsensusBlockHeader
 read_header(bytes32_t const &id, std::filesystem::path const &dir)
 {
@@ -40,11 +60,14 @@ read_header(bytes32_t const &id, std::filesystem::path const &dir)
     MONAD_ASSERT_PRINTF(
         checksum == id, "Checksum failed for bft header: %s", filename.c_str());
     byte_string_view view{data};
-    auto const res = rlp::decode_consensus_block_header(view);
+    auto const res =
+        rlp::decode_consensus_block_header<MonadConsensusBlockHeader>(view);
     MONAD_ASSERT_PRINTF(
         !res.has_error(), "Could not rlp decode file: %s", filename.c_str());
     return res.value();
 }
+
+EXPLICIT_MONAD_CONSENSUS_BLOCK_HEADER(read_header);
 
 MonadConsensusBlockBody
 read_body(bytes32_t const &id, std::filesystem::path const &dir)

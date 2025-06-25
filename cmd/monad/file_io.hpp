@@ -8,6 +8,10 @@
 
 MONAD_NAMESPACE_BEGIN
 
+uint64_t
+read_header_timestamp_s(bytes32_t const &, std::filesystem::path const &);
+
+template <class MonadConsensusBlockHeader>
 MonadConsensusBlockHeader
 read_header(bytes32_t const &, std::filesystem::path const &);
 
