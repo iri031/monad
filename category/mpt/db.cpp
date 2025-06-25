@@ -88,6 +88,8 @@ struct Db::Impl
     virtual ~Impl() = default;
 
     virtual Node::UniquePtr &root() = 0;
+    virtual NodeCursor root_cursor() = 0;
+    virtual StateMachine &machine() = 0;
     virtual UpdateAux<> &aux() = 0;
     virtual void upsert_fiber_blocking(
         UpdateList &&, uint64_t, bool enable_compaction, bool can_write_to_fast,
@@ -210,6 +212,16 @@ public:
         return root_;
     }
 
+    virtual NodeCursor root_cursor() override
+    {
+        return root_ ? NodeCursor{machine_->clone(), *root_} : NodeCursor{};
+    }
+
+    virtual StateMachine &machine() override
+    {
+        return *machine_;
+    }
+
     virtual UpdateAux<> &aux() override
     {
         return aux_;
@@ -232,8 +244,7 @@ public:
         if (!aux().version_is_valid_ondisk(version)) {
             return {NodeCursor{}, find_result::version_no_longer_exist};
         }
-        auto const res =
-            find_blocking(aux(), root, key, version, *machine_->clone());
+        auto const res = find_blocking(aux(), root, key, version);
         // verify version still valid in history after success
         return aux().version_is_valid_ondisk(version)
                    ? res
@@ -283,7 +294,7 @@ public:
             last_loaded_root_offset_ = root_offset;
             root_ = read_node_blocking(aux(), root_offset, version);
         }
-        return root_ ? NodeCursor{*root_} : NodeCursor{};
+        return root_ ? NodeCursor{machine_->clone(), *root_} : NodeCursor{};
     }
 
     virtual void update_finalized_version(uint64_t) override
@@ -325,6 +336,16 @@ public:
         return root_;
     }
 
+    virtual NodeCursor root_cursor() override
+    {
+        return root_ ? NodeCursor{machine_.clone(), *root_} : NodeCursor{};
+    }
+
+    virtual StateMachine &machine() override
+    {
+        return machine_;
+    }
+
     virtual UpdateAux<> &aux() override
     {
         return aux_;
@@ -346,7 +367,7 @@ public:
         NodeCursor const &root, NibblesView const &key,
         uint64_t const version = 0) override
     {
-        return find_blocking(aux(), root, key, version, *machine_.clone());
+        return find_blocking(aux(), root, key, version);
     }
 
     virtual size_t prefetch_fiber_blocking() override
@@ -373,7 +394,7 @@ public:
 
     virtual NodeCursor load_root_for_version(uint64_t) override
     {
-        return root() ? NodeCursor{*root()} : NodeCursor{};
+        return root() ? NodeCursor{machine_.clone(), *root()} : NodeCursor{};
     }
 
     virtual void update_verified_version(uint64_t) override {}
@@ -408,13 +429,12 @@ struct OnDiskWithWorkerThreadImpl
     struct FiberCopyTrieRequest
     {
         threadsafe_boost_fibers_promise<Node::UniquePtr> *promise;
-        std::reference_wrapper<Node> src_root;
+        NodeCursor src_root;
         NibblesView src;
         uint64_t src_version;
         Node::UniquePtr dest_root;
         NibblesView dest;
         uint64_t dest_version;
-        std::reference_wrapper<StateMachine> machine;
         bool blocked_by_write;
     };
 
@@ -422,7 +442,6 @@ struct OnDiskWithWorkerThreadImpl
     {
         threadsafe_boost_fibers_promise<size_t> *promise;
         NodeCursor root;
-        std::reference_wrapper<StateMachine> sm;
     };
 
     struct FiberTraverseRequest
@@ -523,9 +542,6 @@ struct OnDiskWithWorkerThreadImpl
                             std::move(*req->promise));
                         req->promise = &find_owning_cursor_promises.back();
                         if (req->start.is_valid()) {
-                            MONAD_ASSERT(req->machine.get().get_depth() == 0);
-                            // TODO: templated statemachine, and
-                            // make_unique<TemplateType> here
                             find_owning_notify_fiber_future(
                                 aux,
                                 node_cache,
@@ -533,8 +549,7 @@ struct OnDiskWithWorkerThreadImpl
                                 *req->promise,
                                 req->start,
                                 req->key,
-                                req->version,
-                                req->machine.get().clone());
+                                req->version);
                         }
                         else {
                             MONAD_ASSERT(req->key.empty());
@@ -543,7 +558,8 @@ struct OnDiskWithWorkerThreadImpl
                                 node_cache,
                                 inflight,
                                 *req->promise,
-                                req->version);
+                                req->version,
+                                req->machine.get().clone());
                         }
                     }
                     did_nothing = false;
@@ -623,8 +639,7 @@ struct OnDiskWithWorkerThreadImpl
                             inflights,
                             *req->promise,
                             req->start,
-                            req->key,
-                            req->machine->clone());
+                            req->key);
                     }
                     else if (auto *req = std::get_if<2>(&request);
                              req != nullptr) {
@@ -646,8 +661,7 @@ struct OnDiskWithWorkerThreadImpl
                         prefetch_promises.emplace_back(
                             std::move(*req->promise));
                         req->promise = &prefetch_promises.back();
-                        req->promise->set_value(
-                            mpt::load_all(aux, req->sm, req->root));
+                        req->promise->set_value(mpt::load_all(aux, req->root));
                     }
                     else if (auto *req = std::get_if<4>(&request);
                              req != nullptr) {
@@ -701,7 +715,6 @@ struct OnDiskWithWorkerThreadImpl
                             std::move(req->dest_root),
                             req->dest,
                             req->dest_version,
-                            req->machine,
                             req->blocked_by_write);
                         req->promise->set_value(std::move(root));
                     }
@@ -855,6 +868,16 @@ public:
         return root_;
     }
 
+    virtual NodeCursor root_cursor() override
+    {
+        return root_ ? NodeCursor{machine_.clone(), *root_} : NodeCursor{};
+    }
+
+    virtual StateMachine &machine() override
+    {
+        return machine_;
+    }
+
     virtual UpdateAux<> &aux() override
     {
         MONAD_ASSERT(aux_)
@@ -873,10 +896,7 @@ public:
     {
         threadsafe_boost_fibers_promise<find_cursor_result_type> promise;
         fiber_find_request_t req{
-            .promise = &promise,
-            .start = start,
-            .key = key,
-            .machine = &machine_};
+            .promise = &promise, .start = start, .key = key};
         auto fut = promise.get_future();
         comms_.enqueue(req);
         // promise is racily emptied after this point
@@ -959,7 +979,7 @@ public:
         threadsafe_boost_fibers_promise<size_t> promise;
         auto fut = promise.get_future();
         comms_.enqueue(FiberLoadAllFromBlockRequest{
-            .promise = &promise, .root = *root(), .sm = machine_});
+            .promise = &promise, .root = {machine_.clone(), *root()}});
         // promise is racily emptied after this point
         if (worker_->sleeping.load(std::memory_order_acquire)) {
             std::unique_lock const g(lock_);
@@ -1015,7 +1035,7 @@ public:
             root_ = fut.get();
             root_version_ = version;
         }
-        return root() ? NodeCursor{*root()} : NodeCursor{};
+        return root() ? NodeCursor{machine_.clone(), *root()} : NodeCursor{};
     }
 
     virtual void copy_trie_fiber_blocking(
@@ -1030,7 +1050,7 @@ public:
                 src_version);
             root_version_ = src_version;
         }
-        Node &src_root = *root_;
+        NodeCursor src_root{machine_.clone(), *root_};
         Node::UniquePtr dest_root{};
         if (src_version == dest_version) {
             dest_root = std::move(root_);
@@ -1051,7 +1071,6 @@ public:
             .dest_root = std::move(dest_root),
             .dest = dest,
             .dest_version = dest_version,
-            .machine = machine_,
             .blocked_by_write = blocked_by_write});
         // promise is racily emptied after this point
         if (worker_->sleeping.load(std::memory_order_acquire)) {
@@ -1128,7 +1147,7 @@ struct RODb::Impl final : public OnDiskWithWorkerThreadImpl
         if (root_offset == INVALID_OFFSET) {
             return {};
         }
-        auto [cursor, result] = find_fiber_blocking({}, {}, version);
+        auto const [cursor, result] = find_fiber_blocking({}, {}, version);
         if (result == find_result::success) {
             MONAD_ASSERT(cursor.is_valid());
             return cursor;
@@ -1339,7 +1358,7 @@ bool Db::traverse_blocking(
 NodeCursor Db::root() const noexcept
 {
     MONAD_ASSERT(impl_);
-    return impl_->root() ? NodeCursor{*impl_->root()} : NodeCursor{};
+    return impl_->root_cursor();
 }
 
 void Db::update_finalized_version(uint64_t const version)
@@ -1442,7 +1461,10 @@ uint64_t Db::get_history_length() const
 AsyncContext::AsyncContext(Db &db, size_t lru_size)
     : aux(db.impl_->aux())
     , root_cache(lru_size, chunk_offset_t::invalid_value())
+    , machine(db.impl_->machine())
 {
+    MONAD_ASSERT(
+        dynamic_cast<Db::ROOnDiskBlocking *>(db.impl_.get()) != nullptr);
 }
 
 AsyncContextUniquePtr async_context_create(Db &db)
@@ -1504,7 +1526,9 @@ namespace detail
                     std::move(buffer_), buffer_off, io_state);
                 root = sender->root;
                 sender->res_root = {
-                    NodeCursor{*sender->root.get()}, find_result::success};
+                    NodeCursor{
+                        sender->context.machine.clone(), *sender->root.get()},
+                    find_result::success};
                 {
                     AsyncContext::TrieRootCache::ConstAccessor acc;
                     MONAD_ASSERT(
@@ -1574,7 +1598,9 @@ namespace detail
             if (context.root_cache.find(acc, offset)) {
                 // found in LRU - no IO necessary
                 root = acc->second->val;
-                res_root = {NodeCursor{*root.get()}, find_result::success};
+                res_root = {
+                    NodeCursor{context.machine.clone(), *root.get()},
+                    find_result::success};
                 io_state->completed(async::success());
                 return async::success();
             }
@@ -1592,7 +1618,9 @@ namespace detail
                 }
                 else {
                     root = root_;
-                    res_root = {NodeCursor{*root.get()}, find_result::success};
+                    res_root = {
+                        NodeCursor{this->context.machine.clone(), *root.get()},
+                        find_result::success};
                 }
                 io_state->completed(async::success());
             };
@@ -1664,7 +1692,7 @@ namespace detail
                 op_type = op_get_node2;
                 break;
             default:
-                MONAD_ABORT()
+                MONAD_ABORT();
             }
             return async::sender_errc::operation_must_be_reinitiated;
         }

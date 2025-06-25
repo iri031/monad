@@ -19,6 +19,7 @@
 #include <category/async/erased_connected_operation.hpp>
 #include <category/core/assert.h>
 #include <category/mpt/config.hpp>
+#include <category/mpt/state_machine.hpp>
 #include <category/mpt/trie.hpp>
 #include <category/mpt/util.hpp>
 
@@ -26,6 +27,8 @@
 
 #include <cstdint>
 #include <limits>
+#include <memory>
+#include <vector>
 
 MONAD_MPT_NAMESPACE_BEGIN
 
@@ -48,7 +51,7 @@ struct inflight_node_hasher
 using inflight_node_t = unordered_dense_map<
     std::pair<chunk_offset_t, Node *>,
     std::vector<std::function<MONAD_ASYNC_NAMESPACE::result<void>(
-        Node &, std::shared_ptr<Node>)>>,
+        Node &, std::unique_ptr<StateMachine>, std::shared_ptr<Node>)>>,
     inflight_node_hasher>;
 
 template <class T>
@@ -124,11 +127,11 @@ public:
     }
 };
 
-static_assert(sizeof(find_request_sender<byte_string>) == 120);
+static_assert(sizeof(find_request_sender<byte_string>) == 128);
 static_assert(alignof(find_request_sender<byte_string>) == 8);
 static_assert(MONAD_ASYNC_NAMESPACE::sender<find_request_sender<byte_string>>);
 
-static_assert(sizeof(find_request_sender<Node::UniquePtr>) == 96);
+static_assert(sizeof(find_request_sender<Node::UniquePtr>) == 104);
 static_assert(alignof(find_request_sender<Node::UniquePtr>) == 8);
 static_assert(
     MONAD_ASYNC_NAMESPACE::sender<find_request_sender<Node::UniquePtr>>);
@@ -147,14 +150,16 @@ struct find_request_sender<T>::find_receiver
     unsigned bytes_to_read; // required for sender too
     uint16_t buffer_off;
     unsigned const branch_index;
+    std::unique_ptr<StateMachine> machine;
 
     constexpr find_receiver(
         find_request_sender *sender_,
         MONAD_ASYNC_NAMESPACE::erased_connected_operation *io_state_,
-        unsigned char const branch)
+        unsigned char const branch, std::unique_ptr<StateMachine> machine_)
         : sender(sender_)
         , io_state(io_state_)
         , branch_index(sender->root_.node->to_child_index(branch))
+        , machine(std::move(machine_))
     {
         chunk_offset_t const offset = sender->root_.node->fnext(branch_index);
         auto const num_pages_to_load_node =
@@ -202,7 +207,8 @@ struct find_request_sender<T>::find_receiver
             auto subtrie_with_sender_lifetime_ =
                 sender->subtrie_with_sender_lifetime_;
             for (auto &invoc : pendings) {
-                MONAD_ASSERT(invoc(*node, subtrie_with_sender_lifetime_));
+                MONAD_ASSERT(invoc(
+                    *node, machine->clone(), subtrie_with_sender_lifetime_));
             }
         }
     }
@@ -222,6 +228,7 @@ inline MONAD_ASYNC_NAMESPACE::result<void> find_request_sender<T>::operator()(
         unsigned node_prefix_index = root_.prefix_index;
         MONAD_ASSERT(root_.is_valid());
         Node *node = root_.node;
+        auto &machine = root_.machine;
         for (; node_prefix_index < node->path_nibbles_len();
              ++node_prefix_index, ++prefix_index) {
             if (prefix_index >= key_.nibble_size()) {
@@ -229,8 +236,9 @@ inline MONAD_ASYNC_NAMESPACE::result<void> find_request_sender<T>::operator()(
                 io_state->completed(success());
                 return success();
             }
-            if (key_.get(prefix_index) !=
-                node->path_nibble_view().get(node_prefix_index)) {
+            auto const nibble = node->path_nibble_view().get(node_prefix_index);
+            machine->down(nibble);
+            if (key_.get(prefix_index) != nibble) {
                 res_ = {T{}, find_result::key_mismatch_failure};
                 io_state->completed(success());
                 return success();
@@ -252,16 +260,36 @@ inline MONAD_ASYNC_NAMESPACE::result<void> find_request_sender<T>::operator()(
         MONAD_ASSERT(node_prefix_index == node->path_nibbles_len());
         if (unsigned char const branch = key_.get(prefix_index);
             node->mask & (1u << branch)) {
+            machine->down(branch);
             MONAD_DEBUG_ASSERT(
                 prefix_index < std::numeric_limits<unsigned char>::max());
             key_ = key_.substr(static_cast<unsigned char>(prefix_index) + 1u);
             auto const child_index = node->to_child_index(branch);
+            auto *const next_node = node->next(child_index);
             ++this->curr_level_;
-            if (node->next(child_index) != nullptr) {
+            if (next_node != nullptr) {
                 root_ = NodeCursor{
-                    *node->next(child_index), node->next_relpath_start_index()};
+                    std::move(machine),
+                    *node->next(child_index),
+                    node->next_relpath_start_index()};
                 continue;
             }
+            chunk_offset_t const offset = node->fnext(child_index);
+            auto const list_type =
+                aux_.db_metadata()->at(offset.id)->which_list();
+            if (!machine->auto_expire()) {
+                MONAD_ASSERT(
+                    list_type != chunk_list::expire &&
+                    list_type != chunk_list::free);
+            }
+            else if (MONAD_UNLIKELY(
+                         list_type != chunk_list::expire ||
+                         aux_.physical_to_virtual(offset) <
+                             aux_.get_min_virtual_expire_offset_metadata())) {
+                res_ = {T{}, find_result::node_is_pruned_by_auto_expiration};
+                return success();
+            }
+            // need to load next node from disk
             if (!tid_checked_) {
                 MONAD_ASSERT(aux_.io != nullptr);
                 if (aux_.io->owning_thread_id() != get_tl_tid()) {
@@ -270,7 +298,6 @@ inline MONAD_ASYNC_NAMESPACE::result<void> find_request_sender<T>::operator()(
                 }
                 tid_checked_ = true;
             }
-            chunk_offset_t const offset = node->fnext(child_index);
             // `node_prefix_index` must be captured here to because the same
             // node in inflights can be used in continuations for different
             // versions where the starting prefix index can be different
@@ -278,12 +305,15 @@ inline MONAD_ASYNC_NAMESPACE::result<void> find_request_sender<T>::operator()(
                          io_state,
                          node_prefix_index = node->next_relpath_start_index()](
                             Node &root,
+                            std::unique_ptr<StateMachine>
+                                machine,
                             std::shared_ptr<Node>
                                 subtrie_with_sender_lifetime_) -> result<void> {
                 this->subtrie_with_sender_lifetime_ =
                     subtrie_with_sender_lifetime_;
                 return this->resume_(
-                    io_state, NodeCursor{root, node_prefix_index});
+                    io_state,
+                    NodeCursor{std::move(machine), root, node_prefix_index});
             };
             auto offset_node = std::pair(offset, node);
             if (auto lt = inflights_.find(offset_node);
@@ -292,7 +322,7 @@ inline MONAD_ASYNC_NAMESPACE::result<void> find_request_sender<T>::operator()(
                 return success();
             }
             inflights_[offset_node].emplace_back(cont);
-            find_receiver receiver(this, io_state, branch);
+            find_receiver receiver(this, io_state, branch, std::move(machine));
             detail::initiate_async_read_update(
                 *aux_.io, std::move(receiver), receiver.bytes_to_read);
             return success();

@@ -269,28 +269,28 @@ TYPED_TEST(TrieTest, insert_unrelated_leaves_then_read)
         0xd339cf4033aca65996859d35da4612b642664cc40734dbdd40738aa47f1e3e44_hex);
 
     auto [leaf_it, res] = find_blocking(
-        this->aux, *this->root, kv[0].first, version, *this->sm->clone());
+        this->aux, {this->sm->clone(), *this->root}, kv[0].first, version);
     EXPECT_EQ(res, monad::mpt::find_result::success);
     EXPECT_EQ(
         (monad::byte_string_view{
             leaf_it.node->value_data(), leaf_it.node->value_len}),
         kv[0].second);
     std::tie(leaf_it, res) = find_blocking(
-        this->aux, *this->root, kv[1].first, version, *this->sm->clone());
+        this->aux, {this->sm->clone(), *this->root}, kv[1].first, version);
     EXPECT_EQ(res, monad::mpt::find_result::success);
     EXPECT_EQ(
         (monad::byte_string_view{
             leaf_it.node->value_data(), leaf_it.node->value_len}),
         kv[1].second);
     std::tie(leaf_it, res) = find_blocking(
-        this->aux, *this->root, kv[2].first, version, *this->sm->clone());
+        this->aux, {this->sm->clone(), *this->root}, kv[2].first, version);
     EXPECT_EQ(res, monad::mpt::find_result::success);
     EXPECT_EQ(
         (monad::byte_string_view{
             leaf_it.node->value_data(), leaf_it.node->value_len}),
         kv[2].second);
     std::tie(leaf_it, res) = find_blocking(
-        this->aux, *this->root, kv[3].first, version, *this->sm->clone());
+        this->aux, {this->sm->clone(), *this->root}, kv[3].first, version);
     EXPECT_EQ(res, monad::mpt::find_result::success);
     EXPECT_EQ(
         (monad::byte_string_view{
@@ -632,38 +632,37 @@ TYPED_TEST(TrieTest, find_blocking_from_intermediate_node)
         make_update(prefix2, empty_value, false, std::move(next)));
 
     {
-        auto machine = this->sm->clone();
-        auto [prefix1_root, res] =
-            find_blocking(this->aux, {*this->root}, prefix1, 0, *machine);
+        auto [prefix1_root, res] = find_blocking(
+            this->aux, {this->sm->clone(), *this->root}, prefix1, 0);
         EXPECT_EQ(res, find_result::success);
         EXPECT_EQ(prefix1_root.node->value(), empty_value);
-        EXPECT_EQ(machine->get_depth(), NibblesView{prefix1}.nibble_size());
+        EXPECT_EQ(
+            prefix1_root.machine->get_depth(),
+            NibblesView{prefix1}.nibble_size());
 
-        auto machine2 = this->sm->clone();
-        auto [nonexist, res2] =
-            find_blocking(this->aux, prefix1_root, key, 0, *machine2);
+        auto [nonexist, res2] = find_blocking(this->aux, prefix1_root, key, 0);
         EXPECT_NE(res2, find_result::success);
     }
 
     {
         // find prefix2 and its key
-        auto machine = this->sm->clone();
-        auto [prefix2_root, res] =
-            find_blocking(this->aux, {*this->root}, prefix2, 0, *machine);
+        auto [prefix2_root, res] = find_blocking(
+            this->aux, {this->sm->clone(), *this->root}, prefix2, 0);
         EXPECT_EQ(res, find_result::success);
         EXPECT_EQ(prefix2_root.node->value(), empty_value);
         EXPECT_EQ(
             prefix2_root.node->data(),
             0x82efc3b165cba3705dec8fe0f7d8ec6692ae82605bdea6058d2237535dc6aa9b_hex);
-        EXPECT_EQ(machine->get_depth(), NibblesView{prefix2}.nibble_size());
+        EXPECT_EQ(
+            prefix2_root.machine->get_depth(),
+            NibblesView{prefix2}.nibble_size());
 
-        auto machine2 = this->sm->clone();
         auto [key_cursor, res2] =
-            find_blocking(this->aux, prefix2_root, key, 0, *machine2);
+            find_blocking(this->aux, prefix2_root, key, 0);
         EXPECT_EQ(res2, find_result::success);
         EXPECT_EQ(key_cursor.node->value(), value);
         EXPECT_EQ(
-            machine2->get_depth(),
+            key_cursor.machine->get_depth(),
             concat(NibblesView{prefix2}, NibblesView{key}).nibble_size());
     }
 }
@@ -717,7 +716,7 @@ TYPED_TEST(TrieTest, aux_do_update_fixed_history_len)
             block_id,
             true /*compaction*/);
         auto [state_it, res] = find_blocking(
-            this->aux, *this->root, prefix, block_id, *this->sm->clone());
+            this->aux, {this->sm->clone(), *this->root}, prefix, block_id);
         EXPECT_EQ(res, find_result::success);
         EXPECT_EQ(
             state_it.node->data(),
@@ -803,14 +802,14 @@ TYPED_TEST(TrieTest, variable_length_trie)
     // find
     {
         auto [node0, res] = find_blocking(
-            this->aux, *this->root, key0, version, *this->sm->clone());
+            this->aux, {this->sm->clone(), *this->root}, key0, version);
         EXPECT_EQ(res, monad::mpt::find_result::success);
         EXPECT_EQ(node0.node->value(), long_value);
     }
 
     {
         auto [node_long, res] = find_blocking(
-            this->aux, *this->root, keylong, version, *this->sm->clone());
+            this->aux, {this->sm->clone(), *this->root}, keylong, version);
         EXPECT_EQ(res, monad::mpt::find_result::success);
         EXPECT_EQ(node_long.node->value(), long_value);
     }
@@ -856,7 +855,10 @@ TYPED_TEST(TrieTest, variable_length_trie_with_prefix)
     // find
     {
         auto [node0, res] = find_blocking(
-            this->aux, *this->root, prefix + key0, version, *this->sm->clone());
+            this->aux,
+            {this->sm->clone(), *this->root},
+            prefix + key0,
+            version);
         EXPECT_EQ(res, monad::mpt::find_result::success);
         EXPECT_EQ(node0.node->value(), value);
     }
@@ -864,10 +866,9 @@ TYPED_TEST(TrieTest, variable_length_trie_with_prefix)
     {
         auto [node_long, res] = find_blocking(
             this->aux,
-            *this->root,
+            {this->sm->clone(), *this->root},
             prefix + keylong,
-            version,
-            *this->sm->clone());
+            version);
         EXPECT_EQ(res, monad::mpt::find_result::success);
         EXPECT_EQ(node_long.node->value(), value);
     }

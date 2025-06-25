@@ -227,15 +227,12 @@ struct cli_tool_fixture
                     aux,
                     aux.get_latest_root_offset(),
                     aux.db_history_max_version())};
-                monad::mpt::NodeCursor const root(*root_ptr);
+                monad::mpt::NodeCursor const root(
+                    this->state()->sm.clone(), *root_ptr);
 
                 for (auto &key : this->state()->keys) {
                     auto ret = monad::mpt::find_blocking(
-                        aux,
-                        root,
-                        key.first,
-                        aux.db_history_max_version(),
-                        *this->state()->sm.clone());
+                        aux, root, key.first, aux.db_history_max_version());
                     EXPECT_EQ(ret.second, monad::mpt::find_result::success);
                 }
                 EXPECT_EQ(
@@ -334,15 +331,12 @@ struct cli_tool_fixture
                         aux,
                         aux.get_latest_root_offset(),
                         aux.db_history_max_version())};
-                    monad::mpt::NodeCursor const root(*root_ptr);
+                    monad::mpt::NodeCursor const root(
+                        this->state()->sm.clone(), *root_ptr);
 
                     for (auto &key : this->state()->keys) {
                         auto ret = monad::mpt::find_blocking(
-                            aux,
-                            root,
-                            key.first,
-                            aux.db_history_max_version(),
-                            *this->state()->sm.clone());
+                            aux, root, key.first, aux.db_history_max_version());
                         EXPECT_EQ(ret.second, monad::mpt::find_result::success);
                     }
                     EXPECT_EQ(

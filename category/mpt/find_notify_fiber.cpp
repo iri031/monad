@@ -221,8 +221,7 @@ namespace
 void find_notify_fiber_future(
     UpdateAuxImpl &aux, inflight_map_t &inflights,
     threadsafe_boost_fibers_promise<find_cursor_result_type> &promise,
-    NodeCursor const root, NibblesView const key,
-    std::unique_ptr<StateMachine> machine)
+    NodeCursor root, NibblesView const key)
 {
     if (!root.is_valid()) {
         promise.set_value(
@@ -232,11 +231,12 @@ void find_notify_fiber_future(
     unsigned prefix_index = 0;
     unsigned node_prefix_index = root.prefix_index;
     Node *node = root.node;
+    auto &machine = root.machine;
     for (; node_prefix_index < node->path_nibbles_len();
          ++node_prefix_index, ++prefix_index) {
         if (prefix_index >= key.nibble_size()) {
             promise.set_value(
-                {NodeCursor{*node, node_prefix_index},
+                {NodeCursor{std::move(machine), *node, node_prefix_index},
                  find_result::key_ends_earlier_than_node_failure});
             return;
         }
@@ -244,14 +244,15 @@ void find_notify_fiber_future(
         machine->down(nibble);
         if (key.get(prefix_index) != nibble) {
             promise.set_value(
-                {NodeCursor{*node, node_prefix_index},
+                {NodeCursor{std::move(machine), *node, node_prefix_index},
                  find_result::key_mismatch_failure});
             return;
         }
     }
     if (prefix_index == key.nibble_size()) {
         promise.set_value(
-            {NodeCursor{*node, node_prefix_index}, find_result::success});
+            {NodeCursor{std::move(machine), *node, node_prefix_index},
+             find_result::success});
         return;
     }
     MONAD_ASSERT(prefix_index < key.nibble_size());
@@ -265,31 +266,29 @@ void find_notify_fiber_future(
             key.substr(static_cast<unsigned char>(prefix_index) + 1u);
         auto const child_index = node->to_child_index(branch);
         auto *const next_node = node->next(child_index);
-        if (aux.is_on_disk()) {
+        if (aux.is_on_disk()) { // check for auto-expire
             chunk_offset_t const offset = node->fnext(child_index);
             auto const list_type =
                 aux.db_metadata()->at(offset.id)->which_list();
-            if (machine->auto_expire()) {
-                if (MONAD_UNLIKELY(
-                        list_type != chunk_list::expire ||
-                        aux.physical_to_virtual(offset) <
-                            aux.get_min_virtual_expire_offset_metadata())) {
-                    promise.set_value(
-                        {NodeCursor{},
-                         find_result::node_is_pruned_by_auto_expiration});
-                    return;
-                }
-            }
-            else {
+            if (!machine->auto_expire()) {
                 MONAD_ASSERT(
                     list_type != chunk_list::expire &&
                     list_type != chunk_list::free);
             }
-
-            if (next_node == nullptr) {
+            else if (MONAD_UNLIKELY(
+                         list_type != chunk_list::expire ||
+                         aux.physical_to_virtual(offset) <
+                             aux.get_min_virtual_expire_offset_metadata())) {
+                promise.set_value(
+                    {NodeCursor{},
+                     find_result::node_is_pruned_by_auto_expiration});
+                return;
+            }
+            if (next_node == nullptr) { // to load next node from disk
                 if (aux.io->owning_thread_id() != get_tl_tid()) {
                     promise.set_value(
-                        {NodeCursor{*node, node_prefix_index},
+                        {NodeCursor{
+                             std::move(machine), *node, node_prefix_index},
                          find_result::need_to_continue_in_io_thread});
                     return;
                 }
@@ -305,9 +304,8 @@ void find_notify_fiber_future(
                         aux,
                         inflights,
                         promise,
-                        NodeCursor{node, node_prefix_index},
-                        next_key,
-                        std::move(machine));
+                        NodeCursor{std::move(machine), node, node_prefix_index},
+                        next_key);
                     return success();
                 };
                 if (auto lt = inflights.find(offset); lt != inflights.end()) {
@@ -322,18 +320,16 @@ void find_notify_fiber_future(
                 return;
             }
         }
-        MONAD_ASSERT(next_node != nullptr);
         find_notify_fiber_future(
             aux,
             inflights,
             promise,
-            {*next_node, node->next_relpath_start_index()},
-            next_key,
-            std::move(machine));
+            {std::move(machine), *next_node, node->next_relpath_start_index()},
+            next_key);
     }
     else {
         promise.set_value(
-            {NodeCursor{*node, node_prefix_index},
+            {NodeCursor{std::move(machine), *node, node_prefix_index},
              find_result::branch_not_exist_failure});
     }
 }
@@ -343,8 +339,7 @@ void find_notify_fiber_future(
 void find_owning_notify_fiber_future(
     UpdateAuxImpl &aux, NodeCache &node_cache, inflight_map_owning_t &inflights,
     threadsafe_boost_fibers_promise<find_owning_cursor_result_type> &promise,
-    OwningNodeCursor &start, NibblesView const key, uint64_t const version,
-    std::unique_ptr<StateMachine> machine)
+    OwningNodeCursor &start, NibblesView const key, uint64_t const version)
 {
     MONAD_ASSERT(aux.is_on_disk());
     if (!aux.version_is_valid_ondisk(version)) {
@@ -359,11 +354,12 @@ void find_owning_notify_fiber_future(
     unsigned prefix_index = 0;
     unsigned node_prefix_index = start.prefix_index;
     auto node = start.node;
+    auto &machine = start.machine;
     for (; node_prefix_index < node->path_nibbles_len();
          ++node_prefix_index, ++prefix_index) {
         if (prefix_index >= key.nibble_size()) {
             promise.set_value(
-                {OwningNodeCursor{node, node_prefix_index},
+                {OwningNodeCursor{std::move(machine), node, node_prefix_index},
                  find_result::key_ends_earlier_than_node_failure});
             return;
         }
@@ -371,14 +367,15 @@ void find_owning_notify_fiber_future(
         machine->down(nibble);
         if (key.get(prefix_index) != nibble) {
             promise.set_value(
-                {OwningNodeCursor{node, node_prefix_index},
+                {OwningNodeCursor{std::move(machine), node, node_prefix_index},
                  find_result::key_mismatch_failure});
             return;
         }
     }
     if (prefix_index == key.nibble_size()) {
         promise.set_value(
-            {OwningNodeCursor{node, node_prefix_index}, find_result::success});
+            {OwningNodeCursor{std::move(machine), node, node_prefix_index},
+             find_result::success});
         return;
     }
     MONAD_ASSERT(prefix_index < key.nibble_size());
@@ -400,29 +397,29 @@ void find_owning_notify_fiber_future(
             promise.set_value({start, find_result::version_no_longer_exist});
             return;
         }
-        // find in cache
-        NodeCache::ConstAccessor acc;
+        // verify the offset to read is still valid and has not been reused
         auto const list_type =
             aux.db_metadata()->at(next_node_offset.id)->which_list();
-        if (machine->auto_expire()) {
-            if (MONAD_UNLIKELY(
-                    list_type != chunk_list::expire ||
-                    next_virtual_offset <
-                        aux.get_min_virtual_expire_offset_metadata())) {
-                promise.set_value(
-                    {OwningNodeCursor{},
-                     find_result::node_is_pruned_by_auto_expiration});
-                return;
-            }
-        }
-        else {
+        if (!machine->auto_expire()) {
             MONAD_ASSERT(
                 list_type != chunk_list::expire &&
                 list_type != chunk_list::free);
         }
+        else if (MONAD_UNLIKELY(
+                     list_type != chunk_list::expire ||
+                     next_virtual_offset <
+                         aux.get_min_virtual_expire_offset_metadata())) {
+            promise.set_value(
+                {OwningNodeCursor{},
+                 find_result::node_is_pruned_by_auto_expiration});
+            return;
+        }
+        NodeCache::ConstAccessor acc;
         if (node_cache.find(acc, next_virtual_offset)) {
             OwningNodeCursor next_cursor{
-                acc->second->val, node->next_relpath_start_index()};
+                std::move(machine),
+                acc->second->val,
+                node->next_relpath_start_index()};
             find_owning_notify_fiber_future(
                 aux,
                 node_cache,
@@ -430,8 +427,7 @@ void find_owning_notify_fiber_future(
                 promise,
                 next_cursor,
                 next_key,
-                version,
-                std::move(machine));
+                version);
             return;
         }
         unsigned const next_node_prefix_index =
@@ -457,7 +453,8 @@ void find_owning_notify_fiber_future(
                 return success();
             }
             MONAD_ASSERT(machine != nullptr);
-            OwningNodeCursor node_cursor{node, next_node_prefix_index};
+            OwningNodeCursor node_cursor{
+                std::move(machine), node, next_node_prefix_index};
             find_owning_notify_fiber_future(
                 aux,
                 node_cache,
@@ -465,8 +462,7 @@ void find_owning_notify_fiber_future(
                 promise,
                 node_cursor,
                 next_key,
-                version,
-                std::move(machine));
+                version);
             return success();
         };
         async_read_with_continuation(
@@ -481,7 +477,7 @@ void find_owning_notify_fiber_future(
     }
     else {
         promise.set_value(
-            {OwningNodeCursor{node, node_prefix_index},
+            {OwningNodeCursor{std::move(machine), node, node_prefix_index},
              find_result::branch_not_exist_failure});
     }
 }
@@ -489,7 +485,7 @@ void find_owning_notify_fiber_future(
 void load_root_notify_fiber_future(
     UpdateAuxImpl &aux, NodeCache &node_cache, inflight_map_owning_t &inflights,
     threadsafe_boost_fibers_promise<find_owning_cursor_result_type> &promise,
-    uint64_t const version)
+    uint64_t const version, std::unique_ptr<StateMachine> machine)
 {
     auto const root_offset = aux.get_root_offset_at_version(version);
     auto const root_virtual_offset = aux.physical_to_virtual(root_offset);
@@ -504,14 +500,18 @@ void load_root_notify_fiber_future(
     if (node_cache.find(acc, root_virtual_offset)) {
         auto &root = acc->second->val;
         MONAD_ASSERT(root != nullptr);
-        promise.set_value({OwningNodeCursor{root}, find_result::success});
+        promise.set_value(
+            {OwningNodeCursor{std::move(machine), root}, find_result::success});
         return;
     }
-    auto cont = [&promise](
-                    std::shared_ptr<Node> &node,
-                    std::unique_ptr<StateMachine>) -> result<void> {
+    auto cont =
+        [&promise](
+            std::shared_ptr<Node> &node, std::unique_ptr<StateMachine> machine)
+        -> result<void> {
         if (node) {
-            promise.set_value({OwningNodeCursor{node}, find_result::success});
+            promise.set_value(
+                {OwningNodeCursor{std::move(machine), node},
+                 find_result::success});
         }
         else {
             promise.set_value(
@@ -527,7 +527,7 @@ void load_root_notify_fiber_future(
         cont,
         root_offset,
         root_virtual_offset,
-        nullptr);
+        std::move(machine));
 }
 
 MONAD_MPT_NAMESPACE_END

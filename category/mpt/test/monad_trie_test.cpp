@@ -467,7 +467,7 @@ int main(int argc, char *argv[])
             }
         }
 
-        monad::test::StateMachineMerkleWithPrefix<prefix_len> sm{};
+        monad::test::StateMachineMerkleWithPrefix<prefix_len> sm{state_nibbles};
 
         { /* upsert test begin */
             MONAD_ASYNC_NAMESPACE::storage_pool pool{
@@ -478,8 +478,9 @@ int main(int argc, char *argv[])
 
             // init uring
             monad::io::Ring ring1({512, use_iopoll, sq_thread_cpu});
-            monad::io::Ring ring2(16
-                                  /* max concurrent write buffers in use <= 6 */
+            monad::io::Ring ring2(
+                16
+                /* max concurrent write buffers in use <= 6 */
             );
 
             // init buffer
@@ -690,10 +691,9 @@ int main(int argc, char *argv[])
                     aux.db_history_max_version());
                 auto [res, errc] = find_blocking(
                     aux,
-                    *root,
+                    {sm.clone(), *root},
                     state_nibbles,
-                    aux.db_history_max_version(),
-                    *sm.clone());
+                    aux.db_history_max_version());
                 MONAD_ASSERT(errc == find_result::success);
                 state_start = res;
                 return ret;
@@ -815,7 +815,7 @@ int main(int argc, char *argv[])
                 uint64_t ops{0};
                 bool signal_done{false};
                 inflight_map_t inflights;
-                auto find = [n_slices, &ops, &signal_done, &inflights, &sm](
+                auto find = [n_slices, &ops, &signal_done, &inflights](
                                 UpdateAuxImpl *aux,
                                 NodeCursor state_start,
                                 unsigned n) {
@@ -831,7 +831,7 @@ int main(int argc, char *argv[])
                             monad::mpt::find_cursor_result_type>
                             promise;
                         find_notify_fiber_future(
-                            *aux, inflights, promise, state_start, key, sm);
+                            *aux, inflights, promise, state_start, key);
                         auto const [node_cursor, errc] =
                             promise.get_future().get();
                         MONAD_ASSERT(node_cursor.is_valid());
@@ -892,7 +892,7 @@ int main(int argc, char *argv[])
                 std::atomic<uint64_t> ops{0};
                 std::atomic<int> signal_done{0};
                 concurrent_queue<fiber_find_request_t> req;
-                auto find = [n_slices, &ops, &signal_done, &req, &sm](
+                auto find = [n_slices, &ops, &signal_done, &req](
                                 NodeCursor const state_start, unsigned n) {
                     monad::small_prng rand(n);
                     monad::byte_string key;
@@ -917,8 +917,7 @@ int main(int argc, char *argv[])
                         fiber_find_request_t const request{
                             .promise = &*promise_it++,
                             .start = state_start,
-                            .key = key,
-                            .machine = &sm};
+                            .key = key};
                         request.promise->reset();
                         req.enqueue(request);
                         auto const [node_cursor, errc] =
@@ -934,7 +933,7 @@ int main(int argc, char *argv[])
                     }
                 };
 
-                auto poll = [&signal_done, &req, &sm](UpdateAuxImpl *aux) {
+                auto poll = [&signal_done, &req](UpdateAuxImpl *aux) {
                     inflight_map_t inflights;
                     fiber_find_request_t request;
                     for (;;) {
@@ -952,8 +951,7 @@ int main(int argc, char *argv[])
                                 inflights,
                                 *request.promise,
                                 request.start,
-                                request.key,
-                                sm);
+                                request.key);
                         }
                     }
                 };
@@ -989,8 +987,7 @@ int main(int argc, char *argv[])
                             inflights,
                             *request.promise,
                             request.start,
-                            request.key,
-                            sm);
+                            request.key);
                     }
                 }
                 std::cout << "   Joining threads 2 ..." << std::endl;

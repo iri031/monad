@@ -129,12 +129,13 @@ Node::UniquePtr create_node_with_two_children(
 }
 
 Node::UniquePtr copy_trie_impl(
-    UpdateAuxImpl &aux, Node &src_root, NibblesView const src_prefix,
-    uint64_t const src_version, Node::UniquePtr root, NibblesView const dest,
-    uint64_t const dest_version, StateMachine const &machine)
+    UpdateAuxImpl &aux, NodeCursor src_root_cursor,
+    NibblesView const src_prefix, uint64_t const src_version,
+    Node::UniquePtr root, NibblesView const dest, uint64_t const dest_version)
 {
     auto [src_cursor, res] =
-        find_blocking(aux, src_root, src_prefix, src_version, *machine.clone());
+        find_blocking(aux, src_root_cursor, src_prefix, src_version);
+    Node &src_root = *src_root_cursor.node;
     MONAD_ASSERT(res == find_result::success);
     Node &src_node = *src_cursor.node;
     if (!root) {
@@ -285,21 +286,20 @@ Node::UniquePtr copy_trie_impl(
 }
 
 Node::UniquePtr copy_trie_to_dest(
-    UpdateAuxImpl &aux, Node &src_root, NibblesView const src_prefix,
-    uint64_t const src_version, Node::UniquePtr root,
-    NibblesView const dest_prefix, uint64_t const dest_version,
-    StateMachine const &machine, bool const must_write_to_disk)
+    UpdateAuxImpl &aux, NodeCursor src_root_cursor,
+    NibblesView const src_prefix, uint64_t const src_version,
+    Node::UniquePtr root, NibblesView const dest_prefix,
+    uint64_t const dest_version, bool const must_write_to_disk)
 {
     auto impl = [&]() -> Node::UniquePtr {
         root = copy_trie_impl(
             aux,
-            src_root,
+            src_root_cursor,
             src_prefix,
             src_version,
             std::move(root),
             dest_prefix,
-            dest_version,
-            machine);
+            dest_version);
         if (must_write_to_disk && aux.version_is_valid_ondisk(dest_version) &&
             aux.is_on_disk()) { // DO NOT write new version to disk, only
                                 // upsert() should write new version

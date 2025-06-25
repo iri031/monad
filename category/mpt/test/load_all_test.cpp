@@ -37,10 +37,10 @@ TEST_F(LoadAllTest, works)
         state()->aux,
         aux.get_latest_root_offset(),
         aux.db_history_max_version())};
-    auto nodes_loaded = monad::mpt::load_all(aux, sm, *root);
+    auto nodes_loaded = monad::mpt::load_all(aux, {sm.clone(), *root});
     EXPECT_GE(nodes_loaded, state()->keys.size());
     std::cout << "   nodes_loaded = " << nodes_loaded << std::endl;
-    nodes_loaded = monad::mpt::load_all(aux, sm, *root);
+    nodes_loaded = monad::mpt::load_all(aux, {sm.clone(), *root});
     EXPECT_EQ(nodes_loaded, 0);
     std::cout << "   nodes_loaded = " << nodes_loaded << std::endl;
 }

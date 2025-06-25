@@ -1037,12 +1037,12 @@ Node::UniquePtr upsert(
 // Any pre-existing trie at `dest_prefix` will be overwritten.
 // The in-memory effect is similar to a move operation.
 Node::UniquePtr copy_trie_to_dest(
-    UpdateAuxImpl &, Node &src_root, NibblesView src_prefix,
+    UpdateAuxImpl &, NodeCursor src_root, NibblesView src_prefix,
     uint64_t src_version, Node::UniquePtr dest_root, NibblesView dest_prefx,
-    uint64_t const dest_version, StateMachine const &, bool must_write_to_disk);
+    uint64_t const dest_version, bool must_write_to_disk);
 
 // load all nodes as far as caching policy would allow
-size_t load_all(UpdateAuxImpl &, StateMachine &, NodeCursor);
+size_t load_all(UpdateAuxImpl &, NodeCursor);
 
 //////////////////////////////////////////////////////////////////////////////
 // find
@@ -1084,12 +1084,11 @@ struct fiber_find_request_t
     threadsafe_boost_fibers_promise<find_cursor_result_type> *promise;
     NodeCursor start{};
     NibblesView key{};
-    StateMachine const *machine;
 };
 
 static_assert(sizeof(fiber_find_request_t) == 48);
 static_assert(alignof(fiber_find_request_t) == 8);
-static_assert(std::is_trivially_copyable_v<fiber_find_request_t> == true);
+static_assert(std::is_copy_constructible_v<fiber_find_request_t> == true);
 
 using NodeCache = static_lru_cache<
     virtual_chunk_offset_t, std::shared_ptr<Node>,
@@ -1101,20 +1100,19 @@ using NodeCache = static_lru_cache<
 void find_notify_fiber_future(
     UpdateAuxImpl &, inflight_map_t &,
     threadsafe_boost_fibers_promise<find_cursor_result_type> &,
-    NodeCursor start, NibblesView key, std::unique_ptr<StateMachine>);
+    NodeCursor start, NibblesView key);
 
 // rodb
 void find_owning_notify_fiber_future(
     UpdateAuxImpl &, NodeCache &, inflight_map_owning_t &,
     threadsafe_boost_fibers_promise<find_owning_cursor_result_type> &promise,
-    OwningNodeCursor &start, NibblesView, uint64_t version,
-    std::unique_ptr<StateMachine>);
+    OwningNodeCursor &start, NibblesView, uint64_t version);
 
 // rodb load root
 void load_root_notify_fiber_future(
     UpdateAuxImpl &, NodeCache &, inflight_map_owning_t &,
     threadsafe_boost_fibers_promise<find_owning_cursor_result_type> &promise,
-    uint64_t version);
+    uint64_t version, std::unique_ptr<StateMachine>);
 
 /*! \brief blocking find node indexed by key from root, It works for both
 on-disk and in-memory trie. When node along key is not yet in memory, it loads
@@ -1125,8 +1123,7 @@ synchronization is provided, and user code should make sure no other place is
 modifying trie.
 */
 find_cursor_result_type find_blocking(
-    UpdateAuxImpl const &, NodeCursor, NibblesView key, uint64_t version,
-    StateMachine &);
+    UpdateAuxImpl const &, NodeCursor, NibblesView key, uint64_t version);
 
 /* This function reads a node from the specified physical offset `node_offset`,
 where the spare bits indicate the number of pages to read. It returns a valid

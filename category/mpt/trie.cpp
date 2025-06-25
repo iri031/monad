@@ -103,24 +103,11 @@ struct async_write_node_result
 };
 
 bool verify_node_offset_is_valid(
-    UpdateAuxImpl &aux, StateMachine &sm, chunk_offset_t const node_offset,
-    int64_t const node_version)
+    UpdateAuxImpl &aux, StateMachine &sm, int64_t const node_version)
 {
-    if (!sm.auto_expire()) {
-        return true;
-    }
-    auto const is_valid =
-        node_version >=
-        static_cast<int64_t>(aux.db_history_min_valid_version());
-    if (is_valid) {
-        auto const chunk_type =
-            aux.db_metadata()->at(node_offset.id)->which_list();
-        MONAD_ASSERT(chunk_type == chunk_list::expire);
-        MONAD_ASSERT(
-            aux.physical_to_virtual(node_offset) >=
-            aux.get_min_virtual_expire_offset_metadata());
-    }
-    return is_valid;
+    return sm.auto_expire() == false ||
+           node_version >=
+               static_cast<int64_t>(aux.db_history_min_valid_version());
 }
 
 // invoke at the end of each block upsert
@@ -215,7 +202,7 @@ struct load_all_impl_
         static constexpr bool lifetime_managed_internally = true;
 
         load_all_impl_ *impl;
-        NodeCursor root;
+        Node &root;
         unsigned const branch_index;
         std::unique_ptr<StateMachine> sm;
 
@@ -224,14 +211,14 @@ struct load_all_impl_
         uint16_t buffer_off;
 
         receiver_t(
-            load_all_impl_ *impl, NodeCursor root, unsigned char const branch,
+            load_all_impl_ *impl, Node &root, unsigned char const branch,
             std::unique_ptr<StateMachine> sm)
             : impl(impl)
             , root(root)
             , branch_index(branch)
             , sm(std::move(sm))
         {
-            chunk_offset_t const offset = root.node->fnext(branch_index);
+            chunk_offset_t const offset = root.fnext(branch_index);
             auto const num_pages_to_load_node =
                 node_disk_pages_spare_15{offset}.to_pages();
             bytes_to_read =
@@ -251,18 +238,18 @@ struct load_all_impl_
             // load node from read buffer
             {
                 auto g(impl->aux.unique_lock());
-                MONAD_ASSERT(root.node->next(branch_index) == nullptr);
-                root.node->set_next(
+                MONAD_ASSERT(root.next(branch_index) == nullptr);
+                root.set_next(
                     branch_index,
                     detail::deserialize_node_from_receiver_result(
                         std::move(buffer_), buffer_off, io_state));
                 impl->nodes_loaded++;
             }
-            auto const next_prefix_index =
-                root.node->next_relpath_start_index();
-            auto *const next_node = root.node->next(branch_index);
+            auto const next_prefix_index = root.next_relpath_start_index();
+            auto *const next_node = root.next(branch_index);
             MONAD_ASSERT(next_prefix_index <= next_node->path_nibbles_len());
-            impl->process(NodeCursor{*next_node, next_prefix_index}, *sm);
+            impl->process(
+                NodeCursor{std::move(sm), *next_node, next_prefix_index});
         }
     };
 
@@ -271,9 +258,10 @@ struct load_all_impl_
     {
     }
 
-    void process(NodeCursor const node_cursor, StateMachine &sm)
+    void process(NodeCursor const node_cursor)
     {
         Node *const node = node_cursor.node;
+        auto &sm = *node_cursor.machine;
         for (auto const [idx, i] : NodeChildrenRange(node->mask)) {
             NibblesView const nv =
                 node->path_nibble_view().substr(node_cursor.prefix_index);
@@ -291,7 +279,7 @@ struct load_all_impl_
                     auto const next_prefix_index =
                         node->next_relpath_start_index();
                     MONAD_ASSERT(next_prefix_index <= next->path_nibbles_len());
-                    process(NodeCursor{*next, next_prefix_index}, sm);
+                    process(NodeCursor{sm.clone(), *next, next_prefix_index});
                 }
             }
             sm.up(1 + nv.nibble_size());
@@ -299,10 +287,10 @@ struct load_all_impl_
     }
 };
 
-size_t load_all(UpdateAuxImpl &aux, StateMachine &sm, NodeCursor const root)
+size_t load_all(UpdateAuxImpl &aux, NodeCursor const root)
 {
     load_all_impl_ impl(aux);
-    impl.process(root, sm);
+    impl.process(root);
     aux.io->wait_until_done();
     return impl.nodes_loaded;
 }
@@ -982,7 +970,6 @@ void dispatch_updates_impl_(
                  verify_node_offset_is_valid(
                      aux,
                      sm,
-                     old->fnext(old->to_child_index(branch)),
                      old->child_version(old->to_child_index(branch))))) {
                 unsigned const old_child_index = old->to_child_index(branch);
                 upsert_(
@@ -994,7 +981,6 @@ void dispatch_updates_impl_(
                     SubtrieMetadata{*old, old_child_index},
                     std::move(requests)[branch],
                     prefix_index + 1);
-                sm.up(1);
             }
             else {
                 create_new_trie_(
@@ -1005,16 +991,15 @@ void dispatch_updates_impl_(
                     std::move(requests)[branch],
                     prefix_index + 1);
                 --tnode->npending;
-                sm.up(1);
             }
+            sm.up(1);
         }
         else if ((1 << branch) & old->mask) {
             auto &child = children[index];
             child.copy_old_child(old, branch);
             sm.down(branch);
             if (aux.is_on_disk() &&
-                !verify_node_offset_is_valid(
-                    aux, sm, child.metadata.offset, child.metadata.version)) {
+                !verify_node_offset_is_valid(aux, sm, child.metadata.version)) {
                 child.erase();
                 tnode->mask &= static_cast<uint16_t>(~(1u << branch));
                 --tnode->npending;
@@ -1074,11 +1059,9 @@ void mismatch_handler_(
             children[index].branch = branch;
             sm.down(branch);
             if (branch == old_nibble &&
-                (aux.is_in_memory() || verify_node_offset_is_valid(
-                                           aux,
-                                           sm,
-                                           old_branch_metadata.offset,
-                                           old_branch_metadata.version))) {
+                (aux.is_in_memory() ||
+                 verify_node_offset_is_valid(
+                     aux, sm, old_branch_metadata.version))) {
                 upsert_(
                     aux,
                     sm,
@@ -1104,10 +1087,7 @@ void mismatch_handler_(
         else if (branch == old_nibble) {
             sm.down(old_nibble);
             if (aux.is_on_disk() && !verify_node_offset_is_valid(
-                                        aux,
-                                        sm,
-                                        old_branch_metadata.offset,
-                                        old_branch_metadata.version)) {
+                                        aux, sm, old_branch_metadata.version)) {
                 entry.erase();
                 parent.mask &= static_cast<uint16_t>(~(1u << old_nibble));
                 sm.up(1);

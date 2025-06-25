@@ -686,7 +686,8 @@ TEST_F(OnDiskDbWithFileAsyncFixture, async_rodb_level_based_cache_works)
     // MUST use traverse_blocking() to check the in memory nodes as they are.
     // The `Db::traverse()` API make a copy of traverse root which does not
     // maintain the exact in memory trie
-    ro_db.traverse_blocking(NodeCursor{*root}, traverse_machine, version);
+    ro_db.traverse_blocking(
+        NodeCursor{machine.clone(), *root}, traverse_machine, version);
 }
 
 TEST_F(OnDiskDbWithFileAsyncFixture, async_rodb_root_cache_invalidation)

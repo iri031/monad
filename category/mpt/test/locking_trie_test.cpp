@@ -206,8 +206,6 @@ TEST_F(LockingTrieTest, works)
    unlock exclusive
    lock exclusive
    unlock exclusive
-   lock exclusive
-   unlock exclusive
 )");
     }
 
@@ -216,7 +214,7 @@ TEST_F(LockingTrieTest, works)
     {
         aux.lock().clear();
         auto [leaf_it, res] = find_blocking(
-            aux, *root, keys.back().first, version, *machine.clone());
+            aux, {machine.clone(), *root}, keys.back().first, version);
         EXPECT_EQ(res, monad::mpt::find_result::success);
         EXPECT_NE(leaf_it.node, nullptr);
         EXPECT_TRUE(leaf_it.node->has_value());
@@ -234,7 +232,7 @@ TEST_F(LockingTrieTest, works)
     {
         aux.lock().clear();
         auto [leaf_it, res] = find_blocking(
-            aux, *root, keys.back().first, version, *machine.clone());
+            aux, {machine.clone(), *root}, keys.back().first, version);
         EXPECT_EQ(res, monad::mpt::find_result::success);
         EXPECT_NE(leaf_it.node, nullptr);
         EXPECT_TRUE(leaf_it.node->has_value());

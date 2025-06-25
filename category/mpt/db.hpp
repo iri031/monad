@@ -94,7 +94,8 @@ private:
 
 public:
     Db(StateMachine &); // In-memory mode
-    Db(StateMachine &, OnDiskDbConfig const &);
+    Db(StateMachine &,
+       OnDiskDbConfig const &); // TODO: change state machine here to owning
     Db(AsyncIOContext &, std::unique_ptr<StateMachine>);
 
     Db(Db const &) = delete;
@@ -181,6 +182,7 @@ struct AsyncContext
     TrieRootCache root_cache;
     inflight_root_t inflight_roots;
     inflight_node_t inflight_nodes;
+    StateMachine &machine;
 
     AsyncContext(Db &db, size_t lru_size = 64);
     ~AsyncContext() noexcept = default;

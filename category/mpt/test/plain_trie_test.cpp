@@ -129,64 +129,64 @@ TYPED_TEST(PlainTrieTest, var_length_trie)
 
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[0].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[0].first, version)
             .first.node->value(),
         kv[0].second);
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[1].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[1].first, version)
             .first.node->value(),
         kv[1].second);
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[2].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[2].first, version)
             .first.node->value(),
         kv[2].second);
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[3].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[3].first, version)
             .first.node->value(),
         kv[3].second);
 
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[0].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[0].first, version)
             .first.node->value(),
         kv[0].second);
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[1].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[1].first, version)
             .first.node->value(),
         kv[1].second);
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[2].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[2].first, version)
             .first.node->value(),
         kv[2].second);
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[3].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[3].first, version)
             .first.node->value(),
         kv[3].second);
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[4].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[4].first, version)
             .first.node->value(),
         kv[4].second);
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[5].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[5].first, version)
             .first.node->value(),
         kv[5].second);
 
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[6].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[6].first, version)
             .first.node->value(),
         kv[6].second);
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[7].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[7].first, version)
             .first.node->value(),
         kv[7].second);
 
@@ -256,17 +256,17 @@ TYPED_TEST(PlainTrieTest, mismatch)
         make_update(kv[2].first, kv[2].second));
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[0].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[0].first, version)
             .first.node->value(),
         kv[0].second);
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[1].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[1].first, version)
             .first.node->value(),
         kv[1].second);
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[2].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[2].first, version)
             .first.node->value(),
         kv[2].second);
 
@@ -295,22 +295,22 @@ TYPED_TEST(PlainTrieTest, mismatch)
         make_update(kv[4].first, kv[4].second));
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[1].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[1].first, version)
             .first.node->value(),
         kv[1].second);
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[2].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[2].first, version)
             .first.node->value(),
         kv[2].second);
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[3].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[3].first, version)
             .first.node->value(),
         kv[3].second);
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[4].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[4].first, version)
             .first.node->value(),
         kv[4].second);
 
@@ -423,21 +423,20 @@ TYPED_TEST(PlainTrieTest, delete_with_incarnation)
     }
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[0].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[0].first, version)
             .first.node->value(),
         kv[0].second);
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[1].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[1].first, version)
             .first.node->value(),
         kv[1].second);
     EXPECT_EQ(
         find_blocking(
             this->aux,
-            *this->root,
+            {this->sm->clone(), *this->root},
             kv[1].first + nested_kv[0].first,
-            version,
-            *this->sm->clone())
+            version)
             .first.node->value(),
         nested_kv[0].second);
 
@@ -455,30 +454,28 @@ TYPED_TEST(PlainTrieTest, delete_with_incarnation)
     }
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[0].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[0].first, version)
             .first.node->value(),
         kv[0].second);
     EXPECT_EQ(
         find_blocking(
-            this->aux, *this->root, kv[1].first, version, *this->sm->clone())
+            this->aux, {this->sm->clone(), *this->root}, kv[1].first, version)
             .first.node->value(),
         kv[1].second);
     EXPECT_EQ(
         find_blocking(
             this->aux,
-            *this->root,
+            {this->sm->clone(), *this->root},
             kv[1].first + nested_kv[1].first,
-            version,
-            *this->sm->clone())
+            version)
             .first.node->value(),
         nested_kv[1].second);
     EXPECT_EQ(
         find_blocking(
             this->aux,
-            *this->root,
+            {this->sm->clone(), *this->root},
             kv[1].first + nested_kv[0].first,
-            version,
-            *this->sm->clone())
+            version)
             .second,
         find_result::key_mismatch_failure);
 }
@@ -505,7 +502,7 @@ TYPED_TEST(PlainTrieTest, large_values)
     same_upsert_to_clear_nodes_outside_cache_level();
     {
         auto [leaf_it, res] = find_blocking(
-            this->aux, *this->root, key1, version, *this->sm->clone());
+            this->aux, {this->sm->clone(), *this->root}, key1, version);
         auto *leaf = leaf_it.node;
         EXPECT_EQ(res, find_result::success);
         EXPECT_NE(leaf, nullptr);
@@ -516,7 +513,7 @@ TYPED_TEST(PlainTrieTest, large_values)
     same_upsert_to_clear_nodes_outside_cache_level();
     {
         auto [leaf_it, res] = find_blocking(
-            this->aux, *this->root, key2, version, *this->sm->clone());
+            this->aux, {this->sm->clone(), *this->root}, key2, version);
         auto *leaf = leaf_it.node;
         EXPECT_EQ(res, find_result::success);
         EXPECT_NE(leaf, nullptr);
@@ -530,7 +527,7 @@ TYPED_TEST(PlainTrieTest, large_values)
         auto fut = p.get_future();
         inflight_map_t inflights;
         find_notify_fiber_future(
-            this->aux, inflights, p, *this->root, key1, *this->sm);
+            this->aux, inflights, p, {this->sm->clone(), *this->root}, key1);
         while (fut.wait_for(std::chrono::seconds(0)) !=
                ::boost::fibers::future_status::ready) {
             this->aux.io->wait_until_done();
@@ -549,7 +546,7 @@ TYPED_TEST(PlainTrieTest, large_values)
         auto fut = p.get_future();
         inflight_map_t inflights;
         find_notify_fiber_future(
-            this->aux, inflights, p, *this->root, key2, *this->sm);
+            this->aux, inflights, p, {this->sm->clone(), *this->root}, key2);
         while (fut.wait_for(std::chrono::seconds(0)) !=
                ::boost::fibers::future_status::ready) {
             this->aux.io->wait_until_done();
@@ -597,26 +594,22 @@ TYPED_TEST(PlainTrieTest, multi_level_find_blocking)
             make_update(prefix, top_value, false, std::move(updates)));
         // find blocking on multi-level trie
         auto [begin, errc] = find_blocking(
-            this->aux, *this->root, prefix, version, *this->sm->clone());
+            this->aux, {this->sm->clone(), *this->root}, prefix, version);
         EXPECT_EQ(errc, find_result::success);
         EXPECT_EQ(begin.node->number_of_children(), 2);
         EXPECT_EQ(begin.node->value(), top_value);
+        EXPECT_EQ(
+            begin.machine->get_depth(), NibblesView{prefix}.nibble_size());
 
-        EXPECT_EQ(
-            find_blocking(
-                this->aux, begin, kv[0].first, version, *this->sm->clone())
-                .first.node->value(),
-            kv[0].second);
-        EXPECT_EQ(
-            find_blocking(
-                this->aux, begin, kv[1].first, version, *this->sm->clone())
-                .first.node->value(),
-            kv[1].second);
-        EXPECT_EQ(
-            find_blocking(
-                this->aux, begin, kv[2].first, version, *this->sm->clone())
-                .first.node->value(),
-            kv[2].second);
+        for (unsigned i = 0; i <= 2; ++i) {
+            auto const [it, res] =
+                find_blocking(this->aux, begin, kv[i].first, version);
+            ASSERT_EQ(res, find_result::success);
+            EXPECT_EQ(it.node->value(), kv[i].second);
+            EXPECT_EQ(
+                it.machine->get_depth(),
+                NibblesView{prefix + kv[i].first}.nibble_size());
+        }
     };
 
     upsert_and_find_with_prefix(0x000001_hex, 0xdeadbeef_hex);

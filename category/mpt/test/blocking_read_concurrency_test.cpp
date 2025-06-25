@@ -123,7 +123,7 @@ TEST_F(DbConcurrencyTest1, version_outdated_during_blocking_find)
                 root->move_next(idx).reset();
             }
             auto [node_cursor, res] =
-                find_blocking(ro_aux, *root, key, latest_version, *sm.clone());
+                find_blocking(ro_aux, {sm.clone(), *root}, key, latest_version);
             if (res != find_result::success) {
                 ASSERT_EQ(res, find_result::version_no_longer_exist);
                 completion_promise.set_value(count);

@@ -41,19 +41,34 @@ namespace
     using namespace MONAD_ASYNC_NAMESPACE;
 
     void find(
-        UpdateAuxImpl *aux, inflight_map_t *const inflights, Node *const root,
-        monad::byte_string_view const key, monad::byte_string_view const value,
-        StateMachine *const machine)
+        UpdateAuxImpl *aux, inflight_map_t *const inflights,
+        NodeCursor const root, monad::byte_string_view const prefix,
+        monad::byte_string_view const key, monad::byte_string_view const value)
     {
         monad::threadsafe_boost_fibers_promise<
             monad::mpt::find_cursor_result_type>
             promise;
-        find_notify_fiber_future(
-            *aux, *inflights, promise, NodeCursor{*root}, key, *machine);
+        find_notify_fiber_future(*aux, *inflights, promise, root, prefix);
         auto const [it, errc] = promise.get_future().get();
         ASSERT_TRUE(it.is_valid());
         EXPECT_EQ(errc, monad::mpt::find_result::success);
-        EXPECT_EQ(it.node->value(), value);
+        EXPECT_EQ(it.node->value(), monad::byte_string{});
+        EXPECT_EQ(
+            it.node->data(),
+            0xcbb6d81afdc76fec144f6a1a283205d42c03c102a94fc210b3a1bcfdcb625884_hex);
+        EXPECT_EQ(it.machine->get_depth(), NibblesView{prefix}.nibble_size());
+
+        monad::threadsafe_boost_fibers_promise<
+            monad::mpt::find_cursor_result_type>
+            promise2;
+        find_notify_fiber_future(*aux, *inflights, promise2, it, key);
+        auto const [it2, errc2] = promise2.get_future().get();
+        ASSERT_TRUE(it2.is_valid());
+        EXPECT_EQ(errc2, monad::mpt::find_result::success);
+        EXPECT_EQ(it2.node->value(), value);
+        EXPECT_EQ(
+            it2.machine->get_depth(),
+            NibblesView{prefix}.nibble_size() + NibblesView{key}.nibble_size());
     };
 
     void poll(AsyncIO *const io, bool *signal_done)
@@ -64,17 +79,33 @@ namespace
         }
     };
 
-    TEST_F(OnDiskMerkleTrieGTest, single_thread_one_find_fiber)
+    struct OnDiskMerkleTriePreInsert : public OnDiskMerkleTrieGTest
     {
-        std::vector<Update> updates;
-        for (auto const &i : one_hundred_updates) {
-            updates.emplace_back(make_update(i.first, i.second));
+        monad::byte_string const prefix = 0x00_hex;
+
+        void batch_upsert_with_prefix()
+        {
+            std::vector<Update> updates_alloc;
+            updates_alloc.reserve(one_hundred_updates.size());
+            UpdateList ul;
+            for (auto const &i : one_hundred_updates) {
+                ul.push_front(
+                    updates_alloc.emplace_back(make_update(i.first, i.second)));
+            }
+            this->root = upsert_updates(
+                this->aux,
+                *this->sm,
+                std::move(this->root),
+                0,
+                make_update(prefix, {}, false, std::move(ul)));
         }
-        this->root = upsert_vector(
-            this->aux, *this->sm, std::move(this->root), std::move(updates));
-        EXPECT_EQ(
-            root_hash(),
-            0xcbb6d81afdc76fec144f6a1a283205d42c03c102a94fc210b3a1bcfdcb625884_hex);
+    };
+
+    TEST_F(OnDiskMerkleTriePreInsert, single_thread_one_find_fiber)
+    {
+        this->sm =
+            std::make_unique<StateMachineMerkleWithPrefix<2>>(Nibbles{prefix});
+        batch_upsert_with_prefix();
 
         inflight_map_t inflights;
 
@@ -82,10 +113,10 @@ namespace
             find,
             &this->aux,
             &inflights,
-            root.get(),
+            NodeCursor{this->sm->clone(), *root.get()},
+            prefix,
             one_hundred_updates[0].first,
-            one_hundred_updates[0].second,
-            this->sm.get());
+            one_hundred_updates[0].second);
         bool signal_done = false;
         boost::fibers::fiber poll_fiber(poll, aux.io, &signal_done);
         find_fiber.join();
@@ -93,17 +124,11 @@ namespace
         poll_fiber.join();
     }
 
-    TEST_F(OnDiskMerkleTrieGTest, single_thread_one_hundred_find_fibers)
+    TEST_F(OnDiskMerkleTriePreInsert, single_thread_one_hundred_find_fibers)
     {
-        std::vector<Update> updates;
-        for (auto const &i : one_hundred_updates) {
-            updates.emplace_back(make_update(i.first, i.second));
-        }
-        this->root = upsert_vector(
-            this->aux, *this->sm, std::move(this->root), std::move(updates));
-        EXPECT_EQ(
-            root_hash(),
-            0xcbb6d81afdc76fec144f6a1a283205d42c03c102a94fc210b3a1bcfdcb625884_hex);
+        this->sm =
+            std::make_unique<StateMachineMerkleWithPrefix<2>>(Nibbles{prefix});
+        batch_upsert_with_prefix();
 
         inflight_map_t inflights;
         std::vector<boost::fibers::fiber> fibers;
@@ -112,10 +137,10 @@ namespace
                 find,
                 &this->aux,
                 &inflights,
-                root.get(),
+                NodeCursor{this->sm->clone(), *root.get()},
+                prefix,
                 key,
-                val,
-                this->sm.get());
+                val);
         }
 
         bool signal_done = false;
