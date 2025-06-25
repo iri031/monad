@@ -1,5 +1,6 @@
 #pragma once
 
+#include <monad/chain/monad_revision.h>
 #include <monad/config.hpp>
 #include <monad/core/bytes.hpp>
 #include <monad/core/receipt.hpp>
@@ -39,11 +40,13 @@ enum class BlockError
     WrongDaoExtraData,
     WrongLogsBloom,
     InvalidGasUsed,
-    WrongMerkleRoot
+    WrongMerkleRoot,
+    TimestampMismatch,
 };
 
 struct Block;
 struct BlockHeader;
+struct MonadConsensusBlockHeader;
 
 Receipt::Bloom compute_bloom(std::vector<Receipt> const &);
 
@@ -51,6 +54,9 @@ bytes32_t compute_ommers_hash(std::vector<BlockHeader> const &);
 
 template <evmc_revision rev>
 Result<void> static_validate_header(BlockHeader const &);
+
+Result<void> static_validate_consensus_header(
+    monad_revision, MonadConsensusBlockHeader const &);
 
 template <evmc_revision rev>
 Result<void> static_validate_block(Block const &);

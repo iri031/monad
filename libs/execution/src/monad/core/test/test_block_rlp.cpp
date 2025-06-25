@@ -1,3 +1,4 @@
+#include <monad/chain/monad_testnet.hpp>
 #include <monad/core/blake3.hpp>
 #include <monad/core/block.hpp>
 #include <monad/core/byte_string.hpp>
@@ -1141,7 +1142,8 @@ TEST(Rlp_Block, MonadConsensusBlock)
     auto encoded_body = to_byte_string_view(body);
 
     // header
-    auto const res = rlp::decode_consensus_block_header(encoded_header);
+    MonadTestnet chain;
+    auto const res = rlp::decode_consensus_block_header(chain, encoded_header);
     EXPECT_FALSE(res.has_error());
     EXPECT_EQ(
         to_byte_string_view(header),
@@ -1150,20 +1152,25 @@ TEST(Rlp_Block, MonadConsensusBlock)
     auto const &consensus_header = res.value();
     auto const &vote = consensus_header.qc.vote;
 
-    EXPECT_EQ(consensus_header.round, 10);
+    EXPECT_EQ(consensus_header.block_round, 10);
     EXPECT_EQ(consensus_header.epoch, 5);
     EXPECT_EQ(consensus_header.seqno, consensus_header.execution_inputs.number);
-    EXPECT_EQ(
-        vote.id,
-        to_bytes(
-            0x0000000000000000000000000000000000000000000000000000000000000000_hex));
-    EXPECT_EQ(
-        vote.parent_id,
-        to_bytes(
-            0x0000000000000000000000000000000000000000000000000000000000000000_hex));
-    EXPECT_EQ(vote.epoch, 1);
-    EXPECT_EQ(vote.round, 0);
-    EXPECT_EQ(vote.parent_round, 0);
+
+    EXPECT_TRUE(std::holds_alternative<MonadVoteV1>(vote));
+    {
+        MonadVoteV1 const v1{std::get<MonadVoteV1>(vote)};
+        EXPECT_EQ(
+            v1.id,
+            to_bytes(
+                0x0000000000000000000000000000000000000000000000000000000000000000_hex));
+        EXPECT_EQ(
+            v1.parent_id,
+            to_bytes(
+                0x0000000000000000000000000000000000000000000000000000000000000000_hex));
+        EXPECT_EQ(v1.epoch, 1);
+        EXPECT_EQ(v1.round, 0);
+        EXPECT_EQ(v1.parent_round, 0);
+    }
 
     BlockHeader execution_header{
         .number = 5,

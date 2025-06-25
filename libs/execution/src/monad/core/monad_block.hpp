@@ -5,15 +5,17 @@
 #include <monad/core/byte_string.hpp>
 #include <monad/core/bytes.hpp>
 #include <monad/core/transaction.hpp>
+#include <monad/core/variant.hpp>
 #include <monad/core/withdrawal.hpp>
 
 #include <cstdint>
 #include <utility>
+#include <variant>
 #include <vector>
 
 MONAD_NAMESPACE_BEGIN
 
-struct MonadVote
+struct MonadVoteV1
 {
     bytes32_t id{NULL_HASH_BLAKE3};
     uint64_t round{0};
@@ -21,7 +23,16 @@ struct MonadVote
     bytes32_t parent_id{NULL_HASH_BLAKE3};
     uint64_t parent_round{0};
 
-    friend bool operator==(MonadVote const &, MonadVote const &) = default;
+    friend bool operator==(MonadVoteV1 const &, MonadVoteV1 const &) = default;
+};
+
+struct MonadVoteV2
+{
+    bytes32_t id{NULL_HASH_BLAKE3};
+    uint64_t round{0};
+    uint64_t epoch{0};
+
+    friend bool operator==(MonadVoteV2 const &, MonadVoteV2 const &) = default;
 };
 
 struct MonadSignerMap
@@ -44,7 +55,7 @@ struct MonadSignatures
 
 struct MonadQuorumCertificate
 {
-    MonadVote vote{};
+    std::variant<MonadVoteV1, MonadVoteV2> vote{};
     MonadSignatures signatures{};
 
     friend bool operator==(
@@ -54,7 +65,7 @@ struct MonadQuorumCertificate
 
 struct MonadConsensusBlockHeader
 {
-    uint64_t round{0};
+    uint64_t block_round{0};
     uint64_t epoch{0};
     MonadQuorumCertificate qc{}; // qc is for the previous block
     byte_string_fixed<33> author{};
@@ -67,12 +78,7 @@ struct MonadConsensusBlockHeader
 
     bytes32_t parent_id() const noexcept
     {
-        return qc.vote.id;
-    }
-
-    uint64_t parent_round() const noexcept
-    {
-        return qc.vote.round;
+        return std::visit([](auto const &v) { return v.id; }, qc.vote);
     }
 
     static MonadConsensusBlockHeader from_eth_header(
@@ -85,12 +91,12 @@ struct MonadConsensusBlockHeader
         uint64_t const grandparent_round = round - std::min(round, 2ul);
 
         return MonadConsensusBlockHeader{
-            .round = round,
+            .block_round = round,
             .epoch = 0,
             .qc =
                 MonadQuorumCertificate{
                     .vote =
-                        MonadVote{
+                        MonadVoteV1{
                             .id = bytes32_t{parent_round},
                             .round = parent_round,
                             .epoch = 0,
@@ -113,7 +119,7 @@ struct MonadConsensusBlockHeader
         MonadConsensusBlockHeader const &) = default;
 };
 
-static_assert(sizeof(MonadConsensusBlockHeader) == 1216);
+static_assert(sizeof(MonadConsensusBlockHeader) == 1224);
 static_assert(alignof(MonadConsensusBlockHeader) == 8);
 
 struct MonadConsensusBlockBody
@@ -139,7 +145,7 @@ struct MonadConsensusBlock
         MonadConsensusBlock const &, MonadConsensusBlock const &) = default;
 };
 
-static_assert(sizeof(MonadConsensusBlock) == 1288);
+static_assert(sizeof(MonadConsensusBlock) == 1296);
 static_assert(alignof(MonadConsensusBlock) == 8);
 
 std::pair<MonadConsensusBlockHeader, bytes32_t>

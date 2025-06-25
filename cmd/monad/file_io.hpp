@@ -8,8 +8,10 @@
 
 MONAD_NAMESPACE_BEGIN
 
-MonadConsensusBlockHeader
-read_header(bytes32_t const &, std::filesystem::path const &);
+struct MonadChain;
+
+MonadConsensusBlockHeader read_header(
+    MonadChain const &, bytes32_t const &, std::filesystem::path const &);
 
 MonadConsensusBlockBody
 read_body(bytes32_t const &, std::filesystem::path const &);

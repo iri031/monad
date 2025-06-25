@@ -3,6 +3,7 @@
 #include <monad/config.hpp>
 #include <monad/core/block.hpp>
 #include <monad/core/likely.h>
+#include <monad/core/monad_block.hpp>
 #include <monad/core/result.hpp>
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/validate_block.hpp>
@@ -68,6 +69,30 @@ size_t MonadChain::get_max_code_size(
     else {
         MONAD_ABORT("invalid revision");
     }
+}
+
+Result<void> MonadChain::static_validate_consensus_header(
+    MonadConsensusBlockHeader const &header) const
+{
+    uint64_t const timestamp_s = uint64_t{header.timestamp_ns / 1'000'000'000};
+    if (MONAD_UNLIKELY(timestamp_s != header.execution_inputs.timestamp)) {
+        return BlockError::TimestampMismatch;
+    }
+
+    auto const monad_rev = get_monad_revision(0, timestamp_s);
+    if (MONAD_LIKELY(monad_rev >= MONAD_THREE)) {
+        if (MONAD_UNLIKELY(
+                !std::holds_alternative<MonadVoteV2>(header.qc.vote))) {
+            return BlockError::MissingField;
+        }
+    }
+    else {
+        if (MONAD_UNLIKELY(
+                !std::holds_alternative<MonadVoteV1>(header.qc.vote))) {
+            return BlockError::MissingField;
+        }
+    }
+    return success();
 }
 
 MONAD_NAMESPACE_END

@@ -1,3 +1,4 @@
+#include <monad/chain/monad_testnet.hpp>
 #include <monad/core/blake3.hpp>
 #include <monad/core/bytes.hpp>
 #include <monad/core/monad_block.hpp>
@@ -30,7 +31,7 @@ protected:
         MonadConsensusBlockHeader header;
         header.block_body_id =
             to_bytes(blake3(rlp::encode_consensus_block_body(body)));
-        header.round = round;
+        header.block_round = round;
         auto const encoded_body = rlp::encode_consensus_block_body(body);
         auto const encoded_header = rlp::encode_consensus_block_header(header);
         auto const header_bft_id = to_bytes(blake3(encoded_header));
@@ -81,7 +82,8 @@ protected:
 
 TEST_F(WalReaderTestFixture, open_empty)
 {
-    WalReader reader(ledger_dir);
+    MonadTestnet chain;
+    WalReader reader(chain, ledger_dir);
     EXPECT_EQ(reader.next(), std::nullopt);
 
     append_entry(WalAction::PROPOSE, 1);
@@ -89,7 +91,7 @@ TEST_F(WalReaderTestFixture, open_empty)
     auto const output_e = reader.next();
     ASSERT_TRUE(output_e.has_value());
     EXPECT_EQ(output_e.value().action, WalAction::PROPOSE);
-    EXPECT_EQ(output_e.value().header.round, 1);
+    EXPECT_EQ(output_e.value().header.block_round, 1);
 }
 
 TEST_F(WalReaderTestFixture, replay_from_start)
@@ -97,17 +99,18 @@ TEST_F(WalReaderTestFixture, replay_from_start)
     append_entry(WalAction::PROPOSE, 1);
     append_entry(WalAction::FINALIZE, 1);
 
-    WalReader reader(ledger_dir);
+    MonadTestnet chain;
+    WalReader reader(chain, ledger_dir);
 
     auto const a0 = reader.next();
     ASSERT_TRUE(a0.has_value());
     EXPECT_EQ(a0.value().action, WalAction::PROPOSE);
-    EXPECT_EQ(a0.value().header.round, 1);
+    EXPECT_EQ(a0.value().header.block_round, 1);
 
     auto const a1 = reader.next();
     ASSERT_TRUE(a1.has_value());
     EXPECT_EQ(a1.value().action, WalAction::FINALIZE);
-    EXPECT_EQ(a1.value().header.round, 1);
+    EXPECT_EQ(a1.value().header.block_round, 1);
 
     // execution is now ahead
     EXPECT_FALSE(reader.next().has_value());
@@ -125,7 +128,8 @@ TEST_F(WalReaderTestFixture, rewind)
     WalEntry const good_rewind{
         .action = WalAction::PROPOSE, .id = header_bft_ids[3]};
 
-    WalReader reader(ledger_dir);
+    MonadTestnet chain;
+    WalReader reader(chain, ledger_dir);
     ASSERT_FALSE(reader.rewind_to(bad_rewind));
     ASSERT_TRUE(reader.rewind_to(good_rewind));
 
@@ -133,7 +137,7 @@ TEST_F(WalReaderTestFixture, rewind)
         auto const action = reader.next();
         ASSERT_TRUE(action.has_value());
         EXPECT_EQ(action.value().action, WalAction::PROPOSE);
-        EXPECT_EQ(action.value().header.round, i);
+        EXPECT_EQ(action.value().header.block_round, i);
     }
 }
 
@@ -143,7 +147,8 @@ TEST_F(WalReaderTestFixture, open_bad_data)
     wal_os.write(reinterpret_cast<char const *>(&garbage), sizeof(garbage));
     wal_os.flush();
 
-    WalReader reader(ledger_dir);
+    MonadTestnet chain;
+    WalReader reader(chain, ledger_dir);
     EXPECT_FALSE(reader.next().has_value());
 
     // simulate consensus writing over the bad data with a proper event
@@ -153,12 +158,13 @@ TEST_F(WalReaderTestFixture, open_bad_data)
     auto const action = reader.next();
     ASSERT_TRUE(action.has_value());
     EXPECT_EQ(action.value().action, WalAction::PROPOSE);
-    EXPECT_EQ(action.value().header.round, 1);
+    EXPECT_EQ(action.value().header.block_round, 1);
 }
 
 TEST_F(WalReaderTestFixture, partial_write)
 {
-    WalReader reader(ledger_dir);
+    MonadTestnet chain;
+    WalReader reader(chain, ledger_dir);
     ASSERT_FALSE(reader.next().has_value());
 
     auto const header_bft_id = write_dummy_block(1);
@@ -180,5 +186,5 @@ TEST_F(WalReaderTestFixture, partial_write)
     auto const next_action = reader.next();
     ASSERT_TRUE(next_action.has_value());
     EXPECT_EQ(next_action.value().action, WalAction::PROPOSE);
-    EXPECT_EQ(next_action.value().header.round, 1);
+    EXPECT_EQ(next_action.value().header.block_round, 1);
 }

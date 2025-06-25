@@ -10,6 +10,7 @@
 MONAD_NAMESPACE_BEGIN
 
 struct BlockHeader;
+struct MonadConsensusBlockHeader;
 struct Transaction;
 
 struct MonadChain : Chain
@@ -29,6 +30,9 @@ struct MonadChain : Chain
 
     virtual size_t
     get_max_code_size(uint64_t block_number, uint64_t timestamp) const override;
+
+    Result<void>
+    static_validate_consensus_header(MonadConsensusBlockHeader const &) const;
 };
 
 MONAD_NAMESPACE_END

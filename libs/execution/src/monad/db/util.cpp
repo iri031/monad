@@ -1,3 +1,4 @@
+#include <monad/chain/monad_chain.hpp>
 #include <monad/config.hpp>
 #include <monad/core/account.hpp>
 #include <monad/core/assert.h>
@@ -885,12 +886,14 @@ std::optional<byte_string> query_consensus_header(
 }
 
 std::optional<MonadConsensusBlockHeader> read_consensus_header(
-    mpt::Db const &db, uint64_t const block, mpt::NibblesView const prefix)
+    MonadChain const &chain, mpt::Db const &db, uint64_t const block,
+    mpt::NibblesView const prefix)
 {
     return query_consensus_header(db, block, prefix)
-        .transform([](byte_string const &data) {
+        .transform([&chain](byte_string const &data) {
             byte_string_view view{data};
-            auto const decoded = rlp::decode_consensus_block_header(view);
+            auto const decoded =
+                rlp::decode_consensus_block_header(chain, view);
             MONAD_ASSERT(decoded.has_value());
             return decoded.value();
         });

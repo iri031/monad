@@ -18,6 +18,7 @@
 MONAD_NAMESPACE_BEGIN
 
 struct BlockHeader;
+struct MonadChain;
 
 struct MachineBase : public mpt::StateMachine
 {
@@ -157,6 +158,7 @@ std::optional<byte_string> query_consensus_header(
     mpt::Db const &db, uint64_t block, mpt::NibblesView prefix);
 
 std::optional<MonadConsensusBlockHeader> read_consensus_header(
-    mpt::Db const &db, uint64_t block, mpt::NibblesView prefix);
+    MonadChain const &, mpt::Db const &, uint64_t block,
+    mpt::NibblesView prefix);
 
 MONAD_NAMESPACE_END

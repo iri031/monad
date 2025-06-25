@@ -2,6 +2,7 @@
 #include "file_io.hpp"
 
 #include <monad/chain/chain.hpp>
+#include <monad/chain/monad_chain.hpp>
 #include <monad/config.hpp>
 #include <monad/core/assert.h>
 #include <monad/core/blake3.hpp>
@@ -69,14 +70,14 @@ void log_tps(
 #pragma GCC diagnostic pop
 
 void init_block_hash_chain_proposals(
-    mpt::Db &db, BlockHashChain &block_hash_chain,
+    MonadChain const &chain, mpt::Db &db, BlockHashChain &block_hash_chain,
     uint64_t const start_block_num)
 {
     uint64_t const end_block_num = db.get_latest_version();
     for (uint64_t b = start_block_num; b <= end_block_num; ++b) {
         for (bytes32_t const &id : get_proposal_block_ids(db, b)) {
             auto const consensus_header =
-                read_consensus_header(db, b, proposal_prefix(id));
+                read_consensus_header(chain, db, b, proposal_prefix(id));
             MONAD_ASSERT_PRINTF(
                 consensus_header.has_value(),
                 "Could not decode consensus block at %lu block_id %s",
@@ -95,11 +96,11 @@ void init_block_hash_chain_proposals(
 }
 
 bool has_executed(
-    mpt::Db const &db, MonadConsensusBlockHeader const &header,
-    bytes32_t const &block_id)
+    MonadChain const &chain, mpt::Db const &db,
+    MonadConsensusBlockHeader const &header, bytes32_t const &block_id)
 {
     auto const prefix = proposal_prefix(block_id);
-    return header == read_consensus_header(db, header.seqno, prefix);
+    return header == read_consensus_header(chain, db, header.seqno, prefix);
 }
 
 bool validate_delayed_execution_results(
@@ -138,13 +139,15 @@ bool validate_delayed_execution_results(
 Result<std::pair<bytes32_t, uint64_t>> propose_block(
     bytes32_t const &block_id,
     MonadConsensusBlockHeader const &consensus_header, Block block,
-    BlockHashChain &block_hash_chain, Chain const &chain, Db &db, vm::VM &vm,
-    fiber::PriorityPool &priority_pool, bool const is_first_block)
+    BlockHashChain &block_hash_chain, MonadChain const &chain, Db &db,
+    vm::VM &vm, fiber::PriorityPool &priority_pool, bool const is_first_block)
 {
     [[maybe_unused]] auto const block_start = std::chrono::system_clock::now();
     auto const block_begin = std::chrono::steady_clock::now();
     auto const &block_hash_buffer =
         block_hash_chain.find_chain(consensus_header.parent_id());
+
+    BOOST_OUTCOME_TRY(chain.static_validate_consensus_header(consensus_header));
 
     BOOST_OUTCOME_TRY(chain.static_validate_header(block.header));
 
@@ -254,7 +257,7 @@ MONAD_ANONYMOUS_NAMESPACE_END
 MONAD_NAMESPACE_BEGIN
 
 Result<std::pair<uint64_t, uint64_t>> runloop_monad(
-    Chain const &chain, std::filesystem::path const &ledger_dir,
+    MonadChain const &chain, std::filesystem::path const &ledger_dir,
     mpt::Db &raw_db, Db &db, vm::VM &vm,
     BlockHashBufferFinalized &block_hash_buffer,
     fiber::PriorityPool &priority_pool, uint64_t &finalized_block_num,
@@ -263,7 +266,8 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
     constexpr auto SLEEP_TIME = std::chrono::microseconds(100);
     uint64_t const start_block_num = finalized_block_num;
     BlockHashChain block_hash_chain(block_hash_buffer);
-    init_block_hash_chain_proposals(raw_db, block_hash_chain, start_block_num);
+    init_block_hash_chain_proposals(
+        chain, raw_db, block_hash_chain, start_block_num);
 
     auto const body_dir = ledger_dir / "bodies";
     auto const header_dir = ledger_dir / "headers";
@@ -305,8 +309,8 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
         id = head_pointer_to_id(finalized_head);
         if (MONAD_LIKELY(id != bytes32_t{})) {
             do {
-                header = read_header(id, header_dir);
                 auto const block_id = id;
+                header = read_header(chain, id, header_dir);
                 id = header.parent_id();
 
                 if (MONAD_UNLIKELY(header.seqno > end_block_num)) {
@@ -325,7 +329,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                         .verified_block = verified_block});
                 }
 
-                if (!has_executed(raw_db, header, block_id)) {
+                if (!has_executed(chain, raw_db, header, block_id)) {
                     MONAD_ASSERT(needs_finalize);
                     to_execute.push_front(ToExecute{
                         .block_id = block_id, .header = std::move(header)});
@@ -339,10 +343,10 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
             id = head_pointer_to_id(proposed_head);
             if (MONAD_LIKELY(id != bytes32_t{})) {
                 do {
-                    header = read_header(id, header_dir);
+                    header = read_header(chain, id, header_dir);
                     auto const parent_id = header.parent_id();
                     if (header.seqno <= end_block_num &&
-                        !has_executed(raw_db, header, id)) {
+                        !has_executed(chain, raw_db, header, id)) {
                         to_execute.push_front(ToExecute{
                             .block_id = id, .header = std::move(header)});
                     }

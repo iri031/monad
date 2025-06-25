@@ -29,8 +29,9 @@ namespace
 
 }
 
-MonadConsensusBlockHeader
-read_header(bytes32_t const &id, std::filesystem::path const &dir)
+MonadConsensusBlockHeader read_header(
+    MonadChain const &chain, bytes32_t const &id,
+    std::filesystem::path const &dir)
 {
     auto const filename = evmc::hex(id);
     auto const path = dir / filename;
@@ -40,7 +41,7 @@ read_header(bytes32_t const &id, std::filesystem::path const &dir)
     MONAD_ASSERT_PRINTF(
         checksum == id, "Checksum failed for bft header: %s", filename.c_str());
     byte_string_view view{data};
-    auto const res = rlp::decode_consensus_block_header(view);
+    auto const res = rlp::decode_consensus_block_header(chain, view);
     MONAD_ASSERT_PRINTF(
         !res.has_error(), "Could not rlp decode file: %s", filename.c_str());
     return res.value();

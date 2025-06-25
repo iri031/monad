@@ -1,3 +1,5 @@
+#include <monad/chain/monad_chain.hpp>
+#include <monad/config.hpp>
 #include <monad/core/rlp/address_rlp.hpp>
 #include <monad/core/rlp/block_rlp.hpp>
 #include <monad/core/rlp/bytes_rlp.hpp>
@@ -5,28 +7,135 @@
 #include <monad/core/rlp/monad_block_rlp.hpp>
 #include <monad/core/rlp/transaction_rlp.hpp>
 #include <monad/core/rlp/withdrawal_rlp.hpp>
+#include <monad/core/variant.hpp>
 #include <monad/rlp/decode.hpp>
 #include <monad/rlp/decode_error.hpp>
 
 #include <vector>
 
-MONAD_RLP_NAMESPACE_BEGIN
+MONAD_RLP_ANONYMOUS_NAMESPACE_BEGIN
 
-byte_string encode_consensus_block_body(MonadConsensusBlockBody const &body)
+Result<BlockHeader> decode_execution_inputs(byte_string_view &enc)
 {
-    byte_string txns;
-    for (auto const &tx : body.transactions) {
-        txns += encode_transaction(tx);
-    }
-    byte_string withdrawals;
-    for (auto const &w : body.withdrawals) {
-        withdrawals += encode_withdrawal(w);
+    BlockHeader header;
+
+    BOOST_OUTCOME_TRY(auto payload, parse_list_metadata(enc));
+    BOOST_OUTCOME_TRY(header.ommers_hash, decode_bytes32(payload));
+    BOOST_OUTCOME_TRY(header.beneficiary, decode_address(payload));
+    BOOST_OUTCOME_TRY(header.transactions_root, decode_bytes32(payload));
+    BOOST_OUTCOME_TRY(header.difficulty, decode_unsigned<uint256_t>(payload));
+    BOOST_OUTCOME_TRY(header.number, decode_unsigned<uint64_t>(payload));
+    BOOST_OUTCOME_TRY(header.gas_limit, decode_unsigned<uint64_t>(payload));
+    BOOST_OUTCOME_TRY(header.timestamp, decode_unsigned<uint64_t>(payload));
+    BOOST_OUTCOME_TRY(header.extra_data, decode_string(payload));
+    BOOST_OUTCOME_TRY(header.prev_randao, decode_bytes32(payload));
+    BOOST_OUTCOME_TRY(header.nonce, decode_byte_string_fixed<8>(payload));
+    BOOST_OUTCOME_TRY(
+        header.base_fee_per_gas, decode_unsigned<uint64_t>(payload));
+    BOOST_OUTCOME_TRY(header.withdrawals_root, decode_bytes32(payload));
+    BOOST_OUTCOME_TRY(header.blob_gas_used, decode_unsigned<uint64_t>(payload));
+    BOOST_OUTCOME_TRY(
+        header.excess_blob_gas, decode_unsigned<uint64_t>(payload));
+    BOOST_OUTCOME_TRY(header.parent_beacon_block_root, decode_bytes32(payload));
+
+    if (MONAD_UNLIKELY(!payload.empty())) {
+        return DecodeError::InputTooLong;
     }
 
-    return encode_list2(encode_list2(
-        encode_list2(txns),
-        encode_ommers(body.ommers),
-        encode_list2(withdrawals)));
+    return header;
+}
+
+Result<std::vector<BlockHeader>> decode_execution_results(byte_string_view &enc)
+{
+    std::vector<BlockHeader> headers;
+
+    BOOST_OUTCOME_TRY(auto payload, parse_list_metadata(enc));
+    while (!payload.empty()) {
+        BOOST_OUTCOME_TRY(auto header, decode_block_header(payload));
+        headers.emplace_back(std::move(header));
+    }
+    if (MONAD_UNLIKELY(!payload.empty())) {
+        return DecodeError::InputTooLong;
+    }
+
+    return headers;
+}
+
+Result<MonadQuorumCertificate>
+decode_quorum_certificate(monad_revision const monad_rev, byte_string_view &enc)
+{
+    MonadQuorumCertificate qc;
+
+    BOOST_OUTCOME_TRY(auto qc_payload, parse_list_metadata(enc));
+    BOOST_OUTCOME_TRY(auto vote_payload, parse_list_metadata(qc_payload));
+    BOOST_OUTCOME_TRY(auto signatures_payload, parse_list_metadata(qc_payload));
+    if (MONAD_UNLIKELY(!qc_payload.empty())) {
+        return DecodeError::InputTooLong;
+    }
+
+    if (MONAD_LIKELY(monad_rev >= MONAD_THREE)) {
+        MonadVoteV2 vote;
+        BOOST_OUTCOME_TRY(vote.id, decode_bytes32(vote_payload));
+        BOOST_OUTCOME_TRY(vote.round, decode_unsigned<uint64_t>(vote_payload));
+        BOOST_OUTCOME_TRY(vote.epoch, decode_unsigned<uint64_t>(vote_payload));
+        qc.vote = vote;
+    }
+    else {
+        MonadVoteV1 vote;
+        BOOST_OUTCOME_TRY(vote.id, decode_bytes32(vote_payload));
+        BOOST_OUTCOME_TRY(vote.round, decode_unsigned<uint64_t>(vote_payload));
+        BOOST_OUTCOME_TRY(vote.epoch, decode_unsigned<uint64_t>(vote_payload));
+        BOOST_OUTCOME_TRY(vote.parent_id, decode_bytes32(vote_payload));
+        BOOST_OUTCOME_TRY(
+            vote.parent_round, decode_unsigned<uint64_t>(vote_payload));
+        qc.vote = vote;
+    }
+    if (MONAD_UNLIKELY(!vote_payload.empty())) {
+        return DecodeError::InputTooLong;
+    }
+
+    BOOST_OUTCOME_TRY(
+        auto signer_map_payload, parse_list_metadata(signatures_payload));
+    BOOST_OUTCOME_TRY(
+        qc.signatures.signer_map.num_bits,
+        decode_unsigned<uint32_t>(signer_map_payload));
+    BOOST_OUTCOME_TRY(
+        qc.signatures.signer_map.bitmap, decode_string(signer_map_payload));
+    BOOST_OUTCOME_TRY(
+        qc.signatures.aggregate_signature,
+        decode_byte_string_fixed<96>(signatures_payload));
+    if (MONAD_UNLIKELY(!signatures_payload.empty())) {
+        return DecodeError::InputTooLong;
+    }
+
+    return qc;
+}
+
+Result<MonadConsensusBlockHeader> decode_consensus_block_header(
+    monad_revision const monad_rev, byte_string_view &enc)
+{
+    MonadConsensusBlockHeader header;
+
+    BOOST_OUTCOME_TRY(auto payload, parse_list_metadata(enc));
+
+    BOOST_OUTCOME_TRY(header.block_round, decode_unsigned<uint64_t>(payload));
+    BOOST_OUTCOME_TRY(header.epoch, decode_unsigned<uint64_t>(payload));
+    BOOST_OUTCOME_TRY(header.qc, decode_quorum_certificate(monad_rev, payload));
+    BOOST_OUTCOME_TRY(header.author, decode_byte_string_fixed<33>(payload));
+    BOOST_OUTCOME_TRY(header.seqno, decode_unsigned<uint64_t>(payload));
+    BOOST_OUTCOME_TRY(header.timestamp_ns, decode_unsigned<uint128_t>(payload));
+    BOOST_OUTCOME_TRY(
+        header.round_signature, decode_byte_string_fixed<96>(payload));
+    BOOST_OUTCOME_TRY(
+        header.delayed_execution_results, decode_execution_results(payload));
+    BOOST_OUTCOME_TRY(
+        header.execution_inputs, decode_execution_inputs(payload));
+    BOOST_OUTCOME_TRY(header.block_body_id, decode_bytes32(payload));
+
+    if (MONAD_UNLIKELY(!payload.empty())) {
+        return DecodeError::InputTooLong;
+    }
+    return header;
 }
 
 byte_string encode_execution_inputs(BlockHeader const &header)
@@ -55,11 +164,21 @@ byte_string encode_execution_inputs(BlockHeader const &header)
 byte_string encode_quorum_certificate(MonadQuorumCertificate const &qc)
 {
     byte_string vote_encoded;
-    vote_encoded += encode_bytes32(qc.vote.id);
-    vote_encoded += encode_unsigned(qc.vote.round);
-    vote_encoded += encode_unsigned(qc.vote.epoch);
-    vote_encoded += encode_bytes32(qc.vote.parent_id);
-    vote_encoded += encode_unsigned(qc.vote.parent_round);
+    std::visit(
+        overloaded{
+            [&vote_encoded](MonadVoteV1 const &vote) {
+                vote_encoded += encode_bytes32(vote.id);
+                vote_encoded += encode_unsigned(vote.round);
+                vote_encoded += encode_unsigned(vote.epoch);
+                vote_encoded += encode_bytes32(vote.parent_id);
+                vote_encoded += encode_unsigned(vote.parent_round);
+            },
+            [&vote_encoded](MonadVoteV2 const &vote) {
+                vote_encoded += encode_bytes32(vote.id);
+                vote_encoded += encode_unsigned(vote.round);
+                vote_encoded += encode_unsigned(vote.epoch);
+            }},
+        qc.vote);
 
     byte_string signatures_encoded;
     signatures_encoded += encode_list2(
@@ -72,10 +191,32 @@ byte_string encode_quorum_certificate(MonadQuorumCertificate const &qc)
         encode_list2(vote_encoded), encode_list2(signatures_encoded));
 }
 
-byte_string encode_consensus_block_header(MonadConsensusBlockHeader const &header)
+MONAD_RLP_ANONYMOUS_NAMESPACE_END
+
+MONAD_RLP_NAMESPACE_BEGIN
+
+byte_string encode_consensus_block_body(MonadConsensusBlockBody const &body)
+{
+    byte_string txns;
+    for (auto const &tx : body.transactions) {
+        txns += encode_transaction(tx);
+    }
+    byte_string withdrawals;
+    for (auto const &w : body.withdrawals) {
+        withdrawals += encode_withdrawal(w);
+    }
+
+    return encode_list2(encode_list2(
+        encode_list2(txns),
+        encode_ommers(body.ommers),
+        encode_list2(withdrawals)));
+}
+
+byte_string
+encode_consensus_block_header(MonadConsensusBlockHeader const &header)
 {
     byte_string encoded_header;
-    encoded_header += encode_unsigned(header.round);
+    encoded_header += encode_unsigned(header.block_round);
     encoded_header += encode_unsigned(header.epoch);
     encoded_header += encode_quorum_certificate(header.qc);
     encoded_header += encode_string2(to_byte_string_view(header.author));
@@ -95,130 +236,8 @@ byte_string encode_consensus_block_header(MonadConsensusBlockHeader const &heade
     return encode_list2(encoded_header);
 }
 
-Result<BlockHeader> decode_execution_inputs(byte_string_view &enc)
-{
-    BlockHeader block_header;
-
-    BOOST_OUTCOME_TRY(auto payload, parse_list_metadata(enc));
-    BOOST_OUTCOME_TRY(block_header.ommers_hash, decode_bytes32(payload));
-    BOOST_OUTCOME_TRY(block_header.beneficiary, decode_address(payload));
-    BOOST_OUTCOME_TRY(block_header.transactions_root, decode_bytes32(payload));
-    BOOST_OUTCOME_TRY(
-        block_header.difficulty, decode_unsigned<uint256_t>(payload));
-    BOOST_OUTCOME_TRY(block_header.number, decode_unsigned<uint64_t>(payload));
-    BOOST_OUTCOME_TRY(
-        block_header.gas_limit, decode_unsigned<uint64_t>(payload));
-    BOOST_OUTCOME_TRY(
-        block_header.timestamp, decode_unsigned<uint64_t>(payload));
-    BOOST_OUTCOME_TRY(block_header.extra_data, decode_string(payload));
-    BOOST_OUTCOME_TRY(block_header.prev_randao, decode_bytes32(payload));
-    BOOST_OUTCOME_TRY(block_header.nonce, decode_byte_string_fixed<8>(payload));
-    BOOST_OUTCOME_TRY(
-        block_header.base_fee_per_gas, decode_unsigned<uint64_t>(payload));
-    BOOST_OUTCOME_TRY(block_header.withdrawals_root, decode_bytes32(payload));
-    BOOST_OUTCOME_TRY(
-        block_header.blob_gas_used, decode_unsigned<uint64_t>(payload));
-    BOOST_OUTCOME_TRY(
-        block_header.excess_blob_gas, decode_unsigned<uint64_t>(payload));
-    BOOST_OUTCOME_TRY(
-        block_header.parent_beacon_block_root, decode_bytes32(payload));
-
-    if (MONAD_UNLIKELY(!payload.empty())) {
-        return DecodeError::InputTooLong;
-    }
-
-    return block_header;
-}
-
-Result<std::vector<BlockHeader>> decode_execution_results(byte_string_view &enc)
-{
-    std::vector<BlockHeader> headers;
-
-    BOOST_OUTCOME_TRY(auto payload, parse_list_metadata(enc));
-    while (!payload.empty()) {
-        BOOST_OUTCOME_TRY(auto header, decode_block_header(payload));
-        headers.emplace_back(std::move(header));
-    }
-    if (MONAD_UNLIKELY(!payload.empty())) {
-        return DecodeError::InputTooLong;
-    }
-
-    return headers;
-}
-
-Result<MonadQuorumCertificate> decode_quorum_certificate(byte_string_view &enc)
-{
-    MonadQuorumCertificate qc;
-
-    BOOST_OUTCOME_TRY(auto qc_payload, parse_list_metadata(enc));
-    BOOST_OUTCOME_TRY(auto vote_payload, parse_list_metadata(qc_payload));
-    BOOST_OUTCOME_TRY(auto signatures_payload, parse_list_metadata(qc_payload));
-    if (MONAD_UNLIKELY(!qc_payload.empty())) {
-        return DecodeError::InputTooLong;
-    }
-
-    BOOST_OUTCOME_TRY(qc.vote.id, decode_bytes32(vote_payload));
-    BOOST_OUTCOME_TRY(qc.vote.round, decode_unsigned<uint64_t>(vote_payload));
-    BOOST_OUTCOME_TRY(qc.vote.epoch, decode_unsigned<uint64_t>(vote_payload));
-    BOOST_OUTCOME_TRY(qc.vote.parent_id, decode_bytes32(vote_payload));
-    BOOST_OUTCOME_TRY(
-        qc.vote.parent_round, decode_unsigned<uint64_t>(vote_payload));
-    if (MONAD_UNLIKELY(!vote_payload.empty())) {
-        return DecodeError::InputTooLong;
-    }
-
-    BOOST_OUTCOME_TRY(
-        auto signer_map_payload, parse_list_metadata(signatures_payload));
-    BOOST_OUTCOME_TRY(
-        qc.signatures.signer_map.num_bits,
-        decode_unsigned<uint32_t>(signer_map_payload));
-    BOOST_OUTCOME_TRY(
-        qc.signatures.signer_map.bitmap, decode_string(signer_map_payload));
-    BOOST_OUTCOME_TRY(
-        qc.signatures.aggregate_signature,
-        decode_byte_string_fixed<96>(signatures_payload));
-    if (MONAD_UNLIKELY(!signatures_payload.empty())) {
-        return DecodeError::InputTooLong;
-    }
-
-    return qc;
-}
-
-Result<MonadConsensusBlockHeader>
-decode_consensus_block_header(byte_string_view &enc)
-{
-    MonadConsensusBlockHeader consensus_header;
-
-    BOOST_OUTCOME_TRY(auto payload, parse_list_metadata(enc));
-
-    BOOST_OUTCOME_TRY(
-        consensus_header.round, decode_unsigned<uint64_t>(payload));
-    BOOST_OUTCOME_TRY(
-        consensus_header.epoch, decode_unsigned<uint64_t>(payload));
-    BOOST_OUTCOME_TRY(consensus_header.qc, decode_quorum_certificate(payload));
-    BOOST_OUTCOME_TRY(
-        consensus_header.author, decode_byte_string_fixed<33>(payload));
-    BOOST_OUTCOME_TRY(
-        consensus_header.seqno, decode_unsigned<uint64_t>(payload));
-    BOOST_OUTCOME_TRY(
-        consensus_header.timestamp_ns, decode_unsigned<uint128_t>(payload));
-    BOOST_OUTCOME_TRY(
-        consensus_header.round_signature,
-        decode_byte_string_fixed<96>(payload));
-    BOOST_OUTCOME_TRY(
-        consensus_header.delayed_execution_results,
-        decode_execution_results(payload));
-    BOOST_OUTCOME_TRY(
-        consensus_header.execution_inputs, decode_execution_inputs(payload));
-    BOOST_OUTCOME_TRY(consensus_header.block_body_id, decode_bytes32(payload));
-
-    if (MONAD_UNLIKELY(!payload.empty())) {
-        return DecodeError::InputTooLong;
-    }
-    return consensus_header;
-}
-
-Result<MonadConsensusBlockBody> decode_consensus_block_body(byte_string_view &enc)
+Result<MonadConsensusBlockBody>
+decode_consensus_block_body(byte_string_view &enc)
 {
     MonadConsensusBlockBody body;
 
@@ -244,6 +263,26 @@ Result<MonadConsensusBlockBody> decode_consensus_block_body(byte_string_view &en
     }
 
     return body;
+}
+
+Result<MonadConsensusBlockHeader>
+decode_consensus_block_header(MonadChain const &chain, byte_string_view &enc)
+{
+    byte_string_view enc2{enc};
+    BOOST_OUTCOME_TRY(auto payload, parse_list_metadata(enc2));
+
+    // parse the timestamp
+    BOOST_OUTCOME_TRY(auto _, parse_string_metadata(payload)); // round
+    BOOST_OUTCOME_TRY(_, parse_string_metadata(payload)); // epoch
+    BOOST_OUTCOME_TRY(_, parse_list_metadata(payload)); // qc
+    BOOST_OUTCOME_TRY(_, parse_string_metadata(payload)); // author
+    BOOST_OUTCOME_TRY(_, parse_string_metadata(payload)); // seqno
+    uint128_t timestamp_ns;
+    BOOST_OUTCOME_TRY(timestamp_ns, decode_unsigned<uint128_t>(payload));
+    uint64_t const timestamp_s = uint64_t{timestamp_ns / 1'000'000'000};
+
+    return decode_consensus_block_header(
+        chain.get_monad_revision(0, timestamp_s), enc);
 }
 
 MONAD_RLP_NAMESPACE_END
