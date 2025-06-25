@@ -11,9 +11,15 @@
 #include <utility>
 #include <vector>
 
+#define EXPLICIT_MONAD_CONSENSUS_BLOCK_HEADER(f)                               \
+    template decltype(f<MonadConsensusBlockHeaderV0>)                          \
+        f<MonadConsensusBlockHeaderV0>;                                        \
+    template decltype(f<MonadConsensusBlockHeaderV1>)                          \
+        f<MonadConsensusBlockHeaderV1>;
+
 MONAD_NAMESPACE_BEGIN
 
-struct MonadVote
+struct MonadVoteV0
 {
     bytes32_t id{NULL_HASH_BLAKE3};
     uint64_t round{0};
@@ -21,7 +27,16 @@ struct MonadVote
     bytes32_t parent_id{NULL_HASH_BLAKE3};
     uint64_t parent_round{0};
 
-    friend bool operator==(MonadVote const &, MonadVote const &) = default;
+    friend bool operator==(MonadVoteV0 const &, MonadVoteV0 const &) = default;
+};
+
+struct MonadVoteV1
+{
+    bytes32_t id{NULL_HASH_BLAKE3};
+    uint64_t round{0};
+    uint64_t epoch{0};
+
+    friend bool operator==(MonadVoteV1 const &, MonadVoteV1 const &) = default;
 };
 
 struct MonadSignerMap
@@ -42,6 +57,7 @@ struct MonadSignatures
     operator==(MonadSignatures const &, MonadSignatures const &) = default;
 };
 
+template <typename MonadVote>
 struct MonadQuorumCertificate
 {
     MonadVote vote{};
@@ -52,9 +68,13 @@ struct MonadQuorumCertificate
         MonadQuorumCertificate const &) = default;
 };
 
+using MonadQuorumCertificateV0 = MonadQuorumCertificate<MonadVoteV0>;
+using MonadQuorumCertificateV1 = MonadQuorumCertificate<MonadVoteV1>;
+
+template <class MonadQuorumCertificate>
 struct MonadConsensusBlockHeader
 {
-    uint64_t round{0};
+    uint64_t block_round{0};
     uint64_t epoch{0};
     MonadQuorumCertificate qc{}; // qc is for the previous block
     byte_string_fixed<33> author{};
@@ -70,18 +90,21 @@ struct MonadConsensusBlockHeader
         return qc.vote.id;
     }
 
-    uint64_t parent_round() const noexcept
-    {
-        return qc.vote.round;
-    }
-
     friend bool operator==(
         MonadConsensusBlockHeader const &,
         MonadConsensusBlockHeader const &) = default;
 };
 
-static_assert(sizeof(MonadConsensusBlockHeader) == 1216);
-static_assert(alignof(MonadConsensusBlockHeader) == 8);
+using MonadConsensusBlockHeaderV0 =
+    MonadConsensusBlockHeader<MonadQuorumCertificateV0>;
+using MonadConsensusBlockHeaderV1 =
+    MonadConsensusBlockHeader<MonadQuorumCertificateV1>;
+
+static_assert(sizeof(MonadConsensusBlockHeaderV0) == 1216);
+static_assert(alignof(MonadConsensusBlockHeaderV0) == 8);
+
+static_assert(sizeof(MonadConsensusBlockHeaderV1) == 1176);
+static_assert(alignof(MonadConsensusBlockHeaderV1) == 8);
 
 struct MonadConsensusBlockBody
 {
@@ -97,6 +120,7 @@ struct MonadConsensusBlockBody
 static_assert(sizeof(MonadConsensusBlockBody) == 72);
 static_assert(alignof(MonadConsensusBlockBody) == 8);
 
+template <class MonadConsensusBlockHeader>
 struct MonadConsensusBlock
 {
     MonadConsensusBlockHeader header{};
@@ -106,7 +130,13 @@ struct MonadConsensusBlock
         MonadConsensusBlock const &, MonadConsensusBlock const &) = default;
 };
 
-static_assert(sizeof(MonadConsensusBlock) == 1288);
-static_assert(alignof(MonadConsensusBlock) == 8);
+using MonadConsensusBlockV0 = MonadConsensusBlock<MonadConsensusBlockHeaderV0>;
+using MonadConsensusBlockV1 = MonadConsensusBlock<MonadConsensusBlockHeaderV1>;
+
+static_assert(sizeof(MonadConsensusBlockV0) == 1288);
+static_assert(alignof(MonadConsensusBlockV0) == 8);
+
+static_assert(sizeof(MonadConsensusBlockV1) == 1248);
+static_assert(alignof(MonadConsensusBlockV1) == 8);
 
 MONAD_NAMESPACE_END
