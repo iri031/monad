@@ -140,8 +140,9 @@ namespace
         std::atomic<size_t> cbs{0}; // callbacks when found
 
         OnDiskDbWithFileAsyncFixture()
-            : io_ctx(ReadOnlyOnDiskDbConfig{
-                  .dbname_paths = this->config.dbname_paths})
+            : io_ctx(
+                  ReadOnlyOnDiskDbConfig{
+                      .dbname_paths = this->config.dbname_paths})
             , ro_db(io_ctx)
             , ctx(async_context_create(ro_db))
         {
@@ -304,11 +305,12 @@ namespace
         std::deque<Update> updates_alloc;
         for (size_t i = offset; i < nkeys + offset; ++i) {
             auto &kv = bytes_alloc.emplace_back(keccak_int_to_string(i));
-            updates_alloc.push_back(Update{
-                .key = kv,
-                .value = kv,
-                .incarnation = false,
-                .next = UpdateList{}});
+            updates_alloc.push_back(
+                Update{
+                    .key = kv,
+                    .value = kv,
+                    .incarnation = false,
+                    .next = UpdateList{}});
         }
         return std::make_pair(std::move(bytes_alloc), std::move(updates_alloc));
     }
@@ -322,9 +324,10 @@ namespace
         static constexpr uint64_t num_blocks = 1000;
 
         ROOnDiskWithFileFixture()
-            : ro_db(ReadOnlyOnDiskDbConfig{
-                  .dbname_paths = this->config.dbname_paths,
-                  .node_lru_size = 100})
+            : ro_db(
+                  ReadOnlyOnDiskDbConfig{
+                      .dbname_paths = this->config.dbname_paths,
+                      .node_lru_size = 100})
             , pool(2, 16)
         {
             init_db_with_data();
@@ -685,7 +688,7 @@ TEST_F(OnDiskDbWithFileAsyncFixture, async_rodb_level_based_cache_works)
     ASSERT_NE(offset, INVALID_OFFSET);
 
     AsyncContext::TrieRootCache::ConstAccessor acc;
-    ASSERT_TRUE(ctx->root_cache.find(acc, offset));
+    ASSERT_TRUE(ctx->root_cache.find(acc, RootKey{offset, version}));
     auto root = acc->second->val;
     // MUST use traverse_blocking() to check the in memory nodes as they are.
     // The `Db::traverse()` API make a copy of traverse root which does not
@@ -878,11 +881,12 @@ TEST(DbTest, history_length_adjustment_never_under_min)
     auto const &large_value =
         bytes_alloc.emplace_back(monad::byte_string(8 * 1024, 0xf));
     for (size_t i = 0; i < nkeys; ++i) {
-        updates_alloc.push_back(Update{
-            .key = bytes_alloc.emplace_back(keccak_int_to_string(i)),
-            .value = large_value,
-            .incarnation = false,
-            .next = UpdateList{}});
+        updates_alloc.push_back(
+            Update{
+                .key = bytes_alloc.emplace_back(keccak_int_to_string(i)),
+                .value = large_value,
+                .incarnation = false,
+                .next = UpdateList{}});
     }
 
     // construct a read-only aux
