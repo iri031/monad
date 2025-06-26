@@ -16,9 +16,15 @@ add_library(monad_event STATIC
     "../core/src/monad/event/event_ring.c"
     "../core/src/monad/event/event_ring.h"
     "../core/src/monad/event/event_ring_util.c"
-    "../core/src/monad/event/event_ring_util.h")
+    "../core/src/monad/event/event_ring_util.h"
+    "../execution/src/monad/core/base_ctypes.h"
+    "../execution/src/monad/core/eth_ctypes.h"
+    "../execution/src/monad/core/event/exec_event_ctypes.h"
+    "../execution/src/monad/core/event/exec_event_ctypes_metadata.c"
+    "../execution/src/monad/core/event/exec_iter_help.h"
+    "../execution/src/monad/core/event/exec_iter_help_inline.h")
 
-target_include_directories(monad_event PUBLIC "../core/src")
+target_include_directories(monad_event PUBLIC "../core/src" "../execution/src")
 target_compile_definitions(monad_event PUBLIC _GNU_SOURCE)
 target_compile_features(monad_event PUBLIC c_std_23)
 target_compile_options(monad_event PRIVATE -Wall -Wextra -Wconversion -Werror)
