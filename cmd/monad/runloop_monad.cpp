@@ -16,6 +16,7 @@
 #include "runloop_monad.hpp"
 #include "event.hpp"
 #include "file_io.hpp"
+#include "wal.hpp"
 
 #include <category/core/assert.h>
 #include <category/core/blake3.hpp>
@@ -165,6 +166,29 @@ bool validate_delayed_execution_results(
     return true;
 }
 
+struct ToFinalize
+{
+    uint64_t block_number;
+    bytes32_t block_id;
+    std::vector<uint64_t> verified_blocks;
+};
+
+void finalize_block(
+    Db &db, ToFinalize const &to_finalize, BlockHashChain &block_hash_chain)
+{
+    LOG_INFO(
+        "Processing finalization for block {} with block_id {}",
+        to_finalize.block_number,
+        to_finalize.block_id);
+    db.finalize(to_finalize.block_number, to_finalize.block_id);
+    block_hash_chain.finalize(to_finalize.block_id);
+
+    if (!to_finalize.verified_blocks.empty() &&
+        to_finalize.verified_blocks.back() != mpt::INVALID_BLOCK_NUM) {
+        db.update_verified_block(to_finalize.verified_blocks.back());
+    }
+}
+
 template <class MonadConsensusBlockHeader>
 Result<BlockExecOutput> propose_block(
     bytes32_t const &block_id,
@@ -251,6 +275,12 @@ Result<BlockExecOutput> propose_block(
 
     exec_output.eth_block_hash =
         to_bytes(keccak256(rlp::encode_block_header(exec_output.eth_header)));
+
+    block_hash_chain.propose(
+        exec_output.eth_block_hash,
+        block.header.number,
+        block_id,
+        consensus_header.parent_id());
 
     [[maybe_unused]] auto const block_time =
         std::chrono::duration_cast<std::chrono::microseconds>(
@@ -349,15 +379,16 @@ MONAD_ANONYMOUS_NAMESPACE_END
 
 MONAD_NAMESPACE_BEGIN
 
-Result<std::pair<uint64_t, uint64_t>> runloop_monad(
+Result<std::pair<uint64_t, uint64_t>> runloop_monad_live(
     MonadChain const &chain, std::filesystem::path const &ledger_dir,
     mpt::Db &raw_db, Db &db, vm::VM &vm,
     BlockHashBufferFinalized &block_hash_buffer,
-    fiber::PriorityPool &priority_pool, uint64_t &finalized_block_num,
+    fiber::PriorityPool &priority_pool, uint64_t &output_block_num,
     uint64_t const end_block_num, sig_atomic_t const volatile &stop)
 {
     constexpr auto SLEEP_TIME = std::chrono::microseconds(100);
-    uint64_t const start_block_num = finalized_block_num;
+    uint64_t finalized_block_num = raw_db.get_latest_finalized_version();
+    uint64_t const start_block_num = finalized_block_num + 1;
     uint256_t const chain_id = chain.get_chain_id();
     BlockHashChain block_hash_chain(block_hash_buffer);
 
@@ -365,6 +396,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
     auto const header_dir = ledger_dir / "headers";
     auto const proposed_head = header_dir / "proposed_head";
     auto const finalized_head = header_dir / "finalized_head";
+    WalWriter wal(ledger_dir);
 
     uint64_t total_gas = 0;
     uint64_t ntxs = 0;
@@ -376,13 +408,6 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
             header;
     };
 
-    struct ToFinalize
-    {
-        uint64_t block;
-        bytes32_t block_id;
-        std::vector<uint64_t> verified_blocks;
-    };
-
     std::deque<ToExecute> to_execute;
     std::deque<ToFinalize> to_finalize;
     uint64_t last_finalized_block_number =
@@ -390,7 +415,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
 
     MONAD_ASSERT(last_finalized_block_number != mpt::INVALID_BLOCK_NUM);
 
-    while (finalized_block_num < end_block_num && stop == 0) {
+    while (output_block_num < end_block_num && stop == 0) {
         to_finalize.clear();
         to_execute.clear();
 
@@ -410,7 +435,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                     verified_blocks.push_back(h.number);
                 }
                 to_finalize.push_front(ToFinalize{
-                    .block = header.seqno,
+                    .block_number = header.seqno,
                     .block_id = id,
                     .verified_blocks = std::move(verified_blocks)});
 
@@ -459,6 +484,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
              &vm,
              &priority_pool,
              &last_finalized_block_number,
+             &wal,
              chain_id,
              start_block_num](
                 bytes32_t const &block_id,
@@ -485,6 +511,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
             MONAD_ASSERT(validate_delayed_execution_results(
                 block_hash_buffer, header.delayed_execution_results));
 
+            wal.write(WalAction::PROPOSE, block_id);
             BOOST_OUTCOME_TRY(
                 BlockExecOutput const exec_output,
                 record_block_exec_result(propose_block(
@@ -501,11 +528,6 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                     vm,
                     priority_pool,
                     block_number == start_block_num)));
-            block_hash_chain.propose(
-                exec_output.eth_block_hash,
-                block_number,
-                block_id,
-                header.parent_id());
 
             db.update_voted_metadata(header.seqno - 1, header.parent_id());
 
@@ -527,32 +549,138 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                 consensus_header));
         }
 
-        for (auto const &[block, block_id, verified_blocks] : to_finalize) {
-            LOG_INFO(
-                "Processing finalization for block {} with block_id {}",
-                block,
-                block_id);
-            db.finalize(block, block_id);
-            block_hash_chain.finalize(block_id);
-            monad_exec_block_finalized const finalized_info = {
-                .id = block_id, .block_number = block};
-            record_exec_event(
-                std::nullopt, MONAD_EXEC_BLOCK_FINALIZED, finalized_info);
-            finalized_block_num = block;
+        for (auto const &finalize_entry : to_finalize) {
+            finalize_block(db, finalize_entry, block_hash_chain);
+            wal.write(WalAction::FINALIZE, finalize_entry.block_id);
+            output_block_num = finalize_entry.block_number;
+        }
+    }
 
-            if (!verified_blocks.empty() &&
-                verified_blocks.back() != mpt::INVALID_BLOCK_NUM) {
-                db.update_verified_block(verified_blocks.back());
+    return {ntxs, total_gas};
+}
+
+Result<std::pair<uint64_t, uint64_t>> runloop_monad_replay(
+    MonadChain const &chain, std::filesystem::path const &ledger_dir,
+    mpt::Db &raw_db, Db &db, vm::VM &vm,
+    BlockHashBufferFinalized &block_hash_buffer,
+    fiber::PriorityPool &priority_pool, uint64_t &output_block_num,
+    uint64_t const end_block_num, sig_atomic_t const volatile &stop)
+{
+    uint64_t const start_block_num = output_block_num;
+    uint256_t const chain_id = chain.get_chain_id();
+
+    WalReader reader(chain, ledger_dir);
+    BlockHashChain block_hash_chain(block_hash_buffer);
+
+    uint64_t total_gas = 0;
+    uint64_t ntxs = 0;
+
+    MONAD_ASSERT(
+        raw_db.get_latest_finalized_version() != mpt::INVALID_BLOCK_NUM);
+
+    while (output_block_num <= end_block_num && stop == 0) {
+        auto reader_res = reader.next();
+        if (!reader_res) {
+            break;
+        }
+
+        auto const handle_propose_action =
+            [&block_hash_chain,
+             &chain,
+             &raw_db,
+             &db,
+             &vm,
+             &priority_pool,
+             chain_id,
+             start_block_num](
+                bytes32_t const &block_id,
+                auto const &header,
+                MonadConsensusBlockBody const &body) -> Result<void> {
+            auto const block_time_start = std::chrono::steady_clock::now();
+            uint64_t const block_number = header.execution_inputs.number;
+            auto const ntxns = body.transactions.size();
+
+            auto const &block_hash_buffer =
+                block_hash_chain.find_chain(header.parent_id());
+
+            record_monad_block_qc(
+                header, raw_db.get_latest_finalized_version());
+            record_block_exec_start(
+                block_id,
+                chain_id,
+                block_hash_buffer.get(header.seqno - 1),
+                header.execution_inputs,
+                header.block_round,
+                header.epoch,
+                ntxns);
+
+            BOOST_OUTCOME_TRY(
+                BlockExecOutput const exec_output,
+                record_block_exec_result(propose_block(
+                    block_id,
+                    header,
+                    Block{
+                        .header = header.execution_inputs,
+                        .transactions = std::move(body.transactions),
+                        .ommers = std::move(body.ommers),
+                        .withdrawals = std::move(body.withdrawals)},
+                    block_hash_chain,
+                    chain,
+                    db,
+                    vm,
+                    priority_pool,
+                    block_number == start_block_num)));
+
+            log_tps(
+                block_number,
+                block_id,
+                ntxns,
+                exec_output.eth_header.gas_used,
+                block_time_start);
+
+            return outcome::success();
+        };
+
+        auto const handle_finalize_action = [&output_block_num,
+                                             &db,
+                                             &block_hash_chain](
+                                                bytes32_t const &block_id,
+                                                auto const &header) {
+            std::vector<BlockHeader> const &delayed_exec_results =
+                header.delayed_execution_results;
+            std::vector<uint64_t> verified_blocks;
+            for (BlockHeader const &h : delayed_exec_results) {
+                verified_blocks.push_back(h.number);
             }
-            for (uint64_t b : verified_blocks) {
-                if (b == 0 || b == mpt::INVALID_BLOCK_NUM) {
-                    continue;
-                }
-                monad_exec_block_verified const verified_info = {
-                    .block_number = b};
-                record_exec_event(
-                    std::nullopt, MONAD_EXEC_BLOCK_VERIFIED, verified_info);
-            }
+            ToFinalize const finalize_entry = {
+                .block_number = header.execution_inputs.number,
+                .block_id = block_id,
+                .verified_blocks = std::move(verified_blocks)};
+            finalize_block(db, finalize_entry, block_hash_chain);
+            output_block_num = finalize_entry.block_number;
+        };
+
+        auto [action, block_id, consensus_header_variant, consensus_body] =
+            reader_res.value();
+        if (action == WalAction::PROPOSE) {
+            BOOST_OUTCOME_TRY(std::visit(
+                [&block_id, &consensus_body, &handle_propose_action](
+                    auto const &header) {
+                    return handle_propose_action(
+                        block_id, header, consensus_body);
+                },
+                consensus_header_variant));
+        }
+        else if (action == WalAction::FINALIZE) {
+            std::visit(
+                [&block_id, &handle_finalize_action](auto const &header) {
+                    return handle_finalize_action(block_id, header);
+                },
+                consensus_header_variant);
+        }
+        else {
+            MONAD_ABORT_PRINTF(
+                "Unknown action %u", static_cast<uint32_t>(action));
         }
     }
 
