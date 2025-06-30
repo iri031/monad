@@ -1,6 +1,11 @@
 #include <monad/config.hpp>
 #include <monad/core/assert.h>
+#include <monad/core/monad_block.hpp>
 #include <monad/execution/fee_buffer.hpp>
+#include <monad/execution/transaction_gas.hpp>
+
+#include <functional>
+#include <vector>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -64,6 +69,38 @@ FeeBufferResult FeeBuffer::get(uint64_t const i, Address const &a) const
     }
     MONAD_ASSERT(found);
     return result;
+}
+
+FeeBuffer make_fee_buffer(
+    uint64_t const block_to_execute,
+    std::function<
+        std::pair<MonadConsensusBlockHeader, std::vector<Transaction>>(
+            uint64_t block)> const &read_header_and_transactions)
+{
+    FeeBuffer fee_buffer;
+    for (uint64_t i = block_to_execute < EXECUTION_DELAY
+                          ? 1
+                          : block_to_execute - EXECUTION_DELAY + 1;
+         i < block_to_execute;
+         ++i) {
+        auto const [header, transactions] = read_header_and_transactions(i);
+        MONAD_ASSERT(header.execution_inputs.number == i);
+        fee_buffer.set(
+            header.execution_inputs.number,
+            header.round,
+            header.parent_round());
+        for (uint64_t i = 0; i < transactions.size(); ++i) {
+            auto const &txn = transactions[i];
+            auto const fee = max_gas_cost(txn.gas_limit, txn.max_fee_per_gas);
+            auto const sender = recover_sender(txn);
+            MONAD_ASSERT(
+                sender.has_value(), "transaction sender recovery failed");
+            fee_buffer.note(i, sender.value(), fee);
+        }
+        fee_buffer.propose();
+    }
+
+    return fee_buffer;
 }
 
 MONAD_NAMESPACE_END
