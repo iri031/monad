@@ -17,6 +17,7 @@
 #include <monad/execution/execute_block.hpp>
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/fee_buffer.hpp>
+#include <monad/execution/transaction_gas.hpp>
 #include <monad/execution/validate_block.hpp>
 #include <monad/execution/validate_transaction.hpp>
 #include <monad/execution/wal_reader.hpp>
@@ -133,8 +134,9 @@ bool validate_delayed_execution_results(
 
 Result<std::pair<bytes32_t, uint64_t>> propose_block(
     MonadConsensusBlockHeader const &consensus_header, Block block,
-    BlockHashChain &block_hash_chain, Chain const &chain, Db &db, vm::VM &vm,
-    fiber::PriorityPool &priority_pool, bool const is_first_block)
+    BlockHashChain &block_hash_chain, FeeBuffer &fee_buffer, Chain const &chain,
+    Db &db, vm::VM &vm, fiber::PriorityPool &priority_pool,
+    bool const is_first_block)
 {
     auto const &block_hash_buffer =
         block_hash_chain.find_chain(consensus_header.parent_round());
@@ -162,8 +164,18 @@ Result<std::pair<bytes32_t, uint64_t>> propose_block(
             return TransactionError::MissingSender;
         }
     }
+
+    fee_buffer.set(
+        block.header.number,
+        consensus_header.round,
+        consensus_header.parent_round());
+    for (unsigned i = 0; i < block.transactions.size(); ++i) {
+        auto const &txn = block.transactions[i];
+        fee_buffer.note(
+            i, senders[i], max_gas_cost(txn.gas_limit, txn.max_fee_per_gas));
+    }
+    fee_buffer.propose();
     BlockState block_state(db, vm);
-    FeeBuffer fee_buffer;
     MonadChainContext chain_context{.fee_buffer = fee_buffer};
     BOOST_OUTCOME_TRY(
         auto results,
@@ -224,6 +236,21 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
     auto const header_dir = ledger_dir / "headers";
     auto const proposed_head = header_dir / "proposed_head";
     auto const finalized_head = header_dir / "finalized_head";
+
+    FeeBuffer fee_buffer = make_fee_buffer(
+        start_block_num,
+        [&finalized_head, &header_dir, &body_dir](uint64_t const block) {
+            bytes32_t header_id = head_pointer_to_id(finalized_head);
+            while (true) {
+                auto const header = read_header(header_id, header_dir);
+                MONAD_ASSERT(header.execution_inputs.number >= block);
+                if (header.execution_inputs.number == block) {
+                    auto const body = read_body(header.block_body_id, body_dir);
+                    return std::make_pair(header, body.transactions);
+                }
+                header_id = header.parent_id();
+            }
+        });
 
     uint64_t total_gas = 0;
     uint64_t ntxs = 0;
@@ -347,6 +374,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                         .ommers = std::move(consensus_body.ommers),
                         .withdrawals = std::move(consensus_body.withdrawals)},
                     block_hash_chain,
+                    fee_buffer,
                     chain,
                     db,
                     vm,

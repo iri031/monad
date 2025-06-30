@@ -34,7 +34,10 @@ read_header(bytes32_t const &id, std::filesystem::path const &dir)
 {
     auto const filename = evmc::hex(id);
     auto const path = dir / filename;
-    MONAD_ASSERT(std::filesystem::exists(path));
+    MONAD_ASSERT_PRINTF(
+        std::filesystem::exists(path),
+        "header file does not exist: %s",
+        path.c_str());
     auto const data = slurp_file(path);
     auto const checksum = to_bytes(blake3(data));
     MONAD_ASSERT_PRINTF(
@@ -51,7 +54,10 @@ read_body(bytes32_t const &id, std::filesystem::path const &dir)
 {
     auto const filename = evmc::hex(id);
     auto const path = dir / filename;
-    MONAD_ASSERT(std::filesystem::exists(path));
+    MONAD_ASSERT_PRINTF(
+        std::filesystem::exists(path),
+        "body file does not exist: %s",
+        path.c_str());
     auto const data = slurp_file(path);
     auto const checksum = to_bytes(blake3(data));
     MONAD_ASSERT_PRINTF(

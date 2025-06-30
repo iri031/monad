@@ -3,6 +3,8 @@
 #include <monad/config.hpp>
 #include <monad/core/address.hpp>
 #include <monad/core/int.hpp>
+#include <monad/core/monad_block.hpp>
+#include <monad/core/transaction.hpp>
 
 #include <ankerl/unordered_dense.h>
 
@@ -12,6 +14,7 @@
 #include <immer/array.hpp>
 #pragma GCC diagnostic pop
 
+#include <functional>
 #include <vector>
 
 MONAD_NAMESPACE_BEGIN
@@ -49,5 +52,11 @@ public:
 
 static_assert(sizeof(FeeBuffer) == 152);
 static_assert(alignof(FeeBuffer) == 8);
+
+FeeBuffer make_fee_buffer(
+    uint64_t block_to_execute,
+    std::function<
+        std::pair<MonadConsensusBlockHeader, std::vector<Transaction>>(
+            uint64_t block)> const &read_header_and_transactions);
 
 MONAD_NAMESPACE_END
