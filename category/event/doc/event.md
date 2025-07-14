@@ -7,17 +7,16 @@ block has started executing." `monad` EVM events can be observed by external
 third-party applications, using a high-performance inter-process communication
 channel.
 
-## Overview of events
+## Overview of execution events
 
-There are two parts to the event system:
+There are two parts to the execution event system:
 
 1. The `monad` execution daemon is the *writer* of all events
 2. An external application can become a *reader* of events using the C
-   library `libmonad_event` (a Rust implementation is also available)
+   library `libmonad_event`, or alternatively, the Rust module
+   `monad-exec-events`
 
-This documentation file provides a general overview of the event system, and
-describes how to use `libmonad_event` as a reader. Even if your intention is
-to use the Rust SDK, most of the information applies to both libraries.
+This documentation file provides a general overview of the event system.
 
 ### Basic operation
 

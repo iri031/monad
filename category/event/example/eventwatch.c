@@ -23,12 +23,12 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <monad/core/event/exec_event_ctypes.h>
-#include <monad/core/event/exec_iter_help.h>
-#include <monad/event/event_iterator.h>
-#include <monad/event/event_metadata.h>
-#include <monad/event/event_ring.h>
-#include <monad/event/event_ring_util.h>
+#include <category/core/event/event_iterator.h>
+#include <category/core/event/event_metadata.h>
+#include <category/core/event/event_ring.h>
+#include <category/core/event/event_ring_util.h>
+#include <category/execution/ethereum/event/exec_event_ctypes.h>
+#include <category/execution/ethereum/event/exec_iter_help.h>
 
 static void usage(FILE *out)
 {
@@ -259,7 +259,7 @@ static void find_initial_iteration_point(
     // This function is not strictly necessary, but it is probably useful for
     // most use cases. When an iterator is initialized via a call to
     // `monad_event_ring_init_iterator`, the initial iteration point is set to
-    // the most recently produced event.
+    // the most recently produced event (if there is one).
     //
     // The rationale for starting with the most recent event is that the first
     // event is usually already gone, i.e., overwritten by a later event in
@@ -275,15 +275,16 @@ static void find_initial_iteration_point(
     // any subsequent events (this is so that you can track the proposal
     // through its consensus states).
     //
-    // This function rewinds the iterator so that the next event it produces
-    // is either:
+    // This function checks if the iterator is pointing "in the middle of"
+    // a block (i.e., not at BLOCK_START) and if it is, rewinds it to the
+    // previous BLOCK_START event. In the (very unlikely) case that the
+    // iterator is already pointing at BLOCK_START, this will rewind it to the
+    // previous consensus event, i.e., a nearby BLOCK_QC, BLOCK_FINALIZED, or
+    // BLOCK_VERIFIED.
     //
-    //   - The BLOCK_START of the current block (if the iterator is pointing in
-    // the middle of a block). The event ring typically holds hundreds of
-    // blocks, so moving backward doesn't materially increase the risk that
-    // we'll fall behind and gap.
-    (void)monad_exec_iter_consensus_prev(
-        iter, event_ring, MONAD_EXEC_BLOCK_START, nullptr);
+    // The event ring typically holds hundreds of blocks, so moving backward
+    // doesn't materially increase the risk that we'll fall behind and gap.
+    (void)monad_exec_iter_consensus_prev(iter, MONAD_EXEC_BLOCK_START, nullptr);
 }
 
 int main(int argc, char **argv)
