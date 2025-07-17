@@ -607,6 +607,9 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad_replay(
                 consensus_header.execution_inputs.number;
             auto const ntxns = consensus_body.transactions.size();
 
+            auto const &block_hash_buffer =
+                block_hash_chain.find_chain(consensus_header.parent_id());
+
             record_monad_block_qc(consensus_header, finalized_block_num);
             record_block_exec_start(
                 block_id,
@@ -619,7 +622,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad_replay(
 
             BOOST_OUTCOME_TRY(
                 BlockExecOutput const exec_output,
-                propose_block(
+                record_block_exec_result(propose_block(
                     block_id,
                     consensus_header,
                     Block{
@@ -632,9 +635,14 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad_replay(
                     db,
                     vm,
                     priority_pool,
-                    block_number == start_block_num));
+                    block_number == start_block_num)));
 
-            log_tps(block_number, block_id, ntxns, exec_output.eth_header.gas_used, block_time_start);
+            log_tps(
+                block_number,
+                block_id,
+                ntxns,
+                exec_output.eth_header.gas_used,
+                block_time_start);
         }
         else if (action == WalAction::FINALIZE) {
             std::vector<BlockHeader> const &delayed_exec_results =
