@@ -27,6 +27,7 @@ add_library(
   "ethereum/core/account.hpp"
   "ethereum/core/address.hpp"
   "ethereum/core/block.hpp"
+  "ethereum/core/contract/abi_encode.hpp"
   "ethereum/core/contract/big_endian.hpp"
   "ethereum/core/contract/storage_array.hpp"
   "ethereum/core/contract/storage_variable.hpp"
