@@ -109,7 +109,7 @@ int main(int const argc, char const *argv[])
     };
 
     monad_chain_config chain_config;
-    monad_run_mode run_mode = RUN_MODE_REPLAY;
+    monad_run_mode run_mode = RUN_MODE_LIVE_EXECUTION;
     fs::path block_db_path;
     uint64_t nblocks = std::numeric_limits<uint64_t>::max();
     unsigned nthreads = 4;
