@@ -167,6 +167,20 @@ add_library(
   # monad/execution
   "monad/validate_monad_block.cpp"
   "monad/validate_monad_block.hpp"
+  # monad/staking
+  "monad/staking/staking_contract.cpp"
+  "monad/staking/staking_contract.hpp"
+  "monad/staking/util/bls.cpp"
+  "monad/staking/util/bls.hpp"
+  "monad/staking/util/constants.hpp"
+  "monad/staking/util/del_info.cpp"
+  "monad/staking/util/del_info.hpp"
+  "monad/staking/util/secp256k1.cpp"
+  "monad/staking/util/secp256k1.hpp"
+  "monad/staking/util/val_consensus.cpp"
+  "monad/staking/util/val_consensus.hpp"
+  "monad/staking/util/val_execution.cpp"
+  "monad/staking/util/val_execution.hpp"
   # monad/state2
   "monad/state2/proposal_state.hpp")
 
@@ -182,7 +196,6 @@ target_link_libraries(
   PUBLIC monad-vm
   PUBLIC monad_core
   PUBLIC monad_trie
-  PRIVATE blst::blst
   PRIVATE Boost::fiber
   PRIVATE Boost::json
   PRIVATE PkgConfig::brotli
@@ -193,7 +206,8 @@ target_link_libraries(
   PUBLIC quill::quill
   PUBLIC silkpre
   PUBLIC unordered_dense
-  PUBLIC TBB::tbb)
+  PUBLIC TBB::tbb
+  PUBLIC blst::blst)
 monad_compile_options(monad_execution)
 
 target_link_options(monad_execution PRIVATE LINKER:-z,defs)
