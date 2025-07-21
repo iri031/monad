@@ -386,10 +386,12 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
         // read from finalized head if we are behind
         id = head_pointer_to_id(finalized_head);
         if (MONAD_LIKELY(id != bytes32_t{})) {
+            uint64_t block_number;
             do {
                 auto const block_id = id;
                 header = read_header(chain, id, header_dir);
                 id = header.parent_id();
+                block_number = header.seqno;
 
                 if (MONAD_UNLIKELY(header.seqno > end_block_num)) {
                     continue;
@@ -414,7 +416,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                         .block_id = block_id, .header = std::move(header)});
                 }
             }
-            while (header.seqno - 1 > last_finalized_by_execution);
+            while (block_number - 1 > last_finalized_by_execution);
         }
 
         // try reading from proposal head if we are caught up
