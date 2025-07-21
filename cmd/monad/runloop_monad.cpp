@@ -444,8 +444,12 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                 // finalized_head points to a block with seqno >= 1.
                 if (!to_execute.empty()) {
                     auto const &first_header = to_execute.front().header;
-                    MONAD_ASSERT(
-                        first_header.seqno - 1 == last_finalized_by_execution);
+                    MONAD_ASSERT_PRINTF(
+                        first_header.seqno - 1 >= last_finalized_by_execution,
+                        "first header seqno %lu, last_finalized_by_execution "
+                        "%lu",
+                        first_header.seqno,
+                        last_finalized_by_execution);
                     bool const on_canonical_chain =
                         query_consensus_header(
                             raw_db,
