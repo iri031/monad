@@ -1,6 +1,7 @@
 #pragma once
 
 #include <category/core/config.hpp>
+#include <category/execution/ethereum/chain/chain_config.h>
 #include <category/execution/ethereum/db/file_db.hpp>
 
 #include <cstdint>

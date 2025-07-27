@@ -2,6 +2,7 @@
 
 #include <category/core/config.hpp>
 #include <category/core/result.hpp>
+#include <category/execution/ethereum/chain/chain_config.h>
 #include <monad/vm/vm.hpp>
 
 #include <cstdint>
