@@ -1,8 +1,8 @@
-#include <monad/config.hpp>
-#include <monad/core/assert.h>
-#include <monad/core/monad_block.hpp>
-#include <monad/execution/fee_buffer.hpp>
-#include <monad/execution/transaction_gas.hpp>
+#include <category/core/assert.h>
+#include <category/core/config.hpp>
+#include <category/execution/ethereum/transaction_gas.hpp>
+#include <category/execution/monad/core/monad_block.hpp>
+#include <category/execution/monad/fee_buffer.hpp>
 
 #include <functional>
 #include <vector>
@@ -10,13 +10,13 @@
 MONAD_NAMESPACE_BEGIN
 
 void FeeBuffer::set(
-    uint64_t const block_number, uint64_t const round,
-    uint64_t const parent_round)
+    uint64_t const block_number, bytes32_t const &id,
+    bytes32_t const &parent_id)
 {
     MONAD_ASSERT(fees_.empty());
     block_number_ = block_number;
-    round_ = round;
-    parent_round_ = parent_round;
+    id_ = id;
+    parent_id_ = parent_id;
 }
 
 void FeeBuffer::note(uint64_t const i, Address const &a, uint512_t const fee)
@@ -27,30 +27,36 @@ void FeeBuffer::note(uint64_t const i, Address const &a, uint512_t const fee)
 
 void FeeBuffer::propose()
 {
-    ProposalFees const &parent = proposals_.contains(parent_round_)
-                                     ? proposals_.at(parent_round_)
+    ProposalFees const &parent = proposals_.contains(parent_id_)
+                                     ? proposals_.at(parent_id_).second
                                      : ProposalFees{EXECUTION_DELAY};
     MONAD_ASSERT(
         proposals_
             .emplace(
-                round_,
-                parent.set(block_number_ % EXECUTION_DELAY, std::move(fees_)))
+                id_,
+                std::make_pair(
+                    block_number_,
+                    parent.set(
+                        block_number_ % EXECUTION_DELAY, std::move(fees_))))
             .second);
     fees_.clear();
 }
 
-void FeeBuffer::finalize(uint64_t const round)
+void FeeBuffer::finalize(bytes32_t const &id)
 {
+    MONAD_ASSERT(proposals_.contains(id));
     std::erase_if(
-        proposals_, [round](auto const &it) { return it.first < round; });
+        proposals_, [block_number = proposals_.at(id).first](auto const &it) {
+            return it.second.first < block_number;
+        });
 }
 
 FeeBufferResult FeeBuffer::get(uint64_t const i, Address const &a) const
 {
-    MONAD_ASSERT(proposals_.contains(round_));
+    MONAD_ASSERT(proposals_.contains(id_));
     FeeBufferResult result{};
     bool found = false;
-    auto const &proposals = proposals_.at(round_);
+    auto const &proposals = proposals_.at(id_).second;
     for (unsigned j = 0; j < proposals.size(); ++j) {
         auto const &fees = proposals[j];
         if (!fees.contains(a)) {
@@ -73,9 +79,9 @@ FeeBufferResult FeeBuffer::get(uint64_t const i, Address const &a) const
 
 FeeBuffer make_fee_buffer(
     uint64_t const block_to_execute,
-    std::function<
-        std::pair<MonadConsensusBlockHeader, std::vector<Transaction>>(
-            uint64_t block)> const &read_header_and_transactions)
+    std::function<std::tuple<
+        bytes32_t, MonadConsensusBlockHeaderV1, std::vector<Transaction>>(
+        uint64_t block)> const &read_header_and_transactions)
 {
     FeeBuffer fee_buffer;
     for (uint64_t i = block_to_execute < EXECUTION_DELAY
@@ -83,12 +89,9 @@ FeeBuffer make_fee_buffer(
                           : block_to_execute - EXECUTION_DELAY + 1;
          i < block_to_execute;
          ++i) {
-        auto const [header, transactions] = read_header_and_transactions(i);
+        auto const [id, header, transactions] = read_header_and_transactions(i);
         MONAD_ASSERT(header.execution_inputs.number == i);
-        fee_buffer.set(
-            header.execution_inputs.number,
-            header.round,
-            header.parent_round());
+        fee_buffer.set(header.execution_inputs.number, id, header.parent_id());
         for (uint64_t i = 0; i < transactions.size(); ++i) {
             auto const &txn = transactions[i];
             auto const fee = max_gas_cost(txn.gas_limit, txn.max_fee_per_gas);

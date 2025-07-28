@@ -2,6 +2,7 @@
 
 #include <category/core/bytes.hpp>
 #include <category/core/config.hpp>
+#include <category/execution/ethereum/chain/chain.hpp>
 #include <category/execution/ethereum/core/address.hpp>
 #include <category/execution/ethereum/evm.hpp>
 #include <category/execution/ethereum/precompiles.hpp>

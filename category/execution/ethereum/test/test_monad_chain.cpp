@@ -6,11 +6,16 @@
 #include <category/execution/ethereum/core/rlp/block_rlp.hpp>
 #include <category/execution/ethereum/core/transaction.hpp>
 #include <category/execution/ethereum/db/trie_db.hpp>
+#include <category/execution/ethereum/state2/block_state.hpp>
+#include <category/execution/ethereum/state3/state.hpp>
+#include <category/execution/ethereum/transaction_gas.hpp>
 #include <category/execution/ethereum/validate_block.hpp>
+#include <category/execution/ethereum/validate_transaction.hpp>
 #include <category/execution/monad/chain/monad_devnet.hpp>
 #include <category/execution/monad/chain/monad_mainnet.hpp>
 #include <category/execution/monad/chain/monad_testnet.hpp>
 #include <category/execution/monad/chain/monad_testnet2.hpp>
+#include <category/execution/monad/fee_buffer.hpp>
 #include <category/mpt/db.hpp>
 
 #include <gtest/gtest.h>
@@ -125,23 +130,23 @@ TEST(MonadChain, get_balance)
         MonadChainContext context{.fee_buffer = fee_buffer};
 
         // entire balance is available (special case)
-        fee_buffer.set(0, 0, 0);
+        fee_buffer.set(0, bytes32_t{0}, bytes32_t{0});
         fee_buffer.note(0, ADDRESS, max_reserve / 2);
         fee_buffer.propose();
         EXPECT_EQ(
             chain.get_balance(0, 0, 0, ADDRESS, state, &context), max_reserve);
 
         // entire reserve is depleted
-        fee_buffer.set(1, 1, 0);
+        fee_buffer.set(1, bytes32_t{1}, bytes32_t{0});
         fee_buffer.note(0, ADDRESS, max_reserve / 2);
         fee_buffer.propose();
         EXPECT_EQ(
             chain.get_balance(0, 0, 0, ADDRESS, state, &context), max_reserve);
 
         // half of balance is reserved
-        fee_buffer.set(2, 2, 1);
+        fee_buffer.set(2, bytes32_t{2}, bytes32_t{1});
         fee_buffer.propose();
-        fee_buffer.set(3, 3, 2);
+        fee_buffer.set(3, bytes32_t{3}, bytes32_t{2});
         fee_buffer.note(0, ADDRESS, 0);
         fee_buffer.propose();
         EXPECT_EQ(
@@ -184,7 +189,7 @@ TEST(MonadChain, validate_transaction)
             .max_fee_per_gas = 1500000000000,
             .gas_limit = 1000000,
         };
-        fee_buffer.set(0, 0, 0);
+        fee_buffer.set(0, bytes32_t{0}, bytes32_t{0});
         fee_buffer.note(
             0, SENDER, max_gas_cost(tx1.gas_limit, tx1.max_fee_per_gas));
         fee_buffer.propose();
@@ -193,18 +198,18 @@ TEST(MonadChain, validate_transaction)
         EXPECT_EQ(res.error(), TransactionError::InsufficientReserveBalance);
 
         // clear out
-        fee_buffer.set(1, 1, 0);
+        fee_buffer.set(1, bytes32_t{1}, bytes32_t{0});
         fee_buffer.propose();
-        fee_buffer.set(2, 2, 1);
+        fee_buffer.set(2, bytes32_t{2}, bytes32_t{1});
         fee_buffer.propose();
-        fee_buffer.set(3, 3, 2);
+        fee_buffer.set(3, bytes32_t{3}, bytes32_t{2});
         fee_buffer.propose();
 
         // try it again
         state.add_to_balance(SENDER, max_reserve / 2);
         Transaction const tx2{
             .nonce = 10, .max_fee_per_gas = 25000000000000, .gas_limit = 30000};
-        fee_buffer.set(4, 4, 3);
+        fee_buffer.set(4, bytes32_t{4}, bytes32_t{3});
         fee_buffer.note(
             0, SENDER, max_gas_cost(tx2.gas_limit, tx2.max_fee_per_gas));
         fee_buffer.propose();

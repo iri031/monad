@@ -9,7 +9,9 @@
 #include <category/execution/ethereum/core/fmt/bytes_fmt.hpp>
 #include <category/execution/ethereum/dao.hpp>
 #include <category/execution/ethereum/execute_transaction.hpp>
+#include <category/execution/ethereum/state3/state.hpp>
 #include <category/execution/ethereum/validate_block.hpp>
+#include <category/execution/ethereum/validate_transaction.hpp>
 
 #include <evmc/evmc.h>
 

@@ -1,4 +1,4 @@
-#include <monad/execution/fee_buffer.hpp>
+#include <category/execution/monad/fee_buffer.hpp>
 
 #include <gtest/gtest.h>
 
@@ -8,7 +8,7 @@ TEST(FeeBuffer, basic)
 {
     FeeBuffer buffer;
     for (unsigned block = 1; block <= 10; ++block) {
-        buffer.set(block, block, block - 1);
+        buffer.set(block, bytes32_t{block}, bytes32_t{block - 1});
         for (unsigned addr = 1; addr <= 10; ++addr) {
             buffer.note(addr, Address{addr}, addr * block);
         }
@@ -32,15 +32,15 @@ TEST(FeeBuffer, basic)
 TEST(FeeBuffer, finalize)
 {
     FeeBuffer buffer;
-    buffer.set(0, 0, 0);
+    buffer.set(0, bytes32_t{0}, bytes32_t{0});
     buffer.note(0, Address{1}, 1);
     buffer.propose();
 
-    buffer.set(1, 1, 0);
+    buffer.set(1, bytes32_t{1}, bytes32_t{0});
     buffer.note(0, Address{1}, 2);
     buffer.propose();
 
-    buffer.set(2, 2, 1);
+    buffer.set(2, bytes32_t{2}, bytes32_t{1});
     buffer.note(0, Address{1}, 3);
     buffer.propose();
 
@@ -51,7 +51,7 @@ TEST(FeeBuffer, finalize)
             .tx_fee = uint512_t{3},
             .num_fees = 3}));
 
-    buffer.finalize(2);
+    buffer.finalize(bytes32_t{2});
 
     EXPECT_EQ(
         buffer.get(0, Address{1}),
@@ -60,7 +60,7 @@ TEST(FeeBuffer, finalize)
             .tx_fee = uint512_t{3},
             .num_fees = 3}));
 
-    buffer.set(3, 3, 2);
+    buffer.set(3, bytes32_t{3}, bytes32_t{2});
     buffer.note(0, Address{1}, 3);
     buffer.propose();
     EXPECT_EQ(
@@ -74,15 +74,15 @@ TEST(FeeBuffer, finalize)
 TEST(FeeBuffer, branch)
 {
     FeeBuffer buffer;
-    buffer.set(10, 10, 0);
+    buffer.set(10, bytes32_t{10}, bytes32_t{0});
     buffer.note(0, Address{1}, 1);
     buffer.propose();
 
-    buffer.set(11, 11, 10);
+    buffer.set(11, bytes32_t{11}, bytes32_t{10});
     buffer.note(0, Address{1}, 2);
     buffer.propose();
 
-    buffer.set(11, 12, 10);
+    buffer.set(11, bytes32_t{12}, bytes32_t{10});
     buffer.note(0, Address{1}, 3);
     buffer.propose();
 
@@ -93,7 +93,7 @@ TEST(FeeBuffer, branch)
             .tx_fee = uint512_t{3},
             .num_fees = 2}));
 
-    buffer.set(12, 13, 11);
+    buffer.set(12, bytes32_t{13}, bytes32_t{11});
     buffer.note(0, Address{1}, 2);
     buffer.propose();
 
@@ -108,12 +108,12 @@ TEST(FeeBuffer, branch)
 TEST(FeeBuffer, cumulative)
 {
     FeeBuffer buffer;
-    buffer.set(10, 10, 0);
+    buffer.set(10, bytes32_t{10}, bytes32_t{0});
     buffer.note(0, Address{1}, 1);
     buffer.note(1, Address{1}, 3);
     buffer.propose();
 
-    buffer.set(11, 11, 10);
+    buffer.set(11, bytes32_t{11}, bytes32_t{10});
     buffer.note(0, Address{1}, 2);
     buffer.note(1, Address{1}, 1);
     buffer.note(2, Address{1}, 10);

@@ -26,6 +26,7 @@
 #include <category/execution/monad/chain/monad_mainnet.hpp>
 #include <category/execution/monad/chain/monad_testnet.hpp>
 #include <category/execution/monad/chain/monad_testnet2.hpp>
+#include <category/execution/monad/fee_buffer.hpp>
 #include <category/mpt/db_error.hpp>
 #include <category/mpt/ondisk_db_config.hpp>
 #include <category/mpt/util.hpp>
@@ -209,7 +210,7 @@ namespace
         }();
         // TODO: initialize fee_buffer correctly
         FeeBuffer fee_buffer;
-        fee_buffer.set(block_number, round, 0);
+        fee_buffer.set(block_number, block_id, NULL_HASH_BLAKE3);
         fee_buffer.note(
             0,
             sender,
