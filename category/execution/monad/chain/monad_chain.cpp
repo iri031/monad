@@ -85,7 +85,7 @@ uint256_t MonadChain::get_balance(
     }
     auto const balance = acct.value().balance;
     auto const monad_rev = get_monad_revision(block_number, timestamp);
-    if (MONAD_LIKELY(monad_rev >= MONAD_THREE)) {
+    if (MONAD_LIKELY(monad_rev >= MONAD_FOUR)) {
         auto const &context = *static_cast<MonadChainContext *>(chain_context);
         auto const [cum_fee, _, num_fees] = context.fee_buffer.get(i, sender);
         if (acct.value().code_hash == NULL_HASH && num_fees == 1) {
@@ -112,7 +112,7 @@ Result<void> MonadChain::validate_transaction(
     auto const acct = state.recent_account(sender);
     auto res = ::monad::validate_transaction(tx, acct);
     auto const monad_rev = get_monad_revision(block_number, timestamp);
-    if (MONAD_LIKELY(monad_rev >= MONAD_THREE)) {
+    if (MONAD_LIKELY(monad_rev >= MONAD_FOUR)) {
         if (res.has_error() &&
             res.error() != TransactionError::InsufficientBalance) {
             return res;
