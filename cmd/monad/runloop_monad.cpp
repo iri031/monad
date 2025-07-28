@@ -40,6 +40,25 @@
 
 MONAD_ANONYMOUS_NAMESPACE_BEGIN
 
+struct LedgerEntry
+{
+    bytes32_t block_id;
+    std::variant<MonadConsensusBlockHeaderV0, MonadConsensusBlockHeaderV1>
+        header;
+
+    uint64_t block_number() const noexcept
+    {
+        return std::visit(
+            [](auto const &header) { return header.seqno; }, header);
+    }
+
+    bytes32_t parent_id() const noexcept
+    {
+        return std::visit(
+            [](auto const &header) { return header.parent_id(); }, header);
+    }
+};
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -231,7 +250,7 @@ Result<std::pair<bytes32_t, uint64_t>> propose_block(
 }
 
 template <class MonadConsensusBlockHeader, class Fn>
-std::optional<bytes32_t> handle_header(
+Result<std::optional<bytes32_t>> handle_header(
     bytes32_t const &id, byte_string_view data, uint64_t const start_exclusive,
     uint64_t const end_inclusive, Fn const &fn)
 {
@@ -243,7 +262,7 @@ std::optional<bytes32_t> handle_header(
         evmc::hex(id).c_str());
     auto const &header = header_res.value();
     if (header.seqno > start_exclusive && header.seqno <= end_inclusive) {
-        fn(id, header);
+        BOOST_OUTCOME_TRY(fn(id, header));
     }
     if (header.seqno <= (start_exclusive + 1)) {
         return std::nullopt;
@@ -252,7 +271,7 @@ std::optional<bytes32_t> handle_header(
 }
 
 template <class Fn>
-bytes32_t for_each_header(
+Result<bytes32_t> for_each_header(
     std::filesystem::path const &head, std::filesystem::path const &header_dir,
     MonadChain const &chain, uint64_t const start_exclusive,
     uint64_t const end_inclusive, Fn const &fn)
@@ -273,12 +292,16 @@ bytes32_t for_each_header(
         auto const monad_rev = chain.get_monad_revision(0, ts.value());
         std::optional<bytes32_t> next_id;
         if (MONAD_LIKELY(monad_rev >= MONAD_THREE)) {
-            next_id = handle_header<MonadConsensusBlockHeaderV1>(
-                id, data, start_exclusive, end_inclusive, fn);
+            BOOST_OUTCOME_TRY(
+                next_id,
+                handle_header<MonadConsensusBlockHeaderV1>(
+                    id, data, start_exclusive, end_inclusive, fn));
         }
         else {
-            next_id = handle_header<MonadConsensusBlockHeaderV0>(
-                id, data, start_exclusive, end_inclusive, fn);
+            BOOST_OUTCOME_TRY(
+                next_id,
+                handle_header<MonadConsensusBlockHeaderV0>(
+                    id, data, start_exclusive, end_inclusive, fn));
         }
         if (!next_id.has_value()) {
             break;
@@ -296,11 +319,10 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
     MonadChain const &chain, std::filesystem::path const &ledger_dir,
     mpt::Db &raw_db, Db &db, vm::VM &vm,
     BlockHashBufferFinalized &block_hash_buffer,
-    fiber::PriorityPool &priority_pool, uint64_t &finalized_block_num,
+    fiber::PriorityPool &priority_pool, uint64_t &block_number,
     uint64_t const end_block_num, sig_atomic_t const volatile &stop)
 {
-    constexpr auto SLEEP_TIME = std::chrono::microseconds(100);
-    uint64_t const start_block_num = finalized_block_num;
+    uint64_t const start_block_num = raw_db.get_latest_finalized_version() + 1;
     BlockHashChain block_hash_chain(block_hash_buffer);
 
     auto const body_dir = ledger_dir / "bodies";
@@ -311,156 +333,127 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
     uint64_t total_gas = 0;
     uint64_t ntxs = 0;
 
-    struct ToExecute
-    {
-        bytes32_t block_id;
-        std::variant<MonadConsensusBlockHeaderV0, MonadConsensusBlockHeaderV1>
-            header;
+    std::deque<LedgerEntry> entries;
+
+    auto const execute_proposal = [&body_dir,
+                                   &block_hash_chain,
+                                   &db,
+                                   &chain,
+                                   &vm,
+                                   &priority_pool,
+                                   &block_number,
+                                   start_block_num](
+                                      bytes32_t const &block_id,
+                                      auto const &header) -> Result<void> {
+        block_number = header.execution_inputs.number;
+        auto const block_time_start = std::chrono::steady_clock::now();
+        auto body = read_body(header.block_body_id, body_dir);
+        auto const ntxns = body.transactions.size();
+        auto const &block_hash_buffer =
+            block_hash_chain.find_chain(header.parent_id());
+
+        MONAD_ASSERT(validate_delayed_execution_results(
+            block_hash_buffer, header.delayed_execution_results));
+
+        BOOST_OUTCOME_TRY(
+            auto const propose_result,
+            propose_block(
+                block_id,
+                header,
+                Block{
+                    .header = header.execution_inputs,
+                    .transactions = std::move(body.transactions),
+                    .ommers = std::move(body.ommers),
+                    .withdrawals = std::move(body.withdrawals)},
+                block_hash_chain,
+                chain,
+                db,
+                vm,
+                priority_pool,
+                block_number == start_block_num));
+        auto const &[block_hash, gas_used] = propose_result;
+        block_hash_chain.propose(
+            block_hash, block_number, block_id, header.parent_id());
+
+        db.update_voted_metadata(header.seqno - 1, header.parent_id());
+
+        log_tps(block_number, block_id, ntxns, gas_used, block_time_start);
+
+        return outcome::success();
     };
 
-    struct ToFinalize
-    {
-        uint64_t block;
-        bytes32_t block_id;
-        uint64_t verified_block;
-    };
-
-    std::deque<ToExecute> to_execute;
-    std::deque<ToFinalize> to_finalize;
-    uint64_t last_finalized_block_number =
-        raw_db.get_latest_finalized_version();
-
-    MONAD_ASSERT(last_finalized_block_number != mpt::INVALID_BLOCK_NUM);
-
-    while (finalized_block_num < end_block_num && stop == 0) {
-        to_finalize.clear();
-        to_execute.clear();
-
-        last_finalized_block_number = raw_db.get_latest_finalized_version();
-
-        // read from finalized head if we are behind
-        bytes32_t const finalized_head_id = for_each_header(
-            finalized_head,
-            header_dir,
-            chain,
-            last_finalized_block_number,
-            end_block_num,
-            [&raw_db, &to_execute, &to_finalize](
-                bytes32_t const &id, auto const &header) {
-                uint64_t const verified_block =
-                    header.delayed_execution_results.empty()
-                        ? mpt::INVALID_BLOCK_NUM
-                        : header.delayed_execution_results.back().number;
-                to_finalize.push_front(ToFinalize{
-                    .block = header.seqno,
-                    .block_id = id,
-                    .verified_block = verified_block});
-
-                if (!has_executed(raw_db, header, id)) {
-                    to_execute.push_front(
-                        ToExecute{.block_id = id, .header = header});
-                }
-            });
-
-        // try reading from proposal head if we are caught up
-        if (to_finalize.empty()) {
+    while (raw_db.get_latest_finalized_version() < end_block_num && stop == 0) {
+        // read from finalized head
+        BOOST_OUTCOME_TRY(
+            auto const finalized_head_id,
             for_each_header(
+                finalized_head,
+                header_dir,
+                chain,
+                raw_db.get_latest_finalized_version(),
+                end_block_num,
+                [&raw_db, &db, &block_hash_chain, &execute_proposal](
+                    bytes32_t const &id, auto const &header) -> Result<void> {
+                    if (!has_executed(raw_db, header, id)) {
+                        BOOST_OUTCOME_TRY(execute_proposal(id, header));
+                    }
+
+                    db.finalize(header.seqno, id);
+                    if (!header.delayed_execution_results.empty()) {
+                        db.update_verified_block(
+                            header.delayed_execution_results.back().number);
+                    }
+                    block_hash_chain.finalize(id);
+                    LOG_INFO(
+                        "Processed finalized block {} with block_id {}",
+                        header.seqno,
+                        id);
+                    return outcome::success();
+                }));
+
+        auto const last_finalized = raw_db.get_latest_finalized_version();
+        // prune proposals
+        while (!entries.empty() &&
+               entries.back().block_number() <= last_finalized) {
+            entries.pop_back();
+        }
+
+        // load new proposals
+        if (entries.empty()) {
+            [[maybe_unused]] auto _ = for_each_header(
                 proposed_head,
                 header_dir,
                 chain,
-                last_finalized_block_number,
+                last_finalized,
                 end_block_num,
-                [&raw_db,
-                 &to_execute,
-                 &finalized_head_id,
-                 &last_finalized_block_number](
-                    bytes32_t const &id, auto const &header) {
-                    if (MONAD_UNLIKELY(
-                            header.seqno == last_finalized_block_number + 1 &&
-                            finalized_head_id != header.parent_id())) {
-                        // canonical chain check
-                        to_execute.clear();
-                    }
-                    else if (!has_executed(raw_db, header, id)) {
-                        to_execute.push_front(
-                            ToExecute{.block_id = id, .header = header});
-                    }
+                [&entries](
+                    bytes32_t const &id, auto const &header) -> Result<void> {
+                    entries.emplace_back(id, header);
+                    return outcome::success();
                 });
         }
 
-        if (MONAD_UNLIKELY(to_execute.empty() && to_finalize.empty())) {
-            std::this_thread::sleep_for(SLEEP_TIME);
-            continue;
+        // canonical chain check
+        MONAD_ASSERT(entries.back().block_number() == last_finalized + 1);
+        if (entries.back().parent_id() != finalized_head_id) {
+            entries.clear();
         }
 
-        auto const handle_to_execute =
-            [&body_dir,
-             &block_hash_chain,
-             &db,
-             &chain,
-             &vm,
-             &priority_pool,
-             start_block_num](
-                bytes32_t const &block_id,
-                auto const &header) -> Result<std::pair<uint64_t, uint64_t>> {
-            auto const block_time_start = std::chrono::steady_clock::now();
-
-            uint64_t const block_number = header.execution_inputs.number;
-            auto body = read_body(header.block_body_id, body_dir);
-            auto const ntxns = body.transactions.size();
-
-            auto const &block_hash_buffer =
-                block_hash_chain.find_chain(header.parent_id());
-
-            MONAD_ASSERT(validate_delayed_execution_results(
-                block_hash_buffer, header.delayed_execution_results));
-
-            BOOST_OUTCOME_TRY(
-                auto const propose_result,
-                propose_block(
-                    block_id,
-                    header,
-                    Block{
-                        .header = header.execution_inputs,
-                        .transactions = std::move(body.transactions),
-                        .ommers = std::move(body.ommers),
-                        .withdrawals = std::move(body.withdrawals)},
-                    block_hash_chain,
-                    chain,
-                    db,
-                    vm,
-                    priority_pool,
-                    block_number == start_block_num));
-            auto const &[block_hash, gas_used] = propose_result;
-            block_hash_chain.propose(
-                block_hash, block_number, block_id, header.parent_id());
-
-            db.update_voted_metadata(header.seqno - 1, header.parent_id());
-
-            log_tps(block_number, block_id, ntxns, gas_used, block_time_start);
-
-            return outcome::success();
-        };
-
-        for (auto const &[block_id, consensus_header] : to_execute) {
+        // execute first unexecuted proposal
+        auto const it = std::ranges::find_if(
+            entries.rbegin(), entries.rend(), [&raw_db](auto const &entry) {
+                return std::visit(
+                    [&raw_db, &entry](auto const &header) {
+                        return !has_executed(raw_db, header, entry.block_id);
+                    },
+                    entry.header);
+            });
+        if (it != entries.rend()) {
             BOOST_OUTCOME_TRY(std::visit(
-                [&block_id, handle_to_execute](auto const &header) {
-                    return handle_to_execute(block_id, header);
+                [&it, &execute_proposal](auto const &header) {
+                    return execute_proposal(it->block_id, header);
                 },
-                consensus_header));
-        }
-
-        for (auto const &[block, block_id, verified_block] : to_finalize) {
-            LOG_INFO(
-                "Processing finalization for block {} with block_id {}",
-                block,
-                block_id);
-            db.finalize(block, block_id);
-            block_hash_chain.finalize(block_id);
-            if (verified_block != mpt::INVALID_BLOCK_NUM) {
-                db.update_verified_block(verified_block);
-            }
-            finalized_block_num = block;
+                it->header));
         }
     }
 
