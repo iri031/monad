@@ -287,6 +287,7 @@ Result<ExecutionResult> ExecuteTransaction<rev>::operator()()
             block_state_.merge(state);
 
             return ExecutionResult{
+                .state = std::move(state),
                 .receipt = receipt,
                 .call_frames = std::move(*call_tracer).get_frames()};
         }
@@ -311,6 +312,7 @@ Result<ExecutionResult> ExecuteTransaction<rev>::operator()()
         block_state_.merge(state);
 
         return ExecutionResult{
+            .state = std::move(state),
             .receipt = receipt,
             .call_frames = std::move(*call_tracer).get_frames()};
     }

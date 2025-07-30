@@ -19,6 +19,7 @@
 #include <category/core/result.hpp>
 #include <category/execution/ethereum/core/address.hpp>
 #include <category/execution/ethereum/core/receipt.hpp>
+#include <category/execution/ethereum/state3/state.hpp>
 #include <category/execution/ethereum/trace/call_frame.hpp>
 
 #include <boost/fiber/future/promise.hpp>
@@ -32,6 +33,7 @@ MONAD_NAMESPACE_BEGIN
 class BlockHashBuffer;
 class BlockMetrics;
 struct BlockHeader;
+class BlockMetrics;
 class BlockState;
 struct CallTracerBase;
 struct Chain;
@@ -42,6 +44,7 @@ struct Transaction;
 
 struct ExecutionResult
 {
+    State state;
     Receipt receipt;
     std::vector<CallFrame> call_frames;
 };
