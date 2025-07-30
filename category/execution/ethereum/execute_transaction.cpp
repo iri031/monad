@@ -42,8 +42,8 @@ constexpr void irrevocable_change(
     uint256_t const &base_fee_per_gas)
 {
     if (tx.to) { // EVM will increment if new contract
-        auto const nonce = state.get_nonce(sender);
-        state.set_nonce(sender, nonce + 1);
+        bool const success = state.increment_nonce(sender);
+        MONAD_ASSERT(success);
     }
 
     auto const upfront_cost =
@@ -196,7 +196,16 @@ Result<evmc::Result> execute_impl2(
     BlockHashBuffer const &block_hash_buffer, State &state)
 {
     auto const sender_account = state.recent_account(sender);
-    BOOST_OUTCOME_TRY(validate_transaction(tx, sender_account));
+    auto const validate_txn = [&tx, &sender_account, &state, &sender]() {
+        auto result = validate_transaction(tx, sender_account);
+        if (!result) {
+            auto &account_state = state.original_account_state(sender);
+            account_state.set_validate_exact_nonce();
+            account_state.set_validate_exact_balance();
+        }
+        return result;
+    };
+    BOOST_OUTCOME_TRY(validate_txn());
 
     size_t const max_code_size =
         chain.get_max_code_size(hdr.number, hdr.timestamp);
@@ -234,8 +243,8 @@ Result<ExecutionResult> execute(
     {
         TRACE_TXN_EVENT(StartExecution);
 
-        State state{block_state, Incarnation{hdr.number, i + 1}};
-        state.set_original_nonce(sender, tx.nonce);
+        State state{
+            block_state, Incarnation{hdr.number, i + 1}, sender, tx.nonce};
 
 #ifdef ENABLE_CALL_TRACING
         CallTracer call_tracer{tx};

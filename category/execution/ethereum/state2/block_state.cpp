@@ -120,15 +120,17 @@ vm::SharedVarcode BlockState::read_code(bytes32_t const &code_hash)
     }
 }
 
-bool BlockState::can_merge(State const &state)
+bool BlockState::can_merge(State &state) const
 {
     MONAD_ASSERT(state_);
-    for (auto const &[address, account_state] : state.original_) {
+    for (auto &[address, account_state] : state.original_) {
         auto const &account = account_state.account_;
         auto const &storage = account_state.storage_;
         StateDeltas::const_accessor it{};
         MONAD_ASSERT(state_->find(it, address));
-        if (account != it->second.account.second) {
+        auto const &actual = it->second.account.second;
+        if ((account != actual) &&
+            !state.try_fix_account_mismatch(address, account_state, actual)) {
             return false;
         }
         // TODO account.has_value()???
