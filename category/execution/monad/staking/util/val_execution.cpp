@@ -66,6 +66,16 @@ StorageVariable<AddressFlags> const ValExecution::address_flags() const noexcept
     return StorageVariable<AddressFlags>{state_, address_, key_ + 6};
 }
 
+StorageVariable<u256_be> ValExecution::unclaimed_rewards() noexcept
+{
+    return StorageVariable<u256_be>{state_, address_, key_ + 7};
+}
+
+StorageVariable<u256_be> const ValExecution::unclaimed_rewards() const noexcept
+{
+    return StorageVariable<u256_be>{state_, address_, key_ + 7};
+}
+
 byte_string ValExecution::abi_encode() const noexcept
 {
     AbiEncoder encoder;

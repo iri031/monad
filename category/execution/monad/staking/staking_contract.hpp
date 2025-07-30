@@ -359,8 +359,8 @@ private:
 
     uint64_t get_activation_epoch() const noexcept;
     bool is_epoch_active(uint64_t) const noexcept;
-    void touch_delegator(u64_be, DelInfo &);
-    void apply_compound(u64_be, DelInfo &);
+    Result<void> touch_delegator(u64_be, DelInfo &);
+    uint256_t apply_compound(u64_be, DelInfo &);
 
     Result<void> delegate(u64_be, uint256_t const &, Address const &);
 

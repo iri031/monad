@@ -46,6 +46,8 @@ public:
     StorageVariable<KeysPacked> const keys() const noexcept;
     StorageVariable<AddressFlags> address_flags() noexcept;
     StorageVariable<AddressFlags> const address_flags() const noexcept;
+    StorageVariable<u256_be> unclaimed_rewards() noexcept;
+    StorageVariable<u256_be> const unclaimed_rewards() const noexcept;
 
     /////////////
     // Helpers //

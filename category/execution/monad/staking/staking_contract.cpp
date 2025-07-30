@@ -200,7 +200,7 @@ void promote_delta(DelInfo &del)
     del.set_next_delta_epoch(0);
 }
 
-void StakingContract::apply_compound(u64_be const val_id, DelInfo &del)
+uint256_t StakingContract::apply_compound(u64_be const val_id, DelInfo &del)
 {
     auto const epoch_acc = dec_acc_refcount(del.get_delta_epoch(), val_id);
     auto const stake = del.stake().load().native();
@@ -213,17 +213,34 @@ void StakingContract::apply_compound(u64_be const val_id, DelInfo &del)
     u256_be const compounded_stake = stake + delta_stake;
     del.stake().store(compounded_stake);
 
-    u256_be const new_rewards = del.rewards().load().native() + rewards;
-    del.rewards().store(new_rewards);
+    // u256_be const new_rewards = del.rewards().load().native() + rewards;
+    // del.rewards().store(new_rewards);
     promote_delta(del);
+    return rewards;
 }
 
-void StakingContract::touch_delegator(u64_be const val_id, DelInfo &del)
+Result<byte_string> reward_state_check(ValExecution &val, uint256_t rewards)
+{
+    bool can_claim_reward = val.unclaimed_rewards().load().native() >= rewards;
+
+    // revert tx if claiming greater than unclaimed reward balance.
+    if (MONAD_UNLIKELY(!can_claim_reward)) {
+        return StakeError::InvalidInput;
+    }
+    u256_be const unclaimed_rewards =
+        val.unclaimed_rewards().load().native() - rewards;
+    val.unclaimed_rewards().store(unclaimed_rewards);
+
+    return outcome::success();
+}
+
+Result<void> StakingContract::touch_delegator(u64_be const val_id, DelInfo &del)
 {
     // move up next_delta_epoch
     if (can_promote_delta(del, vars.epoch.load())) {
         promote_delta(del);
     }
+    auto val = vars.val_execution(val_id);
 
     bool const can_compound = is_epoch_active(del.get_delta_epoch().native());
     bool const can_compound_boundary =
@@ -231,21 +248,28 @@ void StakingContract::touch_delegator(u64_be const val_id, DelInfo &del)
     if (MONAD_UNLIKELY(can_compound_boundary)) {
         MONAD_ASSERT(can_compound); // only set when user compounds before
                                     // and after block boundary
-        apply_compound(val_id, del);
+        auto rewards = apply_compound(val_id, del);
+        BOOST_OUTCOME_TRY(reward_state_check(val, rewards));
+        u256_be const new_rewards = del.rewards().load().native() + rewards;
+        del.rewards().store(new_rewards);
     }
     if (MONAD_UNLIKELY(can_compound)) {
-        apply_compound(val_id, del);
+        auto rewards = apply_compound(val_id, del);
+        BOOST_OUTCOME_TRY(reward_state_check(val, rewards));
+        u256_be const new_rewards = del.rewards().load().native() + rewards;
+        del.rewards().store(new_rewards);
     }
-    auto const val = vars.val_execution(val_id);
     auto const rewards = calculate_rewards(
         del.stake().load().native(),
         val.acc().load().native(),
         del.acc().load().native());
+    BOOST_OUTCOME_TRY(reward_state_check(val, rewards));
 
     // update delegator state
     u256_be const new_rewards = del.rewards().load().native() + rewards;
     del.rewards().store(new_rewards);
     del.acc().store(val.acc().load());
+    return outcome::success();
 }
 
 ///////////////////
@@ -307,7 +331,7 @@ Result<byte_string> StakingContract::precompile_get_delegator(
     auto const val_id = unaligned_load<u64_be>(input.data());
     auto const address = unaligned_load<Address>(input.data() + sizeof(u64_be));
     auto del = vars.delegator(val_id, address);
-    touch_delegator(val_id, del);
+    touch_delegator(val_id, del).value();
     return del.abi_encode();
 }
 
@@ -421,11 +445,13 @@ Result<byte_string> StakingContract::precompile_add_validator(
 
     // add validator metadata
     auto val = vars.val_execution(val_id);
-    val.keys().store(KeysPacked{
-        .secp_pubkey = secp_pubkey_serialized,
-        .bls_pubkey = bls_pubkey_serialized});
-    val.address_flags().store(AddressFlags{
-        .auth_address = auth_address, .flags = ValidatorFlagsStakeTooLow});
+    val.keys().store(
+        KeysPacked{
+            .secp_pubkey = secp_pubkey_serialized,
+            .bls_pubkey = bls_pubkey_serialized});
+    val.address_flags().store(
+        AddressFlags{
+            .auth_address = auth_address, .flags = ValidatorFlagsStakeTooLow});
     val.commission().store(commission);
 
     // add to valset
@@ -446,7 +472,7 @@ Result<void> StakingContract::delegate(
     }
 
     auto del = vars.delegator(val_id, address);
-    touch_delegator(val_id, del);
+    touch_delegator(val_id, del).value();
 
     bool need_future_accumulator = false;
     u64_be const active_epoch = get_activation_epoch();
@@ -549,7 +575,7 @@ Result<byte_string> StakingContract::precompile_undelegate(
     }
 
     auto del = vars.delegator(val_id, msg_sender);
-    touch_delegator(val_id, del);
+    touch_delegator(val_id, del).value();
     uint256_t val_stake = val.stake().load().native();
     uint256_t del_stake = del.stake().load().native();
 
@@ -589,10 +615,11 @@ Result<byte_string> StakingContract::precompile_undelegate(
     // each withdrawal request can be thought of as an independent delegator
     // whose stake is the amount being withdrawn.
     vars.withdrawal_request(val_id, msg_sender, withdrawal_id)
-        .store(WithdrawalRequest{
-            .amount = amount,
-            .acc = del.acc().load(),
-            .epoch = withdrawal_epoch});
+        .store(
+            WithdrawalRequest{
+                .amount = amount,
+                .acc = del.acc().load(),
+                .epoch = withdrawal_epoch});
     inc_acc_refcount(withdrawal_epoch, val_id);
 
     return byte_string{};
@@ -612,7 +639,7 @@ Result<byte_string> StakingContract::precompile_compound(
         unaligned_load<u64_be>(input.substr(0, sizeof(u64_be)).data());
 
     auto del = vars.delegator(val_id, msg_sender);
-    touch_delegator(val_id, del);
+    touch_delegator(val_id, del).value();
     auto const rewards = del.rewards().clear().native();
 
     if (MONAD_UNLIKELY(rewards != 0)) {
@@ -655,6 +682,9 @@ Result<byte_string> StakingContract::precompile_withdraw(
     auto amount = withdrawal_request->amount.native();
     auto const rewards = calculate_rewards(
         amount, withdraw_acc, withdrawal_request->acc.native());
+    auto val = vars.val_execution(val_id);
+    reward_state_check(val, rewards);
+
     amount += rewards;
 
     auto const contract_balance =
@@ -677,7 +707,7 @@ Result<byte_string> StakingContract::precompile_claim_rewards(
         unaligned_load<u64_be>(input.substr(0, sizeof(u64_be)).data());
 
     auto del = vars.delegator(val_id, msg_sender);
-    touch_delegator(val_id, del);
+    touch_delegator(val_id, del).value();
 
     auto const rewards = del.rewards().load();
     if (MONAD_LIKELY(rewards.native() != 0)) {
@@ -766,6 +796,11 @@ Result<byte_string> StakingContract::syscall_reward(
     uint256_t const delegator_reward = REWARD - commission_reward;
     uint256_t acc = ((delegator_reward * UNIT_BIAS) / active_stake);
     val_execution.acc().store(val_execution.acc().load().native() + acc);
+
+    // 5. update unclaimed rewards
+    u256_be const unclaimed_rewards =
+        val_execution.unclaimed_rewards().load().native() + delegator_reward;
+    val_execution.unclaimed_rewards().store(unclaimed_rewards);
     return byte_string{};
 }
 
