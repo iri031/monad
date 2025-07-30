@@ -14,6 +14,9 @@
 #include <category/execution/monad/staking/util/constants.hpp>
 #include <category/execution/monad/staking/util/secp256k1.hpp>
 
+#include <boost/outcome/success_failure.hpp>
+#include <boost/outcome/try.hpp>
+
 #include <cstring>
 #include <memory>
 
@@ -282,24 +285,24 @@ StakingContract::precompile_dispatch(byte_string_view &input)
     return dispatch_table[signature];
 }
 
-StakingContract::Output StakingContract::precompile_get_validator(
+Result<byte_string> StakingContract::precompile_get_validator(
     byte_string_view const input, evmc_address const &, evmc_uint256be const &)
 {
     if (MONAD_UNLIKELY(input.size() != sizeof(u64_be) /* validator id */)) {
-        return INVALID_INPUT;
+        return StakeError::InvalidInput;
     }
     auto const val_id = unaligned_load<u64_be>(input.data());
     auto const val = vars.val_execution(val_id);
     return val.abi_encode();
 }
 
-StakingContract::Output StakingContract::precompile_get_delegator(
+Result<byte_string> StakingContract::precompile_get_delegator(
     byte_string_view const input, evmc_address const &, evmc_uint256be const &)
 {
     constexpr size_t MESSAGE_SIZE = sizeof(u64_be) /* validator id */ +
                                     sizeof(Address) /* delegator address */;
     if (MONAD_UNLIKELY(input.size() != MESSAGE_SIZE)) {
-        return INVALID_INPUT;
+        return StakeError::InvalidInput;
     }
     auto const val_id = unaligned_load<u64_be>(input.data());
     auto const address = unaligned_load<Address>(input.data() + sizeof(u64_be));
@@ -308,14 +311,14 @@ StakingContract::Output StakingContract::precompile_get_delegator(
     return del.abi_encode();
 }
 
-StakingContract::Output StakingContract::precompile_fallback(
+Result<byte_string> StakingContract::precompile_fallback(
     byte_string_view const, evmc_address const &, evmc_uint256be const &)
 {
-    return METHOD_NOT_SUPPORTED;
+    return StakeError::MethodNotSupported;
 }
 
 // TODO: Track solvency
-StakingContract::Output StakingContract::precompile_add_validator(
+Result<byte_string> StakingContract::precompile_add_validator(
     byte_string_view const input, evmc_address const &,
     evmc_uint256be const &msg_value)
 {
@@ -331,7 +334,7 @@ StakingContract::Output StakingContract::precompile_add_validator(
 
     // Validate input size
     if (MONAD_UNLIKELY(input.size() != EXPECTED_INPUT_SIZE)) {
-        return INVALID_INPUT;
+        return StakeError::InvalidInput;
     }
 
     // extract individual inputs
@@ -353,51 +356,51 @@ StakingContract::Output StakingContract::precompile_add_validator(
     auto const bls_signature_serialized =
         unaligned_load<byte_string_fixed<96>>(consume_bytes(reader, 96).data());
     if (!reader.empty()) {
-        return INVALID_INPUT;
+        return StakeError::InvalidInput;
     }
 
     if (MONAD_UNLIKELY(
             0 !=
             memcmp(
                 signed_stake.bytes, msg_value.bytes, sizeof(evmc_uint256be)))) {
-        return INVALID_INPUT;
+        return StakeError::InvalidInput;
     }
 
     auto const stake = intx::be::load<uint256_t>(msg_value);
     if (MONAD_UNLIKELY(stake < MIN_VALIDATE_STAKE)) {
-        return INSUFFICIENT_STAKE;
+        return StakeError::InsufficientStake;
     }
 
     // Verify SECP signature
     Secp256k1_Pubkey secp_pubkey(secp_pubkey_serialized);
     if (MONAD_UNLIKELY(!secp_pubkey.is_valid())) {
-        return INVALID_SECP_PUBKEY;
+        return StakeError::InvalidSecpPubkey;
     }
     Secp256k1_Signature secp_sig(secp_signature_serialized);
     if (MONAD_UNLIKELY(!secp_sig.is_valid())) {
-        return INVALID_SECP_SIGNATURE;
+        return StakeError::InvalidSecpSignature;
     }
     if (MONAD_UNLIKELY(!secp_sig.verify(secp_pubkey, message))) {
-        return SECP_SIGNATURE_VERIFICATION_FAILED;
+        return StakeError::SecpSignatureVerificationFailed;
     }
 
     // Verify BLS signature
     Bls_Pubkey bls_pubkey(bls_pubkey_serialized);
     if (MONAD_UNLIKELY(!bls_pubkey.is_valid())) {
-        return INVALID_BLS_PUBKEY;
+        return StakeError::InvalidBlsPubkey;
     }
     Bls_Signature bls_sig(bls_signature_serialized);
     if (MONAD_UNLIKELY(!bls_sig.is_valid())) {
-        return INVALID_BLS_SIGNATURE;
+        return StakeError::InvalidBlsSignature;
     }
     if (MONAD_UNLIKELY(!bls_sig.verify(bls_pubkey, message))) {
-        return BLS_SIGNATURE_VERIFICATION_FAILED;
+        return StakeError::BlsSignatureVerificationFailed;
     }
 
     // check commission rate doesn't exceed 100%
     // note that: delegator_reward = (raw_reward * 1e18) / 1e18
     if (MONAD_UNLIKELY(commission.native() > MON)) {
-        return INVALID_INPUT;
+        return StakeError::InvalidInput;
     }
 
     // Check if validator already exists
@@ -408,7 +411,7 @@ StakingContract::Output StakingContract::precompile_add_validator(
     if (MONAD_UNLIKELY(
             val_id_storage.load_checked().has_value() ||
             val_id_bls_storage.load_checked().has_value())) {
-        return VALIDATOR_EXISTS;
+        return StakeError::ValidatorExists;
     }
 
     u64_be const val_id = vars.last_val_id.load().native() + 1;
@@ -430,19 +433,16 @@ StakingContract::Output StakingContract::precompile_add_validator(
 
     emit_validator_created_event(val_id, auth_address);
 
-    auto const status = add_stake(val_id, stake, auth_address).status;
-    if (MONAD_LIKELY(status == SUCCESS)) {
-        return byte_string{abi_encode_int(val_id)};
-    }
-    return status;
+    BOOST_OUTCOME_TRY(delegate(val_id, stake, auth_address));
+    return byte_string{abi_encode_int(val_id)};
 }
 
-StakingContract::Output StakingContract::add_stake(
+Result<void> StakingContract::delegate(
     u64_be const val_id, uint256_t const &stake, Address const &address)
 {
     auto val = vars.val_execution(val_id);
     if (MONAD_UNLIKELY(!val.exists())) {
-        return UNKNOWN_VALIDATOR;
+        return StakeError::UnknownValidator;
     }
 
     auto del = vars.delegator(val_id, address);
@@ -489,16 +489,16 @@ StakingContract::Output StakingContract::add_stake(
         val.clear_flag(ValidatorFlagWithdrawn);
     }
 
-    return SUCCESS;
+    return outcome::success();
 }
 
-StakingContract::Output StakingContract::precompile_delegate(
+Result<byte_string> StakingContract::precompile_delegate(
     byte_string_view const input, evmc_address const &msg_sender,
     evmc_uint256be const &msg_value)
 {
     // Validate input size
     if (MONAD_UNLIKELY(input.size() != sizeof(u64_be) /* validator id */)) {
-        return INVALID_INPUT;
+        return StakeError::InvalidInput;
     }
 
     auto const val_id =
@@ -506,12 +506,13 @@ StakingContract::Output StakingContract::precompile_delegate(
     auto const stake = intx::be::load<uint256_t>(msg_value);
 
     if (MONAD_UNLIKELY(stake == 0)) {
-        return INSUFFICIENT_STAKE;
+        return StakeError::InsufficientStake;
     }
-    return add_stake(val_id, stake, msg_sender);
+    BOOST_OUTCOME_TRY(delegate(val_id, stake, msg_sender));
+    return byte_string{};
 }
 
-StakingContract::Output StakingContract::precompile_undelegate(
+Result<byte_string> StakingContract::precompile_undelegate(
     byte_string_view const input, evmc_address const &msg_sender,
     evmc_uint256be const &)
 {
@@ -519,7 +520,7 @@ StakingContract::Output StakingContract::precompile_undelegate(
                                     sizeof(u256_be) /* amount */ +
                                     sizeof(uint8_t) /* withdrawal id */;
     if (MONAD_UNLIKELY(input.size() != MESSAGE_SIZE)) {
-        return INVALID_INPUT;
+        return StakeError::InvalidInput;
     }
 
     byte_string_view reader = input;
@@ -532,19 +533,19 @@ StakingContract::Output StakingContract::precompile_undelegate(
         unaligned_load<uint8_t>(consume_bytes(reader, sizeof(uint8_t)).data());
 
     if (MONAD_UNLIKELY(amount == 0)) {
-        return SUCCESS;
+        return byte_string{};
     }
 
     auto val = vars.val_execution(val_id);
     if (MONAD_UNLIKELY(!val.exists())) {
-        return UNKNOWN_VALIDATOR;
+        return StakeError::UnknownValidator;
     }
 
     auto withdrawal_request =
         vars.withdrawal_request(val_id, msg_sender, withdrawal_id)
             .load_checked();
     if (MONAD_UNLIKELY(withdrawal_request.has_value())) {
-        return WITHDRAWAL_ID_EXISTS;
+        return StakeError::WithdrawalIdExists;
     }
 
     auto del = vars.delegator(val_id, msg_sender);
@@ -553,7 +554,7 @@ StakingContract::Output StakingContract::precompile_undelegate(
     uint256_t del_stake = del.stake().load().native();
 
     if (MONAD_UNLIKELY(del_stake < amount)) {
-        return INSUFFICIENT_STAKE;
+        return StakeError::InsufficientStake;
     }
 
     if (MONAD_UNLIKELY(val_stake < amount)) {
@@ -562,7 +563,7 @@ StakingContract::Output StakingContract::precompile_undelegate(
             val_id.native(),
             val_stake,
             amount);
-        return INTERNAL_ERROR;
+        return StakeError::InternalError;
     }
 
     val_stake -= amount;
@@ -594,17 +595,17 @@ StakingContract::Output StakingContract::precompile_undelegate(
             .epoch = withdrawal_epoch});
     inc_acc_refcount(withdrawal_epoch, val_id);
 
-    return SUCCESS;
+    return byte_string{};
 }
 
 // TODO: No compounds allowed if auth_address is under sufficent amount.
-StakingContract::Output StakingContract::precompile_compound(
+Result<byte_string> StakingContract::precompile_compound(
     byte_string_view const input, evmc_address const &msg_sender,
     evmc_uint256be const &)
 {
     constexpr size_t MESSAGE_SIZE = sizeof(u64_be) /* validatorId */;
     if (MONAD_UNLIKELY(input.size() != MESSAGE_SIZE)) {
-        return INVALID_INPUT;
+        return StakeError::InvalidInput;
     }
 
     auto const val_id =
@@ -615,20 +616,20 @@ StakingContract::Output StakingContract::precompile_compound(
     auto const rewards = del.rewards().clear().native();
 
     if (MONAD_UNLIKELY(rewards != 0)) {
-        return add_stake(val_id, rewards, msg_sender);
+        BOOST_OUTCOME_TRY(delegate(val_id, rewards, msg_sender));
     }
 
-    return SUCCESS;
+    return byte_string{};
 }
 
-StakingContract::Output StakingContract::precompile_withdraw(
+Result<byte_string> StakingContract::precompile_withdraw(
     byte_string_view const input, evmc_address const &msg_sender,
     evmc_uint256be const &)
 {
     constexpr size_t MESSAGE_SIZE =
         sizeof(u64_be) /* validator id */ + sizeof(uint8_t) /* withdrawal id */;
     if (MONAD_UNLIKELY(input.size() != MESSAGE_SIZE)) {
-        return INVALID_INPUT;
+        return StakeError::InvalidInput;
     }
     auto const val_id =
         unaligned_load<u64_be>(input.substr(0, sizeof(u64_be)).data());
@@ -639,14 +640,14 @@ StakingContract::Output StakingContract::precompile_withdraw(
         vars.withdrawal_request(val_id, msg_sender, withdrawal_id);
     auto withdrawal_request = withdrawal_request_storage.load_checked();
     if (MONAD_UNLIKELY(!withdrawal_request.has_value())) {
-        return UNKNOWN_WITHDRAWAL_ID;
+        return StakeError::UnknownWithdrawalId;
     }
     withdrawal_request_storage.clear();
 
     bool const ready =
         is_epoch_active(withdrawal_request->epoch.native() + WITHDRAWAL_DELAY);
     if (MONAD_UNLIKELY(!ready)) {
-        return WITHDRAWAL_NOT_READY;
+        return StakeError::WithdrawalNotReady;
     }
 
     auto withdraw_acc =
@@ -661,16 +662,16 @@ StakingContract::Output StakingContract::precompile_withdraw(
     MONAD_ASSERT(contract_balance >= amount);
     send_tokens(msg_sender, amount);
 
-    return SUCCESS;
+    return byte_string{};
 }
 
-StakingContract::Output StakingContract::precompile_claim_rewards(
+Result<byte_string> StakingContract::precompile_claim_rewards(
     byte_string_view const input, evmc_address const &msg_sender,
     evmc_uint256be const &)
 {
     constexpr size_t MESSAGE_SIZE = sizeof(u64_be) /* validator id */;
     if (MONAD_UNLIKELY(input.size() != MESSAGE_SIZE)) {
-        return INVALID_INPUT;
+        return StakeError::InvalidInput;
     }
     auto const val_id =
         unaligned_load<u64_be>(input.substr(0, sizeof(u64_be)).data());
@@ -685,24 +686,24 @@ StakingContract::Output StakingContract::precompile_claim_rewards(
         emit_claim_rewards_event(val_id, msg_sender, rewards);
     }
 
-    return SUCCESS;
+    return byte_string{};
 }
 
 ////////////////////
 //  System Calls  //
 ////////////////////
 
-StakingContract::Output StakingContract::syscall_on_epoch_change(
+Result<byte_string> StakingContract::syscall_on_epoch_change(
     byte_string_view const input, evmc_address const &, evmc_uint256be const &)
 {
     if (MONAD_UNLIKELY(input.size() != sizeof(u64_be))) {
-        return INVALID_INPUT;
+        return StakeError::InvalidInput;
     }
 
     auto const next_epoch = unaligned_load<u64_be>(input.data());
     auto const last_epoch = vars.epoch.load();
     if (MONAD_UNLIKELY(next_epoch == last_epoch)) {
-        return SUCCESS;
+        return byte_string{};
     }
 
     vars.epoch.store(next_epoch);
@@ -723,22 +724,22 @@ StakingContract::Output StakingContract::syscall_on_epoch_change(
         }
     }
 
-    return SUCCESS;
+    return byte_string{};
 }
 
 // update rewards for leader only if in active validator set
-StakingContract::Output StakingContract::syscall_reward(
+Result<byte_string> StakingContract::syscall_reward(
     byte_string_view const input, evmc_address const &, evmc_uint256be const &)
 {
     if (MONAD_UNLIKELY(input.size() != sizeof(Address))) {
-        return INVALID_INPUT;
+        return StakeError::InvalidInput;
     }
     auto const block_author = unaligned_load<Address>(input.data());
 
     // 1. get validator information
     auto const val_id = vars.val_id(block_author).load_checked();
     if (MONAD_UNLIKELY(!val_id.has_value())) {
-        return BLOCK_AUTHOR_NOT_IN_SET;
+        return StakeError::BlockAuthorNotInSet;
     }
 
     // 2. validator must be active
@@ -746,7 +747,7 @@ StakingContract::Output StakingContract::syscall_reward(
     uint256_t const active_stake = val_consensus.stake().load().native();
     if (MONAD_UNLIKELY(active_stake == 0)) {
         // Validator cannot be in the active set with no stake
-        return BLOCK_AUTHOR_NOT_IN_SET;
+        return StakeError::BlockAuthorNotInSet;
     }
 
     mint_tokens(REWARD);
@@ -765,19 +766,19 @@ StakingContract::Output StakingContract::syscall_reward(
     uint256_t const delegator_reward = REWARD - commission_reward;
     uint256_t acc = ((delegator_reward * UNIT_BIAS) / active_stake);
     val_execution.acc().store(val_execution.acc().load().native() + acc);
-    return SUCCESS;
+    return byte_string{};
 }
 
-StakingContract::Output StakingContract::syscall_snapshot(
+Result<byte_string> StakingContract::syscall_snapshot(
     byte_string_view const input, evmc_address const &, evmc_uint256be const &)
 {
     if (MONAD_UNLIKELY(!input.empty())) {
-        return INVALID_INPUT;
+        return StakeError::InvalidInput;
     }
     if (MONAD_UNLIKELY(vars.in_boundary.load())) {
         auto const epoch = vars.epoch.load();
         LOG_WARNING("Called snapshot twice in epoch: {}", epoch.native());
-        return SUCCESS;
+        return byte_string{};
     }
 
     // swap the current consensus view for this epoch to the snapshot
@@ -815,7 +816,7 @@ StakingContract::Output StakingContract::syscall_snapshot(
 
     vars.in_boundary.store(true);
 
-    return SUCCESS;
+    return byte_string{};
 }
 
 MONAD_NAMESPACE_END

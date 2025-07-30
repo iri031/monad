@@ -177,6 +177,8 @@ add_library(
   "monad/staking/util/del_info.hpp"
   "monad/staking/util/secp256k1.cpp"
   "monad/staking/util/secp256k1.hpp"
+  "monad/staking/util/stake_error.cpp"
+  "monad/staking/util/stake_error.hpp"
   "monad/staking/util/val_consensus.cpp"
   "monad/staking/util/val_consensus.hpp"
   "monad/staking/util/val_execution.cpp"

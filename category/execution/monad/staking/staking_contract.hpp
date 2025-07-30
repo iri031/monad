@@ -3,10 +3,12 @@
 #include <category/core/byte_string.hpp>
 #include <category/core/config.hpp>
 #include <category/core/int.hpp>
+#include <category/core/result.hpp>
 #include <category/execution/ethereum/core/contract/big_endian.hpp>
 #include <category/execution/ethereum/core/contract/storage_array.hpp>
 #include <category/execution/ethereum/core/contract/storage_variable.hpp>
 #include <category/execution/monad/staking/util/del_info.hpp>
+#include <category/execution/monad/staking/util/stake_error.hpp>
 #include <category/execution/monad/staking/util/val_consensus.hpp>
 #include <category/execution/monad/staking/util/val_execution.hpp>
 
@@ -26,75 +28,6 @@ class StakingContract
     Address const &ca_;
 
 public:
-    //////////////////////
-    //  Revert Codes   //
-    //////////////////////
-    enum Status
-    {
-        SUCCESS = 0,
-        INTERNAL_ERROR,
-        METHOD_NOT_SUPPORTED,
-        INVALID_INPUT,
-        VALIDATOR_EXISTS,
-        UNKNOWN_VALIDATOR,
-        UNKNOWN_DELEGATOR,
-        WITHDRAWAL_ID_EXISTS,
-        UNKNOWN_WITHDRAWAL_ID,
-        WITHDRAWAL_NOT_READY,
-        INSUFFICIENT_STAKE,
-        INVALID_SECP_PUBKEY,
-        INVALID_BLS_PUBKEY,
-        INVALID_SECP_SIGNATURE,
-        INVALID_BLS_SIGNATURE,
-        SECP_SIGNATURE_VERIFICATION_FAILED,
-        BLS_SIGNATURE_VERIFICATION_FAILED,
-        BLOCK_AUTHOR_NOT_IN_SET,
-        STATUS_CODES_LENGTH,
-    };
-
-    struct Output
-    {
-        Status status;
-        byte_string data;
-
-        Output(Status const status_)
-            : status{status_}
-        {
-        }
-
-        Output(byte_string data_)
-            : status{SUCCESS}
-            , data{std::move(data_)}
-        {
-        }
-    };
-
-    static constexpr std::string_view error_message(Status const res)
-    {
-        static constexpr std::array<std::string_view, STATUS_CODES_LENGTH>
-            REVERT_MSG{
-                "Success",
-                "Internal contract error",
-                "Method not supported",
-                "Input invalid",
-                "Validator already exists",
-                "Unknown validator",
-                "Unknown delegator",
-                "Withdrawal id exists",
-                "Unknown withdrawal id",
-                "Withdrawal not ready",
-                "Insufficient stake to perform operation",
-                "Invalid secp256k1 pubkey",
-                "Invalid bls pubkey",
-                "Invalid secp256k1 signature",
-                "Secp256k1 signature verification failed",
-                "Bls signature verification failed",
-                "Invalid bls signature",
-                "Block author not in set",
-            };
-        return REVERT_MSG[res];
-    }
-
     StakingContract(State &, Address const &);
 
     struct WithdrawalRequest
@@ -156,8 +89,6 @@ public:
         };
 
     public:
-        static std::string_view revert_message(Status);
-
         explicit Variables(State &state, Address const &ca)
             : state_{state}
             , ca_{ca}
@@ -431,10 +362,10 @@ private:
     void touch_delegator(u64_be, DelInfo &);
     void apply_compound(u64_be, DelInfo &);
 
-    Output add_stake(u64_be, uint256_t const &, Address const &);
+    Result<void> delegate(u64_be, uint256_t const &, Address const &);
 
 public:
-    using PrecompileFunc = Output (StakingContract::*)(
+    using PrecompileFunc = Result<byte_string> (StakingContract::*)(
         byte_string_view, evmc_address const &, evmc_bytes32 const &);
 
     /////////////////
@@ -443,34 +374,34 @@ public:
     static std::pair<PrecompileFunc, uint64_t>
     precompile_dispatch(byte_string_view &);
 
-    Output precompile_get_validator(
+    Result<byte_string> precompile_get_validator(
         byte_string_view, evmc_address const &, evmc_uint256be const &);
-    Output precompile_get_delegator(
+    Result<byte_string> precompile_get_delegator(
         byte_string_view, evmc_address const &, evmc_uint256be const &);
 
-    Output precompile_fallback(
+    Result<byte_string> precompile_fallback(
         byte_string_view, evmc_address const &, evmc_uint256be const &);
-    Output precompile_add_validator(
+    Result<byte_string> precompile_add_validator(
         byte_string_view, evmc_address const &, evmc_uint256be const &);
-    Output precompile_delegate(
+    Result<byte_string> precompile_delegate(
         byte_string_view, evmc_address const &, evmc_uint256be const &);
-    Output precompile_undelegate(
+    Result<byte_string> precompile_undelegate(
         byte_string_view, evmc_address const &, evmc_uint256be const &);
-    Output precompile_compound(
+    Result<byte_string> precompile_compound(
         byte_string_view, evmc_address const &, evmc_uint256be const &);
-    Output precompile_withdraw(
+    Result<byte_string> precompile_withdraw(
         byte_string_view, evmc_address const &, evmc_uint256be const &);
-    Output precompile_claim_rewards(
+    Result<byte_string> precompile_claim_rewards(
         byte_string_view, evmc_address const &, evmc_uint256be const &);
 
     ////////////////////
     //  System Calls  //
     ////////////////////
-    Output syscall_on_epoch_change(
+    Result<byte_string> syscall_on_epoch_change(
         byte_string_view, evmc_address const &, evmc_uint256be const &);
-    Output syscall_reward(
+    Result<byte_string> syscall_reward(
         byte_string_view, evmc_address const &, evmc_uint256be const &);
-    Output syscall_snapshot(
+    Result<byte_string> syscall_snapshot(
         byte_string_view, evmc_address const &, evmc_uint256be const &);
 };
 
