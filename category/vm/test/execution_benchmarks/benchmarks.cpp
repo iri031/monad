@@ -144,13 +144,18 @@ namespace
         auto *vm_ptr =
             reinterpret_cast<BlockchainTestVM *>(vm.get_raw_pointer());
         auto const *interface = &host.get_interface();
-        auto *ctx = host.to_context();
-        auto const *code = msg.code;
-        auto const code_size = msg.code_size;
+        evmc_host_context *ctx = host.to_context();
+        uint8_t const *code = msg.code;
+        size_t const code_size = msg.code_size;
+        auto rev = EVMC_CANCUN;
+
+        auto code_hash = interface->get_code_hash(ctx, &msg.code_address);
+
+        vm_ptr->precompile_contract(rev, code_hash, code, code_size, impl);
 
         for (auto _ : state) {
-            auto const result = evmc::Result{vm_ptr->execute(
-                interface, ctx, EVMC_CANCUN, &msg, code, code_size)};
+            auto const result = evmc::Result{
+                vm_ptr->execute(interface, ctx, rev, &msg, code, code_size)};
 
             MONAD_VM_ASSERT(result.status_code == EVMC_SUCCESS);
         }
@@ -174,7 +179,8 @@ namespace
         auto *vm_ptr =
             reinterpret_cast<BlockchainTestVM *>(vm.get_raw_pointer());
 
-        vm_ptr->precompile_contracts(EVMC_CANCUN, initial_test_state);
+        vm_ptr->precompile_contracts(EVMC_CANCUN, initial_test_state, impl);
+
         auto const code = initial_test_state.get_account_code(msg.code_address);
 
         for (auto _ : state) {

@@ -8,20 +8,12 @@
 
 #include <evmc/evmc.h>
 
-#include <chrono>
 #include <cstdint>
 #include <format>
 #include <fstream>
-#include <iostream>
 #include <memory>
 #include <span>
-
-#ifdef MONAD_VM_LLVM_DEBUG
-static auto const *isq = std::getenv("MONAD_LLVM_DEBUG");
-static bool dbg_dump = !(isq == nullptr);
-#else
-inline constexpr bool dbg_dump = false;
-#endif
+#include <string>
 
 namespace monad::vm::llvm
 {
@@ -41,7 +33,8 @@ namespace monad::vm::llvm
     };
 
     template <evmc_revision Rev>
-    std::shared_ptr<LLVMState> compile_impl(std::span<uint8_t const> code)
+    std::shared_ptr<LLVMState>
+    compile_impl(std::span<uint8_t const> code, std::string &dbg_nm)
     {
         auto ptr = std::make_shared<LLVMState>();
         LLVMState &llvm = *ptr;
@@ -50,20 +43,11 @@ namespace monad::vm::llvm
 
         MONAD_VM_DEBUG_ASSERT(ir.is_valid());
 
-        long dbg_pid = 0;
-
-        if (dbg_dump) {
-            auto now = std::chrono::system_clock::now();
-            auto duration = now.time_since_epoch();
-            auto milliseconds =
-                std::chrono::duration_cast<std::chrono::milliseconds>(duration)
-                    .count();
-            dbg_pid = milliseconds;
+        if (dbg_nm != "") {
+            std::ofstream out(std::format("{}.ir", dbg_nm));
             auto ir_str = std::format("{}", ir);
-            std::ofstream out(std::format("t{}.ir", dbg_pid));
             out << ir_str;
             out.close();
-            std::cerr << ir_str << '\n';
         }
 
         llvm.insert_symbol("rt_EXIT", (void *)&rt_exit);
@@ -71,11 +55,11 @@ namespace monad::vm::llvm
         Emitter emitter{llvm, ir};
         emitter.emit_contract<Rev>();
 
-        if (dbg_dump) {
-            llvm.dump_module(std::format("t{}.ll", dbg_pid));
+        if (dbg_nm != "") {
+            llvm.dump_module(std::format("{}.ll", dbg_nm));
         }
 
-        llvm.set_contract_addr();
+        llvm.set_contract_addr(dbg_nm);
         return ptr;
     }
 
@@ -85,52 +69,52 @@ namespace monad::vm::llvm
             evm_stack, &ctx, llvm.contract_addr, &ctx.exit_stack_ptr);
     }
 
-    std::shared_ptr<LLVMState>
-    compile(evmc_revision rev, std::span<uint8_t const> code)
+    std::shared_ptr<LLVMState> compile(
+        evmc_revision rev, std::span<uint8_t const> code, std::string &dbg_nm)
     {
         switch (rev) {
         case EVMC_FRONTIER:
-            return compile_impl<EVMC_FRONTIER>(code);
+            return compile_impl<EVMC_FRONTIER>(code, dbg_nm);
 
         case EVMC_HOMESTEAD:
-            return compile_impl<EVMC_HOMESTEAD>(code);
+            return compile_impl<EVMC_HOMESTEAD>(code, dbg_nm);
 
         case EVMC_TANGERINE_WHISTLE:
-            return compile_impl<EVMC_TANGERINE_WHISTLE>(code);
+            return compile_impl<EVMC_TANGERINE_WHISTLE>(code, dbg_nm);
 
         case EVMC_SPURIOUS_DRAGON:
-            return compile_impl<EVMC_SPURIOUS_DRAGON>(code);
+            return compile_impl<EVMC_SPURIOUS_DRAGON>(code, dbg_nm);
 
         case EVMC_BYZANTIUM:
-            return compile_impl<EVMC_BYZANTIUM>(code);
+            return compile_impl<EVMC_BYZANTIUM>(code, dbg_nm);
 
         case EVMC_CONSTANTINOPLE:
-            return compile_impl<EVMC_CONSTANTINOPLE>(code);
+            return compile_impl<EVMC_CONSTANTINOPLE>(code, dbg_nm);
 
         case EVMC_PETERSBURG:
-            return compile_impl<EVMC_PETERSBURG>(code);
+            return compile_impl<EVMC_PETERSBURG>(code, dbg_nm);
 
         case EVMC_ISTANBUL:
-            return compile_impl<EVMC_ISTANBUL>(code);
+            return compile_impl<EVMC_ISTANBUL>(code, dbg_nm);
 
         case EVMC_BERLIN:
-            return compile_impl<EVMC_BERLIN>(code);
+            return compile_impl<EVMC_BERLIN>(code, dbg_nm);
 
         case EVMC_LONDON:
-            return compile_impl<EVMC_LONDON>(code);
+            return compile_impl<EVMC_LONDON>(code, dbg_nm);
 
         case EVMC_PARIS:
-            return compile_impl<EVMC_PARIS>(code);
+            return compile_impl<EVMC_PARIS>(code, dbg_nm);
 
         case EVMC_SHANGHAI:
-            return compile_impl<EVMC_SHANGHAI>(code);
+            return compile_impl<EVMC_SHANGHAI>(code, dbg_nm);
 
         case EVMC_CANCUN:
-            return compile_impl<EVMC_CANCUN>(code);
+            return compile_impl<EVMC_CANCUN>(code, dbg_nm);
 
         default:
             MONAD_VM_ASSERT(rev == EVMC_PRAGUE);
-            return compile_impl<EVMC_PRAGUE>(code);
+            return compile_impl<EVMC_PRAGUE>(code, dbg_nm);
         }
     }
 }
