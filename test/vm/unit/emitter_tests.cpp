@@ -177,23 +177,26 @@ namespace
         StackElem *spill;
         Stack &stack = emit.get_stack();
         auto elem = stack.get(stack_index);
-        ASSERT(TRUE,
+        ASSERT(
+            TRUE,
             elem->literal() && !elem->stack_offset() && !elem->avx_reg() &&
-            !elem->general_reg());
+                !elem->general_reg());
         switch (loc) {
         case Emitter::LocationType::AvxReg:
             emit.mov_stack_index_to_avx_reg(stack_index);
             stack.spill_literal(elem);
-            ASSERT(TRUE,
+            ASSERT(
+                TRUE,
                 elem->avx_reg() && !elem->stack_offset() && !elem->literal() &&
-                !elem->general_reg());
+                    !elem->general_reg());
             break;
         case Emitter::LocationType::GeneralReg:
             emit.mov_stack_index_to_general_reg(stack_index);
             stack.spill_literal(elem);
-            ASSERT(TRUE,
+            ASSERT(
+                TRUE,
                 elem->general_reg() && !elem->stack_offset() &&
-                !elem->literal() && !elem->avx_reg());
+                    !elem->literal() && !elem->avx_reg());
             break;
         case Emitter::LocationType::StackOffset:
             emit.mov_stack_index_to_stack_offset(stack_index);
@@ -201,9 +204,10 @@ namespace
             ASSERT(TRUE, elem->avx_reg().has_value());
             spill = stack.spill_avx_reg(elem);
             ASSERT(EQ, spill, nullptr);
-            ASSERT(TRUE,
+            ASSERT(
+                TRUE,
                 elem->stack_offset() && !elem->general_reg() &&
-                !elem->literal() && !elem->avx_reg());
+                    !elem->literal() && !elem->avx_reg());
             break;
         case Emitter::LocationType::Literal:
             break;
@@ -215,21 +219,24 @@ namespace
     {
         Stack &stack = emit.get_stack();
         auto elem = stack.get(stack_index);
-        ASSERT(TRUE,
+        ASSERT(
+            TRUE,
             elem->stack_offset() && !elem->general_reg() && !elem->avx_reg() &&
-            !elem->literal());
+                !elem->literal());
         switch (loc) {
         case Emitter::LocationType::AvxReg:
             emit.mov_stack_index_to_avx_reg(stack_index);
-            ASSERT(TRUE,
+            ASSERT(
+                TRUE,
                 elem->avx_reg() && elem->stack_offset() && !elem->literal() &&
-                !elem->general_reg());
+                    !elem->general_reg());
             break;
         case Emitter::LocationType::GeneralReg:
             emit.mov_stack_index_to_general_reg(stack_index);
-            ASSERT(TRUE,
+            ASSERT(
+                TRUE,
                 elem->general_reg() && elem->stack_offset() &&
-                !elem->literal() && !elem->avx_reg());
+                    !elem->literal() && !elem->avx_reg());
             break;
         case Emitter::LocationType::StackOffset:
             break;
@@ -774,7 +781,8 @@ TEST(Emitter, empty)
 
     entry(&ctx, nullptr);
 
-    ASSERT(EQ,
+    ASSERT(
+        EQ,
         static_cast<uint64_t>(ret.status),
         std::numeric_limits<uint64_t>::max());
 }
@@ -960,34 +968,39 @@ TEST(Emitter, mov_stack_index_to_avx_reg)
 
     emit.mov_stack_index_to_avx_reg(0); // literal -> avx reg
     stack.spill_literal(e0);
-    ASSERT(TRUE,
+    ASSERT(
+        TRUE,
         e0->avx_reg() && !e0->stack_offset() && !e0->literal() &&
-        !e0->general_reg());
+            !e0->general_reg());
 
     emit.mov_stack_index_to_avx_reg(0); // avx reg -> avx reg
-    ASSERT(TRUE,
+    ASSERT(
+        TRUE,
         e0->avx_reg() && !e0->stack_offset() && !e0->literal() &&
-        !e0->general_reg());
+            !e0->general_reg());
 
     emit.mov_stack_index_to_general_reg(0);
     stack.spill_stack_offset(e0);
     (void)stack.spill_avx_reg(e0);
-    ASSERT(TRUE,
+    ASSERT(
+        TRUE,
         e0->general_reg() && !e0->stack_offset() && !e0->literal() &&
-        !e0->avx_reg());
+            !e0->avx_reg());
 
     emit.mov_stack_index_to_avx_reg(0); // general reg -> stack offset & avx reg
     (void)stack.spill_general_reg(e0);
     (void)stack.spill_avx_reg(e0);
-    ASSERT(TRUE,
+    ASSERT(
+        TRUE,
         e0->stack_offset() && !e0->general_reg() && !e0->literal() &&
-        !e0->avx_reg());
+            !e0->avx_reg());
 
     emit.mov_stack_index_to_avx_reg(0); // stack offset -> avx reg
     stack.spill_stack_offset(e0);
-    ASSERT(TRUE,
+    ASSERT(
+        TRUE,
         e0->avx_reg() && !e0->general_reg() && !e0->literal() &&
-        !e0->stack_offset());
+            !e0->stack_offset());
 
     e0.reset();
 
@@ -1031,16 +1044,18 @@ TEST(Emitter, mov_literal_to_ymm)
             auto e0 = stack.get(0);
             emit.mov_stack_index_to_avx_reg(0);
             stack.spill_literal(e0);
-            ASSERT(TRUE,
+            ASSERT(
+                TRUE,
                 e0->avx_reg() && !e0->stack_offset() && !e0->literal() &&
-                !e0->general_reg());
+                    !e0->general_reg());
 
             auto e1 = stack.get(1);
             emit.mov_stack_index_to_avx_reg(1);
             stack.spill_literal(e1);
-            ASSERT(TRUE,
+            ASSERT(
+                TRUE,
                 e1->avx_reg() && !e1->stack_offset() && !e1->literal() &&
-                !e1->general_reg());
+                    !e1->general_reg());
 
             emit.return_();
 
@@ -1073,34 +1088,39 @@ TEST(Emitter, mov_stack_index_to_general_reg)
 
     emit.mov_stack_index_to_general_reg(1); // literal -> general reg
     stack.spill_literal(e1);
-    ASSERT(TRUE,
+    ASSERT(
+        TRUE,
         e1->general_reg() && !e1->stack_offset() && !e1->literal() &&
-        !e1->avx_reg());
+            !e1->avx_reg());
 
     emit.mov_stack_index_to_general_reg(1); // general reg -> general reg
-    ASSERT(TRUE,
+    ASSERT(
+        TRUE,
         e1->general_reg() && !e1->stack_offset() && !e1->literal() &&
-        !e1->avx_reg());
+            !e1->avx_reg());
 
     emit.mov_stack_index_to_avx_reg(1);
     (void)stack.spill_general_reg(e1);
-    ASSERT(TRUE,
+    ASSERT(
+        TRUE,
         e1->avx_reg() && !e1->stack_offset() && !e1->literal() &&
-        !e1->general_reg());
+            !e1->general_reg());
 
     emit.mov_stack_index_to_general_reg(
         1); // avx reg -> stack offset & general reg
     (void)stack.spill_avx_reg(e1);
     (void)stack.spill_general_reg(e1);
-    ASSERT(TRUE,
+    ASSERT(
+        TRUE,
         e1->stack_offset() && !e1->avx_reg() && !e1->literal() &&
-        !e1->general_reg());
+            !e1->general_reg());
 
     emit.mov_stack_index_to_general_reg(1); // stack offset -> general reg
     stack.spill_stack_offset(e1);
-    ASSERT(TRUE,
+    ASSERT(
+        TRUE,
         e1->general_reg() && !e1->avx_reg() && !e1->literal() &&
-        !e1->stack_offset());
+            !e1->stack_offset());
 
     e1.reset();
 
@@ -1133,46 +1153,53 @@ TEST(Emitter, mov_stack_index_to_stack_offset)
 
     emit.mov_stack_index_to_stack_offset(1); // literal -> stack offset
     stack.spill_literal(e1);
-    ASSERT(TRUE,
+    ASSERT(
+        TRUE,
         e1->stack_offset() && !e1->general_reg() && !e1->literal() &&
-        e1->avx_reg());
+            e1->avx_reg());
 
     auto *spill = stack.spill_avx_reg(e1);
     ASSERT(EQ, spill, nullptr);
-    ASSERT(TRUE,
+    ASSERT(
+        TRUE,
         e1->stack_offset() && !e1->general_reg() && !e1->literal() &&
-        !e1->avx_reg());
+            !e1->avx_reg());
 
     emit.mov_stack_index_to_stack_offset(1); // stack offset -> stack offset
-    ASSERT(TRUE,
+    ASSERT(
+        TRUE,
         e1->stack_offset() && !e1->general_reg() && !e1->literal() &&
-        !e1->avx_reg());
+            !e1->avx_reg());
 
     emit.mov_stack_index_to_avx_reg(1);
     stack.spill_stack_offset(e1);
-    ASSERT(TRUE,
+    ASSERT(
+        TRUE,
         e1->avx_reg() && !e1->stack_offset() && !e1->literal() &&
-        !e1->general_reg());
+            !e1->general_reg());
 
     emit.mov_stack_index_to_stack_offset(1); // avx reg -> stack offset
     spill = stack.spill_avx_reg(e1);
     ASSERT(EQ, spill, nullptr);
-    ASSERT(TRUE,
+    ASSERT(
+        TRUE,
         e1->stack_offset() && !e1->avx_reg() && !e1->literal() &&
-        !e1->general_reg());
+            !e1->general_reg());
 
     emit.mov_stack_index_to_general_reg(1); // stack offset -> general reg
     stack.spill_stack_offset(e1);
-    ASSERT(TRUE,
+    ASSERT(
+        TRUE,
         e1->general_reg() && !e1->avx_reg() && !e1->literal() &&
-        !e1->stack_offset());
+            !e1->stack_offset());
 
     emit.mov_stack_index_to_stack_offset(1); // general reg -> stack offset
     spill = stack.spill_general_reg(e1);
     ASSERT(EQ, spill, nullptr);
-    ASSERT(TRUE,
+    ASSERT(
+        TRUE,
         e1->stack_offset() && !e1->avx_reg() && !e1->literal() &&
-        !e1->general_reg());
+            !e1->general_reg());
 
     e1.reset();
 
@@ -3380,10 +3407,12 @@ TEST(Emitter, MemoryInstructions)
         entry(&ctx, stack_memory.get());
 
         if (m8) {
-            ASSERT(EQ,
+            ASSERT(
+                EQ,
                 uint256_t::load_le(ret.offset),
                 uint256_t(0, 0, 0, uint64_t{1} << 56));
-            ASSERT(EQ,
+            ASSERT(
+                EQ,
                 uint256_t::load_le(ret.size),
                 uint256_t(0, 0, 0, uint64_t{1} << 56));
         }
