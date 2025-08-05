@@ -177,31 +177,31 @@ namespace
         StackElem *spill;
         Stack &stack = emit.get_stack();
         auto elem = stack.get(stack_index);
-        ASSERT_TRUE(
+        ASSERT(TRUE,
             elem->literal() && !elem->stack_offset() && !elem->avx_reg() &&
             !elem->general_reg());
         switch (loc) {
         case Emitter::LocationType::AvxReg:
             emit.mov_stack_index_to_avx_reg(stack_index);
             stack.spill_literal(elem);
-            ASSERT_TRUE(
+            ASSERT(TRUE,
                 elem->avx_reg() && !elem->stack_offset() && !elem->literal() &&
                 !elem->general_reg());
             break;
         case Emitter::LocationType::GeneralReg:
             emit.mov_stack_index_to_general_reg(stack_index);
             stack.spill_literal(elem);
-            ASSERT_TRUE(
+            ASSERT(TRUE,
                 elem->general_reg() && !elem->stack_offset() &&
                 !elem->literal() && !elem->avx_reg());
             break;
         case Emitter::LocationType::StackOffset:
             emit.mov_stack_index_to_stack_offset(stack_index);
             stack.spill_literal(elem);
-            ASSERT_TRUE(elem->avx_reg().has_value());
+            ASSERT(TRUE, elem->avx_reg().has_value());
             spill = stack.spill_avx_reg(elem);
-            ASSERT_EQ(spill, nullptr);
-            ASSERT_TRUE(
+            ASSERT(EQ, spill, nullptr);
+            ASSERT(TRUE,
                 elem->stack_offset() && !elem->general_reg() &&
                 !elem->literal() && !elem->avx_reg());
             break;
@@ -215,26 +215,26 @@ namespace
     {
         Stack &stack = emit.get_stack();
         auto elem = stack.get(stack_index);
-        ASSERT_TRUE(
+        ASSERT(TRUE,
             elem->stack_offset() && !elem->general_reg() && !elem->avx_reg() &&
             !elem->literal());
         switch (loc) {
         case Emitter::LocationType::AvxReg:
             emit.mov_stack_index_to_avx_reg(stack_index);
-            ASSERT_TRUE(
+            ASSERT(TRUE,
                 elem->avx_reg() && elem->stack_offset() && !elem->literal() &&
                 !elem->general_reg());
             break;
         case Emitter::LocationType::GeneralReg:
             emit.mov_stack_index_to_general_reg(stack_index);
-            ASSERT_TRUE(
+            ASSERT(TRUE,
                 elem->general_reg() && elem->stack_offset() &&
                 !elem->literal() && !elem->avx_reg());
             break;
         case Emitter::LocationType::StackOffset:
             break;
         case Emitter::LocationType::Literal:
-            ASSERT_TRUE(false);
+            ASSERT(TRUE, false);
             break;
         }
     }
@@ -295,14 +295,14 @@ namespace
         auto stack_memory = test_stack_memory();
         entry(&ctx, stack_memory.get());
 
-        ASSERT_EQ(ret.status, runtime::StatusCode::Success);
+        ASSERT(EQ, ret.status, runtime::StatusCode::Success);
         if (dup) {
-            ASSERT_EQ(uint256_t::load_le(ret.offset), result);
+            ASSERT(EQ, uint256_t::load_le(ret.offset), result);
         }
         else {
-            ASSERT_EQ(uint256_t::load_le(ret.offset), 0);
+            ASSERT(EQ, uint256_t::load_le(ret.offset), 0);
         }
-        ASSERT_EQ(uint256_t::load_le(ret.size), result);
+        ASSERT(EQ, uint256_t::load_le(ret.size), result);
     }
 
     void pure_una_instr_test_instance(
@@ -349,14 +349,14 @@ namespace
         auto stack_memory = test_stack_memory();
         entry(&ctx, stack_memory.get());
 
-        ASSERT_EQ(ret.status, runtime::StatusCode::Success);
+        ASSERT(EQ, ret.status, runtime::StatusCode::Success);
         if (dup) {
-            ASSERT_EQ(uint256_t::load_le(ret.offset), result);
+            ASSERT(EQ, uint256_t::load_le(ret.offset), result);
         }
         else {
-            ASSERT_EQ(uint256_t::load_le(ret.offset), 0);
+            ASSERT(EQ, uint256_t::load_le(ret.offset), 0);
         }
-        ASSERT_EQ(uint256_t::load_le(ret.size), result);
+        ASSERT(EQ, uint256_t::load_le(ret.size), result);
     }
 
     void pure_bin_instr_test(
@@ -502,8 +502,8 @@ namespace
         auto stack_memory = test_stack_memory();
         entry(&ctx, stack_memory.get());
 
-        ASSERT_EQ(uint256_t::load_le(ret.offset), 2);
-        ASSERT_EQ(uint256_t::load_le(ret.size), 1);
+        ASSERT(EQ, uint256_t::load_le(ret.offset), 2);
+        ASSERT(EQ, uint256_t::load_le(ret.size), 1);
     }
 
     basic_blocks::BasicBlocksIR get_jumpi_ir(
@@ -646,13 +646,13 @@ namespace
         entry(&ctx, stack_memory.get());
 
         if (take_jump) {
-            ASSERT_EQ(ret.status, runtime::StatusCode::Revert);
+            ASSERT(EQ, ret.status, runtime::StatusCode::Revert);
         }
         else {
-            ASSERT_EQ(ret.status, runtime::StatusCode::Success);
+            ASSERT(EQ, ret.status, runtime::StatusCode::Success);
         }
-        ASSERT_EQ(uint256_t::load_le(ret.offset), dest);
-        ASSERT_EQ(uint256_t::load_le(ret.size), cond);
+        ASSERT(EQ, uint256_t::load_le(ret.offset), dest);
+        ASSERT(EQ, uint256_t::load_le(ret.size), cond);
     }
 
     void block_epilogue_test(
@@ -735,9 +735,9 @@ namespace
         auto stack_memory = test_stack_memory();
         entry(&ctx, stack_memory.get());
 
-        ASSERT_EQ(ret.status, runtime::StatusCode::Success);
-        ASSERT_EQ(uint256_t::load_le(ret.offset), 869);
-        ASSERT_EQ(uint256_t::load_le(ret.size), 2);
+        ASSERT(EQ, ret.status, runtime::StatusCode::Success);
+        ASSERT(EQ, uint256_t::load_le(ret.offset), 869);
+        ASSERT(EQ, uint256_t::load_le(ret.size), 2);
     }
 
     void runtime_test_12_arg_fun(
@@ -774,7 +774,7 @@ TEST(Emitter, empty)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(
+    ASSERT(EQ,
         static_cast<uint64_t>(ret.status),
         std::numeric_limits<uint64_t>::max());
 }
@@ -791,7 +791,7 @@ TEST(Emitter, stop)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(ret.status, runtime::StatusCode::Success);
+    ASSERT(EQ, ret.status, runtime::StatusCode::Success);
 }
 
 TEST(Emitter, fail_with_error)
@@ -814,7 +814,7 @@ TEST(Emitter, invalid_instruction)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(ret.status, runtime::StatusCode::Error);
+    ASSERT(EQ, ret.status, runtime::StatusCode::Error);
 }
 
 TEST(Emitter, gas_decrement_no_check_1)
@@ -828,7 +828,7 @@ TEST(Emitter, gas_decrement_no_check_1)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(ctx.gas_remaining, 3);
+    ASSERT(EQ, ctx.gas_remaining, 3);
 }
 
 TEST(Emitter, gas_decrement_no_check_2)
@@ -842,7 +842,7 @@ TEST(Emitter, gas_decrement_no_check_2)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(ctx.gas_remaining, -2);
+    ASSERT(EQ, ctx.gas_remaining, -2);
 }
 
 TEST(Emitter, gas_decrement_check_non_negative_1)
@@ -858,8 +858,8 @@ TEST(Emitter, gas_decrement_check_non_negative_1)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(ctx.gas_remaining, -1);
-    ASSERT_EQ(ret.status, runtime::StatusCode::Error);
+    ASSERT(EQ, ctx.gas_remaining, -1);
+    ASSERT(EQ, ret.status, runtime::StatusCode::Error);
 }
 
 TEST(Emitter, gas_decrement_check_non_negative_2)
@@ -875,8 +875,8 @@ TEST(Emitter, gas_decrement_check_non_negative_2)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(ctx.gas_remaining, 0);
-    ASSERT_EQ(ret.status, runtime::StatusCode::Success);
+    ASSERT(EQ, ctx.gas_remaining, 0);
+    ASSERT(EQ, ret.status, runtime::StatusCode::Success);
 }
 
 TEST(Emitter, gas_decrement_check_non_negative_3)
@@ -892,8 +892,8 @@ TEST(Emitter, gas_decrement_check_non_negative_3)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(ctx.gas_remaining, 1);
-    ASSERT_EQ(ret.status, runtime::StatusCode::Success);
+    ASSERT(EQ, ctx.gas_remaining, 1);
+    ASSERT(EQ, ret.status, runtime::StatusCode::Success);
 }
 
 TEST(Emitter, return_)
@@ -916,9 +916,9 @@ TEST(Emitter, return_)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(ret.status, runtime::StatusCode::Success);
-    ASSERT_EQ(uint256_t::load_le(ret.offset), offset_value);
-    ASSERT_EQ(uint256_t::load_le(ret.size), size_value);
+    ASSERT(EQ, ret.status, runtime::StatusCode::Success);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), offset_value);
+    ASSERT(EQ, uint256_t::load_le(ret.size), size_value);
 }
 
 TEST(Emitter, revert)
@@ -940,9 +940,9 @@ TEST(Emitter, revert)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(ret.status, runtime::StatusCode::Revert);
-    ASSERT_EQ(uint256_t::load_le(ret.offset), offset_value);
-    ASSERT_EQ(uint256_t::load_le(ret.size), size_value);
+    ASSERT(EQ, ret.status, runtime::StatusCode::Revert);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), offset_value);
+    ASSERT(EQ, uint256_t::load_le(ret.size), size_value);
 }
 
 TEST(Emitter, mov_stack_index_to_avx_reg)
@@ -960,32 +960,32 @@ TEST(Emitter, mov_stack_index_to_avx_reg)
 
     emit.mov_stack_index_to_avx_reg(0); // literal -> avx reg
     stack.spill_literal(e0);
-    ASSERT_TRUE(
+    ASSERT(TRUE,
         e0->avx_reg() && !e0->stack_offset() && !e0->literal() &&
         !e0->general_reg());
 
     emit.mov_stack_index_to_avx_reg(0); // avx reg -> avx reg
-    ASSERT_TRUE(
+    ASSERT(TRUE,
         e0->avx_reg() && !e0->stack_offset() && !e0->literal() &&
         !e0->general_reg());
 
     emit.mov_stack_index_to_general_reg(0);
     stack.spill_stack_offset(e0);
     (void)stack.spill_avx_reg(e0);
-    ASSERT_TRUE(
+    ASSERT(TRUE,
         e0->general_reg() && !e0->stack_offset() && !e0->literal() &&
         !e0->avx_reg());
 
     emit.mov_stack_index_to_avx_reg(0); // general reg -> stack offset & avx reg
     (void)stack.spill_general_reg(e0);
     (void)stack.spill_avx_reg(e0);
-    ASSERT_TRUE(
+    ASSERT(TRUE,
         e0->stack_offset() && !e0->general_reg() && !e0->literal() &&
         !e0->avx_reg());
 
     emit.mov_stack_index_to_avx_reg(0); // stack offset -> avx reg
     stack.spill_stack_offset(e0);
-    ASSERT_TRUE(
+    ASSERT(TRUE,
         e0->avx_reg() && !e0->general_reg() && !e0->literal() &&
         !e0->stack_offset());
 
@@ -1000,9 +1000,9 @@ TEST(Emitter, mov_stack_index_to_avx_reg)
     auto stack_memory = test_stack_memory();
     entry(&ctx, stack_memory.get());
 
-    ASSERT_EQ(ret.status, runtime::StatusCode::Success);
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 2);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 1);
+    ASSERT(EQ, ret.status, runtime::StatusCode::Success);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 2);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 1);
 }
 
 TEST(Emitter, mov_literal_to_ymm)
@@ -1031,14 +1031,14 @@ TEST(Emitter, mov_literal_to_ymm)
             auto e0 = stack.get(0);
             emit.mov_stack_index_to_avx_reg(0);
             stack.spill_literal(e0);
-            ASSERT_TRUE(
+            ASSERT(TRUE,
                 e0->avx_reg() && !e0->stack_offset() && !e0->literal() &&
                 !e0->general_reg());
 
             auto e1 = stack.get(1);
             emit.mov_stack_index_to_avx_reg(1);
             stack.spill_literal(e1);
-            ASSERT_TRUE(
+            ASSERT(TRUE,
                 e1->avx_reg() && !e1->stack_offset() && !e1->literal() &&
                 !e1->general_reg());
 
@@ -1051,9 +1051,9 @@ TEST(Emitter, mov_literal_to_ymm)
             auto stack_memory = test_stack_memory();
             entry(&ctx, stack_memory.get());
 
-            ASSERT_EQ(ret.status, runtime::StatusCode::Success);
-            ASSERT_EQ(uint256_t::load_le(ret.offset), lit1);
-            ASSERT_EQ(uint256_t::load_le(ret.size), lit0);
+            ASSERT(EQ, ret.status, runtime::StatusCode::Success);
+            ASSERT(EQ, uint256_t::load_le(ret.offset), lit1);
+            ASSERT(EQ, uint256_t::load_le(ret.size), lit0);
         }
     }
 }
@@ -1073,18 +1073,18 @@ TEST(Emitter, mov_stack_index_to_general_reg)
 
     emit.mov_stack_index_to_general_reg(1); // literal -> general reg
     stack.spill_literal(e1);
-    ASSERT_TRUE(
+    ASSERT(TRUE,
         e1->general_reg() && !e1->stack_offset() && !e1->literal() &&
         !e1->avx_reg());
 
     emit.mov_stack_index_to_general_reg(1); // general reg -> general reg
-    ASSERT_TRUE(
+    ASSERT(TRUE,
         e1->general_reg() && !e1->stack_offset() && !e1->literal() &&
         !e1->avx_reg());
 
     emit.mov_stack_index_to_avx_reg(1);
     (void)stack.spill_general_reg(e1);
-    ASSERT_TRUE(
+    ASSERT(TRUE,
         e1->avx_reg() && !e1->stack_offset() && !e1->literal() &&
         !e1->general_reg());
 
@@ -1092,13 +1092,13 @@ TEST(Emitter, mov_stack_index_to_general_reg)
         1); // avx reg -> stack offset & general reg
     (void)stack.spill_avx_reg(e1);
     (void)stack.spill_general_reg(e1);
-    ASSERT_TRUE(
+    ASSERT(TRUE,
         e1->stack_offset() && !e1->avx_reg() && !e1->literal() &&
         !e1->general_reg());
 
     emit.mov_stack_index_to_general_reg(1); // stack offset -> general reg
     stack.spill_stack_offset(e1);
-    ASSERT_TRUE(
+    ASSERT(TRUE,
         e1->general_reg() && !e1->avx_reg() && !e1->literal() &&
         !e1->stack_offset());
 
@@ -1113,9 +1113,9 @@ TEST(Emitter, mov_stack_index_to_general_reg)
     auto stack_memory = test_stack_memory();
     entry(&ctx, stack_memory.get());
 
-    ASSERT_EQ(ret.status, runtime::StatusCode::Success);
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 2);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 1);
+    ASSERT(EQ, ret.status, runtime::StatusCode::Success);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 2);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 1);
 }
 
 TEST(Emitter, mov_stack_index_to_stack_offset)
@@ -1133,44 +1133,44 @@ TEST(Emitter, mov_stack_index_to_stack_offset)
 
     emit.mov_stack_index_to_stack_offset(1); // literal -> stack offset
     stack.spill_literal(e1);
-    ASSERT_TRUE(
+    ASSERT(TRUE,
         e1->stack_offset() && !e1->general_reg() && !e1->literal() &&
         e1->avx_reg());
 
     auto *spill = stack.spill_avx_reg(e1);
-    ASSERT_EQ(spill, nullptr);
-    ASSERT_TRUE(
+    ASSERT(EQ, spill, nullptr);
+    ASSERT(TRUE,
         e1->stack_offset() && !e1->general_reg() && !e1->literal() &&
         !e1->avx_reg());
 
     emit.mov_stack_index_to_stack_offset(1); // stack offset -> stack offset
-    ASSERT_TRUE(
+    ASSERT(TRUE,
         e1->stack_offset() && !e1->general_reg() && !e1->literal() &&
         !e1->avx_reg());
 
     emit.mov_stack_index_to_avx_reg(1);
     stack.spill_stack_offset(e1);
-    ASSERT_TRUE(
+    ASSERT(TRUE,
         e1->avx_reg() && !e1->stack_offset() && !e1->literal() &&
         !e1->general_reg());
 
     emit.mov_stack_index_to_stack_offset(1); // avx reg -> stack offset
     spill = stack.spill_avx_reg(e1);
-    ASSERT_EQ(spill, nullptr);
-    ASSERT_TRUE(
+    ASSERT(EQ, spill, nullptr);
+    ASSERT(TRUE,
         e1->stack_offset() && !e1->avx_reg() && !e1->literal() &&
         !e1->general_reg());
 
     emit.mov_stack_index_to_general_reg(1); // stack offset -> general reg
     stack.spill_stack_offset(e1);
-    ASSERT_TRUE(
+    ASSERT(TRUE,
         e1->general_reg() && !e1->avx_reg() && !e1->literal() &&
         !e1->stack_offset());
 
     emit.mov_stack_index_to_stack_offset(1); // general reg -> stack offset
     spill = stack.spill_general_reg(e1);
-    ASSERT_EQ(spill, nullptr);
-    ASSERT_TRUE(
+    ASSERT(EQ, spill, nullptr);
+    ASSERT(TRUE,
         e1->stack_offset() && !e1->avx_reg() && !e1->literal() &&
         !e1->general_reg());
 
@@ -1185,9 +1185,9 @@ TEST(Emitter, mov_stack_index_to_stack_offset)
     auto stack_memory = test_stack_memory();
     entry(&ctx, stack_memory.get());
 
-    ASSERT_EQ(ret.status, runtime::StatusCode::Success);
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 2);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 1);
+    ASSERT(EQ, ret.status, runtime::StatusCode::Success);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 2);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 1);
 }
 
 TEST(Emitter, discharge_deferred_comparison)
@@ -1202,32 +1202,32 @@ TEST(Emitter, discharge_deferred_comparison)
     emit.push(2);
     mov_literal_to_location_type(emit, 0, Emitter::LocationType::StackOffset);
     emit.push(1);
-    ASSERT_FALSE(stack.has_deferred_comparison());
+    ASSERT(FALSE, stack.has_deferred_comparison());
     emit.lt();
-    ASSERT_TRUE(stack.has_deferred_comparison_at(0));
+    ASSERT(TRUE, stack.has_deferred_comparison_at(0));
     emit.dup(1);
-    ASSERT_TRUE(stack.has_deferred_comparison_at(0));
-    ASSERT_TRUE(stack.has_deferred_comparison_at(1));
+    ASSERT(TRUE, stack.has_deferred_comparison_at(0));
+    ASSERT(TRUE, stack.has_deferred_comparison_at(1));
     emit.dup(1);
-    ASSERT_TRUE(stack.has_deferred_comparison_at(0));
-    ASSERT_TRUE(stack.has_deferred_comparison_at(1));
-    ASSERT_TRUE(stack.has_deferred_comparison_at(2));
+    ASSERT(TRUE, stack.has_deferred_comparison_at(0));
+    ASSERT(TRUE, stack.has_deferred_comparison_at(1));
+    ASSERT(TRUE, stack.has_deferred_comparison_at(2));
     emit.push(3);
-    ASSERT_TRUE(stack.has_deferred_comparison_at(0));
-    ASSERT_TRUE(stack.has_deferred_comparison_at(1));
-    ASSERT_TRUE(stack.has_deferred_comparison_at(2));
-    ASSERT_FALSE(stack.has_deferred_comparison_at(3));
+    ASSERT(TRUE, stack.has_deferred_comparison_at(0));
+    ASSERT(TRUE, stack.has_deferred_comparison_at(1));
+    ASSERT(TRUE, stack.has_deferred_comparison_at(2));
+    ASSERT(FALSE, stack.has_deferred_comparison_at(3));
     emit.swap(1);
-    ASSERT_TRUE(stack.has_deferred_comparison_at(0));
-    ASSERT_TRUE(stack.has_deferred_comparison_at(1));
-    ASSERT_FALSE(stack.has_deferred_comparison_at(2));
-    ASSERT_TRUE(stack.has_deferred_comparison_at(3));
+    ASSERT(TRUE, stack.has_deferred_comparison_at(0));
+    ASSERT(TRUE, stack.has_deferred_comparison_at(1));
+    ASSERT(FALSE, stack.has_deferred_comparison_at(2));
+    ASSERT(TRUE, stack.has_deferred_comparison_at(3));
     emit.pop();
     emit.lt();
-    ASSERT_FALSE(stack.has_deferred_comparison_at(0));
-    ASSERT_TRUE(stack.has_deferred_comparison_at(1));
+    ASSERT(FALSE, stack.has_deferred_comparison_at(0));
+    ASSERT(TRUE, stack.has_deferred_comparison_at(1));
     emit.return_();
-    ASSERT_FALSE(stack.has_deferred_comparison());
+    ASSERT(FALSE, stack.has_deferred_comparison());
 
     entrypoint_t entry = emit.finish_contract(rt);
     auto ctx = test_context();
@@ -1236,9 +1236,9 @@ TEST(Emitter, discharge_deferred_comparison)
     auto stack_memory = test_stack_memory();
     entry(&ctx, stack_memory.get());
 
-    ASSERT_EQ(ret.status, runtime::StatusCode::Success);
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 0);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 1);
+    ASSERT(EQ, ret.status, runtime::StatusCode::Success);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 0);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 1);
 }
 
 TEST(Emitter, discharge_negated_deferred_comparison)
@@ -1269,55 +1269,55 @@ TEST(Emitter, discharge_negated_deferred_comparison)
     emit.push(2);
     mov_literal_to_location_type(emit, 0, Emitter::LocationType::StackOffset);
     emit.push(1);
-    ASSERT_FALSE(stack.has_deferred_comparison());
+    ASSERT(FALSE, stack.has_deferred_comparison());
     emit.lt();
-    ASSERT_TRUE(stack.has_deferred_comparison_at(0)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(0)); // 1
     emit.dup(1);
-    ASSERT_TRUE(stack.has_deferred_comparison_at(0)); // 1
-    ASSERT_TRUE(stack.has_deferred_comparison_at(1)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(0)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(1)); // 1
     emit.iszero();
-    ASSERT_TRUE(stack.has_deferred_comparison_at(0)); // 1
-    ASSERT_TRUE(stack.has_deferred_comparison_at(1)); // 0
+    ASSERT(TRUE, stack.has_deferred_comparison_at(0)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(1)); // 0
     emit.swap(1);
-    ASSERT_TRUE(stack.has_deferred_comparison_at(0)); // 0
-    ASSERT_TRUE(stack.has_deferred_comparison_at(1)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(0)); // 0
+    ASSERT(TRUE, stack.has_deferred_comparison_at(1)); // 1
     emit.dup(1);
-    ASSERT_TRUE(stack.has_deferred_comparison_at(0)); // 0
-    ASSERT_TRUE(stack.has_deferred_comparison_at(1)); // 1
-    ASSERT_TRUE(stack.has_deferred_comparison_at(2)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(0)); // 0
+    ASSERT(TRUE, stack.has_deferred_comparison_at(1)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(2)); // 1
     emit.iszero();
-    ASSERT_TRUE(stack.has_deferred_comparison_at(0)); // 0
-    ASSERT_TRUE(stack.has_deferred_comparison_at(1)); // 1
-    ASSERT_TRUE(stack.has_deferred_comparison_at(2)); // 0
+    ASSERT(TRUE, stack.has_deferred_comparison_at(0)); // 0
+    ASSERT(TRUE, stack.has_deferred_comparison_at(1)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(2)); // 0
     emit.swap(2);
-    ASSERT_TRUE(stack.has_deferred_comparison_at(0)); // 0
-    ASSERT_TRUE(stack.has_deferred_comparison_at(1)); // 1
-    ASSERT_TRUE(stack.has_deferred_comparison_at(2)); // 0
+    ASSERT(TRUE, stack.has_deferred_comparison_at(0)); // 0
+    ASSERT(TRUE, stack.has_deferred_comparison_at(1)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(2)); // 0
     emit.iszero();
-    ASSERT_TRUE(stack.has_deferred_comparison_at(0)); // 0
-    ASSERT_TRUE(stack.has_deferred_comparison_at(1)); // 1
-    ASSERT_TRUE(stack.has_deferred_comparison_at(2)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(0)); // 0
+    ASSERT(TRUE, stack.has_deferred_comparison_at(1)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(2)); // 1
     emit.swap(2);
-    ASSERT_TRUE(stack.has_deferred_comparison_at(0)); // 1
-    ASSERT_TRUE(stack.has_deferred_comparison_at(1)); // 1
-    ASSERT_TRUE(stack.has_deferred_comparison_at(2)); // 0
+    ASSERT(TRUE, stack.has_deferred_comparison_at(0)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(1)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(2)); // 0
     emit.lt();
-    ASSERT_FALSE(stack.has_deferred_comparison_at(0)); // 1
-    ASSERT_TRUE(stack.has_deferred_comparison_at(1)); // 1
+    ASSERT(FALSE, stack.has_deferred_comparison_at(0)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(1)); // 1
     emit.swap(1);
-    ASSERT_TRUE(stack.has_deferred_comparison_at(0)); // 1
-    ASSERT_FALSE(stack.has_deferred_comparison_at(1)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(0)); // 1
+    ASSERT(FALSE, stack.has_deferred_comparison_at(1)); // 1
     emit.iszero();
-    ASSERT_FALSE(stack.has_deferred_comparison_at(0)); // 1
-    ASSERT_TRUE(stack.has_deferred_comparison_at(1)); // 0
+    ASSERT(FALSE, stack.has_deferred_comparison_at(0)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(1)); // 0
     emit.iszero();
-    ASSERT_FALSE(stack.has_deferred_comparison_at(0)); // 1
-    ASSERT_TRUE(stack.has_deferred_comparison_at(1)); // 1
+    ASSERT(FALSE, stack.has_deferred_comparison_at(0)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(1)); // 1
     emit.iszero();
-    ASSERT_FALSE(stack.has_deferred_comparison_at(0)); // 1
-    ASSERT_TRUE(stack.has_deferred_comparison_at(1)); // 0
+    ASSERT(FALSE, stack.has_deferred_comparison_at(0)); // 1
+    ASSERT(TRUE, stack.has_deferred_comparison_at(1)); // 0
     emit.return_();
-    ASSERT_FALSE(stack.has_deferred_comparison());
+    ASSERT(FALSE, stack.has_deferred_comparison());
 
     entrypoint_t entry = emit.finish_contract(rt);
     auto ctx = test_context();
@@ -1326,9 +1326,9 @@ TEST(Emitter, discharge_negated_deferred_comparison)
     auto stack_memory = test_stack_memory();
     entry(&ctx, stack_memory.get());
 
-    ASSERT_EQ(ret.status, runtime::StatusCode::Success);
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 0);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 1);
+    ASSERT(EQ, ret.status, runtime::StatusCode::Success);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 0);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 1);
 }
 
 TEST(Emitter, lt)
@@ -1368,9 +1368,9 @@ TEST(Emitter, lt_same)
     mov_literal_to_location_type(emit, 0, Emitter::LocationType::AvxReg);
     auto e0 = emit.get_stack().get(0);
     auto e1 = emit.get_stack().get(1);
-    ASSERT_EQ(e0, e1);
+    ASSERT(EQ, e0, e1);
     emit.lt();
-    ASSERT_EQ(emit.get_stack().get(0)->literal()->value, uint256_t{0});
+    ASSERT(EQ, emit.get_stack().get(0)->literal()->value, uint256_t{0});
 }
 
 TEST(Emitter, gt)
@@ -1410,9 +1410,9 @@ TEST(Emitter, gt_same)
     mov_literal_to_location_type(emit, 0, Emitter::LocationType::AvxReg);
     auto e0 = emit.get_stack().get(0);
     auto e1 = emit.get_stack().get(1);
-    ASSERT_EQ(e0, e1);
+    ASSERT(EQ, e0, e1);
     emit.gt();
-    ASSERT_EQ(emit.get_stack().get(0)->literal()->value, uint256_t{0});
+    ASSERT(EQ, emit.get_stack().get(0)->literal()->value, uint256_t{0});
 }
 
 TEST(Emitter, slt)
@@ -1468,9 +1468,9 @@ TEST(Emitter, slt_same)
     mov_literal_to_location_type(emit, 0, Emitter::LocationType::AvxReg);
     auto e0 = emit.get_stack().get(0);
     auto e1 = emit.get_stack().get(1);
-    ASSERT_EQ(e0, e1);
+    ASSERT(EQ, e0, e1);
     emit.slt();
-    ASSERT_EQ(emit.get_stack().get(0)->literal()->value, uint256_t{0});
+    ASSERT(EQ, emit.get_stack().get(0)->literal()->value, uint256_t{0});
 }
 
 TEST(Emitter, sgt)
@@ -1526,9 +1526,9 @@ TEST(Emitter, sgt_same)
     mov_literal_to_location_type(emit, 0, Emitter::LocationType::AvxReg);
     auto e0 = emit.get_stack().get(0);
     auto e1 = emit.get_stack().get(1);
-    ASSERT_EQ(e0, e1);
+    ASSERT(EQ, e0, e1);
     emit.sgt();
-    ASSERT_EQ(emit.get_stack().get(0)->literal()->value, uint256_t{0});
+    ASSERT(EQ, emit.get_stack().get(0)->literal()->value, uint256_t{0});
 }
 
 TEST(Emitter, sub)
@@ -1584,7 +1584,7 @@ TEST(Emitter, sub_identity)
     mov_literal_to_location_type(emit, 1, Emitter::LocationType::GeneralReg);
     auto e = emit.get_stack().get(1);
     emit.sub();
-    ASSERT_EQ(emit.get_stack().get(0), e);
+    ASSERT(EQ, emit.get_stack().get(0), e);
 }
 
 TEST(Emitter, add)
@@ -1645,7 +1645,7 @@ TEST(Emitter, add_identity_right)
     mov_literal_to_location_type(emit, 1, Emitter::LocationType::GeneralReg);
     auto e = emit.get_stack().get(1);
     emit.add();
-    ASSERT_EQ(emit.get_stack().get(0), e);
+    ASSERT(EQ, emit.get_stack().get(0), e);
 }
 
 TEST(Emitter, add_identity_left)
@@ -1659,7 +1659,7 @@ TEST(Emitter, add_identity_left)
     mov_literal_to_location_type(emit, 0, Emitter::LocationType::GeneralReg);
     auto e = emit.get_stack().get(0);
     emit.add();
-    ASSERT_EQ(emit.get_stack().get(0), e);
+    ASSERT(EQ, emit.get_stack().get(0), e);
 }
 
 TEST(Emitter, mul)
@@ -1949,7 +1949,7 @@ TEST(Emitter, addmod_opt)
                     em.push(m);
                     em.push(b);
                     em.push(a);
-                    ASSERT_TRUE(em.addmod_opt());
+                    ASSERT(TRUE, em.addmod_opt());
                 },
                 0,
                 0,
@@ -2018,7 +2018,7 @@ TEST(Emitter, addmod_opt)
                     em.push(m);
                     em.swap(2);
                     em.swap(1);
-                    ASSERT_TRUE(em.addmod_opt());
+                    ASSERT(TRUE, em.addmod_opt());
                 },
                 a,
                 b,
@@ -2055,7 +2055,7 @@ TEST(Emitter, addmod_opt_with_elim_operation)
                     em.push(m);
                     em.swap(2);
                     em.swap(1);
-                    ASSERT_TRUE(em.addmod_opt());
+                    ASSERT(TRUE, em.addmod_opt());
                 },
                 a,
                 b,
@@ -2080,7 +2080,7 @@ TEST(Emitter, addmod_nonopt)
                 em.swap(2);
                 em.swap(1);
                 // The modulus is in a register
-                ASSERT_FALSE(em.addmod_opt());
+                ASSERT(FALSE, em.addmod_opt());
                 em.call_runtime(10, true, runtime::addmod);
             },
             4,
@@ -2101,7 +2101,7 @@ TEST(Emitter, addmod_nonopt)
                 em.swap(2);
                 em.swap(1);
                 // The modulus is not a literal
-                ASSERT_FALSE(em.addmod_opt());
+                ASSERT(FALSE, em.addmod_opt());
                 em.call_runtime(10, true, runtime::addmod);
             },
             4,
@@ -2268,7 +2268,7 @@ TEST(Emitter, and_identity_left)
     mov_literal_to_location_type(emit, 0, Emitter::LocationType::AvxReg);
     auto e = emit.get_stack().get(0);
     emit.and_();
-    ASSERT_EQ(emit.get_stack().get(0), e);
+    ASSERT(EQ, emit.get_stack().get(0), e);
 }
 
 TEST(Emitter, and_identity_right)
@@ -2282,7 +2282,7 @@ TEST(Emitter, and_identity_right)
     mov_literal_to_location_type(emit, 1, Emitter::LocationType::AvxReg);
     auto e = emit.get_stack().get(1);
     emit.and_();
-    ASSERT_EQ(emit.get_stack().get(0), e);
+    ASSERT(EQ, emit.get_stack().get(0), e);
 }
 
 TEST(Emitter, or_)
@@ -2328,7 +2328,7 @@ TEST(Emitter, or_identity_left)
     mov_literal_to_location_type(emit, 0, Emitter::LocationType::AvxReg);
     auto e = emit.get_stack().get(0);
     emit.or_();
-    ASSERT_EQ(emit.get_stack().get(0), e);
+    ASSERT(EQ, emit.get_stack().get(0), e);
 }
 
 TEST(Emitter, or_identity_right)
@@ -2342,7 +2342,7 @@ TEST(Emitter, or_identity_right)
     mov_literal_to_location_type(emit, 1, Emitter::LocationType::AvxReg);
     auto e = emit.get_stack().get(1);
     emit.or_();
-    ASSERT_EQ(emit.get_stack().get(0), e);
+    ASSERT(EQ, emit.get_stack().get(0), e);
 }
 
 TEST(Emitter, xor_)
@@ -2397,9 +2397,9 @@ TEST(Emitter, xor_same)
     mov_literal_to_location_type(emit, 0, Emitter::LocationType::AvxReg);
     auto e0 = emit.get_stack().get(0);
     auto e1 = emit.get_stack().get(1);
-    ASSERT_EQ(e0, e1);
+    ASSERT(EQ, e0, e1);
     emit.xor_();
-    ASSERT_EQ(emit.get_stack().get(0)->literal()->value, uint256_t{0});
+    ASSERT(EQ, emit.get_stack().get(0)->literal()->value, uint256_t{0});
 }
 
 TEST(Emitter, eq)
@@ -2450,9 +2450,9 @@ TEST(Emitter, eq_same)
     mov_literal_to_location_type(emit, 0, Emitter::LocationType::AvxReg);
     auto e0 = emit.get_stack().get(0);
     auto e1 = emit.get_stack().get(1);
-    ASSERT_EQ(e0, e1);
+    ASSERT(EQ, e0, e1);
     emit.eq();
-    ASSERT_EQ(emit.get_stack().get(0)->literal()->value, uint256_t{1});
+    ASSERT(EQ, emit.get_stack().get(0)->literal()->value, uint256_t{1});
 }
 
 TEST(Emitter, byte)
@@ -2622,7 +2622,7 @@ TEST(Emitter, shl_identity)
     mov_literal_to_location_type(emit, 0, Emitter::LocationType::GeneralReg);
     auto e = emit.get_stack().get(0);
     emit.shl();
-    ASSERT_EQ(emit.get_stack().get(0), e);
+    ASSERT(EQ, emit.get_stack().get(0), e);
 }
 
 TEST(Emitter, shl_0)
@@ -2636,7 +2636,7 @@ TEST(Emitter, shl_0)
     mov_literal_to_location_type(emit, 1, Emitter::LocationType::GeneralReg);
     auto e = emit.get_stack().get(0);
     emit.shl();
-    ASSERT_EQ(emit.get_stack().get(0), e);
+    ASSERT(EQ, emit.get_stack().get(0), e);
 }
 
 TEST(Emitter, shr)
@@ -2691,7 +2691,7 @@ TEST(Emitter, shr_identity)
     mov_literal_to_location_type(emit, 0, Emitter::LocationType::GeneralReg);
     auto e = emit.get_stack().get(0);
     emit.shr();
-    ASSERT_EQ(emit.get_stack().get(0), e);
+    ASSERT(EQ, emit.get_stack().get(0), e);
 }
 
 TEST(Emitter, shr_0)
@@ -2705,7 +2705,7 @@ TEST(Emitter, shr_0)
     mov_literal_to_location_type(emit, 1, Emitter::LocationType::GeneralReg);
     auto e = emit.get_stack().get(0);
     emit.shr();
-    ASSERT_EQ(emit.get_stack().get(0), e);
+    ASSERT(EQ, emit.get_stack().get(0), e);
 }
 
 TEST(Emitter, sar)
@@ -2797,7 +2797,7 @@ TEST(Emitter, sar_identity)
     mov_literal_to_location_type(emit, 0, Emitter::LocationType::GeneralReg);
     auto e = emit.get_stack().get(0);
     emit.sar();
-    ASSERT_EQ(emit.get_stack().get(0), e);
+    ASSERT(EQ, emit.get_stack().get(0), e);
 }
 
 TEST(Emitter, sar_0)
@@ -2811,7 +2811,7 @@ TEST(Emitter, sar_0)
     mov_literal_to_location_type(emit, 1, Emitter::LocationType::GeneralReg);
     auto e = emit.get_stack().get(0);
     emit.sar();
-    ASSERT_EQ(emit.get_stack().get(0), e);
+    ASSERT(EQ, emit.get_stack().get(0), e);
 }
 
 TEST(Emitter, sar_max)
@@ -2825,7 +2825,7 @@ TEST(Emitter, sar_max)
     mov_literal_to_location_type(emit, 1, Emitter::LocationType::GeneralReg);
     auto e = emit.get_stack().get(0);
     emit.sar();
-    ASSERT_EQ(emit.get_stack().get(0), e);
+    ASSERT(EQ, emit.get_stack().get(0), e);
 }
 
 TEST(Emitter, call_runtime_pure)
@@ -2886,8 +2886,8 @@ TEST(Emitter, call_runtime_12_arg_fun)
     auto stack_memory = test_stack_memory();
     entry(&ctx, stack_memory.get());
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 5);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 0);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 5);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 0);
 }
 
 TEST(Emitter, call_runtime_11_arg_fun)
@@ -2923,8 +2923,8 @@ TEST(Emitter, call_runtime_11_arg_fun)
     auto stack_memory = test_stack_memory();
     entry(&ctx, stack_memory.get());
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 5);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 0);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 5);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 0);
 }
 
 TEST(Emitter, runtime_exit)
@@ -2947,7 +2947,7 @@ TEST(Emitter, runtime_exit)
     auto stack_memory = test_stack_memory();
     entry(&ctx, stack_memory.get());
 
-    ASSERT_EQ(ret.status, runtime::StatusCode::OutOfGas);
+    ASSERT(EQ, ret.status, runtime::StatusCode::OutOfGas);
 }
 
 TEST(Emitter, address)
@@ -2976,8 +2976,8 @@ TEST(Emitter, address)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), result);
-    ASSERT_EQ(uint256_t::load_le(ret.size), result);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), result);
+    ASSERT(EQ, uint256_t::load_le(ret.size), result);
 }
 
 TEST(Emitter, origin)
@@ -2999,8 +2999,8 @@ TEST(Emitter, origin)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 0x200);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 0x200);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 0x200);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 0x200);
 }
 
 TEST(Emitter, gasprice)
@@ -3022,8 +3022,8 @@ TEST(Emitter, gasprice)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 0x300);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 0x300);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 0x300);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 0x300);
 }
 
 TEST(Emitter, gaslimit)
@@ -3045,8 +3045,8 @@ TEST(Emitter, gaslimit)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 4);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 4);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 4);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 4);
 }
 
 TEST(Emitter, coinbase)
@@ -3068,8 +3068,8 @@ TEST(Emitter, coinbase)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 0x500);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 0x500);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 0x500);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 0x500);
 }
 
 TEST(Emitter, timestamp)
@@ -3091,8 +3091,8 @@ TEST(Emitter, timestamp)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 6);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 6);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 6);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 6);
 }
 
 TEST(Emitter, number)
@@ -3114,8 +3114,8 @@ TEST(Emitter, number)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 7);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 7);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 7);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 7);
 }
 
 TEST(Emitter, prevrandao)
@@ -3137,8 +3137,8 @@ TEST(Emitter, prevrandao)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 0x800);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 0x800);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 0x800);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 0x800);
 }
 
 TEST(Emitter, chainid)
@@ -3160,8 +3160,8 @@ TEST(Emitter, chainid)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 0x900);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 0x900);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 0x900);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 0x900);
 }
 
 TEST(Emitter, basefee)
@@ -3183,8 +3183,8 @@ TEST(Emitter, basefee)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 0xa00);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 0xa00);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 0xa00);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 0xa00);
 }
 
 TEST(Emitter, blobbasefee)
@@ -3206,8 +3206,8 @@ TEST(Emitter, blobbasefee)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 0xb00);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 0xb00);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 0xb00);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 0xb00);
 }
 
 TEST(Emitter, caller)
@@ -3236,8 +3236,8 @@ TEST(Emitter, caller)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), result);
-    ASSERT_EQ(uint256_t::load_le(ret.size), result);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), result);
+    ASSERT(EQ, uint256_t::load_le(ret.size), result);
 }
 
 TEST(Emitter, calldatasize)
@@ -3258,8 +3258,8 @@ TEST(Emitter, calldatasize)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 5);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 5);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 5);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 5);
 }
 
 TEST(Emitter, returndatasize)
@@ -3281,8 +3281,8 @@ TEST(Emitter, returndatasize)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 6);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 6);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 6);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 6);
 }
 
 TEST(Emitter, msize)
@@ -3303,8 +3303,8 @@ TEST(Emitter, msize)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 0xffffffff);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 0xffffffff);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 0xffffffff);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 0xffffffff);
 }
 
 TEST(Emitter, MemoryInstructions)
@@ -3380,16 +3380,16 @@ TEST(Emitter, MemoryInstructions)
         entry(&ctx, stack_memory.get());
 
         if (m8) {
-            ASSERT_EQ(
+            ASSERT(EQ,
                 uint256_t::load_le(ret.offset),
                 uint256_t(0, 0, 0, uint64_t{1} << 56));
-            ASSERT_EQ(
+            ASSERT(EQ,
                 uint256_t::load_le(ret.size),
                 uint256_t(0, 0, 0, uint64_t{1} << 56));
         }
         else {
-            ASSERT_EQ(uint256_t::load_le(ret.offset), uint256_t(1, 2, 3, 4));
-            ASSERT_EQ(uint256_t::load_le(ret.size), uint256_t(1, 2, 3, 4));
+            ASSERT(EQ, uint256_t::load_le(ret.offset), uint256_t(1, 2, 3, 4));
+            ASSERT(EQ, uint256_t::load_le(ret.size), uint256_t(1, 2, 3, 4));
         }
     };
 
@@ -3471,7 +3471,7 @@ TEST(Emitter, mstore_not_bounded_by_bits)
         auto stack_memory = test_stack_memory();
         entry(&ctx, stack_memory.get());
 
-        ASSERT_EQ(ret.status, runtime::StatusCode::Success);
+        ASSERT(EQ, ret.status, runtime::StatusCode::Success);
     }
 
     for (auto loc : all_locations) {
@@ -3492,7 +3492,7 @@ TEST(Emitter, mstore_not_bounded_by_bits)
         auto stack_memory = test_stack_memory();
         entry(&ctx, stack_memory.get());
 
-        ASSERT_EQ(ret.status, runtime::StatusCode::Error);
+        ASSERT(EQ, ret.status, runtime::StatusCode::Error);
     }
 }
 
@@ -3519,7 +3519,7 @@ TEST(Emitter, mload_not_bounded_by_bits)
         auto stack_memory = test_stack_memory();
         entry(&ctx, stack_memory.get());
 
-        ASSERT_EQ(ret.status, runtime::StatusCode::Success);
+        ASSERT(EQ, ret.status, runtime::StatusCode::Success);
     }
 
     for (auto loc : all_locations) {
@@ -3539,7 +3539,7 @@ TEST(Emitter, mload_not_bounded_by_bits)
         auto stack_memory = test_stack_memory();
         entry(&ctx, stack_memory.get());
 
-        ASSERT_EQ(ret.status, runtime::StatusCode::Error);
+        ASSERT(EQ, ret.status, runtime::StatusCode::Error);
     }
 }
 
@@ -3606,8 +3606,8 @@ TEST(Emitter, calldataload)
                     calldata + offset,
                     std::min(sizeof(expected), sizeof(calldata) - offset));
 
-                ASSERT_EQ(uint256_t::load_le(ret.offset), expected.to_be());
-                ASSERT_EQ(uint256_t::load_le(ret.size), expected.to_be());
+                ASSERT(EQ, uint256_t::load_le(ret.offset), expected.to_be());
+                ASSERT(EQ, uint256_t::load_le(ret.size), expected.to_be());
             }
         }
     }
@@ -3643,9 +3643,9 @@ TEST(Emitter, calldataload_not_bounded_by_bits)
         auto stack_memory = test_stack_memory();
         entry(&ctx, stack_memory.get());
 
-        ASSERT_EQ(ret.status, runtime::StatusCode::Success);
-        ASSERT_EQ(uint256_t::load_le(ret.offset), uint256_t{0xff} << 248);
-        ASSERT_EQ(uint256_t::load_le(ret.size), uint256_t{0xff} << 248);
+        ASSERT(EQ, ret.status, runtime::StatusCode::Success);
+        ASSERT(EQ, uint256_t::load_le(ret.offset), uint256_t{0xff} << 248);
+        ASSERT(EQ, uint256_t::load_le(ret.size), uint256_t{0xff} << 248);
     }
 
     for (auto loc : all_locations) {
@@ -3668,9 +3668,9 @@ TEST(Emitter, calldataload_not_bounded_by_bits)
         auto stack_memory = test_stack_memory();
         entry(&ctx, stack_memory.get());
 
-        ASSERT_EQ(ret.status, runtime::StatusCode::Success);
-        ASSERT_EQ(uint256_t::load_le(ret.offset), 0);
-        ASSERT_EQ(uint256_t::load_le(ret.size), 0);
+        ASSERT(EQ, ret.status, runtime::StatusCode::Success);
+        ASSERT(EQ, uint256_t::load_le(ret.offset), 0);
+        ASSERT(EQ, uint256_t::load_le(ret.size), 0);
     }
 
     for (auto loc : all_locations) {
@@ -3693,9 +3693,9 @@ TEST(Emitter, calldataload_not_bounded_by_bits)
         auto stack_memory = test_stack_memory();
         entry(&ctx, stack_memory.get());
 
-        ASSERT_EQ(ret.status, runtime::StatusCode::Success);
-        ASSERT_EQ(uint256_t::load_le(ret.offset), 0);
-        ASSERT_EQ(uint256_t::load_le(ret.size), 0);
+        ASSERT(EQ, ret.status, runtime::StatusCode::Success);
+        ASSERT(EQ, uint256_t::load_le(ret.offset), 0);
+        ASSERT(EQ, uint256_t::load_le(ret.size), 0);
     }
 }
 
@@ -3716,8 +3716,8 @@ TEST(Emitter, gas)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 12);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 12);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 12);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 12);
 }
 
 TEST(Emitter, callvalue)
@@ -3746,8 +3746,8 @@ TEST(Emitter, callvalue)
 
     entry(&ctx, nullptr);
 
-    ASSERT_EQ(uint256_t::load_le(ret.offset), result);
-    ASSERT_EQ(uint256_t::load_le(ret.size), result);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), result);
+    ASSERT(EQ, uint256_t::load_le(ret.size), result);
 }
 
 TEST(Emitter, iszero)
@@ -3800,7 +3800,7 @@ TEST(Emitter, jump_bad_jumpdest)
     auto stack_memory = test_stack_memory();
     entry(&ctx, stack_memory.get());
 
-    ASSERT_EQ(ret.status, runtime::StatusCode::Error);
+    ASSERT(EQ, ret.status, runtime::StatusCode::Error);
 }
 
 TEST(Emitter, jumpi)
@@ -3846,7 +3846,7 @@ TEST(Emitter, jumpi_bad_jumpdest)
     auto stack_memory = test_stack_memory();
     entry(&ctx, stack_memory.get());
 
-    ASSERT_EQ(ret.status, runtime::StatusCode::Error);
+    ASSERT(EQ, ret.status, runtime::StatusCode::Error);
 }
 
 TEST(Emitter, block_epilogue)
@@ -3886,20 +3886,20 @@ TEST(Emitter, SpillGeneralRegister)
 
     for (int32_t i = 0; i < GENERAL_REG_COUNT; ++i) {
         emit.address();
-        ASSERT_TRUE(stack.get(i)->general_reg().has_value());
+        ASSERT(TRUE, stack.get(i)->general_reg().has_value());
     }
 
     emit.address();
-    ASSERT_TRUE(stack.get(GENERAL_REG_COUNT)->general_reg().has_value());
+    ASSERT(TRUE, stack.get(GENERAL_REG_COUNT)->general_reg().has_value());
 
     size_t reg_count = 0;
     for (int32_t i = 0; i <= GENERAL_REG_COUNT; ++i) {
         reg_count += stack.get(i)->general_reg().has_value();
         if (!stack.get(i)->general_reg().has_value()) {
-            ASSERT_TRUE(stack.get(i)->stack_offset().has_value());
+            ASSERT(TRUE, stack.get(i)->stack_offset().has_value());
         }
     }
-    ASSERT_EQ(reg_count, GENERAL_REG_COUNT);
+    ASSERT(EQ, reg_count, GENERAL_REG_COUNT);
 }
 
 TEST(Emitter, SpillAvxRegister)
@@ -3918,25 +3918,25 @@ TEST(Emitter, SpillAvxRegister)
 
     for (int i = 0; i < 3; ++i) {
         emit.callvalue();
-        ASSERT_TRUE(stack.get(i)->general_reg().has_value());
-        ASSERT_FALSE(stack.get(i)->avx_reg().has_value());
+        ASSERT(TRUE, stack.get(i)->general_reg().has_value());
+        ASSERT(FALSE, stack.get(i)->avx_reg().has_value());
     }
     for (int32_t i = 3; i < 3 + AVX_REG_COUNT; ++i) {
         emit.callvalue();
-        ASSERT_TRUE(stack.get(i)->avx_reg().has_value());
+        ASSERT(TRUE, stack.get(i)->avx_reg().has_value());
     }
 
     emit.callvalue();
-    ASSERT_TRUE(stack.get(AVX_REG_COUNT)->avx_reg().has_value());
+    ASSERT(TRUE, stack.get(AVX_REG_COUNT)->avx_reg().has_value());
 
     size_t avx_count = 0;
     for (int32_t i = 3; i <= 3 + AVX_REG_COUNT; ++i) {
         avx_count += stack.get(i)->avx_reg().has_value();
         if (!stack.get(i)->avx_reg().has_value()) {
-            ASSERT_TRUE(stack.get(i)->stack_offset().has_value());
+            ASSERT(TRUE, stack.get(i)->stack_offset().has_value());
         }
     }
-    ASSERT_EQ(avx_count, AVX_REG_COUNT);
+    ASSERT(EQ, avx_count, AVX_REG_COUNT);
 }
 
 TEST(Emitter, QuadraticCompileTimeRegression)
@@ -3968,7 +3968,7 @@ TEST(Emitter, QuadraticCompileTimeRegression)
     }
     emit.stop();
 
-    ASSERT_LT(emit.estimate_size(), 256 * 1024);
+    ASSERT(LT, emit.estimate_size(), 256 * 1024);
 }
 
 TEST(Emitter, SpillInMovGeneralRegToAvxRegRegression)
@@ -3988,10 +3988,10 @@ TEST(Emitter, SpillInMovGeneralRegToAvxRegRegression)
 
     for (int32_t i = 0; i < 16; ++i) {
         emit.push(i);
-        ASSERT_TRUE(stack.has_free_avx_reg());
+        ASSERT(TRUE, stack.has_free_avx_reg());
         mov_literal_to_location_type(emit, i, Emitter::LocationType::AvxReg);
     }
-    ASSERT_FALSE(stack.has_free_avx_reg());
+    ASSERT(FALSE, stack.has_free_avx_reg());
 
     emit.push(16);
     mov_literal_to_location_type(emit, 16, Emitter::LocationType::GeneralReg);
@@ -4006,9 +4006,9 @@ TEST(Emitter, SpillInMovGeneralRegToAvxRegRegression)
     auto stack_memory = test_stack_memory();
     entry(&ctx, stack_memory.get());
 
-    ASSERT_EQ(ret.status, runtime::StatusCode::Success);
-    ASSERT_EQ(uint256_t::load_le(ret.offset), 16);
-    ASSERT_EQ(uint256_t::load_le(ret.size), 15);
+    ASSERT(EQ, ret.status, runtime::StatusCode::Success);
+    ASSERT(EQ, uint256_t::load_le(ret.offset), 16);
+    ASSERT(EQ, uint256_t::load_le(ret.size), 15);
 }
 
 TEST(Emitter, ReleaseSrcAndDestRegression)
@@ -4026,10 +4026,10 @@ TEST(Emitter, ReleaseSrcAndDestRegression)
     emit.address();
     emit.mov_stack_index_to_avx_reg(0);
     (void)stack.spill_general_reg(stack.get(0));
-    ASSERT_FALSE(stack.get(0)->literal().has_value());
-    ASSERT_FALSE(stack.get(0)->stack_offset().has_value());
-    ASSERT_FALSE(stack.get(0)->general_reg().has_value());
-    ASSERT_TRUE(stack.get(0)->avx_reg().has_value());
+    ASSERT(FALSE, stack.get(0)->literal().has_value());
+    ASSERT(FALSE, stack.get(0)->stack_offset().has_value());
+    ASSERT(FALSE, stack.get(0)->general_reg().has_value());
+    ASSERT(TRUE, stack.get(0)->avx_reg().has_value());
 
     emit.dup(1);
     emit.and_();
@@ -4041,5 +4041,5 @@ TEST(Emitter, ReleaseSrcAndDestRegression)
     auto stack_memory = test_stack_memory();
     entry(&ctx, stack_memory.get());
 
-    ASSERT_EQ(ret.status, runtime::StatusCode::Success);
+    ASSERT(EQ, ret.status, runtime::StatusCode::Success);
 }
