@@ -208,8 +208,6 @@ int main(int const argc, char const *argv[])
         "event_trace", quill::file_handler(trace_log, handler_cfg));
 #endif
 
-    enable_call_tracing(trace_calls);
-
     auto const db_in_memory = dbname_paths.empty();
     [[maybe_unused]] auto const load_start_time =
         std::chrono::steady_clock::now();
@@ -374,7 +372,8 @@ int main(int const argc, char const *argv[])
                 priority_pool,
                 block_num,
                 end_block_num,
-                stop);
+                stop,
+                trace_calls);
         case CHAIN_CONFIG_MONAD_DEVNET:
         case CHAIN_CONFIG_MONAD_TESTNET:
         case CHAIN_CONFIG_MONAD_MAINNET:
@@ -389,7 +388,8 @@ int main(int const argc, char const *argv[])
                 priority_pool,
                 block_num,
                 end_block_num,
-                stop);
+                stop,
+                trace_calls);
         }
         MONAD_ABORT_PRINTF("Unsupported chain");
     }();
@@ -428,11 +428,10 @@ int main(int const argc, char const *argv[])
 
     if (!dump_snapshot.empty()) {
         LOG_INFO("Dump db of block: {}", block_num);
-        mpt::AsyncIOContext io_ctx(
-            mpt::ReadOnlyOnDiskDbConfig{
-                .sq_thread_cpu = ro_sq_thread_cpu,
-                .dbname_paths = dbname_paths,
-                .concurrent_read_io_limit = 128});
+        mpt::AsyncIOContext io_ctx(mpt::ReadOnlyOnDiskDbConfig{
+            .sq_thread_cpu = ro_sq_thread_cpu,
+            .dbname_paths = dbname_paths,
+            .concurrent_read_io_limit = 128});
         mpt::Db db{io_ctx};
         TrieDb ro_db{db};
         write_to_file(ro_db.to_json(), dump_snapshot, block_num);

@@ -58,12 +58,6 @@ struct monad_state_override
     std::map<byte_string, monad_state_override_object> override_sets;
 };
 
-struct EthCallResult
-{
-    evmc::Result evmc_result;
-    std::vector<CallFrame> call_frames;
-};
-
 namespace
 {
     char const *const BLOCKHASH_ERR_MSG =
@@ -75,12 +69,13 @@ namespace
     using StateOverrideObj = monad_state_override::monad_state_override_object;
 
     template <evmc_revision rev>
-    Result<EthCallResult> eth_call_impl(
+    Result<evmc::Result> eth_call_impl(
         Chain const &chain, Transaction const &txn, BlockHeader const &header,
         uint64_t const block_number, bytes32_t const &block_id,
         Address const &sender, TrieRODb &tdb, vm::VM &vm,
         BlockHashBufferFinalized const buffer,
-        monad_state_override const &state_overrides, bool const trace)
+        monad_state_override const &state_overrides,
+        CallTracerBase &call_tracer)
     {
         Transaction enriched_txn{txn};
 
@@ -199,17 +194,9 @@ namespace
 
         auto const tx_context = get_tx_context<rev>(
             enriched_txn, sender, header, chain.get_chain_id());
-        auto const call_tracer = [&]() -> std::unique_ptr<CallTracerBase> {
-            if (trace) {
-                return std::make_unique<CallTracer>(enriched_txn);
-            }
-            else {
-                return std::make_unique<NoopCallTracer>();
-            }
-        }();
 
         EvmcHost<rev> host{
-            *call_tracer, tx_context, buffer, state, max_code_size};
+            call_tracer, tx_context, buffer, state, max_code_size};
         auto execution_result = ExecuteTransactionNoValidation<rev>{
             chain, enriched_txn, sender, header}(state, host);
 
@@ -221,21 +208,20 @@ namespace
             static_cast<uint64_t>(execution_result.gas_left),
             static_cast<uint64_t>(execution_result.gas_refund));
         auto const gas_used = enriched_txn.gas_limit - gas_refund;
-        call_tracer->on_finish(gas_used);
+        call_tracer.on_finish(gas_used);
 
         execution_result.gas_refund = static_cast<int64_t>(gas_refund);
 
-        return EthCallResult{
-            .evmc_result = std::move(execution_result),
-            .call_frames = std::move(*call_tracer).get_frames()};
+        return execution_result;
     }
 
-    Result<EthCallResult> eth_call_impl(
+    Result<evmc::Result> eth_call_impl(
         Chain const &chain, evmc_revision const rev, Transaction const &txn,
         BlockHeader const &header, uint64_t const block_number,
         bytes32_t const &block_id, Address const &sender, TrieRODb &tdb,
         vm::VM &vm, BlockHashBufferFinalized const &buffer,
-        monad_state_override const &state_overrides, bool const trace)
+        monad_state_override const &state_overrides,
+        CallTracerBase &call_tracer)
     {
         SWITCH_EVMC_REVISION(
             eth_call_impl,
@@ -249,7 +235,7 @@ namespace
             vm,
             buffer,
             state_overrides,
-            trace);
+            call_tracer);
         MONAD_ASSERT(false);
     }
 
@@ -632,6 +618,13 @@ struct monad_eth_call_executor
                     }
 
                     TrieRODb tdb{db};
+                    std::vector<CallFrame> call_frames;
+                    std::unique_ptr<CallTracerBase> call_tracer =
+                        trace
+                            ? std::unique_ptr<CallTracerBase>{std::make_unique<
+                                  CallTracer>(transaction, call_frames)}
+                            : std::unique_ptr<CallTracerBase>{
+                                  std::make_unique<NoopCallTracer>()};
                     auto const res = eth_call_impl(
                         *chain,
                         rev,
@@ -644,14 +637,12 @@ struct monad_eth_call_executor
                         vm_,
                         *block_hash_buffer,
                         *state_overrides,
-                        trace);
+                        *call_tracer);
 
                     if (override_with_low_gas_retry_if_oog &&
                         ((res.has_value() &&
-                          (res.value().evmc_result.status_code ==
-                               EVMC_OUT_OF_GAS ||
-                           res.value().evmc_result.status_code ==
-                               EVMC_REVERT)) ||
+                          (res.value().status_code == EVMC_OUT_OF_GAS ||
+                           res.value().status_code == EVMC_REVERT)) ||
                          (res.has_error() &&
                           res.error() == TransactionError::
                                              IntrinsicGasGreaterThanLimit))) {
@@ -684,17 +675,16 @@ struct monad_eth_call_executor
                         result,
                         complete,
                         user,
-                        trace);
+                        call_frames);
                 });
     }
 
     void call_complete(
-        Transaction const &transaction, EthCallResult const &res_value,
+        Transaction const &transaction, evmc::Result const &evmc_result,
         monad_eth_call_result *const result,
         void (*complete)(monad_eth_call_result *, void *user), void *const user,
-        bool const trace)
+        std::vector<CallFrame> const &call_frames)
     {
-        auto const &[evmc_result, call_frames_result] = res_value;
         result->status_code = evmc_result.status_code;
         result->gas_used =
             static_cast<int64_t>(transaction.gas_limit) - evmc_result.gas_left;
@@ -712,10 +702,8 @@ struct monad_eth_call_executor
             result->output_data_len = 0;
         }
 
-        if (trace) {
-            MONAD_ASSERT(call_frames_result.size());
-            auto const rlp_call_frames =
-                rlp::encode_call_frames(call_frames_result);
+        if (!call_frames.empty()) {
+            auto const rlp_call_frames = rlp::encode_call_frames(call_frames);
             result->rlp_call_frames = new uint8_t[rlp_call_frames.length()];
             result->rlp_call_frames_len = rlp_call_frames.length();
             memcpy(

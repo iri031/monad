@@ -4,7 +4,6 @@
 #include <category/core/result.hpp>
 #include <category/execution/ethereum/core/address.hpp>
 #include <category/execution/ethereum/core/receipt.hpp>
-#include <category/execution/ethereum/trace/call_frame.hpp>
 
 #include <boost/fiber/future/promise.hpp>
 #include <evmc/evmc.hpp>
@@ -24,12 +23,6 @@ template <evmc_revision rev>
 struct EvmcHost;
 class State;
 struct Transaction;
-
-struct ExecutionResult
-{
-    Receipt receipt;
-    std::vector<CallFrame> call_frames;
-};
 
 template <evmc_revision rev>
 class ExecuteTransactionNoValidation
@@ -63,19 +56,19 @@ class ExecuteTransaction : public ExecuteTransactionNoValidation<rev>
     BlockState &block_state_;
     BlockMetrics &block_metrics_;
     boost::fibers::promise<void> &prev_;
+    CallTracerBase &call_tracer_;
 
-    Result<evmc::Result> execute_impl2(State &, CallTracerBase &);
-
+    Result<evmc::Result> execute_impl2(State &);
     Receipt execute_final(State &, evmc::Result const &);
 
 public:
     ExecuteTransaction(
         Chain const &, uint64_t i, Transaction const &, Address const &,
         BlockHeader const &, BlockHashBuffer const &, BlockState &,
-        BlockMetrics &, boost::fibers::promise<void> &prev);
+        BlockMetrics &, boost::fibers::promise<void> &prev, CallTracerBase &);
     ~ExecuteTransaction() = default;
 
-    Result<ExecutionResult> operator()();
+    Result<Receipt> operator()();
 };
 
 uint64_t g_star(
