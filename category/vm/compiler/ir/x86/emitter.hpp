@@ -191,6 +191,9 @@ namespace monad::vm::compiler::native
 
         ~Emitter();
 
+        // Flush the debug logger to ensure buffered lines are written.
+        void flush_debug_logger();
+
         entrypoint_t finish_contract(asmjit::JitRuntime &);
 
         ////////// Debug functionality //////////

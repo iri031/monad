@@ -581,6 +581,14 @@ namespace monad::vm::compiler::native
         }
     }
 
+    void Emitter::flush_debug_logger()
+    {
+        if (debug_logger_.file()) {
+            int const err = fflush(debug_logger_.file());
+            MONAD_VM_ASSERT(err == 0);
+        }
+    }
+
     entrypoint_t Emitter::finish_contract(asmjit::JitRuntime &rt)
     {
         contract_epilogue();
@@ -4022,7 +4030,6 @@ namespace monad::vm::compiler::native
         if (src->general_reg()) {
             auto const sign_reg_ix = static_cast<size_t>(ix[0]) / 8;
             auto const sign_reg_offset = static_cast<size_t>(ix[0]) % 8;
-
             auto const &src_gpq = general_reg_to_gpq256(*src->general_reg());
             auto const src_sign_reg = src_gpq[sign_reg_ix];
 
