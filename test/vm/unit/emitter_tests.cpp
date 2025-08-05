@@ -9,6 +9,8 @@
 #include <category/vm/runtime/types.hpp>
 #include <category/vm/runtime/uint256.hpp>
 
+#include "test_params.hpp"
+
 #include <asmjit/core/globals.h>
 #include <asmjit/core/jitruntime.h>
 
@@ -34,6 +36,56 @@ using namespace monad::vm::runtime;
 
 namespace
 {
+    static int test_emitter_ix = 0;
+
+    std::string current_emitter_asm_log_path()
+    {
+        return std::string(std::format(
+            "/tmp/monad_vm_test_logs/emitter_test_{}.s", test_emitter_ix));
+    }
+
+    std::string new_emitter_asm_log_path()
+    {
+        test_emitter_ix++;
+        return current_emitter_asm_log_path();
+    }
+
+    struct TestEmitter : Emitter
+    {
+
+        CompilerConfig add_asm_log_path(CompilerConfig c, std::string log_path)
+        {
+            if (!c.asm_log_path &&
+                monad::vm::compiler::test::params.dump_asm_on_failure) {
+                c.asm_log_path = log_path.c_str();
+            }
+            return c;
+        }
+
+        // Default log path, used if c.asm_log_path is not set. The only reason
+        // to have this constructor is so that the lifetime of the
+        // new_emitter_asm_log_path extends to after the Emitter constructor.
+        TestEmitter(
+            asmjit::JitRuntime const &rt, uint64_t bytecode_size,
+            CompilerConfig const &c = {},
+            std::string const &log_path = new_emitter_asm_log_path())
+            : Emitter(rt, bytecode_size, add_asm_log_path(c, log_path))
+        {
+        }
+
+        // Override finish_contract to flush debug_logger_'s file handle
+        entrypoint_t finish_contract(asmjit::JitRuntime &rt)
+        {
+            auto entrypoint = Emitter::finish_contract(rt);
+
+            // Flush the debug logger in case the code segfaults before the
+            // Emitter destructor is called.
+            flush_debug_logger();
+
+            return entrypoint;
+        }
+    };
+
     evmc::address max_address()
     {
         evmc::address ret;

@@ -17,5 +17,11 @@ int main(int argc, char *argv[])
         "Save assembly on failure");
     CLI11_PARSE(app, argc, argv);
 
+    // Create test log directory
+    std::filesystem::path test_log_dir = "/tmp/monad_vm_test_logs";
+    if (!std::filesystem::exists(test_log_dir)) {
+        std::filesystem::create_directory(test_log_dir);
+    }
+
     return RUN_ALL_TESTS();
 }
