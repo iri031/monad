@@ -20,6 +20,7 @@ add_executable(vm-unit-tests
     emitter_tests.cpp
     interpreter_tests.cpp
     lru_weight_cache_tests.cpp
+    test_params.cpp
     runtime/fixture.cpp
     runtime/transmute_tests.cpp
     runtime/math_tests.cpp
