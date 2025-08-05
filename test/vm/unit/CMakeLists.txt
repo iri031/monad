@@ -30,6 +30,7 @@ add_executable(vm-unit-tests
     runtime/call_tests.cpp
     runtime/data_tests.cpp
     runtime/create_tests.cpp
+    main.cpp
 )
 
 if(MONAD_COMPILER_COVERAGE)
@@ -44,7 +45,7 @@ target_link_libraries(vm-unit-tests
     PRIVATE monad-vm::monad-vm-fuzzing
     PRIVATE monad-vm::monad-vm-interpreter
     PRIVATE monad-vm::monad-vm-utils
-    PRIVATE GTest::gtest_main
+    PRIVATE GTest::gtest
     PRIVATE evmc::mocked_host
     PRIVATE monad_execution
     PRIVATE monad_core
