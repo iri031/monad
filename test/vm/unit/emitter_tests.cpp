@@ -34,6 +34,17 @@ using namespace monad::vm::compiler;
 using namespace monad::vm::compiler::native;
 using namespace monad::vm::runtime;
 
+// Helper macros to make the tests more readable.
+// GoogleTests macros return a stream that can be used to append
+// additional information to the assertion failure message.
+#define ASM_LOG_PATH_MSG                                                       \
+    (monad::vm::compiler::test::params.dump_asm_on_failure                     \
+         ? std::format(                                                        \
+               "See disassembly at:\n  {}", current_emitter_asm_log_path())    \
+         : std::string())
+#define ASSERT(cond, ...)                                                      \
+    ASSERT_##cond(__VA_ARGS__) << ASM_LOG_PATH_MSG << std::endl
+
 namespace
 {
     static int test_emitter_ix = 0;
