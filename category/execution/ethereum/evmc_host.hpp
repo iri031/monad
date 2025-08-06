@@ -1,19 +1,19 @@
 #pragma once
 
+#include <category/core/bytes.hpp>
 #include <category/core/config.hpp>
 #include <category/execution/ethereum/core/address.hpp>
-#include <category/core/bytes.hpp>
-#include <category/execution/ethereum/evm.hpp>
 #include <category/execution/ethereum/precompiles.hpp>
+#include <category/execution/ethereum/state3/state.hpp>
 #include <category/execution/ethereum/trace/call_tracer.hpp>
 #include <category/execution/ethereum/transaction_gas.hpp>
-#include <category/execution/ethereum/state3/state.hpp>
 
 #include <intx/intx.hpp>
 
 #include <evmc/evmc.h>
 #include <evmc/evmc.hpp>
 
+#include <functional>
 #include <utility>
 
 MONAD_NAMESPACE_BEGIN
@@ -28,12 +28,15 @@ class EvmcHostBase : public evmc::Host
 protected:
     State &state_;
     CallTracerBase &call_tracer_;
-    size_t const max_code_size_;
+    std::function<evmc::Result(EvmcHostBase &, evmc_message const &)> call_;
+    std::function<evmc::Result(EvmcHostBase &, evmc_message const &)> create_;
 
 public:
     EvmcHostBase(
         CallTracerBase &, evmc_tx_context const &, BlockHashBuffer const &,
-        State &, size_t max_code_size) noexcept;
+        State &,
+        std::function<evmc::Result(EvmcHostBase &, evmc_message const &)> call,
+        std::function<evmc::Result(EvmcHostBase &, evmc_message const &)> create) noexcept;
 
     virtual ~EvmcHostBase() noexcept = default;
 
@@ -97,8 +100,7 @@ struct EvmcHost final : public EvmcHostBase
     virtual evmc::Result call(evmc_message const &msg) noexcept override
     {
         if (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2) {
-            auto result =
-                ::monad::create<rev>(this, state_, msg, max_code_size_);
+            evmc::Result result = create_(*this, msg);
 
             // EIP-211
             if (result.status_code != EVMC_REVERT) {
@@ -111,7 +113,7 @@ struct EvmcHost final : public EvmcHostBase
             return result;
         }
         else {
-            return ::monad::call(this, state_, msg);
+            return call_(*this, msg);
         }
     }
 
@@ -122,11 +124,6 @@ struct EvmcHost final : public EvmcHostBase
             return EVMC_ACCESS_WARM;
         }
         return state_.access_account(address);
-    }
-
-    CallTracerBase &get_call_tracer() noexcept
-    {
-        return call_tracer_;
     }
 };
 

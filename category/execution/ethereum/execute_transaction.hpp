@@ -40,7 +40,7 @@ public:
         Chain const &, Transaction const &, Address const &,
         BlockHeader const &);
 
-    evmc::Result operator()(State &, EvmcHost<rev> &);
+    evmc::Result operator()(State &, EvmcHost<rev> &, CallTracerBase &);
 };
 
 template <evmc_revision rev>

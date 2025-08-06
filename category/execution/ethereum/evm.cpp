@@ -5,29 +5,31 @@
 #include <category/core/int.hpp>
 #include <category/core/keccak.hpp>
 #include <category/core/likely.h>
+#include <category/execution/ethereum/chain/chain.hpp>
 #include <category/execution/ethereum/core/address.hpp>
+#include <category/execution/ethereum/core/block.hpp>
 #include <category/execution/ethereum/create_contract_address.hpp>
 #include <category/execution/ethereum/evm.hpp>
 #include <category/execution/ethereum/evmc_host.hpp>
 #include <category/execution/ethereum/explicit_evmc_revision.hpp>
 #include <category/execution/ethereum/precompiles.hpp>
 #include <category/execution/ethereum/state3/state.hpp>
-
-#include <evmone/baseline.hpp>
-
-#include <evmc/evmc.h>
-#include <evmc/evmc.hpp>
+#include <category/execution/ethereum/trace/call_tracer.hpp>
 
 #include <ethash/hash_types.hpp>
-
+#include <evmc/evmc.h>
+#include <evmc/evmc.hpp>
+#include <evmone/baseline.hpp>
 #include <intx/intx.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <utility>
 
-MONAD_NAMESPACE_BEGIN
+MONAD_ANONYMOUS_NAMESPACE_BEGIN
 
 bool sender_has_balance(State &state, evmc_message const &msg) noexcept
 {
@@ -45,10 +47,24 @@ void transfer_balances(
     state.add_to_balance(to, value);
 }
 
+MONAD_ANONYMOUS_NAMESPACE_END
+
+MONAD_NAMESPACE_BEGIN
+
 template <evmc_revision rev>
-evmc::Result deploy_contract_code(
-    State &state, Address const &address, evmc::Result result,
-    size_t const max_code_size) noexcept
+Create<rev>::Create(
+    Chain const &chain, State &state, BlockHeader const &header,
+    CallTracerBase &call_tracer)
+    : chain_(chain)
+    , state_(state)
+    , header_(header)
+    , call_tracer_(call_tracer)
+{
+}
+
+template <evmc_revision rev>
+evmc::Result Create<rev>::deploy_contract_code(
+    Address const &address, evmc::Result result) noexcept
 {
     MONAD_ASSERT(result.status_code == EVMC_SUCCESS);
 
@@ -60,7 +76,8 @@ evmc::Result deploy_contract_code(
     }
     // EIP-170
     if constexpr (rev >= EVMC_SPURIOUS_DRAGON) {
-        if (result.output_size > max_code_size) {
+        if (result.output_size >
+            chain_.get_max_code_size(header_.number, header_.timestamp)) {
             return evmc::Result{EVMC_OUT_OF_GAS};
         }
     }
@@ -74,7 +91,7 @@ evmc::Result deploy_contract_code(
             // fee, however, the value is still transferred and the
             // execution side- effects take place."
             result.create_address = address;
-            state.set_code(address, {});
+            state_.set_code(address, {});
         }
         else {
             // EIP-2: If contract creation does not have enough gas to
@@ -87,83 +104,33 @@ evmc::Result deploy_contract_code(
     else {
         result.create_address = address;
         result.gas_left -= deploy_cost;
-        state.set_code(address, {result.output_data, result.output_size});
+        state_.set_code(address, {result.output_data, result.output_size});
     }
     return result;
 }
 
-EXPLICIT_EVMC_REVISION(deploy_contract_code);
-
 template <evmc_revision rev>
-std::optional<evmc::Result> pre_call(evmc_message const &msg, State &state)
-{
-    state.push();
-
-    if (msg.kind != EVMC_DELEGATECALL) {
-        if (MONAD_UNLIKELY(!sender_has_balance(state, msg))) {
-            state.pop_reject();
-            return evmc::Result{EVMC_INSUFFICIENT_BALANCE, msg.gas};
-        }
-        else if (msg.flags != EVMC_STATIC) {
-            transfer_balances(state, msg, msg.recipient);
-        }
-    }
-
-    MONAD_ASSERT(
-        msg.kind != EVMC_CALL ||
-        Address{msg.recipient} == Address{msg.code_address});
-    if (msg.kind == EVMC_CALL && msg.flags & EVMC_STATIC) {
-        // eip-161
-        state.touch(msg.recipient);
-    }
-
-    return std::nullopt;
-}
-
-void post_call(State &state, evmc::Result const &result)
-{
-    MONAD_ASSERT(result.status_code == EVMC_SUCCESS || result.gas_refund == 0);
-    MONAD_ASSERT(
-        result.status_code == EVMC_SUCCESS ||
-        result.status_code == EVMC_REVERT || result.gas_left == 0);
-
-    if (result.status_code == EVMC_SUCCESS) {
-        state.pop_accept();
-    }
-    else {
-        bool const ripemd_touched = state.is_touched(ripemd_address);
-        state.pop_reject();
-        if (MONAD_UNLIKELY(ripemd_touched)) {
-            // YP K.1. Deletion of an Account Despite Out-of-gas.
-            state.touch(ripemd_address);
-        }
-    }
-}
-
-template <evmc_revision rev>
-evmc::Result create(
-    EvmcHost<rev> *const host, State &state, evmc_message const &msg,
-    size_t const max_code_size) noexcept
+evmc::Result
+Create<rev>::operator()(EvmcHostBase &host, evmc_message const &msg) noexcept
 {
     MONAD_ASSERT(msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2);
 
-    auto &call_tracer = host->get_call_tracer();
-    call_tracer.on_enter(msg);
+    call_tracer_.on_enter(msg);
 
-    if (MONAD_UNLIKELY(!sender_has_balance(state, msg))) {
+    if (MONAD_UNLIKELY(!sender_has_balance(state_, msg))) {
         evmc::Result result{EVMC_INSUFFICIENT_BALANCE, msg.gas};
-        call_tracer.on_exit(result);
+        call_tracer_.on_exit(result);
         return result;
     }
 
-    auto const nonce = state.get_nonce(msg.sender);
+    auto const nonce = state_.get_nonce(msg.sender);
     if (nonce == std::numeric_limits<decltype(nonce)>::max()) {
         // overflow
         evmc::Result result{EVMC_ARGUMENT_OUT_OF_RANGE, msg.gas};
-        call_tracer.on_exit(result);
+        call_tracer_.on_exit(result);
         return result;
     }
-    state.set_nonce(msg.sender, nonce + 1);
+    state_.set_nonce(msg.sender, nonce + 1);
 
     Address const contract_address = [&] {
         if (msg.kind == EVMC_CREATE) {
@@ -176,24 +143,24 @@ evmc::Result create(
         }
     }();
 
-    state.access_account(contract_address);
+    state_.access_account(contract_address);
 
     // Prevent overwriting contracts - EIP-684
-    if (state.get_nonce(contract_address) != 0 ||
-        state.get_code_hash(contract_address) != NULL_HASH) {
+    if (state_.get_nonce(contract_address) != 0 ||
+        state_.get_code_hash(contract_address) != NULL_HASH) {
         evmc::Result result{EVMC_INVALID_INSTRUCTION};
-        call_tracer.on_exit(result);
+        call_tracer_.on_exit(result);
         return result;
     }
 
-    state.push();
+    state_.push();
 
-    state.create_contract(contract_address);
+    state_.create_contract(contract_address);
 
     // EIP-161
     constexpr auto starting_nonce = rev >= EVMC_SPURIOUS_DRAGON ? 1 : 0;
-    state.set_nonce(contract_address, starting_nonce);
-    transfer_balances(state, msg, contract_address);
+    state_.set_nonce(contract_address, starting_nonce);
+    transfer_balances(state_, msg, contract_address);
 
     evmc_message const m_call{
         .kind = EVMC_CALL,
@@ -211,54 +178,119 @@ evmc::Result create(
         .code_size = 0,
     };
 
-    auto result = state.vm().execute_raw(
+    auto result = state_.vm().execute_raw(
         rev,
-        &host->get_interface(),
-        host->to_context(),
+        &host.get_interface(),
+        host.to_context(),
         &m_call,
         {msg.input_data, msg.input_size});
 
     if (result.status_code == EVMC_SUCCESS) {
-        result = deploy_contract_code<rev>(
-            state, contract_address, std::move(result), max_code_size);
+        result = deploy_contract_code(contract_address, std::move(result));
     }
 
     if (result.status_code == EVMC_SUCCESS) {
-        state.pop_accept();
+        state_.pop_accept();
     }
     else {
         result.gas_refund = 0;
         if (result.status_code != EVMC_REVERT) {
             result.gas_left = 0;
         }
-        bool const ripemd_touched = state.is_touched(ripemd_address);
-        state.pop_reject();
+        bool const ripemd_touched = state_.is_touched(ripemd_address);
+        state_.pop_reject();
         if (MONAD_UNLIKELY(ripemd_touched)) {
             // YP K.1. Deletion of an Account Despite Out-of-gas.
-            state.touch(ripemd_address);
+            state_.touch(ripemd_address);
         }
     }
 
-    call_tracer.on_exit(result);
+    call_tracer_.on_exit(result);
 
     return result;
 }
 
-EXPLICIT_EVMC_REVISION(create);
+template class Create<EVMC_FRONTIER>;
+template class Create<EVMC_HOMESTEAD>;
+template class Create<EVMC_TANGERINE_WHISTLE>;
+template class Create<EVMC_SPURIOUS_DRAGON>;
+template class Create<EVMC_BYZANTIUM>;
+template class Create<EVMC_CONSTANTINOPLE>;
+template class Create<EVMC_PETERSBURG>;
+template class Create<EVMC_ISTANBUL>;
+template class Create<EVMC_BERLIN>;
+template class Create<EVMC_LONDON>;
+template class Create<EVMC_PARIS>;
+template class Create<EVMC_SHANGHAI>;
+template class Create<EVMC_CANCUN>;
+template class Create<EVMC_PRAGUE>;
+
+template <evmc_revision rev>
+Call<rev>::Call(State &state, CallTracerBase &call_tracer)
+    : state_(state)
+    , call_tracer_(call_tracer)
+{
+}
+
+template <evmc_revision rev>
+std::optional<evmc::Result> Call<rev>::pre_call(evmc_message const &msg)
+{
+    state_.push();
+
+    if (msg.kind != EVMC_DELEGATECALL) {
+        if (MONAD_UNLIKELY(!sender_has_balance(state_, msg))) {
+            state_.pop_reject();
+            return evmc::Result{EVMC_INSUFFICIENT_BALANCE, msg.gas};
+        }
+        else if (msg.flags != EVMC_STATIC) {
+            transfer_balances(state_, msg, msg.recipient);
+        }
+    }
+
+    MONAD_ASSERT(
+        msg.kind != EVMC_CALL ||
+        Address{msg.recipient} == Address{msg.code_address});
+    if (msg.kind == EVMC_CALL && msg.flags & EVMC_STATIC) {
+        // eip-161
+        state_.touch(msg.recipient);
+    }
+
+    return std::nullopt;
+}
+
+template <evmc_revision rev>
+void Call<rev>::post_call(evmc::Result const &result)
+{
+    MONAD_ASSERT(result.status_code == EVMC_SUCCESS || result.gas_refund == 0);
+    MONAD_ASSERT(
+        result.status_code == EVMC_SUCCESS ||
+        result.status_code == EVMC_REVERT || result.gas_left == 0);
+
+    if (result.status_code == EVMC_SUCCESS) {
+        state_.pop_accept();
+    }
+    else {
+        bool const ripemd_touched = state_.is_touched(ripemd_address);
+        state_.pop_reject();
+        if (MONAD_UNLIKELY(ripemd_touched)) {
+            // YP K.1. Deletion of an Account Despite Out-of-gas.
+            state_.touch(ripemd_address);
+        }
+    }
+}
 
 template <evmc_revision rev>
 evmc::Result
-call(EvmcHost<rev> *const host, State &state, evmc_message const &msg) noexcept
+Call<rev>::operator()(EvmcHostBase &host, evmc_message const &msg) noexcept
 {
     MONAD_ASSERT(
         msg.kind == EVMC_DELEGATECALL || msg.kind == EVMC_CALLCODE ||
         msg.kind == EVMC_CALL);
 
-    auto &call_tracer = host->get_call_tracer();
-    call_tracer.on_enter(msg);
+    call_tracer_.on_enter(msg);
 
-    if (auto result = pre_call<rev>(msg, state); result.has_value()) {
-        call_tracer.on_exit(result.value());
+    if (auto result = pre_call(msg); result.has_value()) {
+        call_tracer_.on_exit(result.value());
         return std::move(result.value());
     }
 
@@ -268,17 +300,30 @@ call(EvmcHost<rev> *const host, State &state, evmc_message const &msg) noexcept
         result = std::move(maybe_result.value());
     }
     else {
-        auto const hash = state.get_code_hash(msg.code_address);
-        auto const &code = state.read_code(hash);
-        result = state.vm().execute(
-            rev, &host->get_interface(), host->to_context(), &msg, hash, code);
+        auto const hash = state_.get_code_hash(msg.code_address);
+        auto const &code = state_.read_code(hash);
+        result = state_.vm().execute(
+            rev, &host.get_interface(), host.to_context(), &msg, hash, code);
     }
 
-    post_call(state, result);
-    call_tracer.on_exit(result);
+    post_call(result);
+    call_tracer_.on_exit(result);
     return result;
 }
 
-EXPLICIT_EVMC_REVISION(call);
+template class Call<EVMC_FRONTIER>;
+template class Call<EVMC_HOMESTEAD>;
+template class Call<EVMC_TANGERINE_WHISTLE>;
+template class Call<EVMC_SPURIOUS_DRAGON>;
+template class Call<EVMC_BYZANTIUM>;
+template class Call<EVMC_CONSTANTINOPLE>;
+template class Call<EVMC_PETERSBURG>;
+template class Call<EVMC_ISTANBUL>;
+template class Call<EVMC_BERLIN>;
+template class Call<EVMC_LONDON>;
+template class Call<EVMC_PARIS>;
+template class Call<EVMC_SHANGHAI>;
+template class Call<EVMC_CANCUN>;
+template class Call<EVMC_PRAGUE>;
 
 MONAD_NAMESPACE_END

@@ -4,6 +4,7 @@
 #include <category/execution/ethereum/core/account.hpp>
 #include <category/execution/ethereum/core/address.hpp>
 #include <category/execution/ethereum/db/trie_db.hpp>
+#include <category/execution/ethereum/evm.hpp>
 #include <category/execution/ethereum/evmc_host.hpp>
 #include <category/execution/ethereum/execute_transaction.hpp>
 #include <category/execution/ethereum/state2/block_state.hpp>
@@ -134,12 +135,19 @@ TEST(CallTrace, execute_success)
     BlockHashBufferFinalized buffer{};
     std::vector<CallFrame> call_frames;
     CallTracer call_tracer{tx, call_frames};
+
+    // Create Call and Create executors for the host
+    Call<EVMC_SHANGHAI> call_executor{s, call_tracer};
+    EthereumMainnet chain;
+    BlockHeader header{.beneficiary = beneficiary};
+    Create<EVMC_SHANGHAI> create_executor{chain, s, header, call_tracer};
+
     EvmcHost<EVMC_SHANGHAI> host(
-        call_tracer, tx_context, buffer, s, MAX_CODE_SIZE_EIP170);
+        call_tracer, tx_context, buffer, s, call_executor, create_executor);
 
     auto const result = ExecuteTransactionNoValidation<EVMC_SHANGHAI>(
         EthereumMainnet{}, tx, sender, BlockHeader{.beneficiary = beneficiary})(
-        s, host);
+        s, host, call_tracer);
     EXPECT_TRUE(result.status_code == EVMC_SUCCESS);
     ASSERT_TRUE(call_frames.size() == 1);
 
@@ -202,12 +210,19 @@ TEST(CallTrace, execute_reverted_insufficient_balance)
     BlockHashBufferFinalized buffer{};
     std::vector<CallFrame> call_frames;
     CallTracer call_tracer{tx, call_frames};
+
+    // Create Call and Create executors for the host
+    Call<EVMC_SHANGHAI> call_executor{s, call_tracer};
+    EthereumMainnet chain;
+    BlockHeader header{.beneficiary = beneficiary};
+    Create<EVMC_SHANGHAI> create_executor{chain, s, header, call_tracer};
+
     EvmcHost<EVMC_SHANGHAI> host(
-        call_tracer, tx_context, buffer, s, MAX_CODE_SIZE_EIP170);
+        call_tracer, tx_context, buffer, s, call_executor, create_executor);
 
     auto const result = ExecuteTransactionNoValidation<EVMC_SHANGHAI>(
         EthereumMainnet{}, tx, sender, BlockHeader{.beneficiary = beneficiary})(
-        s, host);
+        s, host, call_tracer);
     EXPECT_TRUE(result.status_code == EVMC_INSUFFICIENT_BALANCE);
     ASSERT_TRUE(call_frames.size() == 1);
 

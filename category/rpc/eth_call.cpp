@@ -13,6 +13,7 @@
 #include <category/execution/ethereum/core/rlp/transaction_rlp.hpp>
 #include <category/execution/ethereum/core/transaction.hpp>
 #include <category/execution/ethereum/db/trie_rodb.hpp>
+#include <category/execution/ethereum/evm.hpp>
 #include <category/execution/ethereum/evmc_host.hpp>
 #include <category/execution/ethereum/execute_transaction.hpp>
 #include <category/execution/ethereum/state2/block_state.hpp>
@@ -195,10 +196,12 @@ namespace
         auto const tx_context = get_tx_context<rev>(
             enriched_txn, sender, header, chain.get_chain_id());
 
+        Call<rev> call{state, call_tracer};
+        Create<rev> create{chain, state, header, call_tracer};
         EvmcHost<rev> host{
-            call_tracer, tx_context, buffer, state, max_code_size};
+            call_tracer, tx_context, buffer, state, call, create};
         auto execution_result = ExecuteTransactionNoValidation<rev>{
-            chain, enriched_txn, sender, header}(state, host);
+            chain, enriched_txn, sender, header}(state, host, call_tracer);
 
         // compute gas_refund and gas_used
         auto const gas_refund = chain.compute_gas_refund(

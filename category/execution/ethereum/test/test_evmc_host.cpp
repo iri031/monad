@@ -6,6 +6,7 @@
 #include <category/execution/ethereum/core/block.hpp>
 #include <category/execution/ethereum/core/transaction.hpp>
 #include <category/execution/ethereum/db/trie_db.hpp>
+#include <category/execution/ethereum/evm.hpp>
 #include <category/execution/ethereum/evmc_host.hpp>
 #include <category/execution/ethereum/state2/block_state.hpp>
 #include <category/execution/ethereum/state3/state.hpp>
@@ -122,12 +123,15 @@ TEST(EvmcHost, emit_log)
     State state{bs, Incarnation{0, 0}};
     BlockHashBufferFinalized const block_hash_buffer;
     NoopCallTracer call_tracer;
+
+    // Create dummy call and create executors for the host
+    Call<EVMC_SHANGHAI> call{state, call_tracer};
+    EthereumMainnet chain;
+    BlockHeader header;
+    Create<EVMC_SHANGHAI> create{chain, state, header, call_tracer};
+
     evmc_host_t host{
-        call_tracer,
-        EMPTY_TX_CONTEXT,
-        block_hash_buffer,
-        state,
-        MAX_CODE_SIZE_EIP170};
+        call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, state, call, create};
 
     host.emit_log(
         from,
@@ -155,12 +159,15 @@ TEST(EvmcHost, access_precompile)
     State state{bs, Incarnation{0, 0}};
     BlockHashBufferFinalized const block_hash_buffer;
     NoopCallTracer call_tracer;
+
+    // Create dummy call and create executors for the host
+    Call<EVMC_SHANGHAI> call{state, call_tracer};
+    EthereumMainnet chain;
+    BlockHeader header;
+    Create<EVMC_SHANGHAI> create{chain, state, header, call_tracer};
+
     evmc_host_t host{
-        call_tracer,
-        EMPTY_TX_CONTEXT,
-        block_hash_buffer,
-        state,
-        MAX_CODE_SIZE_EIP170};
+        call_tracer, EMPTY_TX_CONTEXT, block_hash_buffer, state, call, create};
 
     EXPECT_EQ(
         host.access_account(0x0000000000000000000000000000000000000001_address),
