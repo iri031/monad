@@ -101,7 +101,7 @@ struct monad_event_ring_header
     char magic[6];                           ///< 'RINGvv', vv = version number
     enum monad_event_content_type
         content_type;                        ///< Kind of events in this ring
-    uint8_t schema_hash[32];                 ///< Ensure event definitons match
+    uint8_t schema_hash[32];                 ///< Ensure event definitions match
     struct monad_event_ring_size size;       ///< Size of following structures
     struct monad_event_ring_control control; ///< Tracks ring's state/status
 };
