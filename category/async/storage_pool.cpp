@@ -504,11 +504,10 @@ void storage_pool::fill_chunks_(creation_flags const &flags)
         if (device.is_file() || device.is_block_device()) {
             auto const devicechunks = device.chunks();
             if (devicechunks < 4) {
-                throw std::runtime_error(
-                    std::format(
-                        "Device {} has {} chunks the minimum allowed is four.",
-                        device.current_path().c_str(),
-                        devicechunks));
+                throw std::runtime_error(std::format(
+                    "Device {} has {} chunks the minimum allowed is four.",
+                    device.current_path().c_str(),
+                    devicechunks));
             }
             MONAD_DEBUG_ASSERT(
                 devicechunks <= std::numeric_limits<uint32_t>::max());
@@ -772,13 +771,20 @@ storage_pool::~storage_pool()
     cleanupchunks_(seq);
     for (auto &device : devices_) {
         if (device.metadata_ != nullptr) {
-            auto total_size =
+            auto const total_size =
                 device.metadata_->total_size(device.size_of_file_);
-            ::munmap(
-                reinterpret_cast<void *>(round_down_align<CPU_PAGE_BITS>(
-                    (uintptr_t)device.metadata_ + sizeof(device::metadata_t) -
-                    total_size)),
-                total_size);
+            uintptr_t const metadata_start = (uintptr_t)device.metadata_ +
+                                             sizeof(device::metadata_t) -
+                                             total_size;
+            uintptr_t const mmap_base =
+                round_down_align<CPU_PAGE_BITS>(metadata_start);
+            MONAD_ASSERT(mmap_base <= metadata_start)
+            MONAD_ASSERT_PRINTF(
+                ::munmap(
+                    reinterpret_cast<void *>(mmap_base),
+                    total_size + (metadata_start - mmap_base)) != -1,
+                "failed to munmap: %s",
+                strerror(errno));
         }
         if (device.uncached_readfd_ != -1) {
             (void)::close(device.uncached_readfd_);
