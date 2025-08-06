@@ -231,6 +231,7 @@ add_subdirectory("category/event")
 add_subdirectory("category/execution")
 add_subdirectory("category/rpc")
 add_subdirectory("category/statesync")
+add_subdirectory("category/storage")
 add_subdirectory("category/vm")
 
 # ##############################################################################

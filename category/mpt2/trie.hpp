@@ -1,0 +1,134 @@
+#pragma once
+
+#include <category/mpt/request.hpp>
+#include <category/mpt/update.hpp>
+#include <category/mpt2/node.hpp>
+#include <category/mpt2/state_machine.hpp> // TODO
+
+#include <cstdint>
+
+using MONAD_MPT_NAMESPACE::UpdateList;
+
+MONAD_MPT2_NAMESPACE_BEGIN
+
+struct StateMachine;
+
+// auxiliary structure for upsert, at most one thread can modify it at a time,
+// but multiple threads can read it
+class UpdateAux
+{
+    uint32_t initial_insertion_count_on_pool_creation_{0};
+    bool enable_dynamic_history_length_{true};
+    bool alternate_slow_fast_writer_{false};
+    bool can_write_to_fast_{true};
+
+    /******** Compaction ********/
+    uint32_t chunks_to_remove_before_count_fast_{0};
+    uint32_t chunks_to_remove_before_count_slow_{0};
+    // speed control var
+    compact_virtual_chunk_offset_t last_block_end_offset_fast_{
+        MIN_COMPACT_VIRTUAL_OFFSET};
+    compact_virtual_chunk_offset_t last_block_end_offset_slow_{
+        MIN_COMPACT_VIRTUAL_OFFSET};
+    compact_virtual_chunk_offset_t last_block_disk_growth_fast_{
+        MIN_COMPACT_VIRTUAL_OFFSET};
+    compact_virtual_chunk_offset_t last_block_disk_growth_slow_{
+        MIN_COMPACT_VIRTUAL_OFFSET};
+    // compaction range
+    compact_virtual_chunk_offset_t compact_offset_range_fast_{
+        MIN_COMPACT_VIRTUAL_OFFSET};
+    compact_virtual_chunk_offset_t compact_offset_range_slow_{
+        MIN_COMPACT_VIRTUAL_OFFSET};
+
+    DbStorage &db_storage_;
+
+    std::mutex write_mutex_;
+
+public:
+    int64_t curr_upsert_auto_expire_version{0};
+    compact_virtual_chunk_offset_t compact_offset_fast{
+        MIN_COMPACT_VIRTUAL_OFFSET};
+    compact_virtual_chunk_offset_t compact_offset_slow{
+        MIN_COMPACT_VIRTUAL_OFFSET};
+
+    // On disk stuff
+    // TODO: helper function for writers to determine the next offset
+    chunk_offset_t node_writer_offset_fast{};
+    chunk_offset_t node_writer_offset_slow{};
+
+    UpdateAux(DbStorage &, std::optional<uint64_t> history_len = true);
+
+    // TODO: add db stats
+
+    // DbStorage const &db_storage() const noexcept
+    // {
+    //     return db_storage_;
+    // }
+
+    bool is_read_only() const noexcept
+    {
+        return db_storage_.is_read_only() ||
+               db_storage_.is_read_only_allow_dirty();
+    }
+
+    Node *parse_node(chunk_offset_t offset) const noexcept;
+
+    chunk_offset_t write_node_to_disk(Node::UniquePtr node, bool to_fast_list);
+
+    chunk_offset_t do_upsert(
+        chunk_offset_t root_offset, StateMachine &, UpdateList &&,
+        uint64_t version, bool compaction, bool can_write_to_fast);
+
+    void finalize_transaction(chunk_offset_t root_offset, uint64_t version);
+};
+
+class WriteTransaction
+{
+    UpdateAux &aux_;
+
+public:
+    explicit WriteTransaction(UpdateAux &aux)
+        : aux_(aux)
+    {
+        aux_.write_mutex.lock();
+        MONAD_ASSERT(!aux_.is_read_only());
+    }
+
+    ~WriteTransaction()
+    {
+        aux_.write_mutex.unlock();
+    }
+
+    // upsert on top of the given root into a specific version
+    chunk_offset_t do_upsert(
+        chunk_offset_t const root_offset, StateMachine &sm,
+        UpdateList &&updates, uint64_t const version, bool const compaction,
+        bool const can_write_to_fast)
+    {
+        return aux_.do_upsert(
+            root_offset,
+            sm,
+            std::move(updates),
+            version,
+            compaction,
+            can_write_to_fast);
+    };
+
+    // TODO
+    chunk_offset_t copy_trie();
+
+    void finish(chunk_offset_t root_offset, uint64_t version)
+    {
+        aux_.finalize_transaction(root_offset, version);
+    }
+};
+
+// batch upsert, updates can be nested, at most one thread can call upsert at a
+// time, implementation is not threadsafe and no need to be
+chunk_offset_t upsert(
+    UpdateAux &, uint64_t version, StateMachine &, chunk_offset_t old_offset,
+    UpdateList &&, bool write_root = true);
+
+// TODO: copy_trie
+
+MONAD_MPT2_NAMESPACE_END

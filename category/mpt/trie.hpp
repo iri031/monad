@@ -47,8 +47,6 @@ concept lockable_or_void = std::is_void_v<T> || requires(T x) {
     x.unlock();
 };
 
-class Node;
-
 struct write_operation_io_receiver
 {
     size_t should_be_written;

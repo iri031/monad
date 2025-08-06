@@ -3,6 +3,7 @@
 #include <category/core/config.hpp>
 
 #include <cstddef>
+#include <cstdint>
 
 MONAD_NAMESPACE_BEGIN
 
