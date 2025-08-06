@@ -123,7 +123,7 @@ evmc_message ExecuteTransactionNoValidation<rev>::to_message() const
 
 template <evmc_revision rev>
 evmc::Result ExecuteTransactionNoValidation<rev>::operator()(
-    State &state, EvmcHost<rev> &host)
+    State &state, EvmcHost<rev> &host, CallTracerBase &call_tracer)
 {
     irrevocable_change<rev>(
         state,
@@ -150,13 +150,8 @@ evmc::Result ExecuteTransactionNoValidation<rev>::operator()(
 
     auto const msg = to_message();
     return (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2)
-               ? ::monad::create<rev>(
-                     &host,
-                     state,
-                     msg,
-                     chain_.get_max_code_size(
-                         header_.number, header_.timestamp))
-               : ::monad::call<rev>(&host, state, msg);
+               ? Create<rev>{chain_, state, header_, call_tracer}(host, msg)
+               : Call<rev>{state, call_tracer}(host, msg);
 }
 
 template class ExecuteTransactionNoValidation<EVMC_FRONTIER>;
@@ -199,15 +194,19 @@ Result<evmc::Result> ExecuteTransaction<rev>::execute_impl2(State &state)
 
     auto const tx_context =
         get_tx_context<rev>(tx_, sender_, header_, chain_.get_chain_id());
+    Call<rev> call{state, call_tracer_};
+    Create<rev> create{chain_, state, header_, call_tracer_};
     EvmcHost<rev> host{
         call_tracer_,
         tx_context,
         block_hash_buffer_,
         state,
-        chain_.get_max_code_size(header_.number, header_.timestamp),
-        chain_.get_create_inside_delegated()};
+        chain_.get_create_inside_delegated(),
+        call,
+        create};
 
-    return ExecuteTransactionNoValidation<rev>::operator()(state, host);
+    return ExecuteTransactionNoValidation<rev>::operator()(
+        state, host, call_tracer_);
 }
 
 template <evmc_revision rev>

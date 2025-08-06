@@ -80,14 +80,22 @@ TEST(Evm, create_with_insufficient)
 
     BlockHashBufferFinalized const block_hash_buffer;
     NoopCallTracer call_tracer;
+
+    // Create dummy call and create executors for the host
+    Call<EVMC_SHANGHAI> call{s, call_tracer};
+    EthereumMainnet chain;
+    BlockHeader header;
+    Create<EVMC_SHANGHAI> create_executor{chain, s, header, call_tracer};
+
     evm_host_t h{
         call_tracer,
         EMPTY_TX_CONTEXT,
         block_hash_buffer,
         s,
-        MAX_CODE_SIZE_EIP170,
-        true};
-    auto const result = create<EVMC_SHANGHAI>(&h, s, m, MAX_CODE_SIZE_EIP170);
+        true,
+        call,
+        create_executor};
+    auto const result = create_executor(h, m);
 
     EXPECT_EQ(result.status_code, EVMC_INSUFFICIENT_BALANCE);
 }
@@ -132,14 +140,22 @@ TEST(Evm, eip684_existing_code)
 
     BlockHashBufferFinalized const block_hash_buffer;
     NoopCallTracer call_tracer;
+
+    // Create dummy call and create executors for the host
+    Call<EVMC_SHANGHAI> call{s, call_tracer};
+    EthereumMainnet chain;
+    BlockHeader header;
+    Create<EVMC_SHANGHAI> create_executor{chain, s, header, call_tracer};
+
     evm_host_t h{
         call_tracer,
         EMPTY_TX_CONTEXT,
         block_hash_buffer,
         s,
-        MAX_CODE_SIZE_EIP170,
-        true};
-    auto const result = create<EVMC_SHANGHAI>(&h, s, m, MAX_CODE_SIZE_EIP170);
+        true,
+        call,
+        create_executor};
+    auto const result = create_executor(h, m);
     EXPECT_EQ(result.status_code, EVMC_INVALID_INSTRUCTION);
 }
 
@@ -159,13 +175,21 @@ TEST(Evm, create_nonce_out_of_range)
 
     BlockHashBufferFinalized const block_hash_buffer;
     NoopCallTracer call_tracer;
+
+    // Create dummy call and create executors for the host
+    Call<EVMC_SHANGHAI> call{s, call_tracer};
+    EthereumMainnet chain;
+    BlockHeader header;
+    Create<EVMC_SHANGHAI> create_executor{chain, s, header, call_tracer};
+
     evm_host_t h{
         call_tracer,
         EMPTY_TX_CONTEXT,
         block_hash_buffer,
         s,
-        MAX_CODE_SIZE_EIP170,
-        true};
+        true,
+        call,
+        create_executor};
 
     commit_sequential(
         tdb,
@@ -188,7 +212,7 @@ TEST(Evm, create_nonce_out_of_range)
     uint256_t const v{70'000'000};
     intx::be::store(m.value.bytes, v);
 
-    auto const result = create<EVMC_SHANGHAI>(&h, s, m, MAX_CODE_SIZE_EIP170);
+    auto const result = create_executor(h, m);
 
     EXPECT_FALSE(s.account_exists(new_addr));
     EXPECT_EQ(result.status_code, EVMC_ARGUMENT_OUT_OF_RANGE);
@@ -210,13 +234,21 @@ TEST(Evm, static_precompile_execution)
 
     BlockHashBufferFinalized const block_hash_buffer;
     NoopCallTracer call_tracer;
+
+    // Create dummy call and create executors for the host
+    Call<EVMC_SHANGHAI> call_executor{s, call_tracer};
+    EthereumMainnet chain;
+    BlockHeader header;
+    Create<EVMC_SHANGHAI> create_executor{chain, s, header, call_tracer};
+
     evm_host_t h{
         call_tracer,
         EMPTY_TX_CONTEXT,
         block_hash_buffer,
         s,
-        MAX_CODE_SIZE_EIP170,
-        true};
+        true,
+        call_executor,
+        create_executor};
 
     commit_sequential(
         tdb,
@@ -242,7 +274,7 @@ TEST(Evm, static_precompile_execution)
         .value = {0},
         .code_address = code_address};
 
-    auto const result = call<EVMC_SHANGHAI>(&h, s, m);
+    auto const result = call_executor(h, m);
 
     EXPECT_EQ(result.status_code, EVMC_SUCCESS);
     EXPECT_EQ(result.gas_left, 382);
@@ -267,13 +299,21 @@ TEST(Evm, out_of_gas_static_precompile_execution)
 
     BlockHashBufferFinalized const block_hash_buffer;
     NoopCallTracer call_tracer;
+
+    // Create dummy call and create executors for the host
+    Call<EVMC_SHANGHAI> call_executor{s, call_tracer};
+    EthereumMainnet chain;
+    BlockHeader header;
+    Create<EVMC_SHANGHAI> create_executor{chain, s, header, call_tracer};
+
     evm_host_t h{
         call_tracer,
         EMPTY_TX_CONTEXT,
         block_hash_buffer,
         s,
-        MAX_CODE_SIZE_EIP170,
-        true};
+        true,
+        call_executor,
+        create_executor};
 
     commit_sequential(
         tdb,
@@ -299,7 +339,7 @@ TEST(Evm, out_of_gas_static_precompile_execution)
         .value = {0},
         .code_address = code_address};
 
-    evmc::Result const result = call<EVMC_SHANGHAI>(&h, s, m);
+    evmc::Result const result = call_executor(h, m);
 
     EXPECT_EQ(result.status_code, EVMC_OUT_OF_GAS);
 }
@@ -327,8 +367,16 @@ TEST(Evm, deploy_contract_code)
             State s{bs, Incarnation{0, 0}};
             static constexpr int64_t gas = 10'000;
             evmc::Result r{EVMC_SUCCESS, gas, 0, code, sizeof(code)};
-            auto const r2 = deploy_contract_code<EVMC_FRONTIER>(
-                s, a, std::move(r), MAX_CODE_SIZE_EIP170);
+
+            // Create a Create executor to call deploy_contract_code
+            EthereumMainnet chain;
+            BlockHeader header;
+            NoopCallTracer call_tracer;
+            Create<EVMC_FRONTIER> create_executor{
+                chain, s, header, call_tracer};
+
+            auto const r2 =
+                create_executor.deploy_contract_code(a, std::move(r));
             EXPECT_EQ(r2.status_code, EVMC_SUCCESS);
             EXPECT_EQ(r2.gas_left, gas - 800); // G_codedeposit * size(code)
             EXPECT_EQ(r2.create_address, a);
@@ -342,8 +390,16 @@ TEST(Evm, deploy_contract_code)
         {
             State s{bs, Incarnation{0, 1}};
             evmc::Result r{EVMC_SUCCESS, 700, 0, code, sizeof(code)};
-            auto const r2 = deploy_contract_code<EVMC_FRONTIER>(
-                s, a, std::move(r), MAX_CODE_SIZE_EIP170);
+
+            // Create a Create executor to call deploy_contract_code
+            EthereumMainnet chain;
+            BlockHeader header;
+            NoopCallTracer call_tracer;
+            Create<EVMC_FRONTIER> create_executor{
+                chain, s, header, call_tracer};
+
+            auto const r2 =
+                create_executor.deploy_contract_code(a, std::move(r));
             EXPECT_EQ(r2.status_code, EVMC_SUCCESS);
             EXPECT_EQ(r2.gas_left, 700);
             EXPECT_EQ(r2.create_address, a);
@@ -359,8 +415,16 @@ TEST(Evm, deploy_contract_code)
             int64_t const gas = 10'000;
 
             evmc::Result r{EVMC_SUCCESS, gas, 0, code, sizeof(code)};
-            auto const r2 = deploy_contract_code<EVMC_HOMESTEAD>(
-                s, a, std::move(r), MAX_CODE_SIZE_EIP170);
+
+            // Create a Create executor to call deploy_contract_code
+            EthereumMainnet chain;
+            BlockHeader header;
+            NoopCallTracer call_tracer;
+            Create<EVMC_HOMESTEAD> create_executor{
+                chain, s, header, call_tracer};
+
+            auto const r2 =
+                create_executor.deploy_contract_code(a, std::move(r));
             EXPECT_EQ(r2.status_code, EVMC_SUCCESS);
             EXPECT_EQ(r2.create_address, a);
             EXPECT_EQ(r2.gas_left,
@@ -375,8 +439,16 @@ TEST(Evm, deploy_contract_code)
         {
             State s{bs, Incarnation{0, 3}};
             evmc::Result r{EVMC_SUCCESS, 700, 0, code, sizeof(code)};
-            auto const r2 = deploy_contract_code<EVMC_HOMESTEAD>(
-                s, a, std::move(r), MAX_CODE_SIZE_EIP170);
+
+            // Create a Create executor to call deploy_contract_code
+            EthereumMainnet chain;
+            BlockHeader header;
+            NoopCallTracer call_tracer;
+            Create<EVMC_HOMESTEAD> create_executor{
+                chain, s, header, call_tracer};
+
+            auto const r2 =
+                create_executor.deploy_contract_code(a, std::move(r));
             EXPECT_EQ(r2.status_code, EVMC_OUT_OF_GAS);
             EXPECT_EQ(r2.gas_left, 700);
             EXPECT_EQ(r2.create_address, 0x00_address);
@@ -396,8 +468,16 @@ TEST(Evm, deploy_contract_code)
             0,
             code.data(),
             code.size()};
-        auto const r2 = deploy_contract_code<EVMC_SPURIOUS_DRAGON>(
-            s, a, std::move(r), MAX_CODE_SIZE_EIP170);
+
+        // Create a Create executor to call deploy_contract_code
+        EthereumMainnet chain;
+        BlockHeader header{
+            .number = 2675000}; // Ensure we're in Spurious Dragon era
+        NoopCallTracer call_tracer;
+        Create<EVMC_SPURIOUS_DRAGON> create_executor{
+            chain, s, header, call_tracer};
+
+        auto const r2 = create_executor.deploy_contract_code(a, std::move(r));
         EXPECT_EQ(r2.status_code, EVMC_OUT_OF_GAS);
         EXPECT_EQ(r2.gas_left, 0);
         EXPECT_EQ(r2.create_address, 0x00_address);
@@ -411,8 +491,14 @@ TEST(Evm, deploy_contract_code)
 
         evmc::Result r{
             EVMC_SUCCESS, 1'000, 0, illegal_code.data(), illegal_code.size()};
-        auto const r2 = deploy_contract_code<EVMC_LONDON>(
-            s, a, std::move(r), MAX_CODE_SIZE_EIP170);
+
+        // Create a Create executor to call deploy_contract_code
+        EthereumMainnet chain;
+        BlockHeader header;
+        NoopCallTracer call_tracer;
+        Create<EVMC_LONDON> create_executor{chain, s, header, call_tracer};
+
+        auto const r2 = create_executor.deploy_contract_code(a, std::move(r));
         EXPECT_EQ(r2.status_code, EVMC_CONTRACT_VALIDATION_FAILURE);
         EXPECT_EQ(r2.gas_left, 0);
         EXPECT_EQ(r2.create_address, 0x00_address);
@@ -437,13 +523,18 @@ TEST(Evm, create_inside_delegated)
 
     BlockHashBufferFinalized const block_hash_buffer;
     NoopCallTracer call_tracer;
+    Call<EVMC_SHANGHAI> call_executor{s, call_tracer};
+    EthereumMainnet chain;
+    BlockHeader header;
+    Create<EVMC_SHANGHAI> create_executor{chain, s, header, call_tracer};
     evm_host_t h{
         call_tracer,
         EMPTY_TX_CONTEXT,
         block_hash_buffer,
         s,
-        MAX_CODE_SIZE_EIP170,
-        false};
+        false,
+        call_executor,
+        create_executor};
     auto const result = h.call(m);
 
     EXPECT_EQ(result.status_code, EVMC_UNDEFINED_INSTRUCTION);
