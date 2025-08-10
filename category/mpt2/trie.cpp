@@ -56,9 +56,8 @@ struct PendingNode
         int64_t const version = 0)
         : mask(orig_mask)
         , orig_mask(orig_mask)
-        , children(
-              allocators::owning_span<ChildData>(
-                  static_cast<uint8_t>(std::popcount(orig_mask))))
+        , children(allocators::owning_span<ChildData>(
+              static_cast<uint8_t>(std::popcount(orig_mask))))
         , path(path)
         , opt_leaf_data(opt_leaf_data)
         , version(version)

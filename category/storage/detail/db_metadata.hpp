@@ -40,9 +40,8 @@ namespace detail
         uint64_t capacity_in_free_list; // used to detect when free space is
                                         // running low
 
-        // TODO: root offsets ring metadata
-        // version_lower_bound_
-        // next_version_;
+        uint64_t version_lower_bound_;
+        uint64_t next_version_;
 
         // Starting here are 0xff initialized bytes
 
@@ -301,6 +300,7 @@ namespace detail
             return &chunk_info[idx];
         }
 
+        // TODO: remove the unnecessary atomic operation
         void append_(id_pair &list, chunk_info_t *i) noexcept
         {
             // Insertion count is assigned to chunk_info_t *i atomically
@@ -412,7 +412,7 @@ namespace detail
         }
     };
 
-    static_assert(sizeof(db_metadata_t) == 4216);
+    static_assert(sizeof(db_metadata_t) == 4232);
     static_assert(std::is_trivially_copyable_v<db_metadata_t>);
 
     /* A dirty bit setting memcpy implementation, so the dirty bit gets held

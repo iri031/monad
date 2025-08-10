@@ -41,11 +41,8 @@ std::filesystem::path create_temp_file(long size_gb)
 
 inline void run_test(std::filesystem::path const path)
 {
-    // TODO: write to offset
-    // TODO: append/remove chunk list in db_metadata
     {
-        DbStorage::creation_flags options;
-        DbStorage rw_storage(path, DbStorage::Mode::truncate, options);
+        DbStorage rw_storage(path, DbStorage::Mode::truncate);
         EXPECT_EQ(rw_storage.num_chunks(), 4092);
         EXPECT_FALSE(rw_storage.is_read_only());
         EXPECT_TRUE(rw_storage.is_newly_truncated());
@@ -113,3 +110,40 @@ TEST(DbStorage, file_works)
 
     run_test(path);
 }
+
+TEST(DbStorage, root_offsets)
+{
+    auto const path = create_temp_file(1024);
+    auto undb = monad::make_scope_exit(
+        [&]() noexcept { std::filesystem::remove(path); });
+
+    DbStorage rw_storage(path, DbStorage::Mode::truncate);
+    EXPECT_EQ(rw_storage.root_offsets().max_version(), INVALID_BLOCK_NUM);
+    EXPECT_EQ(rw_storage.version_history_length(), 1 << 25);
+
+    chunk_offset_t const offset0{1, 0};
+    rw_storage.root_offsets().push(offset0);
+    EXPECT_EQ(rw_storage.root_offsets().max_version(), 0);
+    EXPECT_EQ(rw_storage.get_root_offset_at_version(0), offset0);
+
+    chunk_offset_t offset1{2, 0};
+    rw_storage.root_offsets().push(offset1);
+    EXPECT_EQ(rw_storage.root_offsets().max_version(), 1);
+    EXPECT_EQ(rw_storage.get_root_offset_at_version(1), offset1);
+    offset1.offset = 1024;
+    rw_storage.root_offsets().assign(1, offset1);
+    EXPECT_EQ(rw_storage.root_offsets().max_version(), 1);
+    EXPECT_EQ(rw_storage.get_root_offset_at_version(1), offset1);
+    EXPECT_EQ(rw_storage.db_history_min_valid_version(), 0);
+    EXPECT_EQ(rw_storage.db_history_range_lower_bound(), 0);
+
+    DbStorage::creation_flags options;
+    options.open_read_only = true;
+    DbStorage ro_storage(path, DbStorage::Mode::open_existing, options);
+    EXPECT_EQ(rw_storage.version_history_length(), 1 << 25);
+    EXPECT_EQ(ro_storage.root_offsets().max_version(), 1);
+    EXPECT_EQ(ro_storage.get_root_offset_at_version(0), offset0);
+    EXPECT_EQ(ro_storage.get_root_offset_at_version(1), offset1);
+}
+
+// TEST(db_metadata_chunk_op)

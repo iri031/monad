@@ -1,4 +1,8 @@
+#include <category/mpt2/config.hpp>
 #include <category/mpt2/trie.hpp>
+
+#include <cstdint>
+#include <option>
 
 MONAD_MPT2_NAMESPACE_BEGIN
 
@@ -84,12 +88,7 @@ UpdateAux::write_node_to_disk(Node::UniquePtr node, bool const to_fast_list)
     return node_writer_offset;
 }
 
-void UpdateAux::db_transaction_start()
-{
-    write_mutex_.lock();
-}
-
-void UpdateAux::db_transaction_finish(
+void UpdateAux::finalize_transaction(
     chunk_offset_t const root_offset, uint64_t const version)
 {
     // update root offset in ring buffer

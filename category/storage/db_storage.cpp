@@ -500,6 +500,8 @@ void DbStorage::init_db_metadata_()
         set_latest_verified_version(INVALID_BLOCK_NUM);
         set_latest_voted(INVALID_BLOCK_NUM, bytes32_t{});
         // set_auto_expire_version_metadata(0);
+        // init history length to the capacity by default
+        set_history_length(db_metadata_[0].root_offsets.size());
 
         for (auto const i : {0, 1}) {
             auto *const m = db_metadata_[i].main;

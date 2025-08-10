@@ -320,6 +320,188 @@ public:
         apply_to_both_main_copies(f);
     }
 
+    auto root_offsets(unsigned const which = 0) const
+    {
+        class root_offsets_delegator
+        {
+            std::atomic_ref<uint64_t> version_lower_bound_;
+            std::atomic_ref<uint64_t> next_version_;
+            std::span<chunk_offset_t> root_offsets_chunks_;
+
+            void
+            update_version_lower_bound_(uint64_t lower_bound = uint64_t(-1))
+            {
+                auto const version_lower_bound =
+                    version_lower_bound_.load(std::memory_order_acquire);
+                auto idx = (lower_bound < version_lower_bound)
+                               ? lower_bound
+                               : version_lower_bound;
+                auto const max_version =
+                    next_version_.load(std::memory_order_acquire) - 1;
+                while (idx < max_version && (*this)[idx] == INVALID_OFFSET) {
+                    idx++;
+                }
+                if (idx != version_lower_bound) {
+                    version_lower_bound_.store(idx, std::memory_order_release);
+                }
+            }
+
+        public:
+            explicit root_offsets_delegator(DbMetadata const &m)
+                : version_lower_bound_(m.main->version_lower_bound_)
+                , next_version_(m.main->next_version_)
+                , root_offsets_chunks_(m.root_offsets)
+            {
+                MONAD_DEBUG_ASSERT(
+                    root_offsets_chunks_.size() ==
+                    1ULL
+                        << (63 -
+                            std::countl_zero(root_offsets_chunks_.size())));
+            }
+
+            size_t capacity() const noexcept
+            {
+                return root_offsets_chunks_.size();
+            }
+
+            void push(chunk_offset_t const o) noexcept
+            {
+                auto const wp = next_version_.load(std::memory_order_relaxed);
+                auto const next_wp = wp + 1;
+                MONAD_ASSERT(next_wp != 0);
+                auto *p = start_lifetime_as<std::atomic<chunk_offset_t>>(
+                    &root_offsets_chunks_
+                        [wp & (root_offsets_chunks_.size() - 1)]);
+                p->store(o, std::memory_order_release);
+                next_version_.store(next_wp, std::memory_order_release);
+                if (o != INVALID_OFFSET) {
+                    update_version_lower_bound_();
+                }
+            }
+
+            void assign(size_t const i, chunk_offset_t const o) noexcept
+            {
+                auto *p = start_lifetime_as<std::atomic<chunk_offset_t>>(
+                    &root_offsets_chunks_
+                        [i & (root_offsets_chunks_.size() - 1)]);
+                p->store(o, std::memory_order_release);
+                update_version_lower_bound_(
+                    (o != INVALID_OFFSET) ? i : uint64_t(-1));
+            }
+
+            chunk_offset_t operator[](size_t const i) const noexcept
+            {
+                return start_lifetime_as<std::atomic<chunk_offset_t> const>(
+                           &root_offsets_chunks_
+                               [i & (root_offsets_chunks_.size() - 1)])
+                    ->load(std::memory_order_acquire);
+            }
+
+            // return INVALID_BLOCK_NUM indicates that db is empty
+            uint64_t max_version() const noexcept
+            {
+                auto const wp = next_version_.load(std::memory_order_acquire);
+                return wp - 1;
+            }
+
+            void reset_all(uint64_t const version)
+            {
+                version_lower_bound_.store(0, std::memory_order_release);
+                next_version_.store(0, std::memory_order_release);
+                memset(
+                    (void *)root_offsets_chunks_.data(),
+                    0xff,
+                    root_offsets_chunks_.size() * sizeof(chunk_offset_t));
+                version_lower_bound_.store(version, std::memory_order_release);
+                next_version_.store(version, std::memory_order_release);
+            }
+
+            void rewind_to_version(uint64_t const version)
+            {
+                MONAD_ASSERT(version < max_version());
+                MONAD_ASSERT(max_version() - version <= capacity());
+                for (uint64_t i = version + 1; i <= max_version(); i++) {
+                    assign(i, INVALID_OFFSET);
+                }
+                if (version <
+                    version_lower_bound_.load(std::memory_order_acquire)) {
+                    version_lower_bound_.store(
+                        version, std::memory_order_release);
+                }
+                next_version_.store(version + 1, std::memory_order_release);
+                update_version_lower_bound_();
+            }
+        };
+
+        return root_offsets_delegator{db_metadata_[which]};
+    }
+
+    void set_history_length(uint64_t const history_len) noexcept
+    {
+        auto f = [&](detail::db_metadata_t *m) {
+            auto g = m->hold_dirty();
+            auto const ro = root_offsets(m == db_metadata_[1].main);
+            MONAD_ASSERT(history_len > 0 && history_len <= ro.capacity());
+            reinterpret_cast<std::atomic_uint64_t *>(&m->history_length)
+                ->store(history_len, std::memory_order_relaxed);
+        };
+        apply_to_both_main_copies(f);
+    }
+
+    uint64_t db_history_max_version() const noexcept
+    {
+        return root_offsets().max_version();
+    }
+
+    uint64_t db_history_min_valid_version() const noexcept
+    {
+        auto const offsets = root_offsets();
+        auto min_version = db_history_range_lower_bound();
+        for (; min_version != offsets.max_version(); ++min_version) {
+            if (offsets[min_version] != INVALID_OFFSET) {
+                break;
+            }
+        }
+        return min_version;
+    }
+
+    uint64_t db_history_range_lower_bound() const noexcept
+    {
+        auto const max_version = db_history_max_version();
+        if (max_version == INVALID_BLOCK_NUM) {
+            return INVALID_BLOCK_NUM;
+        }
+        else {
+            auto const history_range_min =
+                max_version >= version_history_length()
+                    ? (max_version - version_history_length() + 1)
+                    : 0;
+            auto const ro_version_lower_bound =
+                db_metadata()->version_lower_bound_;
+            MONAD_ASSERT(ro_version_lower_bound >= history_range_min);
+            return ro_version_lower_bound;
+        }
+    }
+
+    uint64_t version_history_length() const noexcept
+    {
+        return start_lifetime_as<std::atomic_uint64_t const>(
+                   &db_metadata()->history_length)
+            ->load(std::memory_order_relaxed);
+    }
+
+    chunk_offset_t
+    get_root_offset_at_version(uint64_t const version) const noexcept
+    {
+        if (version <= db_history_max_version()) {
+            auto const offset = root_offsets()[version];
+            if (version >= db_history_range_lower_bound()) {
+                return offset;
+            }
+        }
+        return INVALID_OFFSET;
+    }
+
 private:
     void init_(int const fd, Mode mode, creation_flags flags = {});
 
