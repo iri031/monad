@@ -1,23 +1,19 @@
 #pragma once
 
-#include <category/async/storage_pool.hpp>
 #include <category/core/assert.h>
 #include <category/core/mem/allocators.hpp>
-#include <category/mpt/detail/unsigned_20.hpp>
-#include <category/mpt/nibbles_view.hpp>
-#include <category/mpt/util.hpp>
 #include <category/mpt2/config.hpp>
+#include <category/mpt2/util.hpp>
+#include <category/storage/detail/unsigned_20.hpp>
 
 #include <cstdint>
 #include <optional>
 
 MONAD_MPT2_NAMESPACE_BEGIN
 
-using chunk_offset_t = MONAD_ASYNC_NAMESPACE::chunk_offset_t;
-using file_offset_t = MONAD_ASYNC_NAMESPACE::file_offset_t;
-using compact_virtual_chunk_offset_t =
-    MONAD_MPT_NAMESPACE::compact_virtual_chunk_offset_t;
-using NibblesView = MONAD_MPT_NAMESPACE::NibblesView;
+struct ChildData;
+struct Compute;
+class NibblesView;
 
 /*
 TODO:
@@ -104,7 +100,8 @@ public:
         NibblesView path, int64_t version);
     Node(Node const &) = delete;
     Node(Node &&) = default;
-    ~Node();
+
+    ~Node() {}
 
     unsigned to_child_index(unsigned branch) const noexcept;
 
@@ -172,11 +169,127 @@ public:
     void set_child_data(unsigned index, byte_string_view data) noexcept;
 
     // On disk layout: preceeding the node data is the disk size of the node.
-    uint32_t get_disk_size() const noexcept;
+    uint32_t get_allocate_size() const noexcept;
 };
+
+constexpr size_t calculate_node_size(
+    size_t const number_of_children, size_t const total_child_data_size,
+    size_t const value_size, size_t const path_size,
+    size_t const data_size) noexcept
+{
+    return sizeof(Node) +
+           (sizeof(uint16_t) // child data offset
+            + sizeof(compact_virtual_chunk_offset_t) * 2 // min truncated offset
+            + sizeof(int64_t) // subtrie min versions
+            + sizeof(chunk_offset_t)) *
+               number_of_children +
+           total_child_data_size + value_size + path_size + data_size;
+}
+
+// Maximum value size that can be stored in a leaf node.  This is calculated by
+// taking the maximum possible node size and subtracting the overhead of the
+// Node metadata. We use KECCAK256_SIZE for the path length since the state trie
+// is our deepest trie in practice.
+constexpr size_t MAX_VALUE_LEN_OF_LEAF =
+    Node::max_disk_size -
+    calculate_node_size(
+        0 /* number_of_children */, 0 /* child_data_size */, 0 /* value_size */,
+        KECCAK256_SIZE /* path_size */, KECCAK256_SIZE /* data_size*/);
+
+Node::UniquePtr make_node(
+    Node &from, NibblesView path, std::optional<byte_string_view> value,
+    int64_t version);
+
+Node::UniquePtr make_node(
+    uint16_t mask, std::span<ChildData>, NibblesView path,
+    std::optional<byte_string_view> value, size_t data_size, int64_t version);
+
+Node::UniquePtr make_node(
+    uint16_t mask, std::span<ChildData>, NibblesView path,
+    std::optional<byte_string_view> value, byte_string_view data,
+    int64_t version);
+
+// create node: either branch/extension, with or without leaf
+Node::UniquePtr create_node_with_children(
+    Compute &, uint16_t mask, std::span<ChildData> children, NibblesView path,
+    std::optional<byte_string_view> value, int64_t version);
 
 void serialize_node(unsigned char *write_pos, Node const &);
 
 Node *parse_node(unsigned char const *mmap_address, chunk_offset_t offset);
+
+inline int64_t calc_min_version(Node const &node)
+{
+    int64_t min_version = node.version;
+    for (unsigned i = 0; i < node.number_of_children(); ++i) {
+        min_version = std::min(min_version, node.subtrie_min_version(i));
+    }
+    return min_version;
+}
+
+// Iterate over the children of a node returning the index and the branch
+// Usage: for (auto const [index, branch] : NodeChildrenRange(node.mask)) {...}
+class NodeChildrenRange
+{
+public:
+    struct Sentinel
+    {
+    };
+
+    class iterator
+    {
+    public:
+        using value_type = std::pair<uint8_t, unsigned char>;
+        using difference_type = std::ptrdiff_t;
+        using iterator_category = std::input_iterator_tag;
+        using pointer = void;
+        using reference = value_type;
+
+        iterator(uint16_t mask)
+            : index_(0)
+            , mask_(mask)
+        {
+        }
+
+        value_type operator*() const
+        {
+            return {index_, __builtin_ctzl(mask_)};
+        }
+
+        iterator &operator++()
+        {
+            mask_ &= mask_ - 1;
+            ++index_;
+            return *this;
+        }
+
+        bool operator!=(Sentinel const &) const
+        {
+            return mask_ != 0;
+        }
+
+    private:
+        uint8_t index_;
+        uint16_t mask_;
+    };
+
+    explicit NodeChildrenRange(uint16_t mask)
+        : mask_(mask)
+    {
+    }
+
+    iterator begin() const
+    {
+        return iterator(mask_);
+    }
+
+    Sentinel end() const
+    {
+        return Sentinel();
+    }
+
+private:
+    uint16_t mask_;
+};
 
 MONAD_MPT2_NAMESPACE_END

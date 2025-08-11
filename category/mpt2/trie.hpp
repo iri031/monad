@@ -1,22 +1,23 @@
 #pragma once
 
-#include <category/mpt/request.hpp>
-#include <category/mpt/update.hpp>
 #include <category/mpt2/node.hpp>
-#include <category/mpt2/state_machine.hpp> // TODO
+#include <category/mpt2/state_machine.hpp>
+#include <category/mpt2/update.hpp>
+#include <category/mpt2/util.hpp>
+#include <category/storage/db_storage.hpp>
 
 #include <cstdint>
 
-using MONAD_MPT_NAMESPACE::UpdateList;
-
 MONAD_MPT2_NAMESPACE_BEGIN
 
-struct StateMachine;
+class WriteTransaction;
 
 // auxiliary structure for upsert, at most one thread can modify it at a time,
 // but multiple threads can read it
 class UpdateAux
 {
+    friend class WriteTransaction;
+
     uint32_t initial_insertion_count_on_pool_creation_{0};
     bool enable_dynamic_history_length_{true};
     bool alternate_slow_fast_writer_{false};
@@ -40,23 +41,25 @@ class UpdateAux
     compact_virtual_chunk_offset_t compact_offset_range_slow_{
         MIN_COMPACT_VIRTUAL_OFFSET};
 
-    DbStorage &db_storage_;
+    MONAD_STORAGE_NAMESPACE::DbStorage &db_storage_;
 
     std::mutex write_mutex_;
 
 public:
     int64_t curr_upsert_auto_expire_version{0};
-    compact_virtual_chunk_offset_t compact_offset_fast{
-        MIN_COMPACT_VIRTUAL_OFFSET};
-    compact_virtual_chunk_offset_t compact_offset_slow{
-        MIN_COMPACT_VIRTUAL_OFFSET};
+    // compact_virtual_chunk_offset_t compact_offset_fast{
+    //     MIN_COMPACT_VIRTUAL_OFFSET};
+    // compact_virtual_chunk_offset_t compact_offset_slow{
+    //     MIN_COMPACT_VIRTUAL_OFFSET};
 
     // On disk stuff
     // TODO: helper function for writers to determine the next offset
-    chunk_offset_t node_writer_offset_fast{};
-    chunk_offset_t node_writer_offset_slow{};
+    chunk_offset_t node_writer_offset_fast{INVALID_OFFSET};
+    chunk_offset_t node_writer_offset_slow{INVALID_OFFSET};
 
-    UpdateAux(DbStorage &, std::optional<uint64_t> history_len = true);
+    UpdateAux(
+        MONAD_STORAGE_NAMESPACE::DbStorage &,
+        std::optional<uint64_t> history_len = true);
 
     // TODO: add db stats
 
@@ -71,9 +74,12 @@ public:
                db_storage_.is_read_only_allow_dirty();
     }
 
+    virtual_chunk_offset_t
+    physical_to_virtual(chunk_offset_t offset) const noexcept;
+
     Node *parse_node(chunk_offset_t offset) const noexcept;
 
-    chunk_offset_t write_node_to_disk(Node::UniquePtr node, bool to_fast_list);
+    chunk_offset_t write_node_to_disk(Node const &node, bool to_fast_list);
 
     chunk_offset_t do_upsert(
         chunk_offset_t root_offset, StateMachine &, UpdateList &&,
@@ -90,13 +96,13 @@ public:
     explicit WriteTransaction(UpdateAux &aux)
         : aux_(aux)
     {
-        aux_.write_mutex.lock();
+        aux_.write_mutex_.lock();
         MONAD_ASSERT(!aux_.is_read_only());
     }
 
     ~WriteTransaction()
     {
-        aux_.write_mutex.unlock();
+        aux_.write_mutex_.unlock();
     }
 
     // upsert on top of the given root into a specific version
@@ -127,8 +133,13 @@ public:
 // time, implementation is not threadsafe and no need to be
 chunk_offset_t upsert(
     UpdateAux &, uint64_t version, StateMachine &, chunk_offset_t old_offset,
-    UpdateList &&, bool write_root = true);
+    UpdateList &&);
 
 // TODO: copy_trie
+
+std::pair<compact_virtual_chunk_offset_t, compact_virtual_chunk_offset_t>
+calc_min_offsets(
+    Node const &node,
+    virtual_chunk_offset_t node_virtual_offset = INVALID_VIRTUAL_OFFSET);
 
 MONAD_MPT2_NAMESPACE_END

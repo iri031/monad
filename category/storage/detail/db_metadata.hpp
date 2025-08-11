@@ -30,7 +30,6 @@ namespace detail
         static constexpr unsigned MAGIC_STRING_LEN = 8;
 
         char magic[MAGIC_STRING_LEN];
-        // uint32_t root_offsets_capacity; // capacity of root offsets ring
 
         uint32_t chunk_info_count : 20; // items in chunk_info below
         // The above two fields determine the size of the db_metadata
@@ -175,9 +174,6 @@ namespace detail
     #pragma GCC diagnostic ignored "-Wpedantic"
 #endif
         chunk_info_t chunk_info[];
-        // Following this array is
-        // - an array of uint32_t of chunk bytes used
-        // - an array of root offsets of size root_offsets_capacity
 #ifdef __clang__
     #pragma clang diagnostic pop
 #elif defined __GNUC__
