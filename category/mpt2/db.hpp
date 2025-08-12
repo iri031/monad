@@ -1,18 +1,3 @@
-// Copyright (C) 2025 Category Labs, Inc.
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 #pragma once
 #include <memory>
 
@@ -25,21 +10,22 @@
 #include <category/core/io/ring.hpp>
 #include <category/core/lru/static_lru_cache.hpp>
 #include <category/core/result.hpp>
-#include <category/mpt/config.hpp>
 #include <category/mpt/find_request_sender.hpp>
-#include <category/mpt/nibbles_view.hpp>
-#include <category/mpt/node.hpp>
 #include <category/mpt/traverse.hpp>
-#include <category/mpt/trie.hpp>
-#include <category/mpt/update.hpp>
+#include <category/mpt2/config.hpp>
+#include <category/mpt2/nibbles_view.hpp>
+#include <category/mpt2/node.hpp>
+#include <category/mpt2/trie.hpp>
+#include <category/mpt2/update.hpp>
 
-MONAD_MPT_NAMESPACE_BEGIN
+MONAD_MPT2_NAMESPACE_BEGIN
 
 struct OnDiskDbConfig;
 struct ReadOnlyOnDiskDbConfig;
 struct StateMachine;
 struct TraverseMachine;
 struct AsyncContext;
+using monad::mpt2::OwningNodeCursor;
 
 struct AsyncIOContext
 {
@@ -165,147 +151,4 @@ public:
     bool is_read_only() const;
 };
 
-// The following are not threadsafe. Please use async get from the RODb owning
-// thread.
-
-struct AsyncContext
-
-{
-    using inflight_root_t = unordered_dense_map<
-        uint64_t, std::vector<std::function<void(std::shared_ptr<Node>)>>>;
-    using TrieRootCache = static_lru_cache<
-        chunk_offset_t, std::shared_ptr<Node>, chunk_offset_t_hasher>;
-
-    UpdateAux<> &aux;
-    TrieRootCache root_cache;
-    inflight_root_t inflight_roots;
-    inflight_node_t inflight_nodes;
-
-    AsyncContext(Db &db, size_t lru_size = 64);
-    ~AsyncContext() noexcept = default;
-};
-
-using AsyncContextUniquePtr = std::unique_ptr<AsyncContext>;
-AsyncContextUniquePtr async_context_create(Db &db);
-
-namespace detail
-{
-    template <return_type T>
-    struct DbGetSender
-    {
-        using result_type = async::result<T>;
-
-        AsyncContext &context;
-
-        enum op_t : uint8_t
-        {
-            op_get1,
-            op_get2,
-            op_get_data1,
-            op_get_data2,
-            op_get_node1,
-            op_get_node2
-        } op_type;
-
-        std::shared_ptr<Node> root;
-        NodeCursor cur;
-        Nibbles const nv;
-        uint64_t const block_id;
-        uint8_t const cached_levels;
-
-        find_result_type<NodeCursor> res_root;
-        find_result_type<T> get_result;
-
-        constexpr DbGetSender(
-            AsyncContext &context_, op_t const op_type_, NibblesView const n,
-            uint64_t const block_id_, uint8_t const cached_levels_)
-            : context(context_)
-            , op_type(op_type_)
-            , nv(n)
-            , block_id(block_id_)
-            , cached_levels(cached_levels_)
-        {
-            if constexpr (std::same_as<T, Node::UniquePtr>) {
-                MONAD_ASSERT(op_type == op_t::op_get_node1);
-            }
-        }
-
-        constexpr DbGetSender(
-            AsyncContext &context_, op_t const op_type_, NodeCursor const cur_,
-            NibblesView const n, uint64_t const block_id_,
-            uint8_t const cached_levels_)
-            : context(context_)
-            , op_type(op_type_)
-            , cur(cur_)
-            , nv(n)
-            , block_id(block_id_)
-            , cached_levels(cached_levels_)
-        {
-            if constexpr (std::same_as<T, Node::UniquePtr>) {
-                MONAD_ASSERT(op_type == op_t::op_get_node1);
-            }
-        }
-
-        async::result<void>
-        operator()(async::erased_connected_operation *io_state) noexcept;
-
-        result_type completed(
-            async::erased_connected_operation *,
-            async::result<void> res) noexcept;
-    };
-}
-
-inline detail::TraverseSender make_traverse_sender(
-    AsyncContext *const context, Node::UniquePtr traverse_root,
-    std::unique_ptr<TraverseMachine> machine, uint64_t const block_id,
-    size_t const concurrency_limit = 4096)
-{
-    MONAD_ASSERT(context);
-    return {
-        context->aux,
-        std::move(traverse_root),
-        std::move(machine),
-        block_id,
-        concurrency_limit};
-}
-
-inline detail::DbGetSender<byte_string> make_get_sender(
-    AsyncContext *const context, NibblesView const nv, uint64_t const block_id,
-    uint8_t const cached_levels = 5)
-{
-    MONAD_ASSERT(context);
-    return {
-        *context,
-        detail::DbGetSender<byte_string>::op_t::op_get1,
-        nv,
-        block_id,
-        cached_levels};
-}
-
-inline detail::DbGetSender<byte_string> make_get_data_sender(
-    AsyncContext *const context, NibblesView const nv, uint64_t const block_id,
-    uint8_t const cached_levels = 5)
-{
-    MONAD_ASSERT(context);
-    return {
-        *context,
-        detail::DbGetSender<byte_string>::op_t::op_get_data1,
-        nv,
-        block_id,
-        cached_levels};
-}
-
-inline detail::DbGetSender<Node::UniquePtr> make_get_node_sender(
-    AsyncContext *const context, NibblesView const nv, uint64_t const block_id,
-    uint8_t const cached_levels = 5)
-{
-    MONAD_ASSERT(context);
-    return {
-        *context,
-        detail::DbGetSender<Node::UniquePtr>::op_t::op_get_node1,
-        nv,
-        block_id,
-        cached_levels};
-}
-
-MONAD_MPT_NAMESPACE_END
+MONAD_MPT2_NAMESPACE_END

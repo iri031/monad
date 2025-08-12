@@ -1,8 +1,8 @@
 #pragma once
 
 #include <category/core/bytes.hpp>
+#include <category/core/start_lifetime_as_polyfill.hpp>
 #include <category/storage/config.hpp>
-#include <category/storage/detail/start_lifetime_as_polyfill.hpp>
 #include <category/storage/detail/unsigned_20.hpp>
 #include <category/storage/util.hpp>
 

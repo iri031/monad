@@ -21,8 +21,8 @@
 #include <category/core/hash.hpp>
 
 #include <category/async/config.hpp>
-#include <category/async/detail/start_lifetime_as_polyfill.hpp>
 #include <category/async/util.hpp>
+#include <category/core/start_lifetime_as_polyfill.hpp>
 
 #include <algorithm>
 #include <atomic>

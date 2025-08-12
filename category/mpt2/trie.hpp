@@ -20,6 +20,7 @@ class WriteTransaction;
 class UpdateAux
 {
     friend class WriteTransaction;
+    friend class Db;
 
     bool enable_dynamic_history_length_{true};
     // bool can_write_to_fast_{true};
@@ -94,6 +95,11 @@ public:
     {
         return db_storage_.is_read_only() ||
                db_storage_.is_read_only_allow_dirty();
+    }
+
+    bool is_on_disk() const noexcept
+    {
+        return true;
     }
 
     virtual_chunk_offset_t
