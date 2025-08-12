@@ -46,6 +46,10 @@ class UpdateAux
 
     std::mutex write_mutex_;
 
+    void clear_root_offsets_up_to_and_including(uint64_t version);
+    void erase_versions_up_to_and_including(uint64_t version);
+    // void release_unreferenced_chunks();
+
 public:
     int64_t curr_upsert_auto_expire_version{0};
     // compact_virtual_chunk_offset_t compact_offset_fast{
@@ -54,13 +58,12 @@ public:
     //     MIN_COMPACT_VIRTUAL_OFFSET};
 
     // On disk stuff
-    // TODO: helper function for writers to determine the next offset
     chunk_offset_t node_writer_offset_fast{INVALID_OFFSET};
     chunk_offset_t node_writer_offset_slow{INVALID_OFFSET};
 
     UpdateAux(
         MONAD_STORAGE_NAMESPACE::DbStorage &,
-        std::optional<uint64_t> history_len = true);
+        std::optional<uint64_t> history_len = {});
 
     // TODO: add db stats
 

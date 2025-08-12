@@ -5,6 +5,7 @@
 #include <category/mpt2/trie.hpp>
 #include <category/mpt2/util.hpp>
 #include <category/storage/db_storage.hpp>
+#include <category/storage/test/test_fixtures.hpp>
 #include <category/storage/util.hpp>
 
 #include <filesystem>
@@ -14,60 +15,16 @@
 
 using namespace MONAD_MPT2_NAMESPACE;
 using namespace MONAD_STORAGE_NAMESPACE;
+using namespace monad::storage_test;
 using namespace monad::trie_test;
-
-std::filesystem::path create_temp_file(long size_gb)
-{
-    std::filesystem::path const filename{
-        working_temporary_directory() / "monad_trie_test_XXXXXX"};
-    int const fd = ::mkstemp((char *)filename.native().data());
-    MONAD_ASSERT(fd != -1);
-    MONAD_ASSERT(-1 != ::ftruncate(fd, size_gb * 1024 * 1024 * 1024));
-    ::close(fd);
-    return filename;
-}
-
-struct UpdateAuxFixture : public ::testing::Test
-{
-    std::filesystem::path const path;
-    DbStorage db_storage;
-    UpdateAux aux;
-    std::unique_ptr<StateMachine> sm;
-
-    UpdateAuxFixture()
-        : path{create_temp_file(8)}
-        , db_storage(path, DbStorage::Mode::truncate)
-        , aux(db_storage) // using default history
-        , sm(std::make_unique<StateMachineAlwaysMerkle>())
-    {
-    }
-
-    ~UpdateAuxFixture() noexcept
-    {
-        std::filesystem::remove(path);
-    }
-
-    monad::byte_string root_hash(Node *const root)
-    {
-        if (root) {
-            monad::byte_string data(32, 0);
-            auto const len = this->sm->get_compute().compute(data.data(), root);
-            if (len < KECCAK256_SIZE) {
-                keccak256(data.data(), len, data.data());
-            }
-            return data;
-        }
-        return empty_trie_hash;
-    }
-};
 
 TEST_F(UpdateAuxFixture, upsert_works)
 {
     auto const &kv = fixed_updates::kv;
 
-    chunk_offset_t root_offset = INVALID_OFFSET;
+    chunk_offset_t root_offset{INVALID_OFFSET};
     uint64_t version = 0;
-    { // version 0
+    {
         WriteTransaction wt(aux);
         UpdateList update_ls;
         Update u1 = make_update(kv[0].first, kv[0].second),
@@ -108,4 +65,76 @@ TEST_F(UpdateAuxFixture, upsert_works)
     EXPECT_EQ(
         this->root_hash(root_cursor2.node),
         0x22f3b7fc4b987d8327ec4525baf4cb35087a75d9250a8a3be45881dd889027ad_hex);
+}
+
+TEST_F(DbStorageFixture, reopen_with_correct_writer_offsets_to_start_with)
+{
+    chunk_offset_t expected_fast_offset{0, 0}, expected_slow_offset{0, 0};
+    {
+        UpdateAux aux{db_storage};
+        aux.node_writer_offset_fast.add_to_offset(1024);
+        aux.node_writer_offset_slow.add_to_offset(2048);
+        expected_fast_offset = aux.node_writer_offset_fast;
+        expected_slow_offset = aux.node_writer_offset_slow;
+
+        WriteTransaction wt(aux);
+        wt.finish(aux.node_writer_offset_fast, 0);
+
+        EXPECT_EQ(
+            db_storage.db_metadata()->db_offsets.start_of_wip_offset_fast,
+            aux.node_writer_offset_fast);
+        EXPECT_EQ(
+            db_storage.db_metadata()->db_offsets.start_of_wip_offset_slow,
+            aux.node_writer_offset_slow);
+
+        aux.node_writer_offset_fast =
+            aux.node_writer_offset_fast.add_to_offset(100);
+        aux.node_writer_offset_slow =
+            aux.node_writer_offset_slow.add_to_offset(200);
+    }
+
+    DbStorage storage{path, DbStorage::Mode::open_existing};
+    EXPECT_EQ(
+        storage.db_metadata()->db_offsets.start_of_wip_offset_fast,
+        expected_fast_offset);
+    EXPECT_EQ(
+        storage.db_metadata()->db_offsets.start_of_wip_offset_slow,
+        expected_slow_offset);
+}
+
+TEST_F(DbStorageFixture, fixed_history_length)
+{
+    constexpr uint64_t history_len = 100;
+
+    chunk_offset_t offset{0, 0};
+    uint64_t const max_version = history_len * 2;
+    uint64_t v = 0;
+
+    {
+        UpdateAux aux(db_storage);
+        for (v = 0; v <= max_version; ++v) {
+            WriteTransaction wt(aux);
+            wt.finish(offset, v);
+            offset = offset.add_to_offset(100);
+        }
+        EXPECT_EQ(db_storage.db_history_max_version(), max_version);
+        EXPECT_EQ(db_storage.db_history_min_valid_version(), 0);
+    }
+
+    { // reopen with fixed length
+        DbStorage storage{path, DbStorage::Mode::open_existing};
+        UpdateAux aux{storage, history_len};
+        EXPECT_EQ(storage.db_history_max_version(), max_version);
+        EXPECT_EQ(
+            storage.db_history_min_valid_version(),
+            max_version - history_len + 1);
+
+        {
+            v = max_version + 1;
+            WriteTransaction wt(aux);
+            wt.finish(offset, v);
+        }
+        EXPECT_EQ(storage.db_history_max_version(), v);
+        EXPECT_EQ(storage.db_history_min_valid_version(), v - history_len + 1);
+    }
 }

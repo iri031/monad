@@ -6,9 +6,12 @@
 #include <category/mpt2/compute.hpp>
 #include <category/mpt2/state_machine.hpp>
 #include <category/mpt2/trie.hpp>
+#include <category/storage/test/test_fixtures.hpp>
 
 #include <cstdint>
 #include <vector>
+
+using namespace monad::storage_test;
 
 namespace monad::trie_test
 {
@@ -78,4 +81,32 @@ namespace monad::trie_test
     };
 
     using StateMachineAlwaysMerkle = StateMachineAlways<MerkleCompute>;
+
+    struct UpdateAuxFixture : public DbStorageFixture
+    {
+        UpdateAux aux;
+        std::unique_ptr<StateMachine> sm;
+
+        UpdateAuxFixture()
+            : DbStorageFixture()
+            , aux(db_storage) // using default history
+            , sm(std::make_unique<StateMachineAlwaysMerkle>())
+        {
+        }
+
+        monad::byte_string root_hash(Node *const root)
+        {
+            if (root) {
+                monad::byte_string data(32, 0);
+                auto const len =
+                    this->sm->get_compute().compute(data.data(), root);
+                if (len < KECCAK256_SIZE) {
+                    keccak256(data.data(), len, data.data());
+                }
+                return data;
+            }
+            return empty_trie_hash;
+        }
+    };
+
 }

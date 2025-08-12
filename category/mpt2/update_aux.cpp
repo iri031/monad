@@ -23,9 +23,8 @@ UpdateAux::UpdateAux(
             history_len <= db_storage_.db_history_max_version()) {
             // we invalidate earlier blocks that fall outside of the
             // history window when shortening history length
-            // erase_versions_up_to_and_including(
-            //     db_storage_.db_history_max_version() -
-            //     *history_len); // TODO: impl this
+            erase_versions_up_to_and_including(
+                db_storage_.db_history_max_version() - *history_len);
         }
         db_storage_.set_history_length(*history_len);
     }
@@ -41,6 +40,21 @@ UpdateAux::UpdateAux(
         physical_to_virtual(node_writer_offset_fast)};
     last_block_end_offset_slow_ = compact_virtual_chunk_offset_t{
         physical_to_virtual(node_writer_offset_slow)};
+}
+
+void UpdateAux::clear_root_offsets_up_to_and_including(uint64_t const version)
+{
+    uint64_t v = db_storage_.db_metadata()->version_lower_bound_;
+    for (; v <= version; ++v) {
+        db_storage_.update_root_offset(v, INVALID_OFFSET);
+    }
+    MONAD_ASSERT(db_storage_.db_metadata()->version_lower_bound_ > version);
+}
+
+void UpdateAux::erase_versions_up_to_and_including(uint64_t const version)
+{
+    clear_root_offsets_up_to_and_including(version);
+    // release_unreferenced_chunks();
 }
 
 // Returns a virtual offset on successful translation; returns
@@ -123,22 +137,23 @@ UpdateAux::write_node_to_disk(Node const &node, bool const to_fast_list)
 void UpdateAux::finalize_transaction(
     chunk_offset_t const root_offset, uint64_t const version)
 {
-    // update root offset in ring buffer
     // update writer offset trackers
     db_storage_.advance_db_offsets_to(
         node_writer_offset_fast, node_writer_offset_slow);
-    auto const max_version_in_db = db_storage_.db_history_max_version();
-    if (MONAD_UNLIKELY(max_version_in_db == INVALID_BLOCK_NUM)) {
+
+    // update root offset in ring buffer
+    auto const max_version = db_storage_.db_history_max_version();
+    auto const history_length = db_storage_.version_history_length();
+    if (MONAD_UNLIKELY(max_version == INVALID_BLOCK_NUM)) {
         db_storage_.fast_forward_next_version(version);
         db_storage_.append_root_offset(root_offset);
         MONAD_ASSERT(db_storage_.db_history_range_lower_bound() == version);
     }
-    else if (version <= max_version_in_db) {
+    else if (version <= max_version) {
         MONAD_ASSERT(
-            version >=
-            ((max_version_in_db >= db_storage_.version_history_length())
-                 ? max_version_in_db - db_storage_.version_history_length() + 1
-                 : 0));
+            version >= ((max_version >= history_length)
+                            ? max_version - history_length + 1
+                            : 0));
         auto const prev_lower_bound =
             db_storage_.db_history_range_lower_bound();
         db_storage_.update_root_offset(version, root_offset);
@@ -146,12 +161,21 @@ void UpdateAux::finalize_transaction(
             db_storage_.db_history_range_lower_bound() ==
             std::min(version, prev_lower_bound));
     }
-    else {
-        MONAD_ASSERT(version == max_version_in_db + 1);
+    else { // append
+        // prune versions that are going to fall out of history window
+        if (version - db_storage_.db_history_min_valid_version() >=
+            history_length) { // exceed history length
+            // erase min_valid_version, must happen before appending the new
+            // root offset because that offset slot in ring buffer may be
+            // overwritten thus invalidated in the append
+            erase_versions_up_to_and_including(version - history_length);
+            MONAD_ASSERT(
+                version - db_storage_.db_history_min_valid_version() <
+                history_length);
+        }
+        MONAD_ASSERT(version == max_version + 1);
         db_storage_.append_root_offset(root_offset);
     }
-
-    write_mutex_.unlock();
 }
 
 chunk_offset_t UpdateAux::do_upsert(
@@ -161,7 +185,6 @@ chunk_offset_t UpdateAux::do_upsert(
 {
     // TODO: update compaction offsets
     // TODO: dynamically adjust history length
-    // TODO: prune versions that are going to fall out of history window
 
     return upsert(*this, version, sm, root_offset, std::move(updates));
 }

@@ -4,6 +4,7 @@
 #include <category/storage/config.hpp>
 #include <category/storage/db_storage.hpp>
 #include <category/storage/detail/scope_polyfill.hpp>
+#include <category/storage/test/test_fixtures.hpp>
 #include <category/storage/util.hpp>
 
 #include <cstdint>
@@ -27,17 +28,7 @@
 // test wrap around case, test different root offset capacity?
 
 using namespace MONAD_STORAGE_NAMESPACE;
-
-std::filesystem::path create_temp_file(long size_gb)
-{
-    std::filesystem::path const filename{
-        working_temporary_directory() / "monad_storage_test_XXXXXX"};
-    int const fd = ::mkstemp((char *)filename.native().data());
-    MONAD_ASSERT(fd != -1);
-    MONAD_ASSERT(-1 != ::ftruncate(fd, size_gb * 1024 * 1024 * 1024));
-    ::close(fd);
-    return filename;
-}
+using namespace monad::test;
 
 inline void run_test(std::filesystem::path const path)
 {
@@ -104,7 +95,7 @@ TEST(DbStorage, anonymous_node_works)
 TEST(DbStorage, file_works)
 {
     // truncate to 1Tb
-    auto const path = create_temp_file(1024);
+    auto const path = create_temp_test_file(1024);
     auto undb = monad::make_scope_exit(
         [&]() noexcept { std::filesystem::remove(path); });
 
@@ -113,7 +104,7 @@ TEST(DbStorage, file_works)
 
 TEST(DbStorage, root_offsets)
 {
-    auto const path = create_temp_file(1024);
+    auto const path = create_temp_test_file(1024);
     auto undb = monad::make_scope_exit(
         [&]() noexcept { std::filesystem::remove(path); });
 
