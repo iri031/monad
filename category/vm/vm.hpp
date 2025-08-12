@@ -160,6 +160,11 @@ namespace monad::vm
             evmc_message const *, evmc::bytes32 const &code_hash,
             SharedVarcode const &);
 
+        evmc::Result execute2(
+            evmc_revision, evmc_host_interface const *, evmc_host_context *,
+            evmc_message const *, evmc::bytes32 const &code_hash,
+            SharedVarcode const &);
+
         /// Execute the raw `code` with interpreter.
         evmc::Result execute_raw(
             evmc_revision, evmc_host_interface const *, evmc_host_context *,
