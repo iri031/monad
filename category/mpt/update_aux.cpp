@@ -1,10 +1,10 @@
 #include <category/async/config.hpp>
 #include <category/async/detail/scope_polyfill.hpp>
-#include <category/async/detail/start_lifetime_as_polyfill.hpp>
 #include <category/async/storage_pool.hpp>
 #include <category/core/assert.h>
 #include <category/core/byte_string.hpp>
 #include <category/core/small_prng.hpp>
+#include <category/core/start_lifetime_as_polyfill.hpp>
 #include <category/core/unaligned.hpp>
 #include <category/core/unordered_map.hpp>
 #include <category/mpt/config.hpp>

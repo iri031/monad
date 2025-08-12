@@ -405,8 +405,9 @@ public:
         MONAD_ASSERT(db_metadata()->at(fast_offset.id)->in_fast_list);
         MONAD_ASSERT(db_metadata()->at(slow_offset.id)->in_slow_list);
         apply_to_both_copies([&](detail::db_metadata_t *m) {
-            m->advance_db_offsets_to_(detail::db_metadata_t::db_offsets_info_t{
-                fast_offset, slow_offset});
+            m->advance_db_offsets_to_(
+                detail::db_metadata_t::db_offsets_info_t{
+                    fast_offset, slow_offset});
         });
     }
 

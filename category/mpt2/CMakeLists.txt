@@ -22,6 +22,7 @@ add_library(
   "compute.cpp"
   "compute.hpp"
   "config.hpp"
+  "db.cpp"
   "find.cpp"
   "nibbles_view.hpp"
   "node.cpp"
@@ -40,7 +41,8 @@ target_include_directories(monad_trie2 PUBLIC ${CATEGORY_MAIN_DIR})
 target_include_directories(monad_trie2 PRIVATE "third_party")
 monad_compile_options(monad_trie2)
 target_link_libraries(monad_trie2 PUBLIC monad_storage)
-
+target_link_libraries(monad_trie2 PUBLIC quill::quill) # TODO: remove
+target_link_libraries(monad_trie2 PUBLIC concurrentqueue)
 
 function(add_mpt_test)
   set(ONE_VALUE_ARGS TARGET TEST_FILTER)

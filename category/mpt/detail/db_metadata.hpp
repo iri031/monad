@@ -7,7 +7,7 @@
 #include <category/mpt/util.hpp>
 
 #include <category/async/config.hpp>
-#include <category/async/detail/start_lifetime_as_polyfill.hpp>
+#include <category/core/start_lifetime_as_polyfill.hpp>
 
 #include "unsigned_20.hpp"
 
