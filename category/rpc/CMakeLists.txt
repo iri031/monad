@@ -4,11 +4,15 @@ cmake_policy(SET CMP0144 NEW) # find_package uses upper-case _ROOT variables
 
 project(monad_rpc)
 
-add_library(
-  monad_rpc
-  # rpc
-  "eth_call.cpp" "eth_call.h")
+option(MONAD_RPC_SHARED "Build monad_rpc shared, regardless of BUILD_SHARED_LIBS setting" OFF)
 
+if (MONAD_RPC_SHARED)
+  add_library(monad_rpc SHARED)
+else()
+  add_library(monad_rpc)
+endif()
+
+target_sources(monad_rpc PRIVATE "eth_call.cpp" "eth_call.h")
 target_include_directories(monad_rpc PUBLIC ${CATEGORY_MAIN_DIR})
 
 monad_compile_options(monad_rpc)

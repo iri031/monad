@@ -4,8 +4,17 @@ cmake_policy(SET CMP0144 NEW) # find_package uses upper-case _ROOT variables
 
 project(monad_statesync)
 
-add_library(
+option(MONAD_STATESYNC_SHARED "Build monad_statesync shared, regardless of BUILD_SHARED_LIBS setting" OFF)
+
+if (MONAD_STATESYNC_SHARED)
+  add_library(monad_statesync SHARED)
+else()
+  add_library(monad_statesync)
+endif()
+
+target_sources(
   monad_statesync
+  PRIVATE
   # server
   "statesync_client.cpp"
   "statesync_client.h"

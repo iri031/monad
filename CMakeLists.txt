@@ -16,9 +16,10 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     endif()
 endif()
 
-if (BUILD_SHARED_LIBS)
-  # BUILD_SHARED_LIBS=ON does not automatically set -fPIC, leading to
-  # relocations being emitted in object files that can't be patched
+if (BUILD_SHARED_LIBS OR MONAD_RPC_SHARED OR MONAD_STATESYNC_SHARED)
+  # We're going to produce libraries for dynamic linking; ensure that any
+  # static library targets we create (possibly via third-party build systems)
+  # have -fPIC too
   set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
 
