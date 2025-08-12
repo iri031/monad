@@ -15,6 +15,8 @@
 
 #include <category/core/assert.h>
 #include <category/core/config.hpp>
+#include <category/core/cpu_relax.h>
+#include <category/core/event/event_recorder.h>
 #include <category/core/fiber/priority_pool.hpp>
 #include <category/core/int.hpp>
 #include <category/core/likely.h>
@@ -27,6 +29,9 @@
 #include <category/execution/ethereum/core/receipt.hpp>
 #include <category/execution/ethereum/core/withdrawal.hpp>
 #include <category/execution/ethereum/dao.hpp>
+#include <category/execution/ethereum/event/exec_event_ctypes.h>
+#include <category/execution/ethereum/event/exec_event_recorder.hpp>
+#include <category/execution/ethereum/event/record_txn_events.hpp>
 #include <category/execution/ethereum/execute_block.hpp>
 #include <category/execution/ethereum/execute_transaction.hpp>
 #include <category/execution/ethereum/explicit_evmc_revision.hpp>
@@ -44,6 +49,7 @@
 #include <boost/fiber/future/promise.hpp>
 #include <boost/outcome/try.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -135,24 +141,22 @@ std::vector<std::optional<Address>> recover_senders(
     fiber::PriorityPool &priority_pool)
 {
     std::vector<std::optional<Address>> senders{transactions.size()};
+    std::atomic<std::size_t> recovered_count = 0;
+    size_t const txn_count = transactions.size();
 
-    std::shared_ptr<boost::fibers::promise<void>[]> promises{
-        new boost::fibers::promise<void>[transactions.size()]};
-
-    for (unsigned i = 0; i < transactions.size(); ++i) {
+    for (unsigned i = 0; i < txn_count; ++i) {
         priority_pool.submit(
             i,
-            [i = i,
-             promises = promises,
-             &sender = senders[i],
-             &transaction = transactions[i]] {
+            [&sender = senders[i],
+             &transaction = transactions[i],
+             &recovered_count] {
                 sender = recover_sender(transaction);
-                promises[i].set_value();
+                recovered_count.fetch_add(1, std::memory_order_relaxed);
             });
     }
 
-    for (unsigned i = 0; i < transactions.size(); ++i) {
-        promises[i].get_future().wait();
+    while (recovered_count.load(std::memory_order_relaxed) < txn_count) {
+        cpu_relax();
     }
 
     return senders;
@@ -189,13 +193,16 @@ Result<std::vector<ExecutionResult>> execute_block(
 
     std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
         new std::optional<Result<ExecutionResult>>[block.transactions.size()]};
+    std::atomic<size_t> txn_exec_finished = 0;
+    size_t const txn_count = block.transactions.size();
 
     auto const tx_exec_begin = std::chrono::steady_clock::now();
-    for (unsigned i = 0; i < block.transactions.size(); ++i) {
+    for (unsigned i = 0; i < txn_count; ++i) {
         priority_pool.submit(
             i,
             [&chain = chain,
              i = i,
+             txn_count = txn_count,
              results = results,
              promises = promises,
              &transaction = block.transactions[i],
@@ -203,7 +210,9 @@ Result<std::vector<ExecutionResult>> execute_block(
              &header = block.header,
              &block_hash_buffer = block_hash_buffer,
              &block_state,
-             &block_metrics] {
+             &block_metrics,
+             &txn_exec_finished] {
+                record_exec_event(i, MONAD_EXEC_TXN_PERF_EVM_ENTER);
                 results[i] = ExecuteTransaction<rev>{
                     chain,
                     i,
@@ -215,6 +224,15 @@ Result<std::vector<ExecutionResult>> execute_block(
                     block_metrics,
                     promises[i]}();
                 promises[i + 1].set_value();
+                record_exec_event(i, MONAD_EXEC_TXN_PERF_EVM_EXIT);
+
+                // Epilogue: demote the priority of the recording
+                // operation and yield the thread to a more important fiber
+                boost::this_fiber::properties<fiber::PriorityProperties>()
+                    .set_priority(txn_count + i);
+                boost::this_fiber::yield();
+                record_txn_events(i, transaction, sender, *results[i]);
+                txn_exec_finished.fetch_add(1, std::memory_order::relaxed);
             });
     }
 
@@ -223,6 +241,15 @@ Result<std::vector<ExecutionResult>> execute_block(
     block_metrics.set_tx_exec_time(
         std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::steady_clock::now() - tx_exec_begin));
+
+    // All transactions have released their merge-order synchronization
+    // primitive (promises[i + 1]) but some stragglers could still be running
+    // post-execution code that occurs immediately after that, e.g.
+    // `record_txn_exec_result_events`. This waits for everything to finish
+    // so that it's safe to assume we're the only ones using `results`.
+    while (txn_exec_finished.load() < txn_count) {
+        cpu_relax();
+    }
 
     std::vector<ExecutionResult> retvals;
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
@@ -281,7 +308,8 @@ Result<std::vector<ExecutionResult>> execute_block(
         block_hash_buffer,
         priority_pool,
         block_metrics);
-    MONAD_ASSERT(false);
+    MONAD_ABORT_PRINTF(
+        "unhandled evmc revision %u", static_cast<unsigned>(rev));
 }
 
 MONAD_NAMESPACE_END

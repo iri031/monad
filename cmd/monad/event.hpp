@@ -22,7 +22,11 @@
  * in libmonad_execution
  */
 
+#include <category/core/bytes.hpp>
 #include <category/core/config.hpp>
+#include <category/core/int.hpp>
+#include <category/core/result.hpp>
+#include <category/execution/ethereum/core/block.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -63,5 +67,23 @@ std::expected<EventRingConfig, std::string>
 /// Initialize the global recorder object for the execution event ring (an
 /// object inside libmonad_execution) with the given configuration options
 int init_execution_event_recorder(EventRingConfig const &);
+
+/// Record the start of block execution: emits a BLOCK_START event and sets the
+/// global block flow sequence number in the recorder
+void record_block_exec_start(
+    bytes32_t const &bft_block_id, uint256_t const &chain_id,
+    bytes32_t const &eth_parent_hash, BlockHeader const &, uint64_t block_round,
+    uint64_t epoch, size_t txn_count);
+
+/// Named pair holding the Ethereum block execution outputs
+struct BlockExecOutput
+{
+    BlockHeader eth_header;
+    bytes32_t eth_block_hash;
+};
+
+/// Record block execution output events (or an execution error event, if
+/// Result::has_error() is true); also clears the active block flow ID
+Result<BlockExecOutput> record_block_exec_result(Result<BlockExecOutput>);
 
 MONAD_NAMESPACE_END
