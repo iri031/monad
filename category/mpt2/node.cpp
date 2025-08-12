@@ -466,13 +466,11 @@ void serialize_node(unsigned char *write_pos, Node const &node)
 
 // TODO: maybe pass in storage pool and verify the next_offset is within chunk
 // range and valid, that would require it being moved to trie.hpp
-Node *
-parse_node(unsigned char const *const mmap_address, chunk_offset_t const offset)
+Node *parse_node(unsigned char const *read_pos, chunk_offset_t const offset)
 {
     MONAD_ASSERT(offset != INVALID_OFFSET);
     // read node directly from mmap
     // TODO: prefetch
-    auto const *read_pos = mmap_address + offset.raw();
     auto const disk_size = unaligned_load<uint32_t>(read_pos);
     MONAD_ASSERT_PRINTF(
         disk_size <= Node::max_disk_size,

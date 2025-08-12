@@ -22,6 +22,7 @@ add_library(
   "compute.cpp"
   "compute.hpp"
   "config.hpp"
+  "find.cpp"
   "nibbles_view.hpp"
   "node.cpp"
   "node.hpp"

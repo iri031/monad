@@ -16,6 +16,27 @@ class DbStorage;
 namespace detail
 {
     struct db_metadata_t;
+#ifndef __clang__
+    constexpr bool bitfield_layout_check()
+    {
+        /* Make sure reserved0_ definitely lives at offset +3
+         */
+        constexpr struct
+        {
+            uint32_t chunk_info_count : 20;
+            uint32_t unused0_ : 4;
+            uint32_t reserved0_ : 8;
+        } v{.reserved0_ = 1};
+
+        struct type
+        {
+            uint8_t x[sizeof(v)];
+        };
+
+        constexpr type ret = std::bit_cast<type>(v);
+        return ret.x[sizeof(v) - 1]; // last byte
+    }
+#endif
 
     inline void
     db_copy(db_metadata_t *dest, db_metadata_t const *src, size_t bytes);

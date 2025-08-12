@@ -113,7 +113,10 @@ DbStorage::DbStorage(
 
 DbStorage::~DbStorage()
 {
-    // TODO: require msync for writable db?
+    if (!is_read_only_) {
+        MONAD_ASSERT_PRINTF(
+            fsync(fd_) != -1, "Failed to fsync: %s", strerror(errno));
+    }
     if (chunks_data_ != nullptr) {
         auto const map_size = chunk_capacity * num_chunks();
         MONAD_ASSERT_PRINTF(
@@ -444,7 +447,7 @@ void DbStorage::init_db_metadata_()
         // Work on the first copy, and copy it to the second at the end
 
         // clear the db_metadata map size range
-        memset(db_metadata_[0].main, 0, map_size);
+        memset((void *)db_metadata_[0].main, 0, map_size);
         // chunk_count fits within 20 bits
         MONAD_DEBUG_ASSERT((chunk_count & ~0xfffffU) == 0);
         db_metadata_[0].main->chunk_info_count = chunk_count & 0xfffffU;

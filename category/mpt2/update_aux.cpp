@@ -112,11 +112,12 @@ UpdateAux::write_node_to_disk(Node const &node, bool const to_fast_list)
         node_writer_offset.id = idx & 0xfffffU;
         node_writer_offset.offset = 0;
     }
+    chunk_offset_t const ret_offset = node_writer_offset;
     serialize_node(db_storage_.get_data(node_writer_offset), node);
-    node_writer_offset.offset += bytes_to_append;
+    node_writer_offset = node_writer_offset.add_to_offset(bytes_to_append);
     db_storage_.advance_chunk_bytes_used(
         node_writer_offset.id, bytes_to_append);
-    return node_writer_offset;
+    return ret_offset;
 }
 
 void UpdateAux::finalize_transaction(

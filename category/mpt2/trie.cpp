@@ -77,7 +77,7 @@ static_assert(alignof(PendingNode) == 8);
 
 // should it return an offset? and take an offset?
 chunk_offset_t upsert(
-    UpdateAux &aux, uint64_t const version, StateMachine &sm,
+    UpdateAux &aux, uint64_t const /*version*/, StateMachine &sm,
     chunk_offset_t const old_offset, UpdateList &&updates)
 {
     Node *const old = aux.parse_node(old_offset);
@@ -118,7 +118,7 @@ chunk_offset_t upsert(
     // db_metadata, will do it on a higher layer
     // The update of root offset in the version ring buffer is atomic and
     // guarantee the atomicity of db transaction
-    return entry.node ? aux.write_node_to_disk(*entry.node, version)
+    return entry.node ? aux.write_node_to_disk(*entry.node, true)
                       : INVALID_OFFSET;
 }
 

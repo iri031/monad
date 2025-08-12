@@ -1,6 +1,7 @@
 #pragma once
 
 #include <category/mpt2/node.hpp>
+#include <category/mpt2/node_cursor.hpp>
 #include <category/mpt2/state_machine.hpp>
 #include <category/mpt2/update.hpp>
 #include <category/mpt2/util.hpp>
@@ -63,10 +64,10 @@ public:
 
     // TODO: add db stats
 
-    // DbStorage const &db_storage() const noexcept
-    // {
-    //     return db_storage_;
-    // }
+    storage::DbStorage const &db_storage() const noexcept
+    {
+        return db_storage_;
+    }
 
     bool is_read_only() const noexcept
     {
@@ -136,6 +137,28 @@ chunk_offset_t upsert(
     UpdateList &&);
 
 // TODO: copy_trie
+
+//////////////////////////////////////////////////////////////////////////////
+// find
+
+enum class find_result : uint8_t
+{
+    unknown,
+    success,
+    version_no_longer_exist,
+    root_node_is_null_failure,
+    key_mismatch_failure,
+    branch_not_exist_failure,
+    key_ends_earlier_than_node_failure,
+    need_to_continue_in_io_thread
+};
+template <class T>
+using find_result_type = std::pair<T, find_result>;
+
+using find_cursor_result_type = find_result_type<NodeCursor>;
+
+find_cursor_result_type
+find(UpdateAux const &, NodeCursor, NibblesView key, uint64_t version);
 
 std::pair<compact_virtual_chunk_offset_t, compact_virtual_chunk_offset_t>
 calc_min_offsets(
