@@ -115,7 +115,7 @@ namespace
             reinterpret_cast<BlockchainTestVM *>(vm.get_raw_pointer());
 
         auto const burntpix_init_state = burntpix_state();
-        vm_ptr->precompile_contracts(EVMC_CANCUN, burntpix_init_state);
+        vm_ptr->precompile_contracts(EVMC_CANCUN, burntpix_init_state, impl);
 
         constexpr auto addr =
             0x49206861766520746f6f206d7563682074696d65_address;
@@ -202,7 +202,7 @@ namespace
 
         auto const snailtracer_init_state = snailtracer_state();
         auto intra_state = State{snailtracer_init_state};
-        vm_ptr->precompile_contracts(EVMC_CANCUN, snailtracer_init_state);
+        vm_ptr->precompile_contracts(EVMC_CANCUN, snailtracer_init_state, impl);
 
         constexpr auto addr =
             0x49206861766520746f6f206d7563682074696d65_address;
