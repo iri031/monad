@@ -9,6 +9,8 @@
 
 #include <cstdint>
 
+#include <sys/mman.h>
+
 MONAD_MPT2_NAMESPACE_BEGIN
 
 class WriteTransaction;
@@ -114,9 +116,14 @@ class WriteTransaction
     friend class UpdateAux;
     UpdateAux &aux_;
 
+    chunk_offset_t fast_offset_start{INVALID_OFFSET};
+    chunk_offset_t slow_offset_start{INVALID_OFFSET};
+
 public:
     explicit WriteTransaction(UpdateAux &aux)
         : aux_(aux)
+        , fast_offset_start(aux.node_writer_offset_fast)
+        , slow_offset_start(aux.node_writer_offset_slow)
     {
         aux_.write_mutex_.lock();
         MONAD_ASSERT(!aux_.is_read_only());
@@ -152,6 +159,43 @@ public:
 
     void finish(chunk_offset_t root_offset, uint64_t version)
     {
+        // msync the changes since offsets_start to disk
+        auto const *m = aux_.db_storage_.db_metadata();
+        auto sync_ = [&](chunk_offset_t const start, chunk_offset_t const end) {
+            if (start != end) {
+                auto const *si = m->at(start.id);
+                auto const *ei = m->at(end.id);
+                MONAD_ASSERT(si->insertion_count() <= ei->insertion_count());
+                MONAD_DEBUG_ASSERT(si->in_fast_list == ei->in_fast_list);
+                MONAD_DEBUG_ASSERT(si->in_slow_list == ei->in_slow_list);
+
+                for (auto const *ci = si;; ci = ci->next(m)) {
+                    auto const idx = ci->index(m);
+                    uint32_t offset = 0;
+                    if (ci == si) {
+                        offset = round_down_align<storage::CPU_PAGE_BITS>(
+                            (uint32_t)start.offset);
+                    }
+                    else if (ci == ei) {
+                        offset = round_up_align<storage::CPU_PAGE_BITS>(
+                            (uint32_t)end.offset);
+                    }
+                    MONAD_ASSERT_PRINTF(
+                        -1 != ::msync(
+                                  aux_.db_storage_.get_data({idx, offset}),
+                                  storage::DbStorage::chunk_capacity - offset,
+                                  MS_SYNC),
+                        "msync failed: %s",
+                        strerror(errno));
+                    if (ci == ei) {
+                        break;
+                    }
+                }
+            }
+        };
+        sync_(fast_offset_start, aux_.node_writer_offset_fast);
+        sync_(slow_offset_start, aux_.node_writer_offset_slow);
+
         aux_.finalize_transaction(root_offset, version);
     }
 };

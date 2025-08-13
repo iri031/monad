@@ -11,10 +11,13 @@
 #include <category/storage/util.hpp>
 
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <memory>
 
-#include "unistd.h"
+#include <fcntl.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 using namespace MONAD_MPT2_NAMESPACE;
 using namespace MONAD_STORAGE_NAMESPACE;
@@ -37,6 +40,22 @@ TEST_F(UpdateAuxFixture, upsert_write_transaction_works)
         root_offset = wt.do_upsert(
             INVALID_OFFSET, *sm, std::move(update_ls), version, false, true);
         wt.finish(root_offset, version);
+    }
+
+    { // read buffer directly from disk
+        Node const *const root = aux.parse_node(root_offset);
+        auto const node_size = root->get_allocate_size();
+        file_offset_t rd_offset =
+            round_down_align<CPU_PAGE_BITS>(root_offset.raw());
+        auto const buffer_off = root_offset.raw() - rd_offset;
+        auto const bytes_to_read =
+            round_up_align<CPU_PAGE_BITS>(rd_offset + node_size) - rd_offset;
+        auto *const buffer = reinterpret_cast<unsigned char *>(
+            aligned_alloc(DISK_PAGE_SIZE, bytes_to_read));
+        auto const rd_fd = ::open(path.c_str(), O_RDONLY, O_CLOEXEC);
+        ASSERT_TRUE(-1 != ::pread(rd_fd, buffer, bytes_to_read, rd_offset));
+        Node const *const read_root = parse_node(buffer + buffer_off);
+        EXPECT_TRUE(memcmp((void *)root, (void *)read_root, node_size) == 0);
     }
 
     EXPECT_EQ(

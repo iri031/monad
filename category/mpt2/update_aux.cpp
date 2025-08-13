@@ -193,7 +193,7 @@ Node *UpdateAux::parse_node(chunk_offset_t const offset) const noexcept
     if (offset == INVALID_OFFSET) {
         return nullptr;
     }
-    return ::monad::mpt2::parse_node(db_storage_.get_data(offset), offset);
+    return ::monad::mpt2::parse_node(db_storage_.get_data(offset));
 }
 
 chunk_offset_t

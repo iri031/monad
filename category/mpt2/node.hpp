@@ -216,7 +216,7 @@ Node::UniquePtr create_node_with_children(
 
 void serialize_node(unsigned char *write_pos, Node const &);
 
-Node *parse_node(unsigned char const *mmap_address, chunk_offset_t offset);
+Node *parse_node(unsigned char const *mmap_address);
 
 inline int64_t calc_min_version(Node const &node)
 {
