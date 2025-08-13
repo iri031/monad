@@ -163,7 +163,55 @@ void UpdateAux::clear_root_offsets_up_to_and_including(uint64_t const version)
 void UpdateAux::erase_versions_up_to_and_including(uint64_t const version)
 {
     clear_root_offsets_up_to_and_including(version);
-    // release_unreferenced_chunks();
+    release_unreferenced_chunks();
+}
+
+void UpdateAux::release_unreferenced_chunks()
+{
+    auto const min_valid_version = db_history_min_valid_version();
+    Node const *const min_valid_root =
+        parse_node(get_root_offset_at_version(min_valid_version));
+    MONAD_ASSERT(min_valid_root != nullptr);
+    auto const [min_offset_fast, min_offset_slow] =
+        deserialize_compaction_offsets(min_valid_root->value());
+    MONAD_ASSERT(
+        min_offset_fast != INVALID_COMPACT_VIRTUAL_OFFSET &&
+        min_offset_slow != INVALID_COMPACT_VIRTUAL_OFFSET);
+    chunks_to_remove_before_count_fast_ = min_offset_fast.get_count();
+    chunks_to_remove_before_count_slow_ = min_offset_slow.get_count();
+    MONAD_ASSERT(
+        db_storage_.db_metadata()->version_lower_bound_ >= min_valid_version);
+
+    free_compacted_chunks();
+}
+
+void UpdateAux::free_compacted_chunks()
+{
+    auto const *const m = db_storage_.db_metadata();
+    auto free_chunks_from_ci_till_count =
+        [&](detail::db_metadata_t::chunk_info_t const *ci,
+            uint32_t const count_before) {
+            uint32_t idx = ci->index(m);
+            uint32_t count = (uint32_t)m->at(idx)->insertion_count();
+            for (; count < count_before && ci != nullptr;
+                 idx = ci->index(m),
+                 count = (uint32_t)m->at(idx)->insertion_count()) {
+                ci = ci->next(m); // must be in this order
+                db_storage_.remove(idx);
+                db_storage_.destroy_contents(idx);
+                db_storage_.append(DbStorage::chunk_list::free, idx);
+            }
+        };
+    MONAD_ASSERT(
+        chunks_to_remove_before_count_fast_ <=
+        m->fast_list_end()->insertion_count());
+    MONAD_ASSERT(
+        chunks_to_remove_before_count_slow_ <=
+        m->slow_list_end()->insertion_count());
+    free_chunks_from_ci_till_count(
+        m->fast_list_begin(), chunks_to_remove_before_count_fast_);
+    free_chunks_from_ci_till_count(
+        m->slow_list_begin(), chunks_to_remove_before_count_slow_);
 }
 
 // Returns a virtual offset on successful translation; returns
@@ -582,6 +630,68 @@ void UpdateAux::advance_compact_offsets()
         compact_offset_range_slow_ = MIN_COMPACT_VIRTUAL_OFFSET;
     }
     */
+}
+
+bool UpdateAux::exists_version(uint64_t const version) const noexcept
+{
+    return db_storage_.get_root_offset_at_version(version) != INVALID_OFFSET;
+}
+
+chunk_offset_t
+UpdateAux::get_root_offset_at_version(uint64_t const version) const noexcept
+{
+    return db_storage_.get_root_offset_at_version(version);
+}
+
+void UpdateAux::set_latest_finalized_version(uint64_t version) noexcept
+{
+    db_storage_.set_latest_finalized_version(version);
+}
+
+uint64_t UpdateAux::get_latest_finalized_version() const noexcept
+{
+    return db_storage_.get_latest_finalized_version();
+}
+
+void UpdateAux::set_latest_verified_version(uint64_t version) noexcept
+{
+    db_storage_.set_latest_verified_version(version);
+}
+
+uint64_t UpdateAux::get_latest_verified_version() const noexcept
+{
+    return db_storage_.get_latest_verified_version();
+}
+
+uint64_t UpdateAux::db_history_max_version() const noexcept
+{
+    return db_storage_.db_history_max_version();
+}
+
+uint64_t UpdateAux::db_history_min_valid_version() const noexcept
+{
+    return db_storage_.db_history_min_valid_version();
+}
+
+void UpdateAux::set_latest_voted(
+    uint64_t const version, bytes32_t const &block_id) noexcept
+{
+    db_storage_.set_latest_voted(version, block_id);
+}
+
+uint64_t UpdateAux::get_latest_voted_version() const noexcept
+{
+    return db_storage_.get_latest_voted_version();
+}
+
+bytes32_t UpdateAux::get_latest_voted_block_id() const noexcept
+{
+    return db_storage_.get_latest_voted_block_id();
+}
+
+uint64_t UpdateAux::version_history_length() const noexcept
+{
+    return db_storage_.version_history_length();
 }
 
 MONAD_MPT2_NAMESPACE_END

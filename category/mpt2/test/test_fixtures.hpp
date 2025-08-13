@@ -119,6 +119,18 @@ namespace monad::trie_test
         }
 
         template <class... Updates>
+        chunk_offset_t upsert_updates(
+            WriteTransaction &write_tx, chunk_offset_t const root_offset,
+            uint64_t const version, Updates... updates)
+        {
+            UpdateList ul;
+            (ul.push_front(updates), ...);
+
+            return write_tx.do_upsert(
+                root_offset, *sm, std::move(ul), version, false, true);
+        }
+
+        template <class... Updates>
         chunk_offset_t upsert_updates_with_prefix(
             WriteTransaction &write_tx, chunk_offset_t const root_offset,
             NibblesView const prefix, uint64_t const version,

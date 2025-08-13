@@ -15,16 +15,14 @@ MONAD_MPT2_NAMESPACE_BEGIN
 
 class WriteTransaction;
 
-// auxiliary structure for upsert, at most one thread can modify it at a time,
-// but multiple threads can read it
+// auxiliary structure for upsert, WriteTransaction guarantees at most one
+// thread modify it at a time, but multiple threads can read
 class UpdateAux
 {
     friend class WriteTransaction;
 
-    uint32_t initial_insertion_count_on_pool_creation_{0};
     bool enable_dynamic_history_length_{true};
-    bool alternate_slow_fast_writer_{false};
-    bool can_write_to_fast_{true};
+    // bool can_write_to_fast_{true};
 
     /******** Compaction ********/
     uint32_t chunks_to_remove_before_count_fast_{0};
@@ -50,7 +48,8 @@ class UpdateAux
 
     void clear_root_offsets_up_to_and_including(uint64_t version);
     void erase_versions_up_to_and_including(uint64_t version);
-    // void release_unreferenced_chunks();
+    void release_unreferenced_chunks();
+    void free_compacted_chunks();
 
     void advance_compact_offsets();
 
@@ -97,18 +96,28 @@ public:
                db_storage_.is_read_only_allow_dirty();
     }
 
-    bool exists_version(uint64_t const version) const noexcept
-    {
-        return db_storage_.get_root_offset_at_version(version) !=
-               INVALID_OFFSET;
-    }
-
     virtual_chunk_offset_t
     physical_to_virtual(chunk_offset_t offset) const noexcept;
 
     Node *parse_node(chunk_offset_t offset) const noexcept;
 
     chunk_offset_t write_node_to_disk(Node const &node, bool to_fast_list);
+
+    bool exists_version(uint64_t version) const noexcept;
+
+    chunk_offset_t get_root_offset_at_version(uint64_t version) const noexcept;
+
+    void set_latest_finalized_version(uint64_t version) noexcept;
+    uint64_t get_latest_finalized_version() const noexcept;
+    void set_latest_verified_version(uint64_t version) noexcept;
+    uint64_t get_latest_verified_version() const noexcept;
+    uint64_t db_history_max_version() const noexcept;
+    uint64_t db_history_min_valid_version() const noexcept;
+    void set_latest_voted(
+        uint64_t const version, bytes32_t const &block_id) noexcept;
+    uint64_t get_latest_voted_version() const noexcept;
+    bytes32_t get_latest_voted_block_id() const noexcept;
+    uint64_t version_history_length() const noexcept;
 };
 
 class WriteTransaction
@@ -159,6 +168,8 @@ public:
 
     void finish(chunk_offset_t root_offset, uint64_t version)
     {
+        using namespace MONAD_STORAGE_NAMESPACE;
+
         // msync the changes since offsets_start to disk
         auto const *m = aux_.db_storage_.db_metadata();
         auto sync_ = [&](chunk_offset_t const start, chunk_offset_t const end) {
@@ -173,17 +184,17 @@ public:
                     auto const idx = ci->index(m);
                     uint32_t offset = 0;
                     if (ci == si) {
-                        offset = round_down_align<storage::CPU_PAGE_BITS>(
+                        offset = round_down_align<CPU_PAGE_BITS>(
                             (uint32_t)start.offset);
                     }
                     else if (ci == ei) {
-                        offset = round_up_align<storage::CPU_PAGE_BITS>(
-                            (uint32_t)end.offset);
+                        offset =
+                            round_up_align<CPU_PAGE_BITS>((uint32_t)end.offset);
                     }
                     MONAD_ASSERT_PRINTF(
                         -1 != ::msync(
                                   aux_.db_storage_.get_data({idx, offset}),
-                                  storage::DbStorage::chunk_capacity - offset,
+                                  DbStorage::chunk_capacity - offset,
                                   MS_SYNC),
                         "msync failed: %s",
                         strerror(errno));

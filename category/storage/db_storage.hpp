@@ -97,11 +97,6 @@ class DbStorage
 
     void try_trim_chunk_content_after(chunk_offset_t offset);
 
-    void destroy_contents(uint32_t id)
-    {
-        try_trim_chunk_content_after({id, 0});
-    }
-
     chunk_offset_t db_metadata_map_offset() const noexcept
     {
         MONAD_ASSERT(num_chunks() < std::numeric_limits<uint32_t>::max());
@@ -206,6 +201,11 @@ public:
             bytes,
             chunk_capacity);
         chunk_bytes_used[id] += bytes;
+    }
+
+    void destroy_contents(uint32_t id)
+    {
+        try_trim_chunk_content_after({id, 0});
     }
 
     detail::db_metadata_t const *db_metadata() const noexcept
@@ -352,7 +352,7 @@ public:
     ////////////////////////////////////////////////
     /// Db metadata functions
     ////////////////////////////////////////////////
-    void apply_to_both_main_copies(auto &&f) noexcept
+    void apply_to_both_copies(auto &&f) noexcept
     {
         MONAD_ASSERT(!is_read_only());
         f(db_metadata_[0].main);
@@ -378,7 +378,7 @@ public:
                 m->free_capacity_add_(chunk_capacity);
             }
         };
-        apply_to_both_main_copies(f);
+        apply_to_both_copies(f);
     }
 
     void remove(uint32_t const idx) noexcept
@@ -393,7 +393,7 @@ public:
                 m->free_capacity_sub_(chunk_capacity);
             }
         };
-        apply_to_both_main_copies(f);
+        apply_to_both_copies(f);
     }
 
     void advance_db_offsets_to(
@@ -404,7 +404,7 @@ public:
         // list
         MONAD_ASSERT(db_metadata()->at(fast_offset.id)->in_fast_list);
         MONAD_ASSERT(db_metadata()->at(slow_offset.id)->in_slow_list);
-        apply_to_both_main_copies([&](detail::db_metadata_t *m) {
+        apply_to_both_copies([&](detail::db_metadata_t *m) {
             m->advance_db_offsets_to_(detail::db_metadata_t::db_offsets_info_t{
                 fast_offset, slow_offset});
         });
@@ -416,7 +416,7 @@ public:
             auto g = m->hold_dirty();
             root_offsets(m == db_metadata_[1].main).push(root_offset);
         };
-        apply_to_both_main_copies(f);
+        apply_to_both_copies(f);
     }
 
     void update_root_offset(
@@ -426,7 +426,7 @@ public:
             auto g = m->hold_dirty();
             root_offsets(m == db_metadata_[1].main).assign(i, root_offset);
         };
-        apply_to_both_main_copies(f);
+        apply_to_both_copies(f);
     }
 
     void fast_forward_next_version(uint64_t const new_version) noexcept
@@ -449,7 +449,7 @@ public:
                 }
             }
         };
-        apply_to_both_main_copies(f);
+        apply_to_both_copies(f);
     }
 
     void set_latest_finalized_version(uint64_t const version) noexcept
@@ -460,7 +460,14 @@ public:
                 &m->latest_finalized_version)
                 ->store(version, std::memory_order_release);
         };
-        apply_to_both_main_copies(f);
+        apply_to_both_copies(f);
+    }
+
+    uint64_t get_latest_finalized_version() const noexcept
+    {
+        return reinterpret_cast<std::atomic_uint64_t *>(
+                   &db_metadata_[0].main->latest_finalized_version)
+            ->load(std::memory_order_acquire);
     }
 
     void set_latest_verified_version(uint64_t const version) noexcept
@@ -471,7 +478,14 @@ public:
                 &m->latest_verified_version)
                 ->store(version, std::memory_order_release);
         };
-        apply_to_both_main_copies(f);
+        apply_to_both_copies(f);
+    }
+
+    uint64_t get_latest_verified_version() const noexcept
+    {
+        return reinterpret_cast<std::atomic_uint64_t *>(
+                   &db_metadata_[0].main->latest_verified_version)
+            ->load(std::memory_order_acquire);
     }
 
     void
@@ -483,7 +497,19 @@ public:
                 ->store(version, std::memory_order_release);
             m->latest_voted_block_id = block_id;
         };
-        apply_to_both_main_copies(f);
+        apply_to_both_copies(f);
+    }
+
+    uint64_t get_latest_voted_version() const noexcept
+    {
+        return reinterpret_cast<std::atomic_uint64_t *>(
+                   &db_metadata_[0].main->latest_voted_version)
+            ->load(std::memory_order_acquire);
+    }
+
+    bytes32_t get_latest_voted_block_id() const noexcept
+    {
+        return db_metadata_[0].main->latest_voted_block_id;
     }
 
     void set_history_length(uint64_t const history_len) noexcept
@@ -495,7 +521,7 @@ public:
             reinterpret_cast<std::atomic_uint64_t *>(&m->history_length)
                 ->store(history_len, std::memory_order_relaxed);
         };
-        apply_to_both_main_copies(f);
+        apply_to_both_copies(f);
     }
 
     uint64_t db_history_max_version() const noexcept

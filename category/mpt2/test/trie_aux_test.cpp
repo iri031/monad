@@ -58,8 +58,7 @@ TEST_F(UpdateAuxFixture, upsert_write_transaction_works)
         EXPECT_TRUE(memcmp((void *)root, (void *)read_root, node_size) == 0);
     }
 
-    EXPECT_EQ(
-        aux.db_storage().get_root_offset_at_version(version), root_offset);
+    EXPECT_EQ(aux.get_root_offset_at_version(version), root_offset);
     NodeCursor const root_cursor{*aux.parse_node(root_offset)};
     // find
     auto const [cursor, res] = find(aux, root_cursor, kv[0].first, version);
@@ -78,9 +77,8 @@ TEST_F(UpdateAuxFixture, upsert_write_transaction_works)
             root_offset, *sm, std::move(update_ls), version, false, true);
         wt.finish(root_offset, version);
     }
-    EXPECT_EQ(aux.db_storage().db_history_max_version(), version);
-    EXPECT_EQ(
-        aux.db_storage().get_root_offset_at_version(version), root_offset);
+    EXPECT_EQ(aux.db_history_max_version(), version);
+    EXPECT_EQ(aux.get_root_offset_at_version(version), root_offset);
     NodeCursor const root_cursor2{*aux.parse_node(root_offset)};
     for (auto i : {0, 1, 2, 3}) {
         auto const [cursor, res] =
@@ -125,20 +123,20 @@ TEST_F(DbStorageFixture, reopen_with_correct_writer_offsets_to_start_with)
         expected_slow_offset);
 }
 
-TEST_F(DbStorageFixture, fixed_history_length)
+TEST_F(UpdateAuxFixture, fixed_history_length)
 {
+    auto const &kv = fixed_updates::kv;
     constexpr uint64_t history_len = 100;
 
-    chunk_offset_t offset{0, 0};
     uint64_t const max_version = history_len * 2;
     uint64_t v = 0;
-
+    chunk_offset_t root_offset{INVALID_OFFSET};
     {
-        UpdateAux aux(db_storage);
         for (v = 0; v <= max_version; ++v) {
             WriteTransaction wt(aux);
-            wt.finish(offset, v);
-            offset = offset.add_to_offset(100);
+            root_offset = upsert_updates(
+                wt, root_offset, v, make_update(kv[0].first, kv[1].second));
+            wt.finish(root_offset, v);
         }
         EXPECT_EQ(db_storage.db_history_max_version(), max_version);
         EXPECT_EQ(db_storage.db_history_min_valid_version(), 0);
@@ -146,7 +144,7 @@ TEST_F(DbStorageFixture, fixed_history_length)
 
     { // reopen with fixed length
         DbStorage storage{path, DbStorage::Mode::open_existing};
-        UpdateAux aux{storage, history_len};
+        UpdateAux aux2{storage, history_len};
         EXPECT_EQ(storage.db_history_max_version(), max_version);
         EXPECT_EQ(
             storage.db_history_min_valid_version(),
@@ -155,7 +153,7 @@ TEST_F(DbStorageFixture, fixed_history_length)
         {
             v = max_version + 1;
             WriteTransaction wt(aux);
-            wt.finish(offset, v);
+            wt.finish(root_offset, v);
         }
         EXPECT_EQ(storage.db_history_max_version(), v);
         EXPECT_EQ(storage.db_history_min_valid_version(), v - history_len + 1);
