@@ -15,7 +15,7 @@ find_cursor_result_type find(
     UpdateAux const &aux, NodeCursor const root, NibblesView const key,
     uint64_t const)
 {
-    // TODO: verify version is valid during the find
+    // TODO: verify version is valid during the find if db storage is read only
     Node *node = root.node;
     unsigned node_prefix_index = root.prefix_index;
     unsigned prefix_index = 0;

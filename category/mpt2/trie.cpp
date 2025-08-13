@@ -77,9 +77,10 @@ static_assert(alignof(PendingNode) == 8);
 
 // should it return an offset? and take an offset?
 chunk_offset_t upsert(
-    UpdateAux &aux, uint64_t const /*version*/, StateMachine &sm,
-    chunk_offset_t const old_offset, UpdateList &&updates)
+    UpdateAux &aux, StateMachine &sm, chunk_offset_t const old_offset,
+    UpdateList &&updates)
 {
+    MONAD_ASSERT(!aux.is_read_only());
     Node *const old = aux.parse_node(old_offset);
     PendingNode sentinel{1}; // single child
     ChildData &entry = sentinel.children[0];

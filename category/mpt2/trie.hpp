@@ -50,14 +50,21 @@ class UpdateAux
     void erase_versions_up_to_and_including(uint64_t version);
     // void release_unreferenced_chunks();
 
-public:
-    int64_t curr_upsert_auto_expire_version{0};
-    // compact_virtual_chunk_offset_t compact_offset_fast{
-    //     MIN_COMPACT_VIRTUAL_OFFSET};
-    // compact_virtual_chunk_offset_t compact_offset_slow{
-    //     MIN_COMPACT_VIRTUAL_OFFSET};
+    void advance_compact_offsets();
 
-    // On disk stuff
+    uint32_t num_chunks(
+        MONAD_STORAGE_NAMESPACE::DbStorage::chunk_list list) const noexcept;
+    double disk_usage() const noexcept;
+    double disk_usage(
+        MONAD_STORAGE_NAMESPACE::DbStorage::chunk_list list) const noexcept;
+
+public:
+    // int64_t curr_upsert_auto_expire_version{0};
+    compact_virtual_chunk_offset_t compact_offset_fast{
+        MIN_COMPACT_VIRTUAL_OFFSET};
+    compact_virtual_chunk_offset_t compact_offset_slow{
+        MIN_COMPACT_VIRTUAL_OFFSET};
+
     chunk_offset_t node_writer_offset_fast{INVALID_OFFSET};
     chunk_offset_t node_writer_offset_slow{INVALID_OFFSET};
 
@@ -78,6 +85,12 @@ public:
                db_storage_.is_read_only_allow_dirty();
     }
 
+    bool exists_version(uint64_t const version) const noexcept
+    {
+        return db_storage_.get_root_offset_at_version(version) !=
+               INVALID_OFFSET;
+    }
+
     virtual_chunk_offset_t
     physical_to_virtual(chunk_offset_t offset) const noexcept;
 
@@ -88,6 +101,10 @@ public:
     chunk_offset_t do_upsert(
         chunk_offset_t root_offset, StateMachine &, UpdateList &&,
         uint64_t version, bool compaction, bool can_write_to_fast);
+
+    chunk_offset_t copy_trie_to_dest(
+        chunk_offset_t src_root, NibblesView src_prefix, uint64_t dest_version,
+        NibblesView dest_prefix);
 
     void finalize_transaction(chunk_offset_t root_offset, uint64_t version);
 };
@@ -124,8 +141,13 @@ public:
             can_write_to_fast);
     };
 
-    // TODO
-    chunk_offset_t copy_trie();
+    chunk_offset_t copy_trie(
+        chunk_offset_t const src_root, NibblesView const src_prefix,
+        uint64_t const dest_version, NibblesView const dest_prefix)
+    {
+        return aux_.copy_trie_to_dest(
+            src_root, src_prefix, dest_version, dest_prefix);
+    }
 
     void finish(chunk_offset_t root_offset, uint64_t version)
     {
@@ -135,11 +157,8 @@ public:
 
 // batch upsert, updates can be nested, at most one thread can call upsert at a
 // time, implementation is not threadsafe and no need to be
-chunk_offset_t upsert(
-    UpdateAux &, uint64_t version, StateMachine &, chunk_offset_t old_offset,
-    UpdateList &&);
-
-// TODO: copy_trie
+chunk_offset_t
+upsert(UpdateAux &, StateMachine &, chunk_offset_t old_offset, UpdateList &&);
 
 //////////////////////////////////////////////////////////////////////////////
 // find
@@ -161,7 +180,7 @@ using find_result_type = std::pair<T, find_result>;
 using find_cursor_result_type = find_result_type<NodeCursor>;
 
 find_cursor_result_type
-find(UpdateAux const &, NodeCursor, NibblesView key, uint64_t version);
+find(UpdateAux const &, NodeCursor, NibblesView key, uint64_t version = 0);
 
 std::pair<compact_virtual_chunk_offset_t, compact_virtual_chunk_offset_t>
 calc_min_offsets(

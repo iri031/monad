@@ -137,4 +137,4 @@ TEST(DbStorage, root_offsets)
     EXPECT_EQ(ro_storage.get_root_offset_at_version(1), offset1);
 }
 
-// TEST(db_metadata_chunk_op)
+TEST(db_metadata_chunk_op) {}

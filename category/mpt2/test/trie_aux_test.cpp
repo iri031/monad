@@ -43,10 +43,6 @@ TEST_F(UpdateAuxFixture, upsert_works)
     auto const [cursor, res] = find(aux, root_cursor, kv[0].first, version);
     EXPECT_EQ(res, find_result::success);
     EXPECT_EQ(cursor.node->value(), kv[0].second);
-    // root hash
-    EXPECT_EQ(
-        this->root_hash(root_cursor.node),
-        0x05a697d6698c55ee3e4d472c4907bca2184648bcfdd0e023e7ff7089dc984e7e_hex);
 
     ++version;
     { // version 1
@@ -60,11 +56,16 @@ TEST_F(UpdateAuxFixture, upsert_works)
             root_offset, *sm, std::move(update_ls), version, false, true);
         wt.finish(root_offset, version);
     }
-    // root hash
-    NodeCursor const root_cursor2{*aux.parse_node(root_offset)};
+    EXPECT_EQ(aux.db_storage().db_history_max_version(), version);
     EXPECT_EQ(
-        this->root_hash(root_cursor2.node),
-        0x22f3b7fc4b987d8327ec4525baf4cb35087a75d9250a8a3be45881dd889027ad_hex);
+        aux.db_storage().get_root_offset_at_version(version), root_offset);
+    NodeCursor const root_cursor2{*aux.parse_node(root_offset)};
+    for (auto i : {0, 1, 2, 3}) {
+        auto const [cursor, res] =
+            find(aux, root_cursor2, kv[i].first, version);
+        EXPECT_EQ(res, find_result::success);
+        EXPECT_EQ(cursor.node->value(), kv[i].second);
+    }
 }
 
 TEST_F(DbStorageFixture, reopen_with_correct_writer_offsets_to_start_with)

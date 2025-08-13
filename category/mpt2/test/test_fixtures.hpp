@@ -31,6 +31,16 @@ namespace monad::trie_test
              0xdeadbabedeadbabedeadbabedeadbabedeadbabedeadbabedeadbabedeadbabe_hex}};
     };
 
+    template <class... Updates>
+    [[nodiscard]] constexpr chunk_offset_t upsert_updates(
+        UpdateAux &aux, StateMachine &sm, chunk_offset_t const old_offset,
+        Updates... updates)
+    {
+        UpdateList update_ls;
+        (update_ls.push_front(updates), ...);
+        return upsert(aux, sm, old_offset, std::move(update_ls));
+    }
+
     struct DummyComputeLeafData
     {
         // TEMPORARY for POC
