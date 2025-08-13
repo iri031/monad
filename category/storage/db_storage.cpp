@@ -1,4 +1,5 @@
 #include <category/storage/db_storage.hpp>
+#include <category/storage/detail/scope_polyfill.hpp>
 
 #include <chrono>
 #include <filesystem>
@@ -6,6 +7,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -498,7 +500,7 @@ void DbStorage::init_db_metadata_()
 
         advance_db_offsets_to(fast_offset, slow_offset);
 
-        // TODO: put these to an opaque struct
+        // TODO: put these execution related fields to an opaque struct
         set_latest_finalized_version(INVALID_VERSION);
         set_latest_verified_version(INVALID_VERSION);
         set_latest_voted(INVALID_VERSION, bytes32_t{});
@@ -524,8 +526,8 @@ void DbStorage::init_db_metadata_()
                 root_offsets.size_bytes());
         }
         // Set magic strings, mark as done
-        std::atomic_signal_fence(
-            std::memory_order_seq_cst); // no reordering here
+        // Prevent any reordering here
+        std::atomic_signal_fence(std::memory_order_seq_cst);
         for (auto const i : {0, 1}) {
             memcpy(
                 db_metadata_[i].main->magic,
@@ -541,15 +543,50 @@ void DbStorage::init_db_metadata_()
     }
 }
 
-bool DbStorage::try_trim_contents_after(chunk_offset_t const)
+void DbStorage::try_trim_chunk_content_after(chunk_offset_t const chunk_offset_)
 {
-    // TODO: implement this
-    return true;
-}
+    file_offset_t const offset = chunk_offset_.raw();
+    uint32_t const id = chunk_offset_.id & chunk_offset_t::max_id;
+    uint32_t const bytes = chunk_offset_.offset & chunk_offset_t::max_offset;
+    if (bytes >= chunk_capacity) {
+        return;
+    }
+    if (device_type_ == type_t_::file) {
+        MONAD_ASSERT_PRINTF(
+            -1 != ::fallocate(
+                      fd_,
+                      FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
+                      static_cast<off_t>(offset + bytes),
+                      static_cast<off_t>(chunk_capacity - bytes)),
+            "failed due to %s",
+            strerror(errno));
+        // TODO: check other places where we update chunk bytes used are atomic
+        chunk_metadata_->chunk_bytes_used(size_of_device_)[id].store(
+            bytes, std::memory_order_release);
+    }
+    else if (device_type_ == type_t_::block_device) {
+        // Round where our current append point is down to its nearest
+        // DISK_PAGE_SIZE, aiming to TRIM all disk pages between that
+        // and the end of our chunk in a single go
+        uint64_t range[2] = {round_up_align<DISK_PAGE_BITS>(offset + bytes), 0};
+        range[1] = chunk_capacity - range[0] + offset; // length
 
-void DbStorage::destroy_contents(uint32_t const)
-{
-    // TODO: implement this
+        if (range[1] > 0) {
+            MONAD_DEBUG_ASSERT(
+                range[0] >= offset && range[0] < offset + chunk_capacity);
+            MONAD_DEBUG_ASSERT(range[1] <= chunk_capacity);
+            MONAD_DEBUG_ASSERT((range[1] & (DISK_PAGE_SIZE - 1)) == 0);
+            MONAD_ASSERT_PRINTF(
+                !ioctl(fd_, _IO(0x12, 119) /*BLKDISCARD*/, &range),
+                "failed due to %s",
+                strerror(errno));
+        }
+        chunk_metadata_->chunk_bytes_used(size_of_device_)[id].store(
+            bytes, std::memory_order_release);
+    }
+    else {
+        MONAD_ABORT("Unknown device type");
+    }
 }
 
 void DbStorage::rewind_to_match_offsets()
@@ -558,9 +595,7 @@ void DbStorage::rewind_to_match_offsets()
     MONAD_ASSERT(db_metadata()->at(fast_offset.id)->in_fast_list);
     auto const slow_offset = db_metadata()->db_offsets.start_of_wip_offset_slow;
     MONAD_ASSERT(db_metadata()->at(slow_offset.id)->in_slow_list);
-    // TODO: fast/slow list offsets should always be greater than last
-    // written root offset. Free all chunks after fast_offset.id Free all
-    // chunks after fast_offset.id
+
     auto const *ci = db_metadata()->at(fast_offset.id);
     while (ci != db_metadata()->fast_list_end()) {
         auto const idx = db_metadata()->fast_list.end;
@@ -568,7 +603,7 @@ void DbStorage::rewind_to_match_offsets()
         destroy_contents(idx);
         append(chunk_list::free, idx);
     }
-    MONAD_ASSERT(try_trim_contents_after(fast_offset));
+    try_trim_chunk_content_after(fast_offset);
 
     // Same for slow list
     auto const *slow_ci = db_metadata()->at(slow_offset.id);
@@ -578,7 +613,7 @@ void DbStorage::rewind_to_match_offsets()
         destroy_contents(idx);
         append(chunk_list::free, idx);
     }
-    MONAD_ASSERT(try_trim_contents_after(slow_offset));
+    try_trim_chunk_content_after(slow_offset);
 }
 
 // both copies are mapped to the chunk immediately following the db_metadata

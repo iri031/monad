@@ -94,8 +94,13 @@ class DbStorage
     void db_copy(DbMetadata &dest, DbMetadata const &src, size_t main_map_size);
 
     void rewind_to_match_offsets();
-    bool try_trim_contents_after(chunk_offset_t offset);
-    void destroy_contents(uint32_t id);
+
+    void try_trim_chunk_content_after(chunk_offset_t offset);
+
+    void destroy_contents(uint32_t id)
+    {
+        try_trim_chunk_content_after({id, 0});
+    }
 
     chunk_offset_t db_metadata_map_offset() const noexcept
     {
