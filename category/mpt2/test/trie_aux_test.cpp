@@ -1,13 +1,16 @@
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
-#include <category/mpt2/state_machine.hpp>
+#include <category/mpt2/config.hpp>
+#include <category/mpt2/node_cursor.hpp>
 #include <category/mpt2/test/test_fixtures.hpp>
 #include <category/mpt2/trie.hpp>
 #include <category/mpt2/util.hpp>
+#include <category/storage/config.hpp>
 #include <category/storage/db_storage.hpp>
 #include <category/storage/test/test_fixtures.hpp>
 #include <category/storage/util.hpp>
 
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 
@@ -18,7 +21,7 @@ using namespace MONAD_STORAGE_NAMESPACE;
 using namespace monad::storage_test;
 using namespace monad::trie_test;
 
-TEST_F(UpdateAuxFixture, upsert_works)
+TEST_F(UpdateAuxFixture, upsert_write_transaction_works)
 {
     auto const &kv = fixed_updates::kv;
 
@@ -137,5 +140,60 @@ TEST_F(DbStorageFixture, fixed_history_length)
         }
         EXPECT_EQ(storage.db_history_max_version(), v);
         EXPECT_EQ(storage.db_history_min_valid_version(), v - history_len + 1);
+    }
+}
+
+TEST_F(UpdateAuxFixture, copy_trie)
+{
+    auto const &kv = fixed_updates::kv;
+    chunk_offset_t root_offset{INVALID_OFFSET};
+    uint64_t const src_version = 0;
+    uint64_t const dest_version = 1;
+    auto const src_prefix = 0x0012_hex;
+    auto const dest_prefix = 0x001233_hex;
+
+    DbStorage::creation_flags flags;
+    flags.open_read_only = true;
+    DbStorage ro_storage{path, DbStorage::Mode::open_existing, flags};
+    UpdateAux aux_reader{ro_storage};
+
+    {
+        WriteTransaction wt(aux);
+        root_offset = upsert_updates_with_prefix(
+            wt,
+            root_offset,
+            src_prefix,
+            src_version,
+            make_update(kv[2].first, kv[2].second),
+            make_update(kv[3].first, kv[3].second));
+        EXPECT_EQ(ro_storage.db_history_max_version(), INVALID_VERSION);
+        wt.finish(root_offset, src_version);
+    }
+
+    EXPECT_EQ(ro_storage.db_history_max_version(), src_version);
+    EXPECT_EQ(ro_storage.get_root_offset_at_version(src_version), root_offset);
+
+    {
+        NodeCursor const root_cursor{*aux_reader.parse_node(root_offset)};
+        auto const [cursor, res] = find(
+            aux_reader, root_cursor, src_prefix + kv[2].first, src_version);
+        EXPECT_EQ(res, find_result::success);
+        EXPECT_EQ(cursor.node->value(), kv[2].second);
+    }
+
+    { // open wt to copy_trie
+        WriteTransaction wt(aux);
+        root_offset = wt.copy_trie(root_offset, src_prefix, 1, dest_prefix);
+        EXPECT_EQ(ro_storage.db_history_max_version(), src_version);
+        wt.finish(root_offset, dest_version);
+    }
+    EXPECT_EQ(ro_storage.db_history_max_version(), dest_version);
+
+    {
+        NodeCursor const root_cursor{*aux_reader.parse_node(root_offset)};
+        auto const [cursor, res] = find(
+            aux_reader, root_cursor, dest_prefix + kv[3].first, dest_version);
+        EXPECT_EQ(res, find_result::success);
+        EXPECT_EQ(cursor.node->value(), kv[3].second);
     }
 }

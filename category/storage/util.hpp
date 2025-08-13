@@ -8,8 +8,7 @@
 
 MONAD_STORAGE_NAMESPACE_BEGIN
 
-// TODO: don't belong here
-static constexpr uint64_t INVALID_BLOCK_NUM = uint64_t(-1);
+static constexpr uint64_t INVALID_VERSION = uint64_t(-1);
 
 //! The types suitable for rounding up or down
 template <class T, unsigned bits>

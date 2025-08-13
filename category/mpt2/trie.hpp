@@ -58,6 +58,16 @@ class UpdateAux
     double disk_usage(
         MONAD_STORAGE_NAMESPACE::DbStorage::chunk_list list) const noexcept;
 
+    chunk_offset_t do_upsert(
+        chunk_offset_t root_offset, StateMachine &, UpdateList &&,
+        uint64_t version, bool compaction, bool can_write_to_fast);
+
+    chunk_offset_t copy_trie_to_dest(
+        chunk_offset_t src_root, NibblesView src_prefix, uint64_t dest_version,
+        NibblesView dest_prefix);
+
+    void finalize_transaction(chunk_offset_t root_offset, uint64_t version);
+
 public:
     // int64_t curr_upsert_auto_expire_version{0};
     compact_virtual_chunk_offset_t compact_offset_fast{
@@ -97,20 +107,11 @@ public:
     Node *parse_node(chunk_offset_t offset) const noexcept;
 
     chunk_offset_t write_node_to_disk(Node const &node, bool to_fast_list);
-
-    chunk_offset_t do_upsert(
-        chunk_offset_t root_offset, StateMachine &, UpdateList &&,
-        uint64_t version, bool compaction, bool can_write_to_fast);
-
-    chunk_offset_t copy_trie_to_dest(
-        chunk_offset_t src_root, NibblesView src_prefix, uint64_t dest_version,
-        NibblesView dest_prefix);
-
-    void finalize_transaction(chunk_offset_t root_offset, uint64_t version);
 };
 
 class WriteTransaction
 {
+    friend class UpdateAux;
     UpdateAux &aux_;
 
 public:

@@ -305,7 +305,7 @@ public:
                     ->load(std::memory_order_acquire);
             }
 
-            // return INVALID_BLOCK_NUM indicates that db is empty
+            // return INVALID_VERSION indicates that db is empty
             uint64_t max_version() const noexcept
             {
                 auto const wp = next_version_.load(std::memory_order_acquire);
@@ -431,10 +431,9 @@ public:
             auto ro = root_offsets(m == db_metadata_[1].main);
             uint64_t curr_version = ro.max_version();
             MONAD_ASSERT(
-                curr_version == INVALID_BLOCK_NUM ||
-                new_version > curr_version);
+                curr_version == INVALID_VERSION || new_version > curr_version);
 
-            if (curr_version == INVALID_BLOCK_NUM ||
+            if (curr_version == INVALID_VERSION ||
                 new_version - curr_version >= ro.capacity()) {
                 ro.reset_all(new_version);
             }
@@ -514,8 +513,8 @@ public:
     uint64_t db_history_range_lower_bound() const noexcept
     {
         auto const max_version = db_history_max_version();
-        if (max_version == INVALID_BLOCK_NUM) {
-            return INVALID_BLOCK_NUM;
+        if (max_version == INVALID_VERSION) {
+            return INVALID_VERSION;
         }
         else {
             auto const history_range_min =

@@ -253,7 +253,7 @@ void UpdateAux::finalize_transaction(
     // update root offset in ring buffer
     auto const max_version = db_storage_.db_history_max_version();
     auto const history_length = db_storage_.version_history_length();
-    if (MONAD_UNLIKELY(max_version == INVALID_BLOCK_NUM)) {
+    if (MONAD_UNLIKELY(max_version == INVALID_VERSION)) {
         db_storage_.fast_forward_next_version(version);
         db_storage_.append_root_offset(root_offset);
         MONAD_ASSERT(db_storage_.db_history_range_lower_bound() == version);

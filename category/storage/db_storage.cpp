@@ -499,9 +499,9 @@ void DbStorage::init_db_metadata_()
         advance_db_offsets_to(fast_offset, slow_offset);
 
         // TODO: put these to an opaque struct
-        set_latest_finalized_version(INVALID_BLOCK_NUM);
-        set_latest_verified_version(INVALID_BLOCK_NUM);
-        set_latest_voted(INVALID_BLOCK_NUM, bytes32_t{});
+        set_latest_finalized_version(INVALID_VERSION);
+        set_latest_verified_version(INVALID_VERSION);
+        set_latest_voted(INVALID_VERSION, bytes32_t{});
         // set_auto_expire_version_metadata(0);
         // init history length to the capacity by default
         set_history_length(db_metadata_[0].root_offsets.size());

@@ -117,6 +117,28 @@ namespace monad::trie_test
             }
             return empty_trie_hash;
         }
+
+        template <class... Updates>
+        chunk_offset_t upsert_updates_with_prefix(
+            WriteTransaction &write_tx, chunk_offset_t const root_offset,
+            NibblesView const prefix, uint64_t const version,
+            Updates... updates)
+        {
+            UpdateList ul;
+            (ul.push_front(updates), ...);
+
+            MONAD_ASSERT(prefix.nibble_size() > 0);
+            auto u_prefix = Update{
+                .key = prefix,
+                .value = monad::byte_string_view{},
+                .incarnation = false,
+                .next = std::move(ul),
+                .version = static_cast<int64_t>(version)};
+            UpdateList ul_prefix;
+            ul_prefix.push_front(u_prefix);
+            return write_tx.do_upsert(
+                root_offset, *sm, std::move(ul_prefix), version, false, true);
+        }
     };
 
 }

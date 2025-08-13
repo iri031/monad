@@ -115,8 +115,7 @@ namespace detail
         struct version_ring_buffer_info_t
         {
             uint64_t version_lower_bound_;
-            uint64_t
-                next_version_; // all bits zero turns into INVALID_BLOCK_NUM
+            uint64_t next_version_; // all bits zero turns into INVALID_VERSION
         } version_ring_buffer;
 
         size_t total_size() const noexcept
@@ -444,16 +443,16 @@ high during the memory copy.
         MONAD_ASSERT(intr->is_dirty().load(std::memory_order_acquire) == false);
         auto g1 = intr->hold_dirty();
         auto g2 = dest->hold_dirty();
-        // dest->root_offsets.next_version_ = 0; // INVALID_BLOCK_NUM
-        // auto const old_next_version = intr->root_offsets.next_version_;
-        // intr->root_offsets.next_version_ = 0; // INVALID_BLOCK_NUM
+        dest->next_version_ = 0; // INVALID_VERSION
+        auto const old_next_version = intr->next_version_;
+        intr->next_version_ = 0; // INVALID_VERSION
         memcpy((void *)dest, buffer, sizeof(db_metadata_t));
         memcpy(
             ((std::byte *)dest) + sizeof(db_metadata_t),
             ((std::byte const *)src) + sizeof(db_metadata_t),
             bytes - sizeof(db_metadata_t));
-        // std::atomic_ref<uint64_t>(dest->root_offsets.next_version_)
-        // .store(old_next_version, std::memory_order_release);
+        std::atomic_ref<uint64_t>(dest->next_version_)
+            .store(old_next_version, std::memory_order_release);
     };
 }
 

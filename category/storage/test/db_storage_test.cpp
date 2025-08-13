@@ -1,4 +1,4 @@
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
 #include <category/core/assert.h>
 #include <category/storage/config.hpp>
@@ -104,7 +104,7 @@ TEST_F(DbStorageFixture, root_offsets)
     auto const root_offsets_capacity = db_storage.root_offsets().capacity();
     EXPECT_EQ(root_offsets_capacity, 1 << 25);
 
-    EXPECT_EQ(db_storage.db_history_max_version(), INVALID_BLOCK_NUM);
+    EXPECT_EQ(db_storage.db_history_max_version(), INVALID_VERSION);
     EXPECT_EQ(db_storage.version_history_length(), 1 << 25);
 
     chunk_offset_t const offset0{1, 0};
