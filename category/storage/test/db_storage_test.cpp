@@ -19,16 +19,8 @@
 // 3. check: read bytes and check as expected
 // 4. destroy contents
 
-// db_metadata test:
-// append(fast)
-// free()
-
-// root offset test, TODO: finish impl
-// write to root offset, get root offset
-// test wrap around case, test different root offset capacity?
-
 using namespace MONAD_STORAGE_NAMESPACE;
-using namespace monad::test;
+using namespace monad::storage_test;
 
 inline void run_test(std::filesystem::path const path)
 {
@@ -90,6 +82,11 @@ TEST(DbStorage, anonymous_node_works)
     for (size_t i = 0; i < 1024; ++i) {
         data[i] = static_cast<unsigned char>(i % 256);
     }
+    // read back
+    auto const *ro_data = rw_storage.get_data(chunk_offset_t{0, 1024});
+    for (size_t i = 0; i < 1024; ++i) {
+        EXPECT_EQ(ro_data[i], static_cast<unsigned char>(i % 256));
+    }
 }
 
 TEST(DbStorage, file_works)
@@ -102,7 +99,7 @@ TEST(DbStorage, file_works)
     run_test(path);
 }
 
-TEST(DbStorage, root_offsets)
+TEST(DbStorage, root_offsets_push_assign)
 {
     auto const path = create_temp_test_file(1024);
     auto undb = monad::make_scope_exit(
@@ -131,10 +128,81 @@ TEST(DbStorage, root_offsets)
     DbStorage::creation_flags options;
     options.open_read_only = true;
     DbStorage ro_storage(path, DbStorage::Mode::open_existing, options);
-    EXPECT_EQ(rw_storage.version_history_length(), 1 << 25);
+    EXPECT_EQ(ro_storage.version_history_length(), 1 << 25);
     EXPECT_EQ(ro_storage.root_offsets().max_version(), 1);
     EXPECT_EQ(ro_storage.get_root_offset_at_version(0), offset0);
     EXPECT_EQ(ro_storage.get_root_offset_at_version(1), offset1);
+
+    // TODO: root offsets wrap around
 }
 
-TEST(db_metadata_chunk_op) {}
+TEST(DbStorage, db_metadata_chunk_list_op)
+{
+    auto const path = create_temp_test_file(1024);
+    auto undb = monad::make_scope_exit(
+        [&]() noexcept { std::filesystem::remove(path); });
+
+    DbStorage rw_storage(path, DbStorage::Mode::truncate);
+    EXPECT_EQ(rw_storage.num_chunks(), 4092);
+    EXPECT_FALSE(rw_storage.is_read_only());
+
+    auto const *const m = rw_storage.db_metadata();
+    auto strip_free_chunk_append_to =
+        [&](DbStorage::chunk_list const list) -> uint32_t {
+        auto const idx = m->free_list.end;
+        rw_storage.remove(idx);
+        rw_storage.append(list, idx);
+        return idx;
+    };
+
+    // Append free chunks to fast and slow lists
+    uint32_t total_fast = (uint32_t)m->fast_list_begin()->insertion_count() + 1;
+    uint32_t total_slow = (uint32_t)m->slow_list_begin()->insertion_count() + 1;
+    while (m->free_list_begin() !=
+           m->free_list_end()) { // at least 2 free chunks
+        auto const fast_list_end =
+            strip_free_chunk_append_to(DbStorage::chunk_list::fast);
+        auto const slow_list_end =
+            strip_free_chunk_append_to(DbStorage::chunk_list::slow);
+        EXPECT_TRUE(m->at(fast_list_end)->in_fast_list);
+        EXPECT_TRUE(m->at(slow_list_end)->in_slow_list);
+        EXPECT_EQ(m->fast_list.end, fast_list_end);
+        EXPECT_EQ(m->slow_list.end, slow_list_end);
+        EXPECT_EQ(m->at(fast_list_end)->insertion_count(), total_fast);
+        EXPECT_EQ(m->at(slow_list_end)->insertion_count(), total_slow);
+        ++total_fast;
+        ++total_slow;
+    }
+    // remove all fast chunks and append to free
+    while (m->fast_list_begin() != nullptr) {
+        auto const idx = m->fast_list.begin;
+        rw_storage.remove(idx);
+        rw_storage.append(DbStorage::chunk_list::free, idx);
+        --total_fast;
+        EXPECT_FALSE(m->at(idx)->in_fast_list);
+        EXPECT_FALSE(m->at(idx)->in_slow_list);
+    }
+    ASSERT_EQ(total_fast, 0);
+    // remove all slow chunks and append to free
+    while (m->slow_list_begin() != nullptr) {
+        auto const idx = m->slow_list.begin;
+        rw_storage.remove(idx);
+        rw_storage.append(DbStorage::chunk_list::free, idx);
+        --total_slow;
+        EXPECT_FALSE(m->at(idx)->in_fast_list);
+        EXPECT_FALSE(m->at(idx)->in_slow_list);
+    }
+    ASSERT_EQ(total_slow, 0);
+
+    uint32_t total_free = 0;
+    auto const *ci = m->free_list_begin();
+    while (ci != nullptr) {
+        ++total_free;
+        EXPECT_FALSE(ci->in_fast_list);
+        EXPECT_FALSE(ci->in_slow_list);
+        ci = ci->next(m);
+    }
+    EXPECT_EQ(total_free, rw_storage.num_chunks());
+}
+
+// TEST(destroy_contents) {}

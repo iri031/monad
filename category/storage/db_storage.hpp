@@ -1,21 +1,16 @@
 #pragma once
 
+#include <category/core/assert.h>
 #include <category/storage/config.hpp>
 #include <category/storage/detail/db_metadata.hpp>
 
+#include <cstdint>
 #include <filesystem>
 
 MONAD_STORAGE_NAMESPACE_BEGIN
 
-namespace mpt2
-{
-    class UpdateAux;
-}
-
 class DbStorage
 {
-    friend class UpdateAux;
-
     bool is_read_only_, is_read_only_allow_dirty_, is_newly_truncated_;
     int fd_;
 
@@ -59,7 +54,7 @@ class DbStorage
                 return ret - 1;
             }
             return ret - reserved_chunks; // last few chunks are reserved for
-                                          // db_metadata
+                                          // db_metadata and root offsets
         }
 
         // Bytes used by the pool metadata on this device
@@ -89,7 +84,7 @@ class DbStorage
     static_assert(sizeof(chunk_metadata_t) == 60);
 
     // db metadata and root offsets are stored in the last few reserved
-    // chunkssomet
+    // chunks
     struct DbMetadata
     {
         detail::db_metadata_t *main{nullptr};
@@ -98,20 +93,17 @@ class DbStorage
 
     void db_copy(DbMetadata &dest, DbMetadata const &src, size_t main_map_size);
 
-    // TODO: maybe expose read and write api to access chunk data instead of
-    // direct memory access (where the impl does boundary check)
-
     void rewind_to_match_offsets();
     bool try_trim_contents_after(chunk_offset_t offset);
     void destroy_contents(uint32_t id);
 
-    chunk_offset_t db_metadata_offset() const noexcept
+    chunk_offset_t db_metadata_map_offset() const noexcept
     {
         MONAD_ASSERT(num_chunks() < std::numeric_limits<uint32_t>::max());
         return chunk_offset((uint32_t)num_chunks());
     }
 
-    chunk_offset_t root_offsets_ring_buffer_offset() const noexcept
+    chunk_offset_t root_offsets_map_offset() const noexcept
     {
         MONAD_ASSERT(num_chunks() + 1 < std::numeric_limits<uint32_t>::max());
         return chunk_offset((uint32_t)num_chunks() + 1);
@@ -166,8 +158,11 @@ public:
         return {id, 0};
     }
 
+    // TODO: maybe expose read and write api to access chunk data instead of
+    // direct memory access (where the impl does boundary check)
     unsigned char const *get_data(chunk_offset_t const offset) const noexcept
     {
+        MONAD_ASSERT(!is_read_only());
         MONAD_ASSERT(
             offset.id < num_chunks(), "cannot access out of range data");
         return chunks_data_ + offset.raw();
@@ -194,6 +189,7 @@ public:
     void
     advance_chunk_bytes_used(uint32_t const id, unsigned const bytes) noexcept
     {
+        MONAD_ASSERT(!is_read_only());
         MONAD_ASSERT(id < num_chunks());
         auto chunk_bytes_used =
             chunk_metadata_->chunk_bytes_used(size_of_device_);
@@ -207,7 +203,7 @@ public:
         chunk_bytes_used[id] += bytes;
     }
 
-    detail::db_metadata_t *db_metadata() const noexcept
+    detail::db_metadata_t const *db_metadata() const noexcept
     {
         return db_metadata_[0].main;
     }
@@ -353,6 +349,7 @@ public:
     ////////////////////////////////////////////////
     void apply_to_both_main_copies(auto &&f) noexcept
     {
+        MONAD_ASSERT(!is_read_only());
         f(db_metadata_[0].main);
         f(db_metadata_[1].main);
     }
@@ -553,7 +550,6 @@ public:
 
 private:
     void init_(int const fd, Mode mode, creation_flags flags = {});
-
     void verify_and_map_chunk_metadata_(Mode op);
     uint32_t compute_config_hash_();
     void init_db_metadata_();

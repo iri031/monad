@@ -290,7 +290,7 @@ void DbStorage::init_db_metadata_()
     auto const chunk_count = num_chunks();
     MONAD_ASSERT(chunk_count > 0);
     MONAD_ASSERT(chunk_count < std::numeric_limits<uint32_t>::max());
-    auto const start_offset = db_metadata_offset();
+    auto const start_offset = db_metadata_map_offset();
     auto const map_size =
         sizeof(detail::db_metadata_t) +
         chunk_count * sizeof(detail::db_metadata_t::chunk_info_t);
@@ -615,7 +615,7 @@ void DbStorage::map_root_offsets_()
     // second half into the second copy
     for (size_t n = 0; n < root_offsets_chunk_count; n++) {
         auto const start_offset =
-            root_offsets_ring_buffer_offset().raw() + n * chunk_capacity;
+            root_offsets_map_offset().raw() + n * chunk_capacity;
         file_mmap_helper_(
             map_bytes_per_chunk,
             start_offset,
