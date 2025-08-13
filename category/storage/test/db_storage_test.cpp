@@ -99,41 +99,48 @@ TEST(DbStorage, file_works)
     run_test(path);
 }
 
-TEST(DbStorage, root_offsets_push_assign)
+TEST_F(DbStorageFixture, root_offsets)
 {
-    auto const path = create_temp_test_file(1024);
-    auto undb = monad::make_scope_exit(
-        [&]() noexcept { std::filesystem::remove(path); });
+    auto const root_offsets_capacity = db_storage.root_offsets().capacity();
+    EXPECT_EQ(root_offsets_capacity, 1 << 25);
 
-    DbStorage rw_storage(path, DbStorage::Mode::truncate);
-    EXPECT_EQ(rw_storage.root_offsets().max_version(), INVALID_BLOCK_NUM);
-    EXPECT_EQ(rw_storage.version_history_length(), 1 << 25);
+    EXPECT_EQ(db_storage.db_history_max_version(), INVALID_BLOCK_NUM);
+    EXPECT_EQ(db_storage.version_history_length(), 1 << 25);
 
     chunk_offset_t const offset0{1, 0};
-    rw_storage.root_offsets().push(offset0);
-    EXPECT_EQ(rw_storage.root_offsets().max_version(), 0);
-    EXPECT_EQ(rw_storage.get_root_offset_at_version(0), offset0);
+    db_storage.append_root_offset(offset0);
+    EXPECT_EQ(db_storage.db_history_max_version(), 0);
+    EXPECT_EQ(db_storage.get_root_offset_at_version(0), offset0);
 
     chunk_offset_t offset1{2, 0};
-    rw_storage.root_offsets().push(offset1);
-    EXPECT_EQ(rw_storage.root_offsets().max_version(), 1);
-    EXPECT_EQ(rw_storage.get_root_offset_at_version(1), offset1);
+    db_storage.append_root_offset(offset1);
+    EXPECT_EQ(db_storage.db_history_max_version(), 1);
+    EXPECT_EQ(db_storage.get_root_offset_at_version(1), offset1);
     offset1.offset = 1024;
-    rw_storage.root_offsets().assign(1, offset1);
-    EXPECT_EQ(rw_storage.root_offsets().max_version(), 1);
-    EXPECT_EQ(rw_storage.get_root_offset_at_version(1), offset1);
-    EXPECT_EQ(rw_storage.db_history_min_valid_version(), 0);
-    EXPECT_EQ(rw_storage.db_history_range_lower_bound(), 0);
+    db_storage.update_root_offset(1, offset1);
+    EXPECT_EQ(db_storage.db_history_max_version(), 1);
+    EXPECT_EQ(db_storage.get_root_offset_at_version(1), offset1);
+    EXPECT_EQ(db_storage.db_history_min_valid_version(), 0);
+    EXPECT_EQ(db_storage.db_history_range_lower_bound(), 0);
 
     DbStorage::creation_flags options;
     options.open_read_only = true;
-    DbStorage ro_storage(path, DbStorage::Mode::open_existing, options);
+    DbStorage const ro_storage(path, DbStorage::Mode::open_existing, options);
     EXPECT_EQ(ro_storage.version_history_length(), 1 << 25);
     EXPECT_EQ(ro_storage.root_offsets().max_version(), 1);
     EXPECT_EQ(ro_storage.get_root_offset_at_version(0), offset0);
     EXPECT_EQ(ro_storage.get_root_offset_at_version(1), offset1);
 
-    // TODO: root offsets wrap around
+    // root offsets wrap around
+    auto const version = root_offsets_capacity * 2;
+    db_storage.fast_forward_next_version(version);
+    for (auto v = version; v < version + 100; ++v) {
+        chunk_offset_t offset{100, v - version};
+        db_storage.append_root_offset(offset);
+        EXPECT_EQ(db_storage.db_history_max_version(), v);
+        EXPECT_EQ(db_storage.db_history_min_valid_version(), version);
+        EXPECT_EQ(ro_storage.get_root_offset_at_version(v), offset);
+    }
 }
 
 TEST(DbStorage, db_metadata_chunk_list_op)
