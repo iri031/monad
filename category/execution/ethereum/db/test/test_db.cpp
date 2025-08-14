@@ -21,11 +21,11 @@
 #include <category/execution/ethereum/state2/state_deltas.hpp>
 #include <category/execution/ethereum/trace/call_tracer.hpp>
 #include <category/execution/ethereum/trace/rlp/call_frame_rlp.hpp>
-#include <category/mpt/ondisk_db_config.hpp>
-#include <category/mpt/traverse.hpp>
-#include <category/mpt/traverse_util.hpp>
 #include <category/mpt2/nibbles_view.hpp>
 #include <category/mpt2/node.hpp>
+#include <category/mpt2/ondisk_db_config.hpp>
+#include <category/mpt2/traverse.hpp>
+#include <category/mpt2/traverse_util.hpp>
 
 #include <ethash/keccak.hpp>
 #include <evmc/evmc.hpp>
@@ -88,21 +88,12 @@ namespace
         }
     };
 
-    struct InMemoryTrieDbFixture : public ::testing::Test
-    {
-        static constexpr bool on_disk = false;
-
-        InMemoryMachine machine;
-        mpt::Db db{machine};
-        vm::VM vm;
-    };
-
     struct OnDiskTrieDbFixture : public ::testing::Test
     {
         static constexpr bool on_disk = true;
 
         OnDiskMachine machine;
-        mpt::Db db{machine, mpt::OnDiskDbConfig{}};
+        mpt2::Db db{machine, mpt2::OnDiskDbConfig{}};
         vm::VM vm;
     };
 
@@ -110,17 +101,17 @@ namespace
     // DB Getters
     ///////////////////////////////////////////
     std::vector<CallFrame> read_call_frame(
-        mpt::Db &db, uint64_t const block_number, uint64_t const txn_idx)
+        mpt2::Db &db, uint64_t const block_number, uint64_t const txn_idx)
     {
-        using namespace mpt;
+        using namespace mpt2;
 
         using KeyedChunk = std::pair<Nibbles, byte_string>;
 
-        Nibbles const min = mpt::concat(
+        Nibbles const min = mpt2::concat(
             FINALIZED_NIBBLE,
             CALL_FRAME_NIBBLE,
             NibblesView{serialize_as_big_endian<sizeof(uint32_t)>(txn_idx)});
-        Nibbles const max = mpt::concat(
+        Nibbles const max = mpt2::concat(
             FINALIZED_NIBBLE,
             CALL_FRAME_NIBBLE,
             NibblesView{
@@ -159,15 +150,15 @@ namespace
     }
 
     std::pair<bytes32_t, bytes32_t> read_storage_and_slot(
-        mpt::Db const &db, uint64_t const block_number, Address const &addr,
+        mpt2::Db const &db, uint64_t const block_number, Address const &addr,
         bytes32_t const &key)
     {
         auto const value = db.get(
-            mpt::concat(
+            mpt2::concat(
                 FINALIZED_NIBBLE,
                 STATE_NIBBLE,
-                mpt::NibblesView{keccak256({addr.bytes, sizeof(addr.bytes)})},
-                mpt::NibblesView{keccak256({key.bytes, sizeof(key.bytes)})}),
+                mpt2::NibblesView{keccak256({addr.bytes, sizeof(addr.bytes)})},
+                mpt2::NibblesView{keccak256({key.bytes, sizeof(key.bytes)})}),
             block_number);
         if (!value.has_value()) {
             return {};
@@ -197,7 +188,7 @@ struct DBTest : public TDB
 {
 };
 
-using DBTypes = ::testing::Types<InMemoryTrieDbFixture, OnDiskTrieDbFixture>;
+using DBTypes = ::testing::Types<OnDiskTrieDbFixture>;
 TYPED_TEST_SUITE(DBTest, DBTypes);
 
 TEST(DBTest, read_only)
@@ -208,7 +199,7 @@ TEST(DBTest, read_only)
          std::to_string(rand()));
     {
         OnDiskMachine machine;
-        mpt::Db db{machine, mpt::OnDiskDbConfig{.dbname_paths = {name}}};
+        mpt2::Db db{machine, mpt2::OnDiskDbConfig{.dbname_paths = {name}}};
         TrieDb rw(db);
 
         Account const acct1{.nonce = 1};
@@ -227,9 +218,8 @@ TEST(DBTest, read_only)
             Code{},
             BlockHeader{.number = 1});
 
-        mpt::AsyncIOContext io_ctx{
-            mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = {name}}};
-        mpt::Db ro_db{io_ctx};
+        auto config = mpt2::ReadOnlyOnDiskDbConfig{.dbname_paths = {name}};
+        mpt2::Db ro_db{config};
         TrieDb ro{ro_db};
         ASSERT_EQ(ro.get_block_number(), 1);
         EXPECT_EQ(ro.read_account(ADDR_A), Account{.nonce = 2});
@@ -572,10 +562,10 @@ TYPED_TEST(DBTest, commit_receipts_transactions)
         size_t log_i = 0;
         for (unsigned i = 0; i < receipts.size(); ++i) {
             auto res = this->db.get(
-                mpt::concat(
+                mpt2::concat(
                     FINALIZED_NIBBLE,
                     RECEIPT_NIBBLE,
-                    mpt::NibblesView{rlp::encode_unsigned<unsigned>(i)}),
+                    mpt2::NibblesView{rlp::encode_unsigned<unsigned>(i)}),
                 block_id);
             ASSERT_TRUE(res.has_value());
             auto const decode_res = decode_receipt_db(res.value());
@@ -590,10 +580,10 @@ TYPED_TEST(DBTest, commit_receipts_transactions)
     auto verify_read_and_parse_transaction = [&](uint64_t const block_id) {
         for (unsigned i = 0; i < transactions.size(); ++i) {
             auto res = this->db.get(
-                mpt::concat(
+                mpt2::concat(
                     FINALIZED_NIBBLE,
                     TRANSACTION_NIBBLE,
-                    mpt::NibblesView{rlp::encode_unsigned<unsigned>(i)}),
+                    mpt2::NibblesView{rlp::encode_unsigned<unsigned>(i)}),
                 block_id);
             ASSERT_TRUE(res.has_value());
             auto const decode_res = decode_transaction_db(res.value());
@@ -607,7 +597,8 @@ TYPED_TEST(DBTest, commit_receipts_transactions)
                               uint64_t const block_id,
                               unsigned const tx_idx) {
         auto const res = this->db.get(
-            concat(FINALIZED_NIBBLE, TX_HASH_NIBBLE, mpt::NibblesView{tx_hash}),
+            concat(
+                FINALIZED_NIBBLE, TX_HASH_NIBBLE, mpt2::NibblesView{tx_hash}),
             this->db.get_latest_version());
         EXPECT_TRUE(res.has_value());
         EXPECT_EQ(
@@ -676,10 +667,10 @@ TYPED_TEST(DBTest, to_json)
     }
     auto db = [&] {
         if (this->on_disk) {
-            return mpt::Db{
-                this->machine, mpt::OnDiskDbConfig{.dbname_paths = {dbname}}};
+            return mpt2::Db{
+                this->machine, mpt2::OnDiskDbConfig{.dbname_paths = {dbname}}};
         }
-        return mpt::Db{this->machine};
+        return mpt2::Db{this->machine};
     }();
     TrieDb tdb{db};
     load_db(tdb, 0);
@@ -758,9 +749,8 @@ TYPED_TEST(DBTest, to_json)
     EXPECT_EQ(expected_payload, tdb.to_json());
     if (this->on_disk) {
         // also test to_json from a read only db
-        mpt::AsyncIOContext io_ctx{
-            mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}}};
-        mpt::Db ro_db{io_ctx};
+        auto config = mpt2::ReadOnlyOnDiskDbConfig{.dbname_paths = {dbname}};
+        mpt2::Db ro_db{config};
         TrieDb ro{ro_db};
         EXPECT_EQ(expected_payload, ro.to_json());
 

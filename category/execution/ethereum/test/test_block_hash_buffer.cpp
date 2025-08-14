@@ -8,9 +8,9 @@
 #include <category/execution/ethereum/db/trie_db.hpp>
 #include <category/execution/ethereum/db/util.hpp>
 #include <category/execution/monad/core/monad_block.hpp>
-#include <category/mpt/db.hpp>
-#include <category/mpt/ondisk_db_config.hpp>
-#include <category/mpt/util.hpp>
+#include <category/mpt2/db.hpp>
+#include <category/mpt2/ondisk_db_config.hpp>
+#include <category/mpt2/util.hpp>
 #include <test_resource_data.h>
 
 #include <gtest/gtest.h>
@@ -27,7 +27,7 @@ namespace
     bytes32_t dummy_block_id(uint64_t const seed)
     {
         return to_bytes(
-            blake3(mpt::serialize_as_big_endian<sizeof(seed)>(seed)));
+            blake3(mpt2::serialize_as_big_endian<sizeof(seed)>(seed)));
     }
 }
 
@@ -196,8 +196,8 @@ TEST(BlockHashBufferTest, init_from_db)
     }();
 
     OnDiskMachine machine;
-    mpt::Db db{
-        machine, mpt::OnDiskDbConfig{.append = false, .dbname_paths = {path}}};
+    mpt2::Db db{
+        machine, mpt2::OnDiskDbConfig{.append = false, .dbname_paths = {path}}};
     TrieDb tdb{db};
 
     BlockHashBufferFinalized expected;

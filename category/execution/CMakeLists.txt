@@ -182,7 +182,7 @@ target_link_libraries(
   monad_execution
   PUBLIC monad-vm
   PUBLIC monad_core
-  PUBLIC monad_trie
+  PUBLIC monad_trie2
   PRIVATE blst::blst
   PRIVATE Boost::fiber
   PRIVATE Boost::json

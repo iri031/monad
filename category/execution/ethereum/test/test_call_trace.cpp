@@ -93,7 +93,7 @@ TEST(CallTrace, enter_and_exit)
 TEST(CallTrace, execute_success)
 {
     InMemoryMachine machine;
-    mpt::Db db{machine};
+    mpt2::Db db{machine};
     TrieDb tdb{db};
     vm::VM vm;
 
@@ -163,7 +163,7 @@ TEST(CallTrace, execute_success)
 TEST(CallTrace, execute_reverted_insufficient_balance)
 {
     InMemoryMachine machine;
-    mpt::Db db{machine};
+    mpt2::Db db{machine};
     TrieDb tdb{db};
     vm::VM vm;
 

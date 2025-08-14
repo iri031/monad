@@ -6,8 +6,8 @@
 #include <category/execution/ethereum/core/account.hpp>
 #include <category/execution/ethereum/core/address.hpp>
 #include <category/execution/ethereum/core/receipt.hpp>
-#include <category/mpt/db.hpp>
-#include <category/mpt/state_machine.hpp>
+#include <category/mpt2/db.hpp>
+#include <category/mpt2/state_machine.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -19,7 +19,7 @@ MONAD_NAMESPACE_BEGIN
 
 struct BlockHeader;
 
-struct MachineBase : public mpt::StateMachine
+struct MachineBase : public mpt2::StateMachine
 {
     static constexpr uint64_t TABLE_PREFIX_LEN = 1;
     static constexpr uint64_t TOP_NIBBLE_PREFIX_LEN = 1;
@@ -56,7 +56,7 @@ struct MachineBase : public mpt::StateMachine
     TrieType trie_section{TrieType::Undefined};
     TableType table{TableType::Prefix};
 
-    virtual mpt::Compute &get_compute() const override;
+    virtual mpt2::Compute &get_compute() const override;
     virtual void down(unsigned char const nibble) override;
     virtual void up(size_t const n) override;
     virtual bool is_variable_length() const override;
@@ -73,14 +73,12 @@ static_assert(alignof(MachineBase) == 8);
 
 struct InMemoryMachine final : public MachineBase
 {
-    virtual bool cache() const override;
     virtual bool compact() const override;
     virtual std::unique_ptr<StateMachine> clone() const override;
 };
 
 struct OnDiskMachine : public MachineBase
 {
-    virtual bool cache() const override;
     virtual bool compact() const override;
     virtual bool auto_expire() const override;
     virtual std::unique_ptr<StateMachine> clone() const override;
@@ -100,25 +98,26 @@ inline constexpr unsigned char TX_HASH_NIBBLE = 7;
 inline constexpr unsigned char BLOCK_HASH_NIBBLE = 8;
 inline constexpr unsigned char CALL_FRAME_NIBBLE = 9;
 inline constexpr unsigned char INVALID_NIBBLE = 255;
-inline mpt::Nibbles const state_nibbles = mpt::concat(STATE_NIBBLE);
-inline mpt::Nibbles const code_nibbles = mpt::concat(CODE_NIBBLE);
-inline mpt::Nibbles const receipt_nibbles = mpt::concat(RECEIPT_NIBBLE);
-inline mpt::Nibbles const call_frame_nibbles = mpt::concat(CALL_FRAME_NIBBLE);
-inline mpt::Nibbles const transaction_nibbles = mpt::concat(TRANSACTION_NIBBLE);
-inline mpt::Nibbles const block_header_nibbles =
-    mpt::concat(BLOCKHEADER_NIBBLE);
-inline mpt::Nibbles const ommer_nibbles = mpt::concat(OMMER_NIBBLE);
-inline mpt::Nibbles const withdrawal_nibbles = mpt::concat(WITHDRAWAL_NIBBLE);
-inline mpt::Nibbles const tx_hash_nibbles = mpt::concat(TX_HASH_NIBBLE);
-inline mpt::Nibbles const block_hash_nibbles = mpt::concat(BLOCK_HASH_NIBBLE);
+inline mpt2::Nibbles const state_nibbles = mpt2::concat(STATE_NIBBLE);
+inline mpt2::Nibbles const code_nibbles = mpt2::concat(CODE_NIBBLE);
+inline mpt2::Nibbles const receipt_nibbles = mpt2::concat(RECEIPT_NIBBLE);
+inline mpt2::Nibbles const call_frame_nibbles = mpt2::concat(CALL_FRAME_NIBBLE);
+inline mpt2::Nibbles const transaction_nibbles =
+    mpt2::concat(TRANSACTION_NIBBLE);
+inline mpt2::Nibbles const block_header_nibbles =
+    mpt2::concat(BLOCKHEADER_NIBBLE);
+inline mpt2::Nibbles const ommer_nibbles = mpt2::concat(OMMER_NIBBLE);
+inline mpt2::Nibbles const withdrawal_nibbles = mpt2::concat(WITHDRAWAL_NIBBLE);
+inline mpt2::Nibbles const tx_hash_nibbles = mpt2::concat(TX_HASH_NIBBLE);
+inline mpt2::Nibbles const block_hash_nibbles = mpt2::concat(BLOCK_HASH_NIBBLE);
 
 //////////////////////////////////////////////////////////
 // Proposed and finialized subtries. Active on all tables.
 //////////////////////////////////////////////////////////
 inline constexpr unsigned char PROPOSAL_NIBBLE = 0;
 inline constexpr unsigned char FINALIZED_NIBBLE = 1;
-inline mpt::Nibbles const proposal_nibbles = mpt::concat(PROPOSAL_NIBBLE);
-inline mpt::Nibbles const finalized_nibbles = mpt::concat(FINALIZED_NIBBLE);
+inline mpt2::Nibbles const proposal_nibbles = mpt2::concat(PROPOSAL_NIBBLE);
+inline mpt2::Nibbles const finalized_nibbles = mpt2::concat(FINALIZED_NIBBLE);
 
 byte_string encode_account_db(Address const &, Account const &);
 byte_string encode_storage_db(bytes32_t const &, bytes32_t const &);
@@ -142,21 +141,22 @@ void write_to_file(
     uint64_t block_number);
 
 void load_from_binary(
-    mpt::Db &, std::istream &accounts, std::istream &code,
+    mpt2::Db &, std::istream &accounts, std::istream &code,
     uint64_t init_block_number = 0,
     size_t buf_size = 1ul << 32); // TODO: dynamic loading
 
-void load_header(mpt::Db &, BlockHeader const &);
+void load_header(mpt2::Db &, BlockHeader const &);
 
-mpt::Nibbles proposal_prefix(bytes32_t const &);
+mpt2::Nibbles proposal_prefix(bytes32_t const &);
 
-std::vector<bytes32_t> get_proposal_block_ids(mpt::Db &, uint64_t block_number);
+std::vector<bytes32_t>
+get_proposal_block_ids(mpt2::Db &, uint64_t block_number);
 
 std::optional<BlockHeader>
-read_eth_header(mpt::Db const &db, uint64_t block, mpt::NibblesView prefix);
+read_eth_header(mpt2::Db const &db, uint64_t block, mpt2::NibblesView prefix);
 
 bool for_each_code(
-    mpt::Db &, uint64_t block,
+    mpt2::Db &, uint64_t block,
     std::function<void(bytes32_t const &, byte_string_view)>);
 
 MONAD_NAMESPACE_END

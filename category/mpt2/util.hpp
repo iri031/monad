@@ -33,6 +33,7 @@ using MONAD_MPT_NAMESPACE::empty_trie_hash;
 using MONAD_MPT_NAMESPACE::INVALID_COMPACT_VIRTUAL_OFFSET;
 using MONAD_MPT_NAMESPACE::INVALID_VIRTUAL_OFFSET;
 using MONAD_MPT_NAMESPACE::MIN_COMPACT_VIRTUAL_OFFSET;
+using MONAD_MPT_NAMESPACE::serialize_as_big_endian;
 using MONAD_MPT_NAMESPACE::virtual_chunk_offset_t;
 using MONAD_MPT_NAMESPACE::virtual_chunk_offset_t_hasher;
 

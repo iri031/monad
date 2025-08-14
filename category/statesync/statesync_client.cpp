@@ -17,7 +17,7 @@
 #include <optional>
 
 using namespace monad;
-using namespace monad::mpt;
+using namespace monad::mpt2;
 
 unsigned const MONAD_SQPOLL_DISABLED = unsigned(-1);
 
@@ -86,8 +86,9 @@ void monad_statesync_client_handle_target(
     monad_statesync_client_context *const ctx, unsigned char const *const data,
     uint64_t const size)
 {
-    MONAD_ASSERT(std::ranges::all_of(
-        ctx->protocol, [](auto const &ptr) { return ptr != nullptr; }))
+    MONAD_ASSERT(std::ranges::all_of(ctx->protocol, [](auto const &ptr) {
+        return ptr != nullptr;
+    }))
 
     byte_string_view raw{data, size};
     auto const res = rlp::decode_block_header(raw);

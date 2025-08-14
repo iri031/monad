@@ -6,7 +6,7 @@
 #include <category/execution/ethereum/core/block.hpp>
 #include <category/execution/ethereum/db/block_db.hpp>
 #include <category/execution/ethereum/db/util.hpp>
-#include <category/mpt/db.hpp>
+#include <category/mpt2/db.hpp>
 
 #include <quill/LogLevel.h>
 #include <quill/Quill.h>
@@ -85,19 +85,21 @@ void BlockHashChain::propose(
 {
     for (auto it = proposals_.begin(); it != proposals_.end(); ++it) {
         if (it->block_id == parent_id) {
-            proposals_.emplace_back(Proposal{
-                .block_number = block_number,
-                .block_id = block_id,
-                .parent_id = parent_id,
-                .buf = BlockHashBufferProposal(hash, it->buf)});
+            proposals_.emplace_back(
+                Proposal{
+                    .block_number = block_number,
+                    .block_id = block_id,
+                    .parent_id = parent_id,
+                    .buf = BlockHashBufferProposal(hash, it->buf)});
             return;
         }
     }
-    proposals_.emplace_back(Proposal{
-        .block_number = block_number,
-        .block_id = block_id,
-        .parent_id = parent_id,
-        .buf = BlockHashBufferProposal(hash, buf_)});
+    proposals_.emplace_back(
+        Proposal{
+            .block_number = block_number,
+            .block_id = block_id,
+            .parent_id = parent_id,
+            .buf = BlockHashBufferProposal(hash, buf_)});
 }
 
 void BlockHashChain::finalize(bytes32_t const &block_id)
@@ -138,15 +140,15 @@ BlockHashChain::find_chain(bytes32_t const &block_id) const
 }
 
 bool init_block_hash_buffer_from_triedb(
-    mpt::Db &rodb, uint64_t const block_number,
+    mpt2::Db &rodb, uint64_t const block_number,
     BlockHashBufferFinalized &block_hash_buffer)
 {
     for (uint64_t b = block_number < 256 ? 0 : block_number - 256;
          b < block_number;
          ++b) {
         auto const header = rodb.get(
-            mpt::concat(
-                FINALIZED_NIBBLE, mpt::NibblesView{block_header_nibbles}),
+            mpt2::concat(
+                FINALIZED_NIBBLE, mpt2::NibblesView{block_header_nibbles}),
             b);
         if (!header.has_value()) {
             LOG_WARNING(

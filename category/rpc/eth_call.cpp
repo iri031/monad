@@ -26,9 +26,9 @@
 #include <category/execution/monad/chain/monad_mainnet.hpp>
 #include <category/execution/monad/chain/monad_testnet.hpp>
 #include <category/execution/monad/chain/monad_testnet2.hpp>
-#include <category/mpt/db_error.hpp>
-#include <category/mpt/ondisk_db_config.hpp>
-#include <category/mpt/util.hpp>
+#include <category/mpt2/db_error.hpp>
+#include <category/mpt2/ondisk_db_config.hpp>
+#include <category/mpt2/util.hpp>
 #include <category/rpc/eth_call.h>
 
 #include <boost/fiber/future/promise.hpp>
@@ -95,11 +95,12 @@ namespace
         size_t const max_code_size =
             chain.get_max_code_size(header.number, header.timestamp);
 
-        BOOST_OUTCOME_TRY(static_validate_transaction<rev>(
-            enriched_txn,
-            header.base_fee_per_gas,
-            chain.get_chain_id(),
-            max_code_size));
+        BOOST_OUTCOME_TRY(
+            static_validate_transaction<rev>(
+                enriched_txn,
+                header.base_fee_per_gas,
+                chain.get_chain_id(),
+                max_code_size));
 
         tdb.set_block_and_prefix(block_number, block_id);
         BlockState block_state{tdb, vm};
@@ -415,7 +416,7 @@ struct monad_eth_call_executor
     uint64_t call_count_{0};
     std::atomic<unsigned> high_pool_queued_count_{0};
 
-    mpt::RODb db_;
+    mpt2::RODb db_;
 
     // The VM for executing eth calls needs to unconditionally use the
     // interpreter rather than the compiler. If it uses the compiler, then
@@ -447,9 +448,9 @@ struct monad_eth_call_executor
             // create the db instances on the PriorityPool thread so all the
             // thread local storage gets instantiated on the one thread its
             // used
-            auto const config = mpt::ReadOnlyOnDiskDbConfig{
+            auto const config = mpt2::ReadOnlyOnDiskDbConfig{
                 .dbname_paths = paths, .node_lru_size = node_lru_size};
-            return mpt::RODb{config};
+            return mpt2::RODb{config};
         }()}
     {
     }
@@ -469,9 +470,9 @@ struct monad_eth_call_executor
             BOOST_OUTCOME_TRY(
                 auto header_cursor,
                 db.find(
-                    mpt::concat(
+                    mpt2::concat(
                         FINALIZED_NIBBLE,
-                        mpt::NibblesView{block_header_nibbles}),
+                        mpt2::NibblesView{block_header_nibbles}),
                     b));
             return to_bytes(keccak256(header_cursor.node->value()));
         };

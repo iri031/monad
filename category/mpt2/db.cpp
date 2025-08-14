@@ -163,11 +163,21 @@ AsyncIOContext::AsyncIOContext(OnDiskDbConfig const &options)
 
 class Db::ROOnDiskBlocking final : public Db::Impl
 {
+    storage::DbStorage db_storage_;
     UpdateAux aux_;
     chunk_offset_t last_loaded_root_offset_;
     Node *root_;
 
 public:
+    explicit ROOnDiskBlocking(ReadOnlyOnDiskDbConfig const &options)
+        : db_storage_{options.dbname_paths[0], monad::storage::DbStorage::Mode::open_existing}
+        , aux_(db_storage_, std::nullopt)
+        , last_loaded_root_offset_{db_storage_.get_root_offset_at_version(
+              db_storage_.db_history_max_version())}
+    {
+    }
+
+#if 0
     explicit ROOnDiskBlocking(storage::DbStorage &storage)
         : aux_(storage, std::nullopt)
         , last_loaded_root_offset_{storage.get_root_offset_at_version(
@@ -178,6 +188,7 @@ public:
                   : aux_.parse_node(last_loaded_root_offset_)}
     {
     }
+#endif
 
     virtual ~ROOnDiskBlocking() {}
 
@@ -1016,6 +1027,12 @@ Db::Db(StateMachine &machine, OnDiskDbConfig const &config)
     : impl_{std::make_unique<RWOnDisk>(config, machine)}
 {
     MONAD_DEBUG_ASSERT(impl_->aux().is_on_disk());
+}
+
+Db::Db(ReadOnlyOnDiskDbConfig const &options)
+    : impl_{std::make_unique<ROOnDiskBlocking>(options)}
+{
+    MONAD_DEBUG_ASSERT(impl_->aux().is_read_only());
 }
 
 #if 0

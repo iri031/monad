@@ -6,8 +6,9 @@
 #include <category/execution/ethereum/core/rlp/block_rlp.hpp>
 #include <category/execution/ethereum/db/db_snapshot.h>
 #include <category/execution/ethereum/db/util.hpp>
-#include <category/mpt/db.hpp>
-#include <category/mpt/ondisk_db_config.hpp>
+#include <category/mpt2/db.hpp>
+#include <category/mpt2/ondisk_db_config.hpp>
+#include <category/mpt2/traverse.hpp>
 
 #include <ankerl/unordered_dense.h>
 #include <quill/Quill.h>
@@ -24,16 +25,16 @@ struct monad_db_snapshot_loader
 {
     uint64_t block;
     monad::OnDiskMachine machine;
-    monad::mpt::Db db;
+    monad::mpt2::Db db;
     std::array<monad::byte_string, 256> eth_headers;
     std::deque<monad::hash256> hash_alloc;
-    std::deque<monad::mpt::Update> update_alloc;
+    std::deque<monad::mpt2::Update> update_alloc;
     std::array<
-        ankerl::unordered_dense::segmented_map<uint64_t, monad::mpt::Update>,
+        ankerl::unordered_dense::segmented_map<uint64_t, monad::mpt2::Update>,
         MONAD_SNAPSHOT_SHARDS>
         account_offset_to_update;
-    monad::mpt::UpdateList state_updates;
-    monad::mpt::UpdateList code_updates;
+    monad::mpt2::UpdateList state_updates;
+    monad::mpt2::UpdateList code_updates;
     uint64_t bytes_read;
 
     monad_db_snapshot_loader(
@@ -41,7 +42,7 @@ struct monad_db_snapshot_loader
         size_t const len, unsigned const sq_thread_cpu)
         : block{block}
         , db{machine,
-             monad::mpt::OnDiskDbConfig{
+             monad::mpt2::OnDiskDbConfig{
                  .append = true,
                  .compaction = false,
                  .rd_buffers = 8192,
@@ -59,7 +60,7 @@ struct monad_db_snapshot_loader
 
 MONAD_ANONYMOUS_NAMESPACE_BEGIN
 
-uint64_t get_shard(monad::mpt::NibblesView const path)
+uint64_t get_shard(monad::mpt2::NibblesView const path)
 {
     uint64_t ret = 0;
     for (unsigned i = 0; i < MONAD_SNAPSHOT_SHARD_NIBBLES; ++i) {
@@ -73,7 +74,7 @@ uint64_t get_shard(monad::mpt::NibblesView const path)
 void monad_db_snapshot_loader_flush(monad_db_snapshot_loader *const loader)
 {
     using namespace monad;
-    using namespace monad::mpt;
+    using namespace monad::mpt2;
 
     Update state_update{
         .key = state_nibbles,
@@ -118,7 +119,8 @@ uint64_t monad_db_snapshot_loader_read_account(
     uint64_t const account_offset, monad::byte_string_view const accounts)
 {
     using namespace monad;
-    using namespace monad::mpt;
+    using namespace monad::mpt2;
+
     byte_string_view bytes{accounts.substr(account_offset)};
     byte_string_view const before{bytes};
     auto const res = decode_account_db_raw(bytes);
@@ -141,10 +143,10 @@ uint64_t monad_db_snapshot_loader_read_account(
     return bytes_consumed;
 }
 
-struct MonadSnapshotTraverseMachine : public monad::mpt::TraverseMachine
+struct MonadSnapshotTraverseMachine : public monad::mpt2::TraverseMachine
 {
     unsigned char nibble;
-    monad::mpt::Nibbles path;
+    monad::mpt2::Nibbles path;
     std::array<uint64_t, MONAD_SNAPSHOT_SHARDS> &account_bytes_written;
     uint64_t account_offset;
     uint64_t (*write)(
@@ -158,7 +160,7 @@ struct MonadSnapshotTraverseMachine : public monad::mpt::TraverseMachine
             uint64_t shard, monad_snapshot_type, unsigned char const *bytes,
             size_t len, void *user),
         void *user)
-        : nibble{monad::mpt::INVALID_BRANCH}
+        : nibble{monad::mpt2::INVALID_BRANCH}
         , path{}
         , account_bytes_written{account_bytes_written}
         , account_offset{std::numeric_limits<uint64_t>::max()}
@@ -168,10 +170,10 @@ struct MonadSnapshotTraverseMachine : public monad::mpt::TraverseMachine
     }
 
     virtual bool
-    down(unsigned char const branch, monad::mpt::Node const &node) override
+    down(unsigned char const branch, monad::mpt2::Node const &node) override
     {
         using namespace monad;
-        using namespace monad::mpt;
+        using namespace monad::mpt2;
         constexpr unsigned HASH_SIZE = KECCAK256_SIZE * 2;
 
         if (branch == INVALID_BRANCH) {
@@ -233,13 +235,13 @@ struct MonadSnapshotTraverseMachine : public monad::mpt::TraverseMachine
         return true;
     }
 
-    virtual void up(unsigned char const, monad::mpt::Node const &node) override
+    virtual void up(unsigned char const, monad::mpt2::Node const &node) override
     {
         if (path.nibble_size() == 0) {
-            nibble = monad::mpt::INVALID_BRANCH;
+            nibble = monad::mpt2::INVALID_BRANCH;
             return;
         }
-        monad::mpt::NibblesView const view{path};
+        monad::mpt2::NibblesView const view{path};
         path = view.substr(0, view.nibble_size() - 1 - node.path_nibbles_len());
     }
 
@@ -249,10 +251,10 @@ struct MonadSnapshotTraverseMachine : public monad::mpt::TraverseMachine
     }
 
     virtual bool
-    should_visit(monad::mpt::Node const &, unsigned char const branch) override
+    should_visit(monad::mpt2::Node const &, unsigned char const branch) override
     {
         using namespace monad;
-        using namespace monad::mpt;
+        using namespace monad::mpt2;
         if (path.nibble_size() == 0 && nibble == INVALID_BRANCH) {
             MONAD_ASSERT(branch != INVALID_BRANCH);
             return branch == STATE_NIBBLE || branch == CODE_NIBBLE;
@@ -279,15 +281,14 @@ bool monad_db_dump_snapshot(
     void *const user)
 {
     using namespace monad;
-    using namespace monad::mpt;
+    using namespace monad::mpt2;
 
     ReadOnlyOnDiskDbConfig const config{
         .sq_thread_cpu = sq_thread_cpu != std::numeric_limits<unsigned>::max()
                              ? std::make_optional(sq_thread_cpu)
                              : std::nullopt,
         .dbname_paths = {dbname_paths, dbname_paths + len}};
-    AsyncIOContext io_context{config};
-    Db db{io_context};
+    Db db{config};
 
     for (uint64_t b = block < 256 ? 0 : block - 255; b <= block; ++b) {
         auto const header = db.get(
@@ -354,7 +355,7 @@ void monad_db_snapshot_loader_load(
     unsigned char const *const code, size_t const code_len)
 {
     using namespace monad;
-    using namespace monad::mpt;
+    using namespace monad::mpt2;
     constexpr size_t BYTES_READ_BEFORE_FLUSH = 10ull * 1024 * 1024 * 1024;
     MONAD_ASSERT(loader);
     if (account) {
@@ -386,12 +387,13 @@ void monad_db_snapshot_loader_load(
             MONAD_ASSERT(res.has_value());
             auto &update = account_offset_to_update.at(account_offset);
             uint64_t const consumed = before.size() - storage_view.size();
-            update.next.push_front(loader->update_alloc.emplace_back(Update{
-                .key = loader->hash_alloc.emplace_back(
-                    keccak256(to_bytes(res.value().first))),
-                .value = before.substr(0, consumed),
-                .next = UpdateList{},
-                .version = static_cast<int64_t>(loader->block)}));
+            update.next.push_front(loader->update_alloc.emplace_back(
+                Update{
+                    .key = loader->hash_alloc.emplace_back(
+                        keccak256(to_bytes(res.value().first))),
+                    .value = before.substr(0, consumed),
+                    .next = UpdateList{},
+                    .version = static_cast<int64_t>(loader->block)}));
             loader->bytes_read += consumed;
             if (loader->bytes_read >= BYTES_READ_BEFORE_FLUSH) {
                 monad_db_snapshot_loader_flush(loader);
@@ -407,8 +409,8 @@ void monad_db_snapshot_loader_load(
             code_view.remove_prefix(sizeof(uint64_t));
             MONAD_ASSERT(code_view.size() >= size);
             byte_string_view const val = code_view.substr(0, size);
-            loader->code_updates.push_front(
-                loader->update_alloc.emplace_back(Update{
+            loader->code_updates.push_front(loader->update_alloc.emplace_back(
+                Update{
                     .key = loader->hash_alloc.emplace_back(keccak256(val)),
                     .value = val,
                     .incarnation = false,
@@ -436,7 +438,7 @@ void monad_db_snapshot_loader_load(
 void monad_db_snapshot_loader_destroy(monad_db_snapshot_loader *loader)
 {
     using namespace monad;
-    using namespace monad::mpt;
+    using namespace monad::mpt2;
     for (size_t i = 0; i < loader->eth_headers.size(); ++i) {
         auto const &enc = loader->eth_headers[i];
         if (enc.empty()) {

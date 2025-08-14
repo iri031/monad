@@ -9,10 +9,10 @@
 #include <category/execution/ethereum/db/db.hpp>
 #include <category/execution/ethereum/db/util.hpp>
 #include <category/execution/ethereum/trace/call_frame.hpp>
-#include <category/mpt/compute.hpp>
-#include <category/mpt/db.hpp>
-#include <category/mpt/ondisk_db_config.hpp>
-#include <category/mpt/state_machine.hpp>
+#include <category/mpt2/compute.hpp>
+#include <category/mpt2/db.hpp>
+#include <category/mpt2/ondisk_db_config.hpp>
+#include <category/mpt2/state_machine.hpp>
 #include <category/vm/vm.hpp>
 
 #include <nlohmann/json.hpp>
@@ -28,17 +28,17 @@ MONAD_NAMESPACE_BEGIN
 
 class TrieDb final : public ::monad::Db
 {
-    ::monad::mpt::Db &db_;
-    std::deque<mpt::Update> update_alloc_;
+    ::monad::mpt2::Db &db_;
+    std::deque<mpt2::Update> update_alloc_;
     std::deque<byte_string> bytes_alloc_;
     std::deque<hash256> hash_alloc_;
     uint64_t block_number_;
     // bytes32_t{} represent finalized
     bytes32_t proposal_block_id_;
-    ::monad::mpt::Nibbles prefix_;
+    ::monad::mpt2::Nibbles prefix_;
 
 public:
-    TrieDb(mpt::Db &);
+    TrieDb(mpt2::Db &);
     ~TrieDb();
 
     virtual std::optional<Account> read_account(Address const &) override;
@@ -101,7 +101,7 @@ private:
         n_storage_value_.fetch_add(1, std::memory_order_release);
     }
 
-    bytes32_t merkle_root(mpt::Nibbles const &);
+    bytes32_t merkle_root(mpt2::Nibbles const &);
 };
 
 MONAD_NAMESPACE_END

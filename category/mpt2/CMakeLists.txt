@@ -43,6 +43,7 @@ monad_compile_options(monad_trie2)
 target_link_libraries(monad_trie2 PUBLIC monad_storage)
 target_link_libraries(monad_trie2 PUBLIC quill::quill) # TODO: remove
 target_link_libraries(monad_trie2 PUBLIC concurrentqueue)
+target_link_libraries(monad_trie2 PUBLIC monad_async)
 
 function(add_mpt_test)
   set(ONE_VALUE_ARGS TARGET TEST_FILTER)

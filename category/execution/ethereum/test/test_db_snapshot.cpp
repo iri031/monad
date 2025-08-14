@@ -7,8 +7,8 @@
 #include <category/execution/ethereum/db/trie_db.hpp>
 #include <category/execution/ethereum/db/util.hpp>
 #include <category/execution/monad/core/monad_block.hpp>
-#include <category/mpt/db.hpp>
-#include <category/mpt/ondisk_db_config.hpp>
+#include <category/mpt2/db.hpp>
+#include <category/mpt2/ondisk_db_config.hpp>
 
 #include <ankerl/unordered_dense.h>
 #include <gtest/gtest.h>
@@ -30,9 +30,9 @@ namespace
         ::close(fd);
         char const *const path = dbname.c_str();
         monad::OnDiskMachine machine;
-        monad::mpt::Db const db{
+        monad::mpt2::Db const db{
             machine,
-            monad::mpt::OnDiskDbConfig{
+            monad::mpt2::OnDiskDbConfig{
                 .append = false, .dbname_paths = {path}}};
         return dbname;
     }
@@ -50,7 +50,7 @@ TEST(DbBinarySnapshot, Basic)
     BlockHeader last_header;
     {
         OnDiskMachine machine;
-        mpt::Db db{machine, OnDiskDbConfig{.dbname_paths = {src_db}}};
+        mpt2::Db db{machine, OnDiskDbConfig{.dbname_paths = {src_db}}};
         for (uint64_t i = 0; i < 100; ++i) {
             load_header(db, BlockHeader{.number = i});
         }
@@ -115,7 +115,7 @@ TEST(DbBinarySnapshot, Basic)
     {
         AsyncIOContext io_context{
             ReadOnlyOnDiskDbConfig{.dbname_paths = {dest_db}}};
-        mpt::Db db{io_context};
+        mpt2::Db db{io_context};
         TrieDb tdb{db};
         for (uint64_t i = 0; i < 100; ++i) {
             tdb.set_block_and_prefix(i);

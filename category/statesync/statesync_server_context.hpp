@@ -3,7 +3,7 @@
 #include <category/core/byte_string.hpp>
 #include <category/core/config.hpp>
 #include <category/execution/ethereum/db/db.hpp>
-#include <category/mpt/db.hpp>
+#include <category/mpt2/db.hpp>
 
 #include <array>
 #include <deque>
@@ -77,7 +77,7 @@ MONAD_NAMESPACE_END
 struct monad_statesync_server_context final : public monad::Db
 {
     monad::TrieDb &rw;
-    monad::mpt::Db *ro;
+    monad::mpt2::Db *ro;
     std::deque<monad::ProposedDeletions> proposals;
     monad::FinalizedDeletions deletions;
 

@@ -10,8 +10,6 @@
 #include <category/core/io/ring.hpp>
 #include <category/core/lru/static_lru_cache.hpp>
 #include <category/core/result.hpp>
-#include <category/mpt/find_request_sender.hpp>
-#include <category/mpt/traverse.hpp>
 #include <category/mpt2/config.hpp>
 #include <category/mpt2/nibbles_view.hpp>
 #include <category/mpt2/node.hpp>
@@ -68,8 +66,6 @@ public:
 class Db
 {
 private:
-    friend struct AsyncContext;
-
     struct Impl;
     class RWOnDisk;
     class ROOnDiskBlocking;
@@ -80,7 +76,7 @@ private:
 public:
     Db(StateMachine &); // In-memory mode
     Db(StateMachine &, OnDiskDbConfig const &);
-    Db(AsyncIOContext &);
+    Db(ReadOnlyOnDiskDbConfig const &options);
 
     Db(Db const &) = delete;
     Db(Db &&) = delete;

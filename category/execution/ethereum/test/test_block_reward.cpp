@@ -32,7 +32,7 @@ TEST(BlockReward, apply_block_reward)
     // Frontier
     {
         InMemoryMachine machine;
-        mpt::Db db{machine};
+        mpt2::Db db{machine};
         db_t tdb{db};
         vm::VM vm;
         commit_sequential(
@@ -68,7 +68,7 @@ TEST(BlockReward, apply_block_reward)
     // Byzantium
     {
         InMemoryMachine machine;
-        mpt::Db db{machine};
+        mpt2::Db db{machine};
         db_t tdb{db};
         vm::VM vm;
         BlockState bs{tdb, vm};
@@ -100,7 +100,7 @@ TEST(BlockReward, apply_block_reward)
     // Constantinople_and_petersburg
     {
         InMemoryMachine machine;
-        mpt::Db db{machine};
+        mpt2::Db db{machine};
         db_t tdb{db};
         vm::VM vm;
         BlockState bs{tdb, vm};
@@ -131,7 +131,7 @@ TEST(BlockReward, apply_block_reward)
         block.header.beneficiary = a;
 
         InMemoryMachine machine;
-        mpt::Db db{machine};
+        mpt2::Db db{machine};
         db_t tdb{db};
         vm::VM vm;
         BlockState bs{tdb, vm};

@@ -21,15 +21,15 @@
 #include <category/execution/ethereum/rlp/decode.hpp>
 #include <category/execution/ethereum/rlp/decode_error.hpp>
 #include <category/execution/ethereum/rlp/encode2.hpp>
-#include <category/mpt/compute.hpp>
-#include <category/mpt/db.hpp>
-#include <category/mpt/nibbles_view.hpp>
-#include <category/mpt/node.hpp>
-#include <category/mpt/ondisk_db_config.hpp>
-#include <category/mpt/state_machine.hpp>
-#include <category/mpt/traverse.hpp>
-#include <category/mpt/update.hpp>
-#include <category/mpt/util.hpp>
+#include <category/mpt2/compute.hpp>
+#include <category/mpt2/db.hpp>
+#include <category/mpt2/nibbles_view.hpp>
+#include <category/mpt2/node.hpp>
+#include <category/mpt2/ondisk_db_config.hpp>
+#include <category/mpt2/state_machine.hpp>
+#include <category/mpt2/traverse.hpp>
+#include <category/mpt2/update.hpp>
+#include <category/mpt2/util.hpp>
 
 #include <boost/outcome/try.hpp>
 
@@ -58,7 +58,7 @@
 
 MONAD_NAMESPACE_BEGIN
 
-using namespace monad::mpt;
+using namespace monad::mpt2;
 
 namespace
 {
@@ -68,8 +68,9 @@ namespace
         if (nibbles.begin_nibble()) { // not left-aligned
             Nibbles const compact_nibbles = nibbles.substr(0);
             MONAD_ASSERT(compact_nibbles.data_size() == sizeof(bytes32_t));
-            return to_bytes(byte_string_view{
-                compact_nibbles.data(), compact_nibbles.data_size()});
+            return to_bytes(
+                byte_string_view{
+                    compact_nibbles.data(), compact_nibbles.data_size()});
         }
         MONAD_ASSERT(nibbles.data_size() == sizeof(bytes32_t));
         return to_bytes(byte_string_view{nibbles.data(), nibbles.data_size()});
@@ -80,8 +81,8 @@ namespace
     private:
         static constexpr uint64_t CHUNK_SIZE = 1ul << 13; // 8 kb
 
-        ::monad::mpt::Db &db_;
-        std::deque<mpt::Update> update_alloc_;
+        ::monad::mpt2::Db &db_;
+        std::deque<mpt2::Update> update_alloc_;
         std::deque<byte_string> bytes_alloc_;
         size_t buf_size_;
         std::unique_ptr<unsigned char[]> buf_;
@@ -89,7 +90,7 @@ namespace
 
     public:
         BinaryDbLoader(
-            ::monad::mpt::Db &db, size_t buf_size, uint64_t const block_id)
+            ::monad::mpt2::Db &db, size_t buf_size, uint64_t const block_id)
             : db_{db}
             , buf_size_{buf_size}
             , buf_{std::make_unique_for_overwrite<unsigned char[]>(buf_size)}
@@ -253,12 +254,13 @@ namespace
                 if (in.size() < entry_size) {
                     return total_processed;
                 }
-                code_updates.push_front(update_alloc_.emplace_back(Update{
-                    .key = in.substr(0, sizeof(bytes32_t)),
-                    .value = in.substr(hash_and_len_size, code_len),
-                    .incarnation = false,
-                    .next = UpdateList{},
-                    .version = static_cast<int64_t>(block_id_)}));
+                code_updates.push_front(update_alloc_.emplace_back(
+                    Update{
+                        .key = in.substr(0, sizeof(bytes32_t)),
+                        .value = in.substr(hash_and_len_size, code_len),
+                        .incarnation = false,
+                        .next = UpdateList{},
+                        .version = static_cast<int64_t>(block_id_)}));
 
                 total_processed += entry_size;
                 in = in.substr(entry_size);
@@ -296,17 +298,19 @@ namespace
         {
             UpdateList storage_updates;
             while (!in.empty()) {
-                storage_updates.push_front(update_alloc_.emplace_back(Update{
-                    .key = in.substr(0, sizeof(bytes32_t)),
-                    .value = bytes_alloc_.emplace_back(encode_storage_db(
-                        bytes32_t{}, // TODO: update this when binary checkpoint
-                                     // includes unhashed storage slot
-                        unaligned_load<bytes32_t>(
-                            in.substr(sizeof(bytes32_t), sizeof(bytes32_t))
-                                .data()))),
-                    .incarnation = false,
-                    .next = UpdateList{},
-                    .version = static_cast<int64_t>(block_id_)}));
+                storage_updates.push_front(update_alloc_.emplace_back(
+                    Update{
+                        .key = in.substr(0, sizeof(bytes32_t)),
+                        .value = bytes_alloc_.emplace_back(encode_storage_db(
+                            bytes32_t{}, // TODO: update this when binary
+                                         // checkpoint includes unhashed storage
+                                         // slot
+                            unaligned_load<bytes32_t>(
+                                in.substr(sizeof(bytes32_t), sizeof(bytes32_t))
+                                    .data()))),
+                        .incarnation = false,
+                        .next = UpdateList{},
+                        .version = static_cast<int64_t>(block_id_)}));
                 in = in.substr(storage_entry_size);
             }
             return storage_updates;
@@ -456,7 +460,7 @@ constexpr uint8_t MachineBase::prefix_len() const
                                               : FINALIZED_PREFIX_LEN;
 }
 
-mpt::Compute &MachineBase::get_compute() const
+mpt2::Compute &MachineBase::get_compute() const
 {
     static EmptyCompute empty_compute;
 
@@ -588,11 +592,6 @@ void MachineBase::up(size_t const n)
     }
 }
 
-bool InMemoryMachine::cache() const
-{
-    return true;
-}
-
 bool InMemoryMachine::compact() const
 {
     return false;
@@ -601,15 +600,6 @@ bool InMemoryMachine::compact() const
 std::unique_ptr<StateMachine> InMemoryMachine::clone() const
 {
     return std::make_unique<InMemoryMachine>(*this);
-}
-
-bool OnDiskMachine::cache() const
-{
-    constexpr uint64_t CACHE_DEPTH_IN_TABLE = 5;
-    return table == TableType::Prefix ||
-           ((depth <= prefix_len() + CACHE_DEPTH_IN_TABLE) &&
-            (table == TableType::State || table == TableType::Code ||
-             table == TableType::TxHash || table == TableType::BlockHash));
 }
 
 bool OnDiskMachine::compact() const
@@ -750,7 +740,7 @@ void write_to_file(
 }
 
 void load_from_binary(
-    mpt::Db &db, std::istream &accounts, std::istream &code,
+    mpt2::Db &db, std::istream &accounts, std::istream &code,
     uint64_t const init_block_number, size_t const buf_size)
 {
     if (db.root().is_valid()) {
@@ -763,9 +753,9 @@ void load_from_binary(
     loader.load(accounts, code);
 }
 
-void load_header(mpt::Db &db, BlockHeader const &header)
+void load_header(mpt2::Db &db, BlockHeader const &header)
 {
-    using namespace mpt;
+    using namespace mpt2;
 
     UpdateList header_updates;
     UpdateList ls;
@@ -776,10 +766,10 @@ void load_header(mpt::Db &db, BlockHeader const &header)
         .key = block_header_nibbles,
         .value = header_encoded,
         .incarnation = true,
-        .next = mpt::UpdateList{},
+        .next = mpt2::UpdateList{},
         .version = static_cast<int64_t>(n)};
     header_updates.push_front(block_header_update);
-    mpt::Update u{
+    mpt2::Update u{
         .key = finalized_nibbles,
         .value = byte_string_view{},
         .incarnation = false,
@@ -790,13 +780,13 @@ void load_header(mpt::Db &db, BlockHeader const &header)
         std::move(ls), n, false /* compaction */, true /* write_to_fast */);
 }
 
-mpt::Nibbles proposal_prefix(bytes32_t const &block_id)
+mpt2::Nibbles proposal_prefix(bytes32_t const &block_id)
 {
-    return mpt::concat(PROPOSAL_NIBBLE, NibblesView{to_bytes(block_id)});
+    return mpt2::concat(PROPOSAL_NIBBLE, NibblesView{to_bytes(block_id)});
 }
 
 std::vector<bytes32_t>
-get_proposal_block_ids(mpt::Db &db, uint64_t const block_number)
+get_proposal_block_ids(mpt2::Db &db, uint64_t const block_number)
 {
     static constexpr uint64_t PROPOSAL_PREFIX_LEN = 1 + sizeof(bytes32_t) * 2;
 
@@ -842,9 +832,9 @@ get_proposal_block_ids(mpt::Db &db, uint64_t const block_number)
 
         virtual void up(unsigned char const branch, Node const &node) override
         {
-            auto const path_view = monad::mpt::NibblesView{path_};
+            auto const path_view = monad::mpt2::NibblesView{path_};
             unsigned const prefix_size =
-                branch == monad::mpt::INVALID_BRANCH
+                branch == monad::mpt2::INVALID_BRANCH
                     ? 0
                     : path_view.nibble_size() - node.path_nibbles_len() - 1;
             path_ = path_view.substr(0, prefix_size);
@@ -871,10 +861,10 @@ get_proposal_block_ids(mpt::Db &db, uint64_t const block_number)
 }
 
 std::optional<BlockHeader> read_eth_header(
-    mpt::Db const &db, uint64_t const block, mpt::NibblesView prefix)
+    mpt2::Db const &db, uint64_t const block, mpt2::NibblesView prefix)
 {
     auto const query_res =
-        db.get(mpt::concat(prefix, BLOCKHEADER_NIBBLE), block);
+        db.get(mpt2::concat(prefix, BLOCKHEADER_NIBBLE), block);
     if (MONAD_UNLIKELY(!query_res.has_value())) {
         return std::nullopt;
     }
@@ -885,7 +875,7 @@ std::optional<BlockHeader> read_eth_header(
 }
 
 bool for_each_code(
-    mpt::Db &db, uint64_t const block,
+    mpt2::Db &db, uint64_t const block,
     std::function<void(bytes32_t const &, byte_string_view)> const fn)
 {
     class CodeTraverseMachine final : public TraverseMachine
@@ -920,9 +910,9 @@ bool for_each_code(
 
         virtual void up(unsigned char const branch, Node const &node) override
         {
-            auto const path_view = monad::mpt::NibblesView{path_};
+            auto const path_view = monad::mpt2::NibblesView{path_};
             unsigned const prefix_size =
-                branch == monad::mpt::INVALID_BRANCH
+                branch == monad::mpt2::INVALID_BRANCH
                     ? 0
                     : path_view.nibble_size() - node.path_nibbles_len() - 1;
             path_ = path_view.substr(0, prefix_size);
