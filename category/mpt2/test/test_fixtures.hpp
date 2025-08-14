@@ -120,6 +120,17 @@ namespace monad::trie_test
 
         template <class... Updates>
         chunk_offset_t upsert_updates(
+            UpdateAux &aux, chunk_offset_t const root_offset,
+            Updates... updates)
+        {
+            UpdateList ul;
+            (ul.push_front(updates), ...);
+
+            return upsert(aux, *sm, root_offset, std::move(ul));
+        }
+
+        template <class... Updates>
+        chunk_offset_t upsert_updates(
             WriteTransaction &write_tx, chunk_offset_t const root_offset,
             uint64_t const version, Updates... updates)
         {

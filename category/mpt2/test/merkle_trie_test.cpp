@@ -13,7 +13,6 @@ TEST_F(UpdateAuxFixture, simple_inserts)
 
     auto root_offset = upsert_updates(
         aux,
-        *sm,
         INVALID_OFFSET,
         make_update(kv[0].first, kv[0].second),
         make_update(kv[1].first, kv[1].second));
@@ -24,7 +23,6 @@ TEST_F(UpdateAuxFixture, simple_inserts)
 
     root_offset = upsert_updates(
         aux,
-        *sm,
         root_offset,
         make_update(kv[2].first, kv[2].second),
         make_update(kv[3].first, kv[3].second));
@@ -45,13 +43,13 @@ TEST_F(UpdateAuxFixture, insert_and_update)
 
     // single update
     auto root_offset =
-        upsert_updates(aux, *sm, INVALID_OFFSET, make_update(key, val1));
+        upsert_updates(aux, INVALID_OFFSET, make_update(key, val1));
     EXPECT_EQ(
         root_hash(aux.parse_node(root_offset)),
         0xa1aa368afa323866e03c21927db548afda3da793f4d3c646d7dd8109477b907e_hex);
 
     // update again
-    root_offset = upsert_updates(aux, *sm, root_offset, make_update(key, val2));
+    root_offset = upsert_updates(aux, root_offset, make_update(key, val2));
     EXPECT_EQ(
         root_hash(aux.parse_node(root_offset)),
         0x5d225e3b0f1f386171899d343211850f102fa15de6e808c6f614915333a4f3ab_hex);
