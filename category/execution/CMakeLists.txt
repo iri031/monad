@@ -83,15 +83,15 @@ add_library(
   "ethereum/db/block_db.hpp"
   "ethereum/db/db.hpp"
   "ethereum/db/db_cache.hpp"
-  "ethereum/db/db_snapshot.cpp"
-  "ethereum/db/db_snapshot.h"
-  "ethereum/db/db_snapshot_filesystem.cpp"
-  "ethereum/db/db_snapshot_filesystem.h"
+  # "ethereum/db/db_snapshot.cpp"
+  # "ethereum/db/db_snapshot.h"
+  # "ethereum/db/db_snapshot_filesystem.cpp"
+  # "ethereum/db/db_snapshot_filesystem.h"
   "ethereum/db/file_db.cpp"
   "ethereum/db/file_db.hpp"
   "ethereum/db/trie_db.cpp"
   "ethereum/db/trie_db.hpp"
-  "ethereum/db/trie_rodb.hpp"
+  # "ethereum/db/trie_rodb.hpp"
   "ethereum/db/util.cpp"
   "ethereum/db/util.hpp"
   # ethereum/event
@@ -208,7 +208,7 @@ target_link_libraries(
   monad_execution_ethereum
   PUBLIC monad-vm
   PUBLIC monad_core
-  PUBLIC monad_trie
+  PUBLIC monad_trie2
   PRIVATE blst::blst
   PRIVATE Boost::fiber
   PRIVATE Boost::json

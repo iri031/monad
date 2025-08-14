@@ -39,7 +39,7 @@
 #include <category/execution/monad/core/monad_block.hpp>
 #include <category/execution/monad/core/rlp/monad_block_rlp.hpp>
 #include <category/execution/monad/validate_monad_block.hpp>
-#include <category/mpt/db.hpp>
+#include <category/mpt2/db.hpp>
 
 #include <boost/outcome/try.hpp>
 #include <quill/Quill.h>
@@ -88,7 +88,7 @@ void log_tps(
 
 template <class MonadConsensusBlockHeader>
 bool has_executed(
-    mpt::Db const &db, MonadConsensusBlockHeader const &header,
+    mpt2::Db const &db, MonadConsensusBlockHeader const &header,
     bytes32_t const &block_id)
 {
     auto const prefix = proposal_prefix(block_id);
@@ -311,7 +311,7 @@ MONAD_NAMESPACE_BEGIN
 
 Result<std::pair<uint64_t, uint64_t>> runloop_monad(
     MonadChain const &chain, std::filesystem::path const &ledger_dir,
-    mpt::Db &raw_db, Db &db, vm::VM &vm,
+    mpt2::Db &raw_db, Db &db, vm::VM &vm,
     BlockHashBufferFinalized &block_hash_buffer,
     fiber::PriorityPool &priority_pool, uint64_t &finalized_block_num,
     uint64_t const end_block_num, sig_atomic_t const volatile &stop)
@@ -347,7 +347,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
     uint64_t last_finalized_block_number =
         raw_db.get_latest_finalized_version();
 
-    MONAD_ASSERT(last_finalized_block_number != mpt::INVALID_BLOCK_NUM);
+    MONAD_ASSERT(last_finalized_block_number != mpt2::INVALID_BLOCK_NUM);
 
     while (finalized_block_num < end_block_num && stop == 0) {
         to_finalize.clear();
@@ -366,7 +366,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                 bytes32_t const &id, auto const &header) {
                 uint64_t const verified_block =
                     header.delayed_execution_results.empty()
-                        ? mpt::INVALID_BLOCK_NUM
+                        ? mpt2::INVALID_BLOCK_NUM
                         : header.delayed_execution_results.back().number;
                 to_finalize.push_front(ToFinalize{
                     .block = header.seqno,
@@ -474,7 +474,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                 block_id);
             db.finalize(block, block_id);
             block_hash_chain.finalize(block_id);
-            if (verified_block != mpt::INVALID_BLOCK_NUM) {
+            if (verified_block != mpt2::INVALID_BLOCK_NUM) {
                 db.update_verified_block(verified_block);
             }
             finalized_block_num = block;

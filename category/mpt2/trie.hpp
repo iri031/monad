@@ -168,8 +168,11 @@ public:
         chunk_offset_t const src_root, NibblesView const src_prefix,
         uint64_t const dest_version, NibblesView const dest_prefix)
     {
-        return aux_.copy_trie_to_dest(
+        auto const offset = aux_.copy_trie_to_dest(
             src_root, src_prefix, dest_version, dest_prefix);
+        MONAD_ASSERT(
+            aux_.parse_node(offset)->value_len == 2 * sizeof(uint32_t));
+        return offset;
     }
 
     void finish(chunk_offset_t root_offset, uint64_t version)

@@ -259,7 +259,7 @@ add_subdirectory("category/mpt")
 add_subdirectory("category/mpt2")
 add_subdirectory("category/event")
 add_subdirectory("category/execution")
-add_subdirectory("category/rpc")
+# add_subdirectory("category/rpc")
 add_subdirectory("category/statesync")
 add_subdirectory("category/storage")
 add_subdirectory("category/vm")
@@ -274,7 +274,7 @@ target_link_libraries(
          monad_trie
          monad_execution_ethereum
          monad_execution_native
-         monad_rpc
+        #  monad_rpc
          monad_statesync
          monad-vm
          monad-vm-core

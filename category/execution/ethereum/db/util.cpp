@@ -36,15 +36,15 @@
 #include <category/execution/ethereum/rlp/decode.hpp>
 #include <category/execution/ethereum/rlp/decode_error.hpp>
 #include <category/execution/ethereum/rlp/encode2.hpp>
-#include <category/mpt/compute.hpp>
-#include <category/mpt/db.hpp>
-#include <category/mpt/nibbles_view.hpp>
-#include <category/mpt/node.hpp>
-#include <category/mpt/ondisk_db_config.hpp>
-#include <category/mpt/state_machine.hpp>
-#include <category/mpt/traverse.hpp>
-#include <category/mpt/update.hpp>
-#include <category/mpt/util.hpp>
+#include <category/mpt2/compute.hpp>
+#include <category/mpt2/db.hpp>
+#include <category/mpt2/nibbles_view.hpp>
+#include <category/mpt2/node.hpp>
+#include <category/mpt2/ondisk_db_config.hpp>
+#include <category/mpt2/state_machine.hpp>
+// #include <category/mpt/traverse.hpp>
+#include <category/mpt2/update.hpp>
+#include <category/mpt2/util.hpp>
 
 #include <boost/outcome/try.hpp>
 
@@ -73,30 +73,31 @@
 
 MONAD_NAMESPACE_BEGIN
 
-using namespace monad::mpt;
+using namespace monad::mpt2;
 
 namespace
 {
-    bytes32_t to_bytes32(Nibbles const &nibbles)
-    {
-        MONAD_ASSERT(nibbles.nibble_size() == sizeof(bytes32_t) * 2);
-        if (nibbles.begin_nibble()) { // not left-aligned
-            Nibbles const compact_nibbles = nibbles.substr(0);
-            MONAD_ASSERT(compact_nibbles.data_size() == sizeof(bytes32_t));
-            return to_bytes(byte_string_view{
-                compact_nibbles.data(), compact_nibbles.data_size()});
-        }
-        MONAD_ASSERT(nibbles.data_size() == sizeof(bytes32_t));
-        return to_bytes(byte_string_view{nibbles.data(), nibbles.data_size()});
-    }
+    // bytes32_t to_bytes32(Nibbles const &nibbles)
+    // {
+    //     MONAD_ASSERT(nibbles.nibble_size() == sizeof(bytes32_t) * 2);
+    //     if (nibbles.begin_nibble()) { // not left-aligned
+    //         Nibbles const compact_nibbles = nibbles.substr(0);
+    //         MONAD_ASSERT(compact_nibbles.data_size() == sizeof(bytes32_t));
+    //         return to_bytes(byte_string_view{
+    //             compact_nibbles.data(), compact_nibbles.data_size()});
+    //     }
+    //     MONAD_ASSERT(nibbles.data_size() == sizeof(bytes32_t));
+    //     return to_bytes(byte_string_view{nibbles.data(),
+    //     nibbles.data_size()});
+    // }
 
     struct BinaryDbLoader
     {
     private:
         static constexpr uint64_t CHUNK_SIZE = 1ul << 13; // 8 kb
 
-        ::monad::mpt::Db &db_;
-        std::deque<mpt::Update> update_alloc_;
+        ::monad::mpt2::Db &db_;
+        std::deque<mpt2::Update> update_alloc_;
         std::deque<byte_string> bytes_alloc_;
         size_t buf_size_;
         std::unique_ptr<unsigned char[]> buf_;
@@ -104,7 +105,7 @@ namespace
 
     public:
         BinaryDbLoader(
-            ::monad::mpt::Db &db, size_t buf_size, uint64_t const block_id)
+            ::monad::mpt2::Db &db, size_t buf_size, uint64_t const block_id)
             : db_{db}
             , buf_size_{buf_size}
             , buf_{std::make_unique_for_overwrite<unsigned char[]>(buf_size)}
@@ -139,8 +140,12 @@ namespace
                         .version = static_cast<int64_t>(block_id_),
                     };
                     finalized_updates.push_front(finalized);
-                    db_.upsert(
-                        std::move(finalized_updates), block_id_, false, false);
+                    db_.upsert_transaction(
+                        block_id_,
+                        std::move(finalized_updates),
+                        block_id_,
+                        false,
+                        false);
                     db_.update_finalized_version(block_id_);
 
                     update_alloc_.clear();
@@ -170,8 +175,12 @@ namespace
                         .version = static_cast<int64_t>(block_id_),
                     };
                     finalized_updates.push_front(finalized);
-                    db_.upsert(
-                        std::move(finalized_updates), block_id_, false, false);
+                    db_.upsert_transaction(
+                        block_id_,
+                        std::move(finalized_updates),
+                        block_id_,
+                        false,
+                        false);
 
                     update_alloc_.clear();
                     bytes_alloc_.clear();
@@ -471,7 +480,7 @@ constexpr uint8_t MachineBase::prefix_len() const
                                               : FINALIZED_PREFIX_LEN;
 }
 
-mpt::Compute &MachineBase::get_compute() const
+mpt2::Compute &MachineBase::get_compute() const
 {
     static EmptyCompute empty_compute;
 
@@ -603,30 +612,6 @@ void MachineBase::up(size_t const n)
     }
 }
 
-bool InMemoryMachine::cache() const
-{
-    return true;
-}
-
-bool InMemoryMachine::compact() const
-{
-    return false;
-}
-
-std::unique_ptr<StateMachine> InMemoryMachine::clone() const
-{
-    return std::make_unique<InMemoryMachine>(*this);
-}
-
-bool OnDiskMachine::cache() const
-{
-    constexpr uint64_t CACHE_DEPTH_IN_TABLE = 5;
-    return table == TableType::Prefix ||
-           ((depth <= prefix_len() + CACHE_DEPTH_IN_TABLE) &&
-            (table == TableType::State || table == TableType::Code ||
-             table == TableType::TxHash || table == TableType::BlockHash));
-}
-
 bool OnDiskMachine::compact() const
 {
     return depth >= prefix_len();
@@ -742,6 +727,7 @@ Result<byte_string_view> decode_storage_db_ignore_slot(byte_string_view &enc)
     return res.second;
 };
 
+/*
 void write_to_file(
     nlohmann::json const &j, std::filesystem::path const &root_path,
     uint64_t const block_number)
@@ -763,12 +749,13 @@ void write_to_file(
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - start_time));
 }
+*/
 
 void load_from_binary(
-    mpt::Db &db, std::istream &accounts, std::istream &code,
+    mpt2::Db &db, std::istream &accounts, std::istream &code,
     uint64_t const init_block_number, size_t const buf_size)
 {
-    if (db.root().is_valid()) {
+    if (db.get_latest_version() != INVALID_BLOCK_NUM) {
         throw std::runtime_error(
             "Unable to load snapshot to an existing db, truncate the "
             "existing db to empty and try again");
@@ -778,40 +765,41 @@ void load_from_binary(
     loader.load(accounts, code);
 }
 
-void load_header(mpt::Db &db, BlockHeader const &header)
+void load_header(mpt2::Db &db, BlockHeader const &header)
 {
-    using namespace mpt;
+    using namespace mpt2;
 
     UpdateList header_updates;
     UpdateList ls;
-    auto const n = db.is_on_disk() ? header.number : 0;
+    auto const n = header.number;
     auto const header_encoded = rlp::encode_block_header(header);
 
     Update block_header_update{
         .key = block_header_nibbles,
         .value = header_encoded,
         .incarnation = true,
-        .next = mpt::UpdateList{},
+        .next = mpt2::UpdateList{},
         .version = static_cast<int64_t>(n)};
     header_updates.push_front(block_header_update);
-    mpt::Update u{
+    mpt2::Update u{
         .key = finalized_nibbles,
         .value = byte_string_view{},
         .incarnation = false,
         .next = std::move(header_updates),
         .version = static_cast<int64_t>(n)};
     ls.push_front(u);
-    db.upsert(
-        std::move(ls), n, false /* compaction */, true /* write_to_fast */);
+    db.upsert_transaction(
+        n, std::move(ls), n, false /* compaction */, true /* write_to_fast */);
 }
 
-mpt::Nibbles proposal_prefix(bytes32_t const &block_id)
+mpt2::Nibbles proposal_prefix(bytes32_t const &block_id)
 {
-    return mpt::concat(PROPOSAL_NIBBLE, NibblesView{to_bytes(block_id)});
+    return mpt2::concat(PROPOSAL_NIBBLE, NibblesView{to_bytes(block_id)});
 }
 
+/*
 std::vector<bytes32_t>
-get_proposal_block_ids(mpt::Db &db, uint64_t const block_number)
+get_proposal_block_ids(mpt2::Db &db, uint64_t const block_number)
 {
     static constexpr uint64_t PROPOSAL_PREFIX_LEN = 1 + sizeof(bytes32_t) * 2;
 
@@ -857,9 +845,9 @@ get_proposal_block_ids(mpt::Db &db, uint64_t const block_number)
 
         virtual void up(unsigned char const branch, Node const &node) override
         {
-            auto const path_view = monad::mpt::NibblesView{path_};
+            auto const path_view = monad::mpt2::NibblesView{path_};
             unsigned const prefix_size =
-                branch == monad::mpt::INVALID_BRANCH
+                branch == monad::mpt2::INVALID_BRANCH
                     ? 0
                     : path_view.nibble_size() - node.path_nibbles_len() - 1;
             path_ = path_view.substr(0, prefix_size);
@@ -884,12 +872,13 @@ get_proposal_block_ids(mpt::Db &db, uint64_t const block_number)
     db.traverse(db.load_root_for_version(block_number), traverse, block_number);
     return block_ids;
 }
+*/
 
 std::optional<BlockHeader> read_eth_header(
-    mpt::Db const &db, uint64_t const block, mpt::NibblesView prefix)
+    mpt2::Db const &db, uint64_t const block, mpt2::NibblesView prefix)
 {
     auto const query_res =
-        db.get(mpt::concat(prefix, BLOCKHEADER_NIBBLE), block);
+        db.get(mpt2::concat(prefix, BLOCKHEADER_NIBBLE), block);
     if (MONAD_UNLIKELY(!query_res.has_value())) {
         return std::nullopt;
     }
@@ -899,8 +888,9 @@ std::optional<BlockHeader> read_eth_header(
     return decoded.value();
 }
 
+/*
 bool for_each_code(
-    mpt::Db &db, uint64_t const block,
+    mpt2::Db &db, uint64_t const block,
     std::function<void(bytes32_t const &, byte_string_view)> const fn)
 {
     class CodeTraverseMachine final : public TraverseMachine
@@ -935,9 +925,9 @@ bool for_each_code(
 
         virtual void up(unsigned char const branch, Node const &node) override
         {
-            auto const path_view = monad::mpt::NibblesView{path_};
+            auto const path_view = monad::mpt2::NibblesView{path_};
             unsigned const prefix_size =
-                branch == monad::mpt::INVALID_BRANCH
+                branch == monad::mpt2::INVALID_BRANCH
                     ? 0
                     : path_view.nibble_size() - node.path_nibbles_len() - 1;
             path_ = path_view.substr(0, prefix_size);
@@ -959,5 +949,6 @@ bool for_each_code(
     }
     return true;
 }
+*/
 
 MONAD_NAMESPACE_END

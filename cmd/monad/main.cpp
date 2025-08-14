@@ -40,7 +40,7 @@
 #include <category/execution/monad/chain/monad_mainnet.hpp>
 #include <category/execution/monad/chain/monad_testnet.hpp>
 #include <category/execution/monad/chain/monad_testnet2.hpp>
-#include <category/mpt/ondisk_db_config.hpp>
+#include <category/mpt2/ondisk_db_config.hpp>
 #include <category/statesync/statesync_server.h>
 #include <category/statesync/statesync_server_context.hpp>
 #include <category/statesync/statesync_server_network.hpp>
@@ -236,24 +236,19 @@ int main(int const argc, char const *argv[])
     if (!statesync.empty()) {
         net.emplace(statesync.c_str());
     }
-    std::unique_ptr<mpt::StateMachine> machine;
-    mpt::Db db = [&] {
-        if (!db_in_memory) {
-            machine = std::make_unique<OnDiskMachine>();
-            return mpt::Db{
-                *machine,
-                mpt::OnDiskDbConfig{
-                    .append = true,
-                    .compaction = !no_compaction,
-                    .rewind_to_latest_finalized = true,
-                    .rd_buffers = 8192,
-                    .wr_buffers = 32,
-                    .uring_entries = 128,
-                    .sq_thread_cpu = sq_thread_cpu,
-                    .dbname_paths = dbname_paths}};
-        }
-        machine = std::make_unique<InMemoryMachine>();
-        return mpt::Db{*machine};
+    std::unique_ptr<mpt2::StateMachine> machine;
+    mpt2::Db db = [&] {
+        MONAD_ASSERT(!db_in_memory);
+        machine = std::make_unique<OnDiskMachine>();
+        return mpt2::Db{
+            *machine,
+            mpt2::OnDiskDbConfig{
+                .append = true,
+                .compaction = !no_compaction,
+                .rewind_to_latest_finalized = true,
+                .dbname_path = dbname_paths.front()}};
+        // machine = std::make_unique<InMemoryMachine>();
+        // return mpt2::Db{*machine};
     }();
 
     auto chain = [chain_config] -> std::unique_ptr<Chain> {
@@ -276,7 +271,7 @@ int main(int const argc, char const *argv[])
     // Note: in memory db block number is always zero
     uint64_t const init_block_num = [&] {
         if (!snapshot.empty()) {
-            if (db.root().is_valid()) {
+            if (db.get_latest_version() != mpt2::INVALID_BLOCK_NUM) {
                 throw std::runtime_error(
                     "can not load checkpoint into non-empty database");
             }
@@ -294,7 +289,7 @@ int main(int const argc, char const *argv[])
             load_header(db, block.header);
             return n;
         }
-        else if (!db.root().is_valid()) {
+        else if (db.get_latest_version() == mpt2::INVALID_BLOCK_NUM) {
             MONAD_ASSERT(statesync.empty());
             LOG_INFO("loading from genesis");
             GenesisState const genesis_state = chain->get_genesis_state();
@@ -307,25 +302,25 @@ int main(int const argc, char const *argv[])
     std::jthread sync_thread;
     monad_statesync_server *sync = nullptr;
     if (!statesync.empty()) {
-        ctx = std::make_unique<monad_statesync_server_context>(triedb);
-        sync = monad_statesync_server_create(
-            ctx.get(),
-            &net.value(),
-            &statesync_server_recv,
-            &statesync_server_send_upsert,
-            &statesync_server_send_done);
-        sync_thread = std::jthread([&](std::stop_token const token) {
-            pthread_setname_np(pthread_self(), "statesync thread");
-            mpt::AsyncIOContext io_ctx{mpt::ReadOnlyOnDiskDbConfig{
-                .sq_thread_cpu = ro_sq_thread_cpu,
-                .dbname_paths = dbname_paths}};
-            mpt::Db ro{io_ctx};
-            ctx->ro = &ro;
-            while (!token.stop_requested()) {
-                monad_statesync_server_run_once(sync);
-            }
-            ctx->ro = nullptr;
-        });
+        // ctx = std::make_unique<monad_statesync_server_context>(triedb);
+        // sync = monad_statesync_server_create(
+        //     ctx.get(),
+        //     &net.value(),
+        //     &statesync_server_recv,
+        //     &statesync_server_send_upsert,
+        //     &statesync_server_send_done);
+        // sync_thread = std::jthread([&](std::stop_token const token) {
+        //     pthread_setname_np(pthread_self(), "statesync thread");
+        //     mpt2::AsyncIOContext io_ctx{mpt2::ReadOnlyOnDiskDbConfig{
+        //         .sq_thread_cpu = ro_sq_thread_cpu,
+        //         .dbname_paths = dbname_paths}};
+        //     mpt2::Db ro{io_ctx};
+        //     ctx->ro = &ro;
+        //     while (!token.stop_requested()) {
+        //         monad_statesync_server_run_once(sync);
+        //     }
+        //     ctx->ro = nullptr;
+        // });
     }
 
     LOG_INFO(
@@ -356,11 +351,8 @@ int main(int const argc, char const *argv[])
     bool initialized_headers_from_triedb = false;
 
     if (!db_in_memory) {
-        mpt::AsyncIOContext io_ctx{mpt::ReadOnlyOnDiskDbConfig{
-            .sq_thread_cpu = ro_sq_thread_cpu, .dbname_paths = dbname_paths}};
-        mpt::Db rodb{io_ctx};
         initialized_headers_from_triedb = init_block_hash_buffer_from_triedb(
-            rodb, start_block_num, block_hash_buffer);
+            db, start_block_num, block_hash_buffer);
     }
     if (!initialized_headers_from_triedb) {
         BlockDb block_db{block_db_path};
@@ -452,14 +444,7 @@ int main(int const argc, char const *argv[])
     }
 
     if (!dump_snapshot.empty()) {
-        LOG_INFO("Dump db of block: {}", block_num);
-        mpt::AsyncIOContext io_ctx(mpt::ReadOnlyOnDiskDbConfig{
-            .sq_thread_cpu = ro_sq_thread_cpu,
-            .dbname_paths = dbname_paths,
-            .concurrent_read_io_limit = 128});
-        mpt::Db db{io_ctx};
-        TrieDb ro_db{db};
-        write_to_file(ro_db.to_json(), dump_snapshot, block_num);
+        LOG_INFO("Unsupported dump db of block: {}", block_num);
     }
     return result.has_error() ? EXIT_FAILURE : EXIT_SUCCESS;
 }

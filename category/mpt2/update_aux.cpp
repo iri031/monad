@@ -359,7 +359,9 @@ chunk_offset_t UpdateAux::do_upsert(
     auto root_update = make_update(
         {}, compact_offsets_bytes, false, std::move(updates), version);
     root_updates.push_front(root_update);
-    return upsert(*this, sm, root_offset, std::move(root_updates));
+    auto const offset = upsert(*this, sm, root_offset, std::move(root_updates));
+    MONAD_ASSERT(parse_node(offset)->value() == compact_offsets_bytes);
+    return offset;
 }
 
 chunk_offset_t UpdateAux::copy_trie_to_dest(
@@ -390,7 +392,7 @@ chunk_offset_t UpdateAux::copy_trie_to_dest(
             static_cast<uint16_t>(1u << child.branch),
             {&child, 1},
             {},
-            src_node.opt_value(),
+            src_root->opt_value(),
             0,
             static_cast<int64_t>(dest_version));
         return write_node_to_disk(*root, true);

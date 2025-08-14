@@ -31,7 +31,7 @@ struct MonadChain;
 struct Db;
 class BlockHashBufferFinalized;
 
-namespace mpt
+namespace mpt2
 {
     class Db;
 }
@@ -42,7 +42,7 @@ namespace fiber
 }
 
 Result<std::pair<uint64_t, uint64_t>> runloop_monad(
-    MonadChain const &, std::filesystem::path const &, mpt::Db &, Db &,
+    MonadChain const &, std::filesystem::path const &, mpt2::Db &, Db &,
     vm::VM &, BlockHashBufferFinalized &, fiber::PriorityPool &, uint64_t &,
     uint64_t, sig_atomic_t const volatile &);
 
