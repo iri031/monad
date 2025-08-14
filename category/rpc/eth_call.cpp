@@ -415,7 +415,7 @@ struct monad_eth_call_executor
     uint64_t call_count_{0};
     std::atomic<unsigned> high_pool_queued_count_{0};
 
-    mpt::RODb db_;
+    mpt2::Db db_;
 
     // The VM for executing eth calls needs to unconditionally use the
     // interpreter rather than the compiler. If it uses the compiler, then

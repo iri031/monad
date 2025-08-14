@@ -17,7 +17,7 @@
 #include <optional>
 
 using namespace monad;
-using namespace monad::mpt;
+using namespace monad::mpt2;
 
 unsigned const MONAD_SQPOLL_DISABLED = unsigned(-1);
 

@@ -165,7 +165,7 @@ function(monad_add_test2 target)
     ${target}
     PRIVATE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/test/unit/common/include")
   target_include_directories(${target} PRIVATE "${TOP_CURRENT_BINARY_DIR}/test")
-  target_link_libraries(${target} monad_execution monad_statesync monad_rpc
+  target_link_libraries(${target} monad_execution 
                         GTest::GTest GTest::Main)
   if("${target}" MATCHES "test_statesync")
     gtest_discover_tests(
@@ -230,7 +230,7 @@ add_subdirectory("category/mpt")
 add_subdirectory("category/mpt2")
 add_subdirectory("category/event")
 add_subdirectory("category/execution")
-add_subdirectory("category/rpc")
+# add_subdirectory("category/rpc")
 add_subdirectory("category/statesync")
 add_subdirectory("category/storage")
 add_subdirectory("category/vm")

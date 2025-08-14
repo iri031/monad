@@ -1,7 +1,7 @@
 #pragma once
 
-#include <category/core/config.hpp>
 #include <category/core/bytes.hpp>
+#include <category/core/config.hpp>
 
 #include <cstdint>
 #include <deque>
@@ -11,7 +11,7 @@ MONAD_NAMESPACE_BEGIN
 
 class BlockDb;
 
-namespace mpt
+namespace mpt2
 {
     class Db;
 }
@@ -80,7 +80,7 @@ public:
 };
 
 bool init_block_hash_buffer_from_triedb(
-    mpt::Db &, uint64_t, BlockHashBufferFinalized &);
+    mpt2::Db &, uint64_t, BlockHashBufferFinalized &);
 
 bool init_block_hash_buffer_from_blockdb(
     BlockDb &, uint64_t block_number, BlockHashBufferFinalized &);

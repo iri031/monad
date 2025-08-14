@@ -25,13 +25,12 @@
 #include <category/execution/ethereum/trace/rlp/call_frame_rlp.hpp>
 #include <category/execution/ethereum/types/incarnation.hpp>
 #include <category/execution/ethereum/validate_block.hpp>
-#include <category/mpt/db.hpp>
-#include <category/mpt/nibbles_view.hpp>
-#include <category/mpt/nibbles_view_fmt.hpp> // NOLINT
-#include <category/mpt/node.hpp>
-#include <category/mpt/traverse.hpp>
-#include <category/mpt/update.hpp>
-#include <category/mpt/util.hpp>
+#include <category/mpt2/db.hpp>
+#include <category/mpt2/nibbles_view.hpp>
+#include <category/mpt2/nibbles_view_fmt.hpp> // NOLINT
+#include <category/mpt2/node.hpp>
+#include <category/mpt2/update.hpp>
+#include <category/mpt2/util.hpp>
 
 #include <evmc/evmc.hpp>
 #include <evmc/hex.hpp>
@@ -58,7 +57,7 @@
 
 MONAD_NAMESPACE_BEGIN
 
-using namespace monad::mpt;
+using namespace monad::mpt2;
 
 namespace
 {
@@ -78,7 +77,7 @@ namespace
     }
 }
 
-TrieDb::TrieDb(mpt::Db &db)
+TrieDb::TrieDb(mpt2::Db &db)
     : db_{db}
     , block_number_{db.get_latest_finalized_version() == INVALID_BLOCK_NUM ? 0 : db.get_latest_finalized_version()}
     , proposal_block_id_{bytes32_t{}}
@@ -156,6 +155,8 @@ void TrieDb::commit(
 {
     MONAD_ASSERT(header.number <= std::numeric_limits<int64_t>::max());
 
+    db_.start_transaction(block_number_);
+
     auto const parent_hash = [&]() {
         if (MONAD_UNLIKELY(header.number == 0)) {
             return bytes32_t{};
@@ -174,8 +175,7 @@ void TrieDb::commit(
         auto const dest_prefix = proposal_prefix(block_id);
         if (db_.get_latest_version() != INVALID_BLOCK_NUM) {
             MONAD_ASSERT(header.number != block_number_);
-            db_.copy_trie(
-                block_number_, prefix_, header.number, dest_prefix, false);
+            db_.copy_trie(block_number_, prefix_, header.number, dest_prefix);
         }
         proposal_block_id_ = block_id;
         block_number_ = header.number;
@@ -289,7 +289,7 @@ void TrieDb::commit(
             serialize_as_big_endian<sizeof(uint32_t)>(i);
         while (!frame_view.empty()) {
             byte_string_view chunk =
-                frame_view.substr(0, mpt::MAX_VALUE_LEN_OF_LEAF);
+                frame_view.substr(0, mpt2::MAX_VALUE_LEN_OF_LEAF);
             frame_view.remove_prefix(chunk.size());
             byte_string const chunk_key =
                 byte_string{&chunk_index, sizeof(uint8_t)};
@@ -385,7 +385,7 @@ void TrieDb::commit(
         .next = std::move(updates),
         .version = static_cast<int64_t>(block_number_)}));
 
-    db_.upsert(std::move(ls), block_number_, true, true, false);
+    db_.upsert(std::move(ls), block_number_, true, true);
 
     BlockHeader complete_header = header;
     if (MONAD_LIKELY(header.receipts_root == NULL_ROOT)) {
@@ -444,6 +444,7 @@ void TrieDb::commit(
 
     bool const enable_compaction = false;
     db_.upsert(std::move(ls2), block_number_, enable_compaction);
+    db_.finish_transaction(block_number_);
 
     update_alloc_.clear();
     bytes_alloc_.clear();
@@ -485,8 +486,10 @@ void TrieDb::finalize(uint64_t const block_number, bytes32_t const &block_id)
     if (db_.is_on_disk()) {
         MONAD_ASSERT(db_.find(src_prefix, block_number).has_value());
     }
-    db_.copy_trie(
-        block_number, src_prefix, block_number, finalized_nibbles, true);
+    db_.start_transaction(block_number);
+    db_.copy_trie(block_number, src_prefix, block_number, finalized_nibbles);
+    db_.finish_transaction(block_number);
+
     db_.update_finalized_version(block_number);
 }
 
@@ -537,7 +540,7 @@ std::optional<bytes32_t> TrieDb::withdrawals_root()
     return to_bytes(value.value());
 }
 
-bytes32_t TrieDb::merkle_root(mpt::Nibbles const &nibbles)
+bytes32_t TrieDb::merkle_root(mpt2::Nibbles const &nibbles)
 {
     auto const value =
         db_.get_data(concat(prefix_, NibblesView{nibbles}), block_number_);
@@ -576,147 +579,6 @@ std::string TrieDb::print_stats()
     n_storage_no_value_.store(0, std::memory_order_release);
     n_storage_value_.store(0, std::memory_order_release);
     return ret;
-}
-
-nlohmann::json TrieDb::to_json(size_t const concurrency_limit)
-{
-    struct Traverse : public TraverseMachine
-    {
-        TrieDb &db;
-        nlohmann::json &json;
-        Nibbles path{};
-
-        explicit Traverse(TrieDb &db, nlohmann::json &json)
-            : db(db)
-            , json(json)
-        {
-        }
-
-        virtual bool down(unsigned char const branch, Node const &node) override
-        {
-            if (branch == INVALID_BRANCH) {
-                MONAD_ASSERT(node.path_nibble_view().nibble_size() == 0);
-                return true;
-            }
-            path = concat(NibblesView{path}, branch, node.path_nibble_view());
-
-            if (path.nibble_size() == (KECCAK256_SIZE * 2)) {
-                handle_account(node);
-            }
-            else if (
-                path.nibble_size() == ((KECCAK256_SIZE + KECCAK256_SIZE) * 2)) {
-                handle_storage(node);
-            }
-            return true;
-        }
-
-        virtual void up(unsigned char const branch, Node const &node) override
-        {
-            auto const path_view = NibblesView{path};
-            auto const rem_size = [&] {
-                if (branch == INVALID_BRANCH) {
-                    MONAD_ASSERT(path_view.nibble_size() == 0);
-                    return 0;
-                }
-                int const rem_size = path_view.nibble_size() - 1 -
-                                     node.path_nibble_view().nibble_size();
-                MONAD_ASSERT(rem_size >= 0);
-                MONAD_ASSERT(
-                    path_view.substr(static_cast<unsigned>(rem_size)) ==
-                    concat(branch, node.path_nibble_view()));
-                return rem_size;
-            }();
-            path = path_view.substr(0, static_cast<unsigned>(rem_size));
-        }
-
-        void handle_account(Node const &node)
-        {
-            MONAD_ASSERT(node.has_value());
-
-            auto encoded_account = node.value();
-
-            auto acct = decode_account_db(encoded_account);
-            MONAD_DEBUG_ASSERT(!acct.has_error());
-
-            auto const key = fmt::format("{}", NibblesView{path});
-
-            json[key]["address"] = fmt::format("{}", acct.value().first);
-            json[key]["balance"] =
-                fmt::format("{}", acct.value().second.balance);
-            json[key]["nonce"] =
-                fmt::format("0x{:x}", acct.value().second.nonce);
-
-            auto const icode = db.read_code(acct.value().second.code_hash);
-            MONAD_ASSERT(icode);
-            json[key]["code"] =
-                "0x" + evmc::hex({icode->code(), icode->code_size()});
-
-            if (!json[key].contains("storage")) {
-                json[key]["storage"] = nlohmann::json::object();
-            }
-        }
-
-        void handle_storage(Node const &node)
-        {
-            MONAD_ASSERT(node.has_value());
-
-            auto encoded_storage = node.value();
-
-            auto const storage = decode_storage_db(encoded_storage);
-            MONAD_DEBUG_ASSERT(!storage.has_error());
-
-            auto const acct_key = fmt::format(
-                "{}", NibblesView{path}.substr(0, KECCAK256_SIZE * 2));
-
-            auto const key = fmt::format(
-                "{}",
-                NibblesView{path}.substr(
-                    KECCAK256_SIZE * 2, KECCAK256_SIZE * 2));
-
-            auto storage_data_json = nlohmann::json::object();
-            storage_data_json["slot"] = fmt::format(
-                "0x{:02x}",
-                fmt::join(
-                    std::as_bytes(std::span(storage.value().first.bytes)), ""));
-            storage_data_json["value"] = fmt::format(
-                "0x{:02x}",
-                fmt::join(
-                    std::as_bytes(std::span(storage.value().second.bytes)),
-                    ""));
-            json[acct_key]["storage"][key] = storage_data_json;
-        }
-
-        virtual std::unique_ptr<TraverseMachine> clone() const override
-        {
-            return std::make_unique<Traverse>(*this);
-        }
-    };
-
-    auto json = nlohmann::json::object();
-    Traverse traverse(*this, json);
-
-    auto res_cursor = db_.find(concat(prefix_, STATE_NIBBLE), block_number_);
-    MONAD_ASSERT(res_cursor.has_value());
-    MONAD_ASSERT(res_cursor.value().is_valid());
-    // RWOndisk Db prevents any parallel traversal that does blocking i/o
-    // from running on the triedb thread, which include to_json. Thus, we can
-    // only use blocking traversal for RWOnDisk Db, but can still do parallel
-    // traverse in other cases.
-    if (db_.is_on_disk() && !db_.is_read_only()) {
-        MONAD_ASSERT(
-            db_.traverse_blocking(res_cursor.value(), traverse, block_number_));
-    }
-    else {
-        MONAD_ASSERT(db_.traverse(
-            res_cursor.value(), traverse, block_number_, concurrency_limit));
-    }
-
-    return json;
-}
-
-size_t TrieDb::prefetch_current_root()
-{
-    return db_.prefetch();
 }
 
 uint64_t TrieDb::get_block_number() const

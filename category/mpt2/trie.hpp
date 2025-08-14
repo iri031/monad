@@ -168,8 +168,11 @@ public:
         chunk_offset_t const src_root, NibblesView const src_prefix,
         uint64_t const dest_version, NibblesView const dest_prefix)
     {
-        return aux_.copy_trie_to_dest(
+        auto const offset = aux_.copy_trie_to_dest(
             src_root, src_prefix, dest_version, dest_prefix);
+        MONAD_ASSERT(
+            aux_.parse_node(offset)->value_len == 2 * sizeof(uint32_t));
+        return offset;
     }
 
     void finish(chunk_offset_t root_offset, uint64_t version)
@@ -177,41 +180,42 @@ public:
         using namespace MONAD_STORAGE_NAMESPACE;
 
         // msync the changes since offsets_start to disk
-        auto const *m = aux_.db_storage_.db_metadata();
-        auto sync_ = [&](chunk_offset_t const start, chunk_offset_t const end) {
-            if (start != end) {
-                auto const *si = m->at(start.id);
-                auto const *ei = m->at(end.id);
-                MONAD_ASSERT(si->insertion_count() <= ei->insertion_count());
-                MONAD_DEBUG_ASSERT(si->in_fast_list == ei->in_fast_list);
-                MONAD_DEBUG_ASSERT(si->in_slow_list == ei->in_slow_list);
+        // auto const *m = aux_.db_storage_.db_metadata();
+        // auto sync_ = [&](chunk_offset_t const start, chunk_offset_t const
+        // end) {
+        //     if (start != end) {
+        //         auto const *si = m->at(start.id);
+        //         auto const *ei = m->at(end.id);
+        //         MONAD_ASSERT(si->insertion_count() <= ei->insertion_count());
+        //         MONAD_DEBUG_ASSERT(si->in_fast_list == ei->in_fast_list);
+        //         MONAD_DEBUG_ASSERT(si->in_slow_list == ei->in_slow_list);
 
-                for (auto const *ci = si;; ci = ci->next(m)) {
-                    auto const idx = ci->index(m);
-                    uint32_t offset = 0;
-                    if (ci == si) {
-                        offset = round_down_align<CPU_PAGE_BITS>(
-                            (uint32_t)start.offset);
-                    }
-                    else if (ci == ei) {
-                        offset =
-                            round_up_align<CPU_PAGE_BITS>((uint32_t)end.offset);
-                    }
-                    MONAD_ASSERT_PRINTF(
-                        -1 != ::msync(
-                                  aux_.db_storage_.get_data({idx, offset}),
-                                  DbStorage::chunk_capacity - offset,
-                                  MS_SYNC),
-                        "msync failed: %s",
-                        strerror(errno));
-                    if (ci == ei) {
-                        break;
-                    }
-                }
-            }
-        };
-        sync_(fast_offset_start, aux_.node_writer_offset_fast);
-        sync_(slow_offset_start, aux_.node_writer_offset_slow);
+        //         for (auto const *ci = si;; ci = ci->next(m)) {
+        //             auto const idx = ci->index(m);
+        //             uint32_t offset = 0;
+        //             if (ci == si) {
+        //                 offset = round_down_align<CPU_PAGE_BITS>(
+        //                     (uint32_t)start.offset);
+        //             }
+        //             else if (ci == ei) {
+        //                 offset =
+        //                     round_up_align<CPU_PAGE_BITS>((uint32_t)end.offset);
+        //             }
+        //             MONAD_ASSERT_PRINTF(
+        //                 -1 != ::msync(
+        //                           aux_.db_storage_.get_data({idx, offset}),
+        //                           DbStorage::chunk_capacity - offset,
+        //                           MS_SYNC),
+        //                 "msync failed: %s",
+        //                 strerror(errno));
+        //             if (ci == ei) {
+        //                 break;
+        //             }
+        //         }
+        //     }
+        // };
+        // sync_(fast_offset_start, aux_.node_writer_offset_fast);
+        // sync_(slow_offset_start, aux_.node_writer_offset_slow);
 
         aux_.finalize_transaction(root_offset, version);
     }

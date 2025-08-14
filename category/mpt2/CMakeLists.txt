@@ -23,8 +23,11 @@ add_library(
   "compute.hpp"
   "config.hpp"
   "db.cpp"
+  "db.hpp"
+  "db_error.hpp"
   "find.cpp"
   "nibbles_view.hpp"
+  "nibbles_view_fmt.hpp"
   "node.cpp"
   "node.hpp"
   "node_cursor.hpp"
@@ -42,7 +45,11 @@ target_include_directories(monad_trie2 PRIVATE "third_party")
 monad_compile_options(monad_trie2)
 target_link_libraries(monad_trie2 PUBLIC monad_storage)
 target_link_libraries(monad_trie2 PUBLIC quill::quill) # TODO: remove
-target_link_libraries(monad_trie2 PUBLIC concurrentqueue)
+
+add_executable(monad_mpt2 "monad_mpt.cpp")
+monad_compile_options(monad_mpt2)
+target_link_libraries(monad_mpt2 PUBLIC monad_trie2 CLI11::CLI11)
+
 
 function(add_mpt_test)
   set(ONE_VALUE_ARGS TARGET TEST_FILTER)
