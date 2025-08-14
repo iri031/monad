@@ -349,7 +349,7 @@ chunk_offset_t UpdateAux::do_upsert(
     if (compaction) {
         // TODO: dynamically adjust history length
         if (!exists_version(version)) {
-            advance_compact_offsets();
+            // advance_compact_offsets();
         }
     }
     UpdateList root_updates;
