@@ -17,7 +17,7 @@ MONAD_MPT2_NAMESPACE_BEGIN
 struct OnDiskDbConfig;
 struct StateMachine;
 
-// struct TraverseMachine;
+struct TraverseMachine;
 
 // Simply RWDb impl, TODO: change to add rodb
 class Db
@@ -102,8 +102,8 @@ public:
     // bool traverse(
     //     NodeCursor, TraverseMachine &, uint64_t block_id,
     //     size_t concurrency_limit = 4096);
-    // Blocking traverse never wait on a fiber future.
-    // bool traverse_blocking(NodeCursor, TraverseMachine &, uint64_t block_id);
+
+    bool traverse(NodeCursor root, TraverseMachine &machine, uint64_t version);
 
     uint64_t get_latest_version() const;
     uint64_t get_earliest_version() const;

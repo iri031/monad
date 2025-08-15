@@ -36,11 +36,11 @@
 #include <category/execution/ethereum/state2/state_deltas.hpp>
 #include <category/execution/ethereum/trace/call_tracer.hpp>
 #include <category/execution/ethereum/trace/rlp/call_frame_rlp.hpp>
-#include <category/mpt2/ondisk_db_config.hpp>
-// #include <category/mpt/traverse.hpp>
-// #include <category/mpt/traverse_util.hpp>
 #include <category/mpt2/nibbles_view.hpp>
 #include <category/mpt2/node.hpp>
+#include <category/mpt2/ondisk_db_config.hpp>
+#include <category/mpt2/traverse.hpp>
+#include <category/mpt2/traverse_util.hpp>
 
 #include <ethash/keccak.hpp>
 #include <evmc/evmc.hpp>
@@ -112,57 +112,58 @@ namespace
         vm::VM vm;
     };
 
-    ///////////////////////////////////////////
+    /////////////////////////////////////////
     // DB Getters
-    ///////////////////////////////////////////
-    // std::vector<CallFrame> read_call_frame(
-    //     mpt2::Db &db, uint64_t const block_number, uint64_t const txn_idx)
-    // {
-    //     using namespace mpt2;
+    /////////////////////////////////////////
+    std::vector<CallFrame> read_call_frame(
+        mpt2::Db &db, uint64_t const block_number, uint64_t const txn_idx)
+    {
+        using namespace mpt2;
 
-    //     using KeyedChunk = std::pair<Nibbles, byte_string>;
+        using KeyedChunk = std::pair<Nibbles, byte_string>;
 
-    //     Nibbles const min = mpt2::concat(
-    //         FINALIZED_NIBBLE,
-    //         CALL_FRAME_NIBBLE,
-    //         NibblesView{serialize_as_big_endian<sizeof(uint32_t)>(txn_idx)});
-    //     Nibbles const max = mpt2::concat(
-    //         FINALIZED_NIBBLE,
-    //         CALL_FRAME_NIBBLE,
-    //         NibblesView{
-    //             serialize_as_big_endian<sizeof(uint32_t)>(txn_idx + 1)});
+        Nibbles const min = mpt2::concat(
+            FINALIZED_NIBBLE,
+            CALL_FRAME_NIBBLE,
+            NibblesView{serialize_as_big_endian<sizeof(uint32_t)>(txn_idx)});
+        Nibbles const max = mpt2::concat(
+            FINALIZED_NIBBLE,
+            CALL_FRAME_NIBBLE,
+            NibblesView{
+                serialize_as_big_endian<sizeof(uint32_t)>(txn_idx + 1)});
 
-    //     std::vector<KeyedChunk> chunks;
-    //     RangedGetMachine machine{
-    //         min,
-    //         max,
-    //         [&chunks](NibblesView const path, byte_string_view const value) {
-    //             chunks.emplace_back(path, value);
-    //         }};
-    //     db.traverse(db.root(), machine, block_number);
-    //     MONAD_ASSERT(!chunks.empty());
+        std::vector<KeyedChunk> chunks;
+        RangedGetMachine machine{
+            min,
+            max,
+            [&chunks](NibblesView const path, byte_string_view const value) {
+                chunks.emplace_back(path, value);
+            }};
+        db.traverse(
+            db.load_root_for_version(block_number), machine, block_number);
+        MONAD_ASSERT(!chunks.empty());
 
-    //     std::sort(
-    //         chunks.begin(),
-    //         chunks.end(),
-    //         [](KeyedChunk const &c, KeyedChunk const &c2) {
-    //             return c.first < NibblesView{c2.first};
-    //         });
+        std::sort(
+            chunks.begin(),
+            chunks.end(),
+            [](KeyedChunk const &c, KeyedChunk const &c2) {
+                return c.first < NibblesView{c2.first};
+            });
 
-    //     byte_string const call_frames_encoded = std::accumulate(
-    //         std::make_move_iterator(chunks.begin()),
-    //         std::make_move_iterator(chunks.end()),
-    //         byte_string{},
-    //         [](byte_string const acc, KeyedChunk const chunk) {
-    //             return std::move(acc) + std::move(chunk.second);
-    //         });
+        byte_string const call_frames_encoded = std::accumulate(
+            std::make_move_iterator(chunks.begin()),
+            std::make_move_iterator(chunks.end()),
+            byte_string{},
+            [](byte_string const acc, KeyedChunk const chunk) {
+                return std::move(acc) + std::move(chunk.second);
+            });
 
-    //     byte_string_view view{call_frames_encoded};
-    //     auto const call_frame = rlp::decode_call_frames(view);
-    //     MONAD_ASSERT(!call_frame.has_error());
-    //     MONAD_ASSERT(view.empty());
-    //     return call_frame.value();
-    // }
+        byte_string_view view{call_frames_encoded};
+        auto const call_frame = rlp::decode_call_frames(view);
+        MONAD_ASSERT(!call_frame.has_error());
+        MONAD_ASSERT(view.empty());
+        return call_frame.value();
+    }
 
     std::pair<bytes32_t, bytes32_t> read_storage_and_slot(
         mpt2::Db const &db, uint64_t const block_number, Address const &addr,
@@ -441,23 +442,27 @@ TYPED_TEST(DBTest, commit_receipts_transactions)
     EXPECT_EQ(tdb.receipts_root(), NULL_ROOT);
 
     std::vector<Receipt> receipts;
-    receipts.emplace_back(Receipt{
-        .status = 1, .gas_used = 21'000, .type = TransactionType::legacy});
-    receipts.emplace_back(Receipt{
-        .status = 1, .gas_used = 42'000, .type = TransactionType::legacy});
+    receipts.emplace_back(
+        Receipt{
+            .status = 1, .gas_used = 21'000, .type = TransactionType::legacy});
+    receipts.emplace_back(
+        Receipt{
+            .status = 1, .gas_used = 42'000, .type = TransactionType::legacy});
 
     // receipt with log
     Receipt rct{
         .status = 1, .gas_used = 65'092, .type = TransactionType::legacy};
-    rct.add_log(Receipt::Log{
-        .data = from_hex("0x000000000000000000000000000000000000000000000000000"
-                         "000000000000000000000000000000000000043b2126e7a22e0c2"
-                         "88dfb469e3de4d2c097f3ca000000000000000000000000000000"
-                         "0000000000000000001195387bce41fd499000000000000000000"
-                         "0000000000000000000000000000000000000000000000"),
-        .topics =
-            {0xf341246adaac6f497bc2a656f546ab9e182111d630394f0c57c710a59a2cb567_bytes32},
-        .address = 0x8d12a197cb00d4747a1fe03395095ce2a5cc6819_address});
+    rct.add_log(
+        Receipt::Log{
+            .data = from_hex(
+                "0x000000000000000000000000000000000000000000000000000"
+                "000000000000000000000000000000000000043b2126e7a22e0c2"
+                "88dfb469e3de4d2c097f3ca000000000000000000000000000000"
+                "0000000000000000001195387bce41fd499000000000000000000"
+                "0000000000000000000000000000000000000000000000"),
+            .topics =
+                {0xf341246adaac6f497bc2a656f546ab9e182111d630394f0c57c710a59a2cb567_bytes32},
+            .address = 0x8d12a197cb00d4747a1fe03395095ce2a5cc6819_address});
     receipts.push_back(std::move(rct));
 
     std::vector<Transaction> transactions;
@@ -571,10 +576,12 @@ TYPED_TEST(DBTest, commit_receipts_transactions)
     // A new receipt trie with eip1559 transaction type
     constexpr uint64_t second_block = 2;
     receipts.clear();
-    receipts.emplace_back(Receipt{
-        .status = 1, .gas_used = 34865, .type = TransactionType::eip1559});
-    receipts.emplace_back(Receipt{
-        .status = 1, .gas_used = 77969, .type = TransactionType::eip1559});
+    receipts.emplace_back(
+        Receipt{
+            .status = 1, .gas_used = 34865, .type = TransactionType::eip1559});
+    receipts.emplace_back(
+        Receipt{
+            .status = 1, .gas_used = 77969, .type = TransactionType::eip1559});
     transactions.clear();
     t1.nonce = 12;
     t2.nonce = 13;
@@ -644,72 +651,72 @@ TYPED_TEST(DBTest, load_from_binary)
         byte_string_view(H_ICODE->code(), H_ICODE->code_size()));
 }
 
-// TYPED_TEST(DBTest, commit_call_frames)
-// {
-//     TrieDb tdb{this->db};
+TYPED_TEST(DBTest, commit_call_frames)
+{
+    TrieDb tdb{this->db};
 
-//     CallFrame const call_frame1{
-//         .type = CallType::CALL,
-//         .flags = 1, // static call
-//         .from = ADDR_A,
-//         .to = ADDR_B,
-//         .value = 11'111u,
-//         .gas = 100'000u,
-//         .gas_used = 21'000u,
-//         .input = byte_string{0xaa, 0xbb, 0xcc},
-//         .output = byte_string{},
-//         .status = EVMC_SUCCESS,
-//         .depth = 0,
-//     };
+    CallFrame const call_frame1{
+        .type = CallType::CALL,
+        .flags = 1, // static call
+        .from = ADDR_A,
+        .to = ADDR_B,
+        .value = 11'111u,
+        .gas = 100'000u,
+        .gas_used = 21'000u,
+        .input = byte_string{0xaa, 0xbb, 0xcc},
+        .output = byte_string{},
+        .status = EVMC_SUCCESS,
+        .depth = 0,
+    };
 
-//     CallFrame const call_frame2{
-//         .type = CallType::DELEGATECALL,
-//         .flags = 0,
-//         .from = ADDR_B,
-//         .to = ADDR_A,
-//         .value = 0,
-//         .gas = 10'000u,
-//         .gas_used = 10'000u,
-//         .input = byte_string{0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01},
-//         .output = byte_string{0x01, 0x02},
-//         .status = EVMC_REVERT,
-//         .depth = 1,
-//     };
+    CallFrame const call_frame2{
+        .type = CallType::DELEGATECALL,
+        .flags = 0,
+        .from = ADDR_B,
+        .to = ADDR_A,
+        .value = 0,
+        .gas = 10'000u,
+        .gas_used = 10'000u,
+        .input = byte_string{0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01},
+        .output = byte_string{0x01, 0x02},
+        .status = EVMC_REVERT,
+        .depth = 1,
+    };
 
-//     constexpr uint64_t NUM_TXNS = 1000;
+    constexpr uint64_t NUM_TXNS = 1000;
 
-//     static byte_string const encoded_txn = byte_string{0x1a, 0x1b, 0x1c};
-//     std::vector<CallFrame> const call_frame{call_frame1, call_frame2};
-//     std::vector<std::vector<CallFrame>> call_frames;
-//     for (uint64_t txn = 0; txn < NUM_TXNS; ++txn) {
-//         call_frames.emplace_back(call_frame);
-//     }
-//     std::vector<Receipt> const receipts(call_frames.size());
-//     // need to increment the nonce of transactions
-//     std::vector<Transaction> transactions;
-//     for (uint64_t nonce = 0; nonce < call_frames.size(); ++nonce) {
-//         transactions.push_back(Transaction{.nonce = nonce});
-//     }
-//     std::vector<Address> const senders{call_frames.size()};
-//     commit_sequential(
-//         tdb,
-//         StateDeltas{},
-//         Code{},
-//         BlockHeader{},
-//         receipts,
-//         call_frames,
-//         senders,
-//         transactions);
+    static byte_string const encoded_txn = byte_string{0x1a, 0x1b, 0x1c};
+    std::vector<CallFrame> const call_frame{call_frame1, call_frame2};
+    std::vector<std::vector<CallFrame>> call_frames;
+    for (uint64_t txn = 0; txn < NUM_TXNS; ++txn) {
+        call_frames.emplace_back(call_frame);
+    }
+    std::vector<Receipt> const receipts(call_frames.size());
+    // need to increment the nonce of transactions
+    std::vector<Transaction> transactions;
+    for (uint64_t nonce = 0; nonce < call_frames.size(); ++nonce) {
+        transactions.push_back(Transaction{.nonce = nonce});
+    }
+    std::vector<Address> const senders{call_frames.size()};
+    commit_sequential(
+        tdb,
+        StateDeltas{},
+        Code{},
+        BlockHeader{},
+        receipts,
+        call_frames,
+        senders,
+        transactions);
 
-//     for (uint64_t txn = 0; txn < NUM_TXNS; ++txn) {
-//         auto const &res =
-//             read_call_frame(this->db, tdb.get_block_number(), txn);
-//         ASSERT_TRUE(!res.empty());
-//         ASSERT_TRUE(res.size() == 2);
-//         EXPECT_EQ(res[0], call_frame1);
-//         EXPECT_EQ(res[1], call_frame2);
-//     }
-// }
+    for (uint64_t txn = 0; txn < NUM_TXNS; ++txn) {
+        auto const &res =
+            read_call_frame(this->db, tdb.get_block_number(), txn);
+        ASSERT_TRUE(!res.empty());
+        ASSERT_TRUE(res.size() == 2);
+        EXPECT_EQ(res[0], call_frame1);
+        EXPECT_EQ(res[1], call_frame2);
+    }
+}
 
 // test referenced from :
 // https://github.com/ethereum/tests/blob/develop/BlockchainTests/GeneralStateTests/stQuadraticComplexityTest/Call50000.json

@@ -65,7 +65,7 @@ namespace detail
 
 // return value indicates if we have done the full traversal or not
 inline bool preorder_traverse_blocking(
-    UpdateAuxImpl &aux, Node const &node, TraverseMachine &traverse,
+    UpdateAux &aux, Node const &node, TraverseMachine &traverse,
     uint64_t const version)
 {
     return detail::preorder_traverse_blocking_impl(
