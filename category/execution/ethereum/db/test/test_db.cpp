@@ -268,7 +268,6 @@ TYPED_TEST(DBTest, read_code)
     EXPECT_EQ(byte_string_view(b_icode->code(), b_icode->code_size()), B_CODE);
 }
 
-/*
 TEST_F(OnDiskTrieDbFixture, get_proposal_block_ids)
 {
     TrieDb tdb{db};
@@ -318,7 +317,6 @@ TEST_F(OnDiskTrieDbFixture, get_proposal_block_ids)
         EXPECT_EQ(std::set(proposals.begin(), proposals.end()), block_ids);
     }
 }
-*/
 
 TYPED_TEST(DBTest, ModifyStorageOfAccount)
 {
