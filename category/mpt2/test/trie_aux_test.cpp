@@ -44,7 +44,7 @@ TEST_F(UpdateAuxFixture, upsert_write_transaction_works)
 
     { // read buffer directly from disk
         Node const *const root = aux.parse_node(root_offset);
-        auto const node_size = root->get_allocate_size();
+        auto const node_size = root->get_disk_size();
         file_offset_t rd_offset =
             round_down_align<CPU_PAGE_BITS>(root_offset.raw());
         auto const buffer_off = root_offset.raw() - rd_offset;

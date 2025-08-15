@@ -266,7 +266,7 @@ UpdateAux::write_node_to_disk(Node const &node, bool const to_fast_list)
 
     auto const chunk_remaining_bytes =
         DbStorage::chunk_capacity - node_writer_offset.offset;
-    auto const bytes_to_append = node.get_allocate_size();
+    auto const bytes_to_append = node.get_disk_size();
     if (bytes_to_append > chunk_remaining_bytes) {
         // allocate a new chunk from free list to the specified list and update
         // node_writer_offset to the start of the new chunk

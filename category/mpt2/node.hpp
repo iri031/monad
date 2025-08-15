@@ -168,8 +168,10 @@ public:
     unsigned char *child_data(unsigned index) noexcept;
     void set_child_data(unsigned index, byte_string_view data) noexcept;
 
-    // On disk layout: preceeding the node data is the disk size of the node.
     uint32_t get_allocate_size() const noexcept;
+
+    // On disk layout: preceeding the node data is the disk size of the node.
+    uint32_t get_disk_size() const noexcept;
 };
 
 constexpr size_t calculate_node_size(
@@ -217,6 +219,8 @@ Node::UniquePtr create_node_with_children(
 void serialize_node(unsigned char *write_pos, Node const &);
 
 Node *parse_node(unsigned char const *mmap_address);
+
+Node::UniquePtr copy_node(Node const &node);
 
 inline int64_t calc_min_version(Node const &node)
 {
