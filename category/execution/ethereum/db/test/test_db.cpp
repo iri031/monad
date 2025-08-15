@@ -720,229 +720,229 @@ TYPED_TEST(DBTest, commit_call_frames)
 
 // test referenced from :
 // https://github.com/ethereum/tests/blob/develop/BlockchainTests/GeneralStateTests/stQuadraticComplexityTest/Call50000.json
-// TYPED_TEST(DBTest, call_frames_stress_test)
-// {
-//     using namespace intx;
+TYPED_TEST(DBTest, call_frames_stress_test)
+{
+    using namespace intx;
 
-//     enable_call_tracing(true);
-//     TrieDb tdb{this->db};
+    enable_call_tracing(true);
+    TrieDb tdb{this->db};
 
-//     auto const from = 0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b_address;
-//     auto const to = 0xbbbf5374fce5edbc8e2a8697c15331677e6ebf0b_address;
-//     auto const ca = 0xaaaf5374fce5edbc8e2a8697c15331677e6ebf0b_address;
+    auto const from = 0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b_address;
+    auto const to = 0xbbbf5374fce5edbc8e2a8697c15331677e6ebf0b_address;
+    auto const ca = 0xaaaf5374fce5edbc8e2a8697c15331677e6ebf0b_address;
 
-//     commit_sequential(
-//         tdb,
-//         StateDeltas{
-//             {from,
-//              StateDelta{
-//                  .account =
-//                      {std::nullopt,
-//                       Account{
-//                           .balance = 0xffffffffffffffffffffffffffffffff_u128,
-//                           .code_hash = NULL_HASH,
-//                           .nonce = 0x0}}}},
-//             {to,
-//              StateDelta{
-//                  .account =
-//                      {std::nullopt,
-//                       Account{
-//                           .balance = 0x0fffffffffffff,
-//                           .code_hash = STRESS_TEST_CODE_HASH}}}},
-//             {ca,
-//              StateDelta{
-//                  .account =
-//                      {std::nullopt,
-//                       Account{.balance = 0x1b58, .code_hash = NULL_HASH}}}}},
-//         Code{{STRESS_TEST_CODE_HASH, STRESS_TEST_ICODE}},
-//         BlockHeader{.number = 0});
+    commit_sequential(
+        tdb,
+        StateDeltas{
+            {from,
+             StateDelta{
+                 .account =
+                     {std::nullopt,
+                      Account{
+                          .balance = 0xffffffffffffffffffffffffffffffff_u128,
+                          .code_hash = NULL_HASH,
+                          .nonce = 0x0}}}},
+            {to,
+             StateDelta{
+                 .account =
+                     {std::nullopt,
+                      Account{
+                          .balance = 0x0fffffffffffff,
+                          .code_hash = STRESS_TEST_CODE_HASH}}}},
+            {ca,
+             StateDelta{
+                 .account =
+                     {std::nullopt,
+                      Account{.balance = 0x1b58, .code_hash = NULL_HASH}}}}},
+        Code{{STRESS_TEST_CODE_HASH, STRESS_TEST_ICODE}},
+        BlockHeader{.number = 0});
 
-//     // clang-format off
-//     byte_string const block_rlp =
-//     evmc::from_hex("0xf90283f90219a0d2472bbb9c83b0e7615b791409c2efaccd5cb7d923741bbc44783bf0d063f5b6a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d4934794b94f5374fce5edbc8e2a8697c15331677e6ebf0ba0644bb1009c2332d1532062fe9c28cae87169ccaab2624aa0cfb4f0a0e59ac3aaa0cc2a2a77bb0d7a07b12d7e1d13b9f5dfff4f4bc53052b126e318f8b27b7ab8f9a027408083641cf20cfde86cd87cd57bf10c741d7553352ca96118e31ab8ceb9ceb901000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080018433428f00840ee6b2808203e800a000000000000000000000000000000000000000000000000000000000000200008800000000000000000aa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421f863f861800a840ee6b28094bbbf5374fce5edbc8e2a8697c15331677e6ebf0b0a801ba0462186579a4be0ad8a63224059a11693b4c0684b9939f6c2394d1fbe045275f2a059d73f99e037295a5f8c0e656acdb5c8b9acd28ec73c320c277df61f2e2d54f9c0c0")
-//             .value();
-//     // clang-format on
-//     byte_string_view block_rlp_view{block_rlp};
-//     auto block = rlp::decode_block(block_rlp_view);
-//     ASSERT_TRUE(!block.has_error());
+    // clang-format off
+    byte_string const block_rlp =
+    evmc::from_hex("0xf90283f90219a0d2472bbb9c83b0e7615b791409c2efaccd5cb7d923741bbc44783bf0d063f5b6a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d4934794b94f5374fce5edbc8e2a8697c15331677e6ebf0ba0644bb1009c2332d1532062fe9c28cae87169ccaab2624aa0cfb4f0a0e59ac3aaa0cc2a2a77bb0d7a07b12d7e1d13b9f5dfff4f4bc53052b126e318f8b27b7ab8f9a027408083641cf20cfde86cd87cd57bf10c741d7553352ca96118e31ab8ceb9ceb901000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080018433428f00840ee6b2808203e800a000000000000000000000000000000000000000000000000000000000000200008800000000000000000aa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421f863f861800a840ee6b28094bbbf5374fce5edbc8e2a8697c15331677e6ebf0b0a801ba0462186579a4be0ad8a63224059a11693b4c0684b9939f6c2394d1fbe045275f2a059d73f99e037295a5f8c0e656acdb5c8b9acd28ec73c320c277df61f2e2d54f9c0c0")
+            .value();
+    // clang-format on
+    byte_string_view block_rlp_view{block_rlp};
+    auto block = rlp::decode_block(block_rlp_view);
+    ASSERT_TRUE(!block.has_error());
 
-//     BlockHashBufferFinalized block_hash_buffer;
-//     block_hash_buffer.set(
-//         block.value().header.number - 1, block.value().header.parent_hash);
+    BlockHashBufferFinalized block_hash_buffer;
+    block_hash_buffer.set(
+        block.value().header.number - 1, block.value().header.parent_hash);
 
-//     BlockState bs(tdb, this->vm);
-//     BlockMetrics metrics;
+    BlockState bs(tdb, this->vm);
+    BlockMetrics metrics;
 
-//     fiber::PriorityPool pool{1, 1};
+    fiber::PriorityPool pool{1, 1};
 
-//     auto const recovered_senders =
-//         recover_senders(block.value().transactions, pool);
-//     std::vector<Address> senders(block.value().transactions.size());
-//     for (unsigned i = 0; i < recovered_senders.size(); ++i) {
-//         MONAD_ASSERT(recovered_senders[i].has_value());
-//         senders[i] = recovered_senders[i].value();
-//     }
-//     auto const results = execute_block<EVMC_SHANGHAI>(
-//         EthereumMainnet{},
-//         block.value(),
-//         senders,
-//         bs,
-//         block_hash_buffer,
-//         pool,
-//         metrics);
+    auto const recovered_senders =
+        recover_senders(block.value().transactions, pool);
+    std::vector<Address> senders(block.value().transactions.size());
+    for (unsigned i = 0; i < recovered_senders.size(); ++i) {
+        MONAD_ASSERT(recovered_senders[i].has_value());
+        senders[i] = recovered_senders[i].value();
+    }
+    auto const results = execute_block<EVMC_SHANGHAI>(
+        EthereumMainnet{},
+        block.value(),
+        senders,
+        bs,
+        block_hash_buffer,
+        pool,
+        metrics);
 
-//     ASSERT_TRUE(!results.has_error());
+    ASSERT_TRUE(!results.has_error());
 
-//     bs.log_debug();
+    bs.log_debug();
 
-//     std::vector<Receipt> receipts;
-//     std::vector<std::vector<CallFrame>> call_frames;
-//     for (auto &result : results.value()) {
-//         receipts.emplace_back(std::move(result.receipt));
-//         call_frames.emplace_back(std::move(result.call_frames));
-//     }
-//     auto const &transactions = block.value().transactions;
-//     BlockHeader const header{.number = 1};
-//     bytes32_t const block_id{header.number};
-//     bs.commit(
-//         block_id,
-//         header,
-//         receipts,
-//         call_frames,
-//         recover_senders(transactions),
-//         transactions,
-//         {},
-//         {});
-//     tdb.finalize(1, block_id);
-//     tdb.set_block_and_prefix(1);
+    std::vector<Receipt> receipts;
+    std::vector<std::vector<CallFrame>> call_frames;
+    for (auto &result : results.value()) {
+        receipts.emplace_back(std::move(result.receipt));
+        call_frames.emplace_back(std::move(result.call_frames));
+    }
+    auto const &transactions = block.value().transactions;
+    BlockHeader const header{.number = 1};
+    bytes32_t const block_id{header.number};
+    bs.commit(
+        block_id,
+        header,
+        receipts,
+        call_frames,
+        recover_senders(transactions),
+        transactions,
+        {},
+        {});
+    tdb.finalize(1, block_id);
+    tdb.set_block_and_prefix(1);
 
-//     auto const actual_call_frames =
-//         read_call_frame(this->db, tdb.get_block_number(), 0);
+    auto const actual_call_frames =
+        read_call_frame(this->db, tdb.get_block_number(), 0);
 
-//     EXPECT_EQ(actual_call_frames.size(), 35799);
-// }
+    EXPECT_EQ(actual_call_frames.size(), 35799);
+}
 
 // test referenced from :
 // https://github.com/ethereum/tests/blob/v10.0/BlockchainTests/GeneralStateTests/stRefundTest/refund50_1.json
-// TYPED_TEST(DBTest, call_frames_refund)
-// {
-//     enable_call_tracing(true);
-//     TrieDb tdb{this->db};
+TYPED_TEST(DBTest, call_frames_refund)
+{
+    enable_call_tracing(true);
+    TrieDb tdb{this->db};
 
-//     auto const from = 0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b_address;
-//     auto const to = 0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba_address;
-//     auto const ca = 0x095e7baea6a6c7c4c2dfeb977efac326af552d87_address;
+    auto const from = 0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b_address;
+    auto const to = 0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba_address;
+    auto const ca = 0x095e7baea6a6c7c4c2dfeb977efac326af552d87_address;
 
-//     commit_sequential(
-//         tdb,
-//         StateDeltas{
-//             {from,
-//              StateDelta{
-//                  .account =
-//                      {std::nullopt,
-//                       Account{
-//                           .balance = 0x989680,
-//                           .code_hash = NULL_HASH,
-//                           .nonce = 0x0}}}},
-//             {to,
-//              StateDelta{
-//                  .account =
-//                      {std::nullopt,
-//                       Account{
-//                           .balance = 0x0,
-//                           .code_hash = NULL_HASH,
-//                           .nonce = 0x01}}}},
-//             {ca,
-//              StateDelta{
-//                  .account =
-//                      {std::nullopt,
-//                       Account{
-//                           .balance = 0x1b58,
-//                           .code_hash = REFUND_TEST_CODE_HASH}},
-//                  .storage =
-//                      {{bytes32_t{0x01}, {bytes32_t{}, bytes32_t{0x01}}},
-//                       {bytes32_t{0x02}, {bytes32_t{}, bytes32_t{0x01}}},
-//                       {bytes32_t{0x03}, {bytes32_t{}, bytes32_t{0x01}}},
-//                       {bytes32_t{0x04}, {bytes32_t{}, bytes32_t{0x01}}},
-//                       {bytes32_t{0x05}, {bytes32_t{}, bytes32_t{0x01}}}}}}},
-//         Code{{REFUND_TEST_CODE_HASH, REFUND_TEST_ICODE}},
-//         BlockHeader{.number = 0});
+    commit_sequential(
+        tdb,
+        StateDeltas{
+            {from,
+             StateDelta{
+                 .account =
+                     {std::nullopt,
+                      Account{
+                          .balance = 0x989680,
+                          .code_hash = NULL_HASH,
+                          .nonce = 0x0}}}},
+            {to,
+             StateDelta{
+                 .account =
+                     {std::nullopt,
+                      Account{
+                          .balance = 0x0,
+                          .code_hash = NULL_HASH,
+                          .nonce = 0x01}}}},
+            {ca,
+             StateDelta{
+                 .account =
+                     {std::nullopt,
+                      Account{
+                          .balance = 0x1b58,
+                          .code_hash = REFUND_TEST_CODE_HASH}},
+                 .storage =
+                     {{bytes32_t{0x01}, {bytes32_t{}, bytes32_t{0x01}}},
+                      {bytes32_t{0x02}, {bytes32_t{}, bytes32_t{0x01}}},
+                      {bytes32_t{0x03}, {bytes32_t{}, bytes32_t{0x01}}},
+                      {bytes32_t{0x04}, {bytes32_t{}, bytes32_t{0x01}}},
+                      {bytes32_t{0x05}, {bytes32_t{}, bytes32_t{0x01}}}}}}},
+        Code{{REFUND_TEST_CODE_HASH, REFUND_TEST_ICODE}},
+        BlockHeader{.number = 0});
 
-//     // clang-format off
-//     byte_string const block_rlp =
-//     evmc::from_hex("0xf9025ff901f7a01e736f5755fc7023588f262b496b6cbc18aa9062d9c7a21b1c709f55ad66aad3a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347942adc25665018aa1fe0e6bc666dac8fc2697ff9baa096841c0823ec823fdb0b0b8ea019c8dd6691b9f335e0433d8cfe59146e8b884ca0f0f9b1e10ec75d9799e3a49da5baeeab089b431b0073fb05fa90035e830728b8a06c8ab36ec0629c97734e8ac823cdd8397de67efb76c7beb983be73dcd3c78141b90100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008302000001830f42408259e78203e800a00000000000000000000000000000000000000000000000000000000000000000880000000000000000f862f860800a830186a094095e7baea6a6c7c4c2dfeb977efac326af552d8780801ba0eac92a424c1599d71b1c116ad53800caa599233ea91907e639b7cb98fa0da3bba06be40f001771af85bfba5e6c4d579e038e6465af3f55e71b9490ab48fcfa5b1ec0")
-//             .value();
-//     // clang-format on
-//     byte_string_view block_rlp_view{block_rlp};
-//     auto block = rlp::decode_block(block_rlp_view);
-//     ASSERT_TRUE(!block.has_error());
-//     EXPECT_EQ(block.value().header.number, 1);
+    // clang-format off
+    byte_string const block_rlp =
+    evmc::from_hex("0xf9025ff901f7a01e736f5755fc7023588f262b496b6cbc18aa9062d9c7a21b1c709f55ad66aad3a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347942adc25665018aa1fe0e6bc666dac8fc2697ff9baa096841c0823ec823fdb0b0b8ea019c8dd6691b9f335e0433d8cfe59146e8b884ca0f0f9b1e10ec75d9799e3a49da5baeeab089b431b0073fb05fa90035e830728b8a06c8ab36ec0629c97734e8ac823cdd8397de67efb76c7beb983be73dcd3c78141b90100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008302000001830f42408259e78203e800a00000000000000000000000000000000000000000000000000000000000000000880000000000000000f862f860800a830186a094095e7baea6a6c7c4c2dfeb977efac326af552d8780801ba0eac92a424c1599d71b1c116ad53800caa599233ea91907e639b7cb98fa0da3bba06be40f001771af85bfba5e6c4d579e038e6465af3f55e71b9490ab48fcfa5b1ec0")
+            .value();
+    // clang-format on
+    byte_string_view block_rlp_view{block_rlp};
+    auto block = rlp::decode_block(block_rlp_view);
+    ASSERT_TRUE(!block.has_error());
+    EXPECT_EQ(block.value().header.number, 1);
 
-//     BlockHashBufferFinalized block_hash_buffer;
-//     block_hash_buffer.set(
-//         block.value().header.number - 1, block.value().header.parent_hash);
+    BlockHashBufferFinalized block_hash_buffer;
+    block_hash_buffer.set(
+        block.value().header.number - 1, block.value().header.parent_hash);
 
-//     BlockState bs(tdb, this->vm);
-//     BlockMetrics metrics;
+    BlockState bs(tdb, this->vm);
+    BlockMetrics metrics;
 
-//     fiber::PriorityPool pool{1, 1};
+    fiber::PriorityPool pool{1, 1};
 
-//     auto const recovered_senders =
-//         recover_senders(block.value().transactions, pool);
-//     std::vector<Address> senders(block.value().transactions.size());
-//     for (unsigned i = 0; i < recovered_senders.size(); ++i) {
-//         MONAD_ASSERT(recovered_senders[i].has_value());
-//         senders[i] = recovered_senders[i].value();
-//     }
-//     auto const results = execute_block<EVMC_SHANGHAI>(
-//         ShanghaiEthereumMainnet{},
-//         block.value(),
-//         senders,
-//         bs,
-//         block_hash_buffer,
-//         pool,
-//         metrics);
+    auto const recovered_senders =
+        recover_senders(block.value().transactions, pool);
+    std::vector<Address> senders(block.value().transactions.size());
+    for (unsigned i = 0; i < recovered_senders.size(); ++i) {
+        MONAD_ASSERT(recovered_senders[i].has_value());
+        senders[i] = recovered_senders[i].value();
+    }
+    auto const results = execute_block<EVMC_SHANGHAI>(
+        ShanghaiEthereumMainnet{},
+        block.value(),
+        senders,
+        bs,
+        block_hash_buffer,
+        pool,
+        metrics);
 
-//     ASSERT_TRUE(!results.has_error());
+    ASSERT_TRUE(!results.has_error());
 
-//     bs.log_debug();
+    bs.log_debug();
 
-//     std::vector<Receipt> receipts;
-//     std::vector<std::vector<CallFrame>> call_frames;
-//     for (auto &result : results.value()) {
-//         receipts.emplace_back(std::move(result.receipt));
-//         call_frames.emplace_back(std::move(result.call_frames));
-//     }
+    std::vector<Receipt> receipts;
+    std::vector<std::vector<CallFrame>> call_frames;
+    for (auto &result : results.value()) {
+        receipts.emplace_back(std::move(result.receipt));
+        call_frames.emplace_back(std::move(result.call_frames));
+    }
 
-//     auto const &transactions = block.value().transactions;
-//     BlockHeader const header = block.value().header;
-//     bytes32_t const block_id{header.number};
-//     bs.commit(
-//         block_id,
-//         header,
-//         receipts,
-//         call_frames,
-//         recover_senders(transactions),
-//         transactions,
-//         {},
-//         std::nullopt);
-//     tdb.finalize(1, block_id);
-//     tdb.set_block_and_prefix(1);
+    auto const &transactions = block.value().transactions;
+    BlockHeader const header = block.value().header;
+    bytes32_t const block_id{header.number};
+    bs.commit(
+        block_id,
+        header,
+        receipts,
+        call_frames,
+        recover_senders(transactions),
+        transactions,
+        {},
+        std::nullopt);
+    tdb.finalize(1, block_id);
+    tdb.set_block_and_prefix(1);
 
-//     auto const actual_call_frames =
-//         read_call_frame(this->db, tdb.get_block_number(), 0);
+    auto const actual_call_frames =
+        read_call_frame(this->db, tdb.get_block_number(), 0);
 
-//     ASSERT_EQ(actual_call_frames.size(), 1);
-//     CallFrame expected{
-//         .type = CallType::CALL,
-//         .flags = 0,
-//         .from = from,
-//         .to = ca,
-//         .value = 0,
-//         .gas = 0x186a0,
-//         .gas_used = 0x8fd8,
-//         .status = EVMC_SUCCESS,
-//         .depth = 0};
+    ASSERT_EQ(actual_call_frames.size(), 1);
+    CallFrame expected{
+        .type = CallType::CALL,
+        .flags = 0,
+        .from = from,
+        .to = ca,
+        .value = 0,
+        .gas = 0x186a0,
+        .gas_used = 0x8fd8,
+        .status = EVMC_SUCCESS,
+        .depth = 0};
 
-//     EXPECT_EQ(actual_call_frames[0], expected);
-// }
+    EXPECT_EQ(actual_call_frames[0], expected);
+}
