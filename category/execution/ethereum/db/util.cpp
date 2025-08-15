@@ -62,19 +62,19 @@ using namespace monad::mpt2;
 
 namespace
 {
-    // bytes32_t to_bytes32(Nibbles const &nibbles)
-    // {
-    //     MONAD_ASSERT(nibbles.nibble_size() == sizeof(bytes32_t) * 2);
-    //     if (nibbles.begin_nibble()) { // not left-aligned
-    //         Nibbles const compact_nibbles = nibbles.substr(0);
-    //         MONAD_ASSERT(compact_nibbles.data_size() == sizeof(bytes32_t));
-    //         return to_bytes(byte_string_view{
-    //             compact_nibbles.data(), compact_nibbles.data_size()});
-    //     }
-    //     MONAD_ASSERT(nibbles.data_size() == sizeof(bytes32_t));
-    //     return to_bytes(byte_string_view{nibbles.data(),
-    //     nibbles.data_size()});
-    // }
+    bytes32_t to_bytes32(Nibbles const &nibbles)
+    {
+        MONAD_ASSERT(nibbles.nibble_size() == sizeof(bytes32_t) * 2);
+        if (nibbles.begin_nibble()) { // not left-aligned
+            Nibbles const compact_nibbles = nibbles.substr(0);
+            MONAD_ASSERT(compact_nibbles.data_size() == sizeof(bytes32_t));
+            return to_bytes(
+                byte_string_view{
+                    compact_nibbles.data(), compact_nibbles.data_size()});
+        }
+        MONAD_ASSERT(nibbles.data_size() == sizeof(bytes32_t));
+        return to_bytes(byte_string_view{nibbles.data(), nibbles.data_size()});
+    }
 
     struct BinaryDbLoader
     {
@@ -785,7 +785,6 @@ mpt2::Nibbles proposal_prefix(bytes32_t const &block_id)
     return mpt2::concat(PROPOSAL_NIBBLE, NibblesView{to_bytes(block_id)});
 }
 
-/*
 std::vector<bytes32_t>
 get_proposal_block_ids(mpt2::Db &db, uint64_t const block_number)
 {
@@ -860,7 +859,6 @@ get_proposal_block_ids(mpt2::Db &db, uint64_t const block_number)
     db.traverse(db.load_root_for_version(block_number), traverse, block_number);
     return block_ids;
 }
-*/
 
 std::optional<BlockHeader> read_eth_header(
     mpt2::Db const &db, uint64_t const block, mpt2::NibblesView prefix)
