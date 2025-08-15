@@ -164,29 +164,34 @@ Node::UniquePtr write_children_create_node(
                    ? make_node(0, {}, path, opt_leaf_data.value(), {}, version)
                    : nullptr;
     }
-    else if (number_of_children == 1 && !opt_leaf_data.has_value()) {
-        // coalesce single child node with parent path
+    if (number_of_children == 1) {
         auto const j = bitmask_index(
             orig_mask, static_cast<unsigned>(std::countr_zero(mask)));
-        MONAD_DEBUG_ASSERT(children[j].node);
-        auto const node = std::move(children[j].node);
-        /* Note: there's a potential superfluous extension hash recomputation
-        when node coaleases upon erases, because we compute node hash when path
-        is not yet the final form. There's not yet a good way to avoid this
-        unless we delay all the compute() after all child branches finish
-        creating nodes and return in the recursion */
-        return make_node(
-            *node,
-            concat(path, children[j].branch, node->path_nibble_view()),
-            node->opt_value(),
-            version);
+        auto &single_child = children[j];
+        if (single_child.node == nullptr) { // load single node
+            MONAD_ASSERT(single_child.offset != INVALID_OFFSET);
+            single_child.node = copy_node(*aux.parse_node(single_child.offset));
+        }
+        if (!opt_leaf_data.has_value()) {
+            /* Note: there's a potential superfluous extension hash
+            recomputation when node coaleases upon erases, because we compute
+            node hash when path is not yet the final form. There's not yet a
+            good way to avoid this unless we delay all the compute() after all
+            child branches finish creating nodes and return in the recursion */
+            auto &node = *single_child.node;
+            return make_node(
+                node,
+                concat(path, single_child.branch, node.path_nibble_view()),
+                node.opt_value(),
+                version);
+        }
     }
     MONAD_DEBUG_ASSERT(
         number_of_children > 1 ||
         (number_of_children == 1 && opt_leaf_data.has_value()));
     // write all children to disk
     for (auto &child : children) {
-        if (child.need_write_to_disk()) {
+        if (child.is_valid() && child.need_write_to_disk()) {
             // write updated node or node to be compacted to disk
             // won't duplicate write of unchanged old child
             child.offset = aux.write_node_to_disk(

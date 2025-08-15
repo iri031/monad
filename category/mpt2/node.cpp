@@ -324,10 +324,16 @@ void Node::set_child_data(unsigned const index, byte_string_view data) noexcept
 uint32_t Node::get_allocate_size() const noexcept
 {
     MONAD_DEBUG_ASSERT(child_data() >= (unsigned char *)this);
-    auto const node_disk_size = static_cast<uint32_t>(
+    return static_cast<uint32_t>(
         child_data() + child_data_offset(number_of_children()) -
         (unsigned char *)this);
-    uint32_t const total_disk_size = node_disk_size + Node::disk_size_bytes;
+}
+
+uint32_t Node::get_disk_size() const noexcept
+{
+    MONAD_DEBUG_ASSERT(child_data() >= (unsigned char *)this);
+    uint32_t const total_disk_size =
+        get_allocate_size() + Node::disk_size_bytes;
     MONAD_DEBUG_ASSERT(total_disk_size <= Node::max_disk_size);
     return total_disk_size;
 }
@@ -456,7 +462,7 @@ Node::UniquePtr create_node_with_children(
 void serialize_node(unsigned char *write_pos, Node const &node)
 {
     // write disk_size then node content
-    uint32_t const disk_size = node.get_allocate_size();
+    uint32_t const disk_size = node.get_disk_size();
     MONAD_ASSERT(disk_size > 0 && disk_size <= Node::max_disk_size);
     memcpy(write_pos, (unsigned char *)&disk_size, Node::disk_size_bytes);
     write_pos += Node::disk_size_bytes;
@@ -479,12 +485,20 @@ Node *parse_node(unsigned char const *read_pos)
 
     auto *const node = (Node *)read_pos;
     MONAD_ASSERT_PRINTF(
-        disk_size == node->get_allocate_size(),
+        disk_size == node->get_disk_size(),
         "Mismatched on disk node size: preceeding disk_size %u and "
-        "node->get_allocate_size() %u",
+        "node->get_disk_size() %u",
         disk_size,
-        node->get_allocate_size());
+        node->get_disk_size());
     return node;
+}
+
+Node::UniquePtr copy_node(Node const &node)
+{
+    auto new_node = Node::make(node.get_allocate_size());
+    std::memcpy(
+        (void *)new_node.get(), (void *)&node, node.get_allocate_size());
+    return new_node;
 }
 
 MONAD_MPT2_NAMESPACE_END

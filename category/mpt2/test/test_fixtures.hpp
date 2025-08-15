@@ -104,8 +104,9 @@ namespace monad::trie_test
         {
         }
 
-        monad::byte_string root_hash(Node *const root)
+        monad::byte_string root_hash(chunk_offset_t const root_offset)
         {
+            auto *const root = aux.parse_node(root_offset);
             if (root) {
                 monad::byte_string data(32, 0);
                 auto const len =
@@ -164,4 +165,21 @@ namespace monad::trie_test
         }
     };
 
+    struct EraseTrieFixture : public UpdateAuxFixture
+    {
+        chunk_offset_t root_offset{INVALID_OFFSET};
+
+        EraseTrieFixture()
+        {
+            auto const &kv = fixed_updates::kv;
+            std::vector<Update> update_vec;
+            update_vec.reserve(kv.size());
+            UpdateList ul;
+            for (auto const &[k, v] : kv) {
+                auto &u = update_vec.emplace_back(make_update(k, v));
+                ul.push_front(u);
+            }
+            root_offset = upsert(aux, *sm, INVALID_OFFSET, std::move(ul));
+        }
+    };
 }
