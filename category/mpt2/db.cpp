@@ -9,6 +9,7 @@
 #include <category/mpt2/node.hpp>
 #include <category/mpt2/node_cursor.hpp>
 #include <category/mpt2/ondisk_db_config.hpp>
+#include <category/mpt2/traverse.hpp>
 #include <category/mpt2/trie.hpp>
 #include <category/mpt2/update.hpp>
 #include <category/mpt2/util.hpp>
@@ -232,6 +233,11 @@ uint64_t Db::get_earliest_version() const
 uint64_t Db::get_history_length() const
 {
     return aux_.version_history_length();
+}
+
+bool Db::traverse(NodeCursor root, TraverseMachine &machine, uint64_t block_id)
+{
+    return preorder_traverse_blocking(aux_, *root.node, machine, block_id);
 }
 
 MONAD_MPT2_NAMESPACE_END
