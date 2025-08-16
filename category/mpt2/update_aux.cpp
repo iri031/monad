@@ -265,31 +265,47 @@ UpdateAux::write_node_to_disk(Node const &node, bool const to_fast_list)
         chunk_bytes_written,
         node_writer_offset.id);
 
-    auto const chunk_remaining_bytes =
+    MONAD_ASSERT(DbStorage::chunk_capacity > node_writer_offset.offset);
+    unsigned const chunk_remaining_bytes =
         DbStorage::chunk_capacity - node_writer_offset.offset;
-    auto const bytes_to_append = node.get_disk_size();
+    unsigned const bytes_to_append = node.get_disk_size();
     if (bytes_to_append > chunk_remaining_bytes) {
-        // allocate a new chunk from free list to the specified list and update
-        // node_writer_offset to the start of the new chunk
-        detail::db_metadata_t::chunk_info_t const *ci =
-            db_storage_.db_metadata()->free_list_end();
-        MONAD_ASSERT_PRINTF(
-            ci != nullptr, "disk is full, we are out of free blocks");
-        uint32_t const idx = ci->index(db_storage_.db_metadata());
-        db_storage_.remove(idx);
-        db_storage_.append(
-            to_fast_list ? DbStorage::chunk_list::fast
-                         : DbStorage::chunk_list::slow,
-            idx);
-        node_writer_offset.id = idx & 0xfffffU;
-        node_writer_offset.offset = 0;
+        // we need to switch to a new chunk
+        switch_writer_to_new_chunk(node_writer_offset, to_fast_list);
     }
     chunk_offset_t const ret_offset = node_writer_offset;
-    serialize_node(db_storage_.get_data(node_writer_offset), node);
-    node_writer_offset = node_writer_offset.add_to_offset(bytes_to_append);
-    db_storage_.advance_chunk_bytes_used(
-        node_writer_offset.id, bytes_to_append);
+    serialize_node(db_storage_.get_data(ret_offset), node);
+    // verify that the node was serialized correctly
+    MONAD_DEBUG_ASSERT(
+        node.get_disk_size() == parse_node(ret_offset)->get_disk_size());
+    db_storage_.advance_chunk_bytes_used(ret_offset.id, bytes_to_append);
+    if (bytes_to_append == chunk_remaining_bytes) {
+        switch_writer_to_new_chunk(node_writer_offset, to_fast_list);
+    }
+    else {
+        node_writer_offset = node_writer_offset.add_to_offset(bytes_to_append);
+    }
     return ret_offset;
+}
+
+void UpdateAux::switch_writer_to_new_chunk(
+    chunk_offset_t &node_writer_offset, bool const from_fast_list) noexcept
+{
+    // allocate a new chunk from free list to the specified list and update
+    // node_writer_offset to the start of the new chunk
+    detail::db_metadata_t::chunk_info_t const *ci =
+        db_storage_.db_metadata()->free_list_end();
+    MONAD_ASSERT_PRINTF(
+        ci != nullptr, "disk is full, we are out of free blocks");
+    uint32_t const idx = ci->index(db_storage_.db_metadata());
+    db_storage_.remove(idx);
+    db_storage_.append(
+        from_fast_list ? DbStorage::chunk_list::fast
+                       : DbStorage::chunk_list::slow,
+        idx);
+    node_writer_offset.id = idx & 0xfffffU;
+    node_writer_offset.offset = 0;
+    MONAD_ASSERT(db_storage_.chunk_bytes_used(idx) == 0);
 }
 
 void UpdateAux::finalize_transaction(
