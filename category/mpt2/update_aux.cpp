@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <stack>
 #include <vector>
@@ -647,6 +648,7 @@ UpdateAux::get_root_offset_at_version(uint64_t const version) const noexcept
 
 void UpdateAux::set_latest_finalized_version(uint64_t version) noexcept
 {
+    std::unique_lock<std::mutex> lock(metadata_mutex_);
     db_storage_.set_latest_finalized_version(version);
 }
 
@@ -657,6 +659,7 @@ uint64_t UpdateAux::get_latest_finalized_version() const noexcept
 
 void UpdateAux::set_latest_verified_version(uint64_t version) noexcept
 {
+    std::unique_lock<std::mutex> lock(metadata_mutex_);
     db_storage_.set_latest_verified_version(version);
 }
 
@@ -678,6 +681,7 @@ uint64_t UpdateAux::db_history_min_valid_version() const noexcept
 void UpdateAux::set_latest_voted(
     uint64_t const version, bytes32_t const &block_id) noexcept
 {
+    std::unique_lock<std::mutex> lock(metadata_mutex_);
     db_storage_.set_latest_voted(version, block_id);
 }
 

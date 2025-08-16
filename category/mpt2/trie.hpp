@@ -46,6 +46,7 @@ class UpdateAux
     MONAD_STORAGE_NAMESPACE::DbStorage &db_storage_;
 
     std::mutex write_mutex_;
+    std::mutex metadata_mutex_;
 
     void clear_root_offsets_up_to_and_including(uint64_t version);
     void erase_versions_up_to_and_including(uint64_t version);
