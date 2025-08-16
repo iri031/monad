@@ -93,8 +93,8 @@ TEST_F(DbStorageFixture, reopen_with_correct_writer_offsets_to_start_with)
     chunk_offset_t expected_fast_offset{0, 0}, expected_slow_offset{0, 0};
     {
         UpdateAux aux{db_storage};
-        aux.node_writer_offset_fast.add_to_offset(1024);
-        aux.node_writer_offset_slow.add_to_offset(2048);
+        aux.node_writer_offset_fast.add_to_offset(102423);
+        aux.node_writer_offset_slow.add_to_offset(204858);
         expected_fast_offset = aux.node_writer_offset_fast;
         expected_slow_offset = aux.node_writer_offset_slow;
 
