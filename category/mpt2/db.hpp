@@ -27,8 +27,8 @@ class Db
     UpdateAux aux_;
 
     std::unique_ptr<WriteTransaction> wt_;
-    chunk_offset_t root_offset_{INVALID_OFFSET};
-    uint64_t version_{INVALID_BLOCK_NUM};
+    chunk_offset_t wip_root_offset_{INVALID_OFFSET};
+    uint64_t wip_version_{INVALID_BLOCK_NUM};
 
 public:
     Db(StateMachine &, OnDiskDbConfig const &);
@@ -56,21 +56,8 @@ public:
 
     NodeCursor load_root_for_version(uint64_t block_id) const;
 
-    void start_transaction(uint64_t block_id)
-    {
-        wt_ = std::make_unique<WriteTransaction>(aux_);
-        root_offset_ = aux_.get_root_offset_at_version(block_id);
-        version_ = block_id;
-    }
-
-    void finish_transaction(uint64_t block_id)
-    {
-        wt_->finish(root_offset_, block_id);
-
-        wt_.reset();
-        root_offset_ = INVALID_OFFSET;
-        version_ = INVALID_BLOCK_NUM;
-    }
+    void start_transaction(uint64_t version);
+    void finish_transaction(uint64_t version);
 
     void copy_trie(
         uint64_t src_version, NibblesView src, uint64_t dest_version,
@@ -80,10 +67,6 @@ public:
         UpdateList, uint64_t block_id, bool enable_compaction = true,
         bool can_write_to_fast = true);
 
-    void upsert_transaction(
-        uint64_t start_version, UpdateList, uint64_t end_version,
-        bool enable_compaction = true, bool can_write_to_fast = true);
-
     void update_finalized_version(uint64_t version);
     void update_verified_version(uint64_t version);
     void update_voted_metadata(uint64_t version, bytes32_t const &block_id);
@@ -91,17 +74,6 @@ public:
     uint64_t get_latest_verified_version() const;
     bytes32_t get_latest_voted_block_id() const;
     uint64_t get_latest_voted_version() const;
-
-    // Traverse APIs: return value indicates if we have finished the full
-    // traversal or not.
-    // Parallel traversal is a single threaded out of order traverse using async
-    // i/o. Note that RWDb impl waits on a fiber future, therefore any parallel
-    // traverse run on RWDb should not do any blocking i/o because that will
-    // block the fiber and hang. If you have to do blocking i/o during the
-    // traversal on RWDb, use the `traverse_blocking` api below.
-    // bool traverse(
-    //     NodeCursor, TraverseMachine &, uint64_t block_id,
-    //     size_t concurrency_limit = 4096);
 
     bool traverse(NodeCursor root, TraverseMachine &machine, uint64_t version);
 

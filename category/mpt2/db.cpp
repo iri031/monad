@@ -68,6 +68,21 @@ Db::Db(StateMachine &sm, OnDiskDbConfig const &config)
 {
 }
 
+NodeCursor Db::load_root_for_version(uint64_t const version) const
+{
+    auto root_offset = version == wip_version_
+                           ? wip_root_offset_
+                           : aux_.get_root_offset_at_version(version);
+    if (root_offset == INVALID_OFFSET) {
+        return NodeCursor{};
+    }
+    auto *node = aux_.parse_node(root_offset);
+    if (node == nullptr) {
+        return NodeCursor{};
+    }
+    return NodeCursor{*node};
+}
+
 Result<NodeCursor> Db::find(
     NodeCursor const start, NibblesView const key, uint64_t const version) const
 {
@@ -86,30 +101,15 @@ Result<NodeCursor> Db::find(
     return cursor;
 }
 
-NodeCursor Db::load_root_for_version(uint64_t const version) const
+Result<NodeCursor> Db::find(NibblesView key, uint64_t version) const
 {
-    auto root_offset = version == version_
-                           ? root_offset_
-                           : aux_.get_root_offset_at_version(version);
-    if (root_offset == INVALID_OFFSET) {
-        return NodeCursor{};
-    }
-    auto *node = aux_.parse_node(root_offset);
-    if (node == nullptr) {
-        return NodeCursor{};
-    }
-    return NodeCursor{*node};
-}
-
-Result<NodeCursor> Db::find(NibblesView key, uint64_t block_id) const
-{
-    return find(load_root_for_version(block_id), key, block_id);
+    return find(load_root_for_version(version), key, version);
 }
 
 Result<byte_string_view>
-Db::get(NibblesView const key, uint64_t const block_id) const
+Db::get(NibblesView const key, uint64_t const version) const
 {
-    auto res = find(key, block_id);
+    auto res = find(key, version);
     if (!res.has_value()) {
         return DbError(res.error().value());
     }
@@ -120,9 +120,9 @@ Db::get(NibblesView const key, uint64_t const block_id) const
 }
 
 Result<byte_string_view> Db::get_data(
-    NodeCursor root, NibblesView const key, uint64_t const block_id) const
+    NodeCursor root, NibblesView const key, uint64_t const version) const
 {
-    auto res = find(root, key, block_id);
+    auto res = find(root, key, version);
     if (!res.has_value()) {
         return DbError(res.error().value());
     }
@@ -131,9 +131,9 @@ Result<byte_string_view> Db::get_data(
 }
 
 Result<byte_string_view>
-Db::get_data(NibblesView const key, uint64_t const block_id) const
+Db::get_data(NibblesView const key, uint64_t const version) const
 {
-    auto res = find(key, block_id);
+    auto res = find(key, version);
     if (!res.has_value()) {
         return DbError(res.error().value());
     }
@@ -141,48 +141,54 @@ Db::get_data(NibblesView const key, uint64_t const block_id) const
     return res.value().node->data();
 }
 
+void Db::start_transaction(uint64_t const version)
+{
+    MONAD_ASSERT(
+        wt_ == nullptr,
+        "Transaction already started, cannot start two transactions at the "
+        "same time");
+    wt_ = std::make_unique<WriteTransaction>(aux_);
+    wip_root_offset_ = aux_.get_root_offset_at_version(version);
+    wip_version_ = version;
+}
+
+void Db::finish_transaction(uint64_t const version)
+{
+    MONAD_ASSERT(wt_, "No transaction started, call start_transaction first");
+    wt_->finish(wip_root_offset_, version);
+    wt_.reset();
+    wip_root_offset_ = INVALID_OFFSET;
+    wip_version_ = INVALID_BLOCK_NUM;
+}
+
 void Db::upsert(
     UpdateList list, uint64_t const version, bool const enable_compaction,
     bool const can_write_to_fast)
 {
-    MONAD_ASSERT(wt_);
-    root_offset_ = wt_->do_upsert(
-        root_offset_,
+    MONAD_ASSERT(
+        wt_, "No db transaction started, call start_transaction() first");
+    wip_root_offset_ = wt_->do_upsert(
+        wip_root_offset_,
         sm_,
         std::move(list),
         version,
         enable_compaction,
         can_write_to_fast);
-    version_ = version;
-}
-
-void Db::upsert_transaction(
-    uint64_t const start_version, UpdateList list, uint64_t const end_version,
-    bool const enable_compaction, bool const can_write_to_fast)
-{
-    start_transaction(start_version);
-    MONAD_ASSERT(wt_);
-    root_offset_ = wt_->do_upsert(
-        root_offset_,
-        sm_,
-        std::move(list),
-        end_version,
-        enable_compaction,
-        can_write_to_fast);
-    finish_transaction(end_version);
+    wip_version_ = version;
 }
 
 void Db::copy_trie(
     uint64_t const src_version, NibblesView const src_prefix,
     uint64_t const dest_version, NibblesView const dest_prefix)
 {
-    MONAD_ASSERT(wt_);
-    root_offset_ = wt_->copy_trie(
+    MONAD_ASSERT(
+        wt_, "No db transaction started, call start_transaction() first");
+    wip_root_offset_ = wt_->copy_trie(
         aux_.get_root_offset_at_version(src_version),
         src_prefix,
         dest_version,
         dest_prefix);
-    version_ = dest_version;
+    wip_version_ = dest_version;
 }
 
 void Db::update_finalized_version(uint64_t version)
