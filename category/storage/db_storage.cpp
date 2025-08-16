@@ -545,18 +545,21 @@ void DbStorage::init_db_metadata_()
 
 void DbStorage::try_trim_chunk_content_after(chunk_offset_t const chunk_offset_)
 {
+    file_offset_t const chunk_start_offset =
+        chunk_offset(chunk_offset_.id).raw();
     file_offset_t const offset = chunk_offset_.raw();
     uint32_t const id = chunk_offset_.id & chunk_offset_t::max_id;
     uint32_t const bytes = chunk_offset_.offset & chunk_offset_t::max_offset;
     if (bytes >= chunk_capacity) {
         return;
     }
+    // off by 1 error here?? but how?
     if (device_type_ == type_t_::file) {
         MONAD_ASSERT_PRINTF(
             -1 != ::fallocate(
                       fd_,
                       FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
-                      static_cast<off_t>(offset + bytes),
+                      static_cast<off_t>(offset),
                       static_cast<off_t>(chunk_capacity - bytes)),
             "failed due to %s",
             strerror(errno));
@@ -568,12 +571,11 @@ void DbStorage::try_trim_chunk_content_after(chunk_offset_t const chunk_offset_)
         // Round where our current append point is down to its nearest
         // DISK_PAGE_SIZE, aiming to TRIM all disk pages between that
         // and the end of our chunk in a single go
-        uint64_t range[2] = {round_up_align<DISK_PAGE_BITS>(offset + bytes), 0};
-        range[1] = chunk_capacity - range[0] + offset; // length
+        uint64_t range[2] = {round_up_align<DISK_PAGE_BITS>(offset), 0};
+        range[1] = round_down_align<DISK_PAGE_BITS>(
+            chunk_capacity - range[0] + chunk_start_offset); // length
 
         if (range[1] > 0) {
-            MONAD_DEBUG_ASSERT(
-                range[0] >= offset && range[0] < offset + chunk_capacity);
             MONAD_DEBUG_ASSERT(range[1] <= chunk_capacity);
             MONAD_DEBUG_ASSERT((range[1] & (DISK_PAGE_SIZE - 1)) == 0);
             MONAD_ASSERT_PRINTF(

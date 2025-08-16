@@ -478,7 +478,7 @@ Node *parse_node(unsigned char const *read_pos)
     // TODO: prefetch
     auto const disk_size = unaligned_load<uint32_t>(read_pos);
     MONAD_ASSERT_PRINTF(
-        disk_size <= Node::max_disk_size,
+        disk_size > 0 && disk_size <= Node::max_disk_size,
         "deserialized node disk size is %u",
         disk_size);
     read_pos += Node::disk_size_bytes;
