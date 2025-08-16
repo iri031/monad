@@ -71,6 +71,9 @@ class UpdateAux
 
     void finalize_transaction(chunk_offset_t root_offset, uint64_t version);
 
+    void switch_writer_to_new_chunk(
+        chunk_offset_t &node_writer_offset, bool from_fast_list) noexcept;
+
 public:
     // int64_t curr_upsert_auto_expire_version{0};
     compact_virtual_chunk_offset_t compact_offset_fast{

@@ -89,7 +89,7 @@ struct chunk_offset_t
     {
         chunk_offset_t ret(*this);
         offset_ += ret.offset;
-        MONAD_DEBUG_ASSERT(offset_ <= max_offset);
+        MONAD_ASSERT(offset_ <= max_offset);
         ret.offset = offset_ & max_offset;
         return ret;
     }

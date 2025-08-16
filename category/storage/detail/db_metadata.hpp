@@ -321,7 +321,7 @@ namespace detail
         {
             // Insertion count is assigned to chunk_info_t *i atomically
             auto g = hold_dirty();
-            chunk_info_t info;
+            chunk_info_t info{0};
             info.in_fast_list = (&list == &fast_list);
             info.in_slow_list = (&list == &slow_list);
             info.insertion_count0_ = info.insertion_count1_ = 0;
