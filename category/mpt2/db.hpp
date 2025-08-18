@@ -49,12 +49,21 @@ public:
     // future.
     Result<NodeCursor> find(NodeCursor, NibblesView, uint64_t block_id) const;
     Result<NodeCursor> find(NibblesView prefix, uint64_t block_id) const;
+
+    // Find node at a version that may be deleted while find is in progress
+    // Returns a copy of the node so it is guaranteed to be valid even if
+    // version is deleted after this function returns.
+    Result<OwningNodeCursor>
+    find_weak(NibblesView prefix, uint64_t block_id) const;
+
     Result<byte_string_view> get(NibblesView, uint64_t block_id) const;
     Result<byte_string_view> get_data(NibblesView, uint64_t block_id) const;
     Result<byte_string_view>
     get_data(NodeCursor, NibblesView, uint64_t block_id) const;
 
     NodeCursor load_root_for_version(uint64_t block_id) const;
+
+    OwningNodeCursor load_root_for_version_weak(uint64_t block_id) const;
 
     void start_transaction(uint64_t version);
     void finish_transaction(uint64_t version);

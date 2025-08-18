@@ -49,7 +49,7 @@ namespace detail
             if (traverse.should_visit(node, branch)) {
                 auto next_offset = node.fnext(idx);
                 if (next_offset != INVALID_OFFSET) {
-                    auto next_node = aux.parse_node(next_offset);
+                    auto next_node = aux.parse_node_weak(next_offset, version);
                     if (!preorder_traverse_blocking_impl(
                             aux, branch, *next_node, traverse, version)) {
                         return false;

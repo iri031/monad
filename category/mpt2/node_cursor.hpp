@@ -33,21 +33,18 @@ static_assert(sizeof(NodeCursor) == 16);
 static_assert(alignof(NodeCursor) == 8);
 static_assert(std::is_trivially_copyable_v<NodeCursor> == true);
 
-// TODO needs version protection to keep node valid
+// Contains copy of the node so is safe to access even if node's version is
+// invalidated and node is overwritten on disk.
 struct OwningNodeCursor
 {
-    Node *node = nullptr;
+    Node::UniquePtr node;
     unsigned prefix_index{0};
 
-    constexpr OwningNodeCursor()
-        : node{nullptr}
-        , prefix_index{0}
-    {
-    }
+    constexpr OwningNodeCursor() = default;
 
-    constexpr OwningNodeCursor(Node &node_, unsigned prefix_index_ = 0)
-        : node{&node_}
-        , prefix_index{prefix_index_}
+    constexpr OwningNodeCursor(Node::UniquePtr node, unsigned prefix_index = 0)
+        : node{std::move(node)}
+        , prefix_index{prefix_index}
     {
     }
 

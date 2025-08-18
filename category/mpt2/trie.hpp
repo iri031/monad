@@ -111,6 +111,9 @@ public:
 
     Node *parse_node(chunk_offset_t offset) const noexcept;
 
+    Node::UniquePtr
+    parse_node_weak(chunk_offset_t offset, uint64_t version) const noexcept;
+
     chunk_offset_t write_node_to_disk(Node const &node, bool to_fast_list);
 
     bool exists_version(uint64_t version) const noexcept;
@@ -250,6 +253,10 @@ using find_cursor_result_type = find_result_type<NodeCursor>;
 
 find_cursor_result_type
 find(UpdateAux const &, NodeCursor, NibblesView key, uint64_t version = 0);
+
+find_result_type<OwningNodeCursor> find_weak(
+    UpdateAux const &aux, OwningNodeCursor cursor, NibblesView key,
+    uint64_t version);
 
 std::pair<compact_virtual_chunk_offset_t, compact_virtual_chunk_offset_t>
 calc_min_offsets(

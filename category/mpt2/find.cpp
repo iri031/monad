@@ -51,4 +51,46 @@ find_cursor_result_type find(
     return {NodeCursor{*node, node_prefix_index}, find_result::success};
 }
 
+find_result_type<OwningNodeCursor> find_weak(
+    UpdateAux const &aux, OwningNodeCursor root, NibblesView key,
+    uint64_t version)
+{
+    auto node = std::move(root.node);
+    unsigned node_prefix_index = root.prefix_index;
+    unsigned prefix_index = 0;
+    while (prefix_index < key.nibble_size()) {
+        unsigned char const nibble = key.get(prefix_index);
+        if (node->path_nibbles_len() == node_prefix_index) {
+            if (!(node->mask & (1u << nibble))) {
+                return {
+                    OwningNodeCursor{std::move(node), node_prefix_index},
+                    find_result::branch_not_exist_failure};
+            }
+            node = aux.parse_node_weak(
+                node->fnext(node->to_child_index(nibble)), version);
+            node_prefix_index = 0;
+            ++prefix_index;
+            continue;
+        }
+        if (nibble != node->path_nibble_view().get(node_prefix_index)) {
+            // return the last matched node and first mismatch prefix index
+            return {
+                OwningNodeCursor{std::move(node), node_prefix_index},
+                find_result::key_mismatch_failure};
+        }
+        // nibble is matched
+        ++prefix_index;
+        ++node_prefix_index;
+    }
+    if (node_prefix_index != node->path_nibbles_len()) {
+        // prefix key exists but no leaf ends at `key`
+        return {
+            OwningNodeCursor{std::move(node), node_prefix_index},
+            find_result::key_ends_earlier_than_node_failure};
+    }
+    return {
+        OwningNodeCursor{std::move(node), node_prefix_index},
+        find_result::success};
+}
+
 MONAD_MPT2_NAMESPACE_END
