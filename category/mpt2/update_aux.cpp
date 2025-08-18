@@ -245,6 +245,35 @@ Node *UpdateAux::parse_node(chunk_offset_t const offset) const noexcept
     return ::monad::mpt2::parse_node(db_storage_.get_data(offset));
 }
 
+Node::UniquePtr UpdateAux::parse_node_weak(
+    chunk_offset_t const offset, uint64_t const version) const noexcept
+{
+    if (offset == INVALID_OFFSET) {
+        return nullptr;
+    }
+    auto p = db_storage_.get_data(offset);
+
+    // Load size, check version afterward which guarantees that node
+    // data can be safely accessed.
+    auto size = unaligned_load<uint32_t>(p);
+    if (!exists_version(version)) {
+        return nullptr;
+    }
+
+    p += Node::disk_size_bytes;
+
+    auto node = Node::make(size);
+    memcpy(static_cast<void *>(node.get()), p, size);
+
+    // Check version again after copying, if version still exists copied data is
+    // valid.
+    if (!exists_version(version)) {
+        return nullptr;
+    }
+
+    return node;
+}
+
 chunk_offset_t
 UpdateAux::write_node_to_disk(Node const &node, bool const to_fast_list)
 {

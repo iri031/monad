@@ -83,6 +83,16 @@ NodeCursor Db::load_root_for_version(uint64_t const version) const
     return NodeCursor{*node};
 }
 
+OwningNodeCursor Db::load_root_for_version_weak(uint64_t const version) const
+{
+    auto root_offset = aux_.get_root_offset_at_version(version);
+    if (root_offset == INVALID_OFFSET) {
+        return OwningNodeCursor{};
+    }
+    auto node = aux_.parse_node_weak(root_offset, version);
+    return OwningNodeCursor{std::move(node)};
+}
+
 Result<NodeCursor> Db::find(
     NodeCursor const start, NibblesView const key, uint64_t const version) const
 {
@@ -104,6 +114,18 @@ Result<NodeCursor> Db::find(
 Result<NodeCursor> Db::find(NibblesView key, uint64_t version) const
 {
     return find(load_root_for_version(version), key, version);
+}
+
+Result<OwningNodeCursor> Db::find_weak(NibblesView key, uint64_t version) const
+{
+    auto [cursor, result] = mpt2::find_weak(
+        aux_, load_root_for_version_weak(version), key, version);
+    if (result != find_result::success) {
+        return find_result_to_db_error(result);
+    }
+    MONAD_DEBUG_ASSERT(cursor.is_valid());
+    MONAD_DEBUG_ASSERT(cursor.node->has_value());
+    return cursor;
 }
 
 Result<byte_string_view>

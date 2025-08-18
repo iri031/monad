@@ -42,8 +42,9 @@ Node::Node(
     NibblesView const path, int64_t const version)
     : mask(mask)
     , path_nibble_index_end(path.end_nibble_)
-    , value_len(static_cast<decltype(value_len)>(
-          value.transform(&byte_string_view::size).value_or(0)))
+    , value_len(
+          static_cast<decltype(value_len)>(
+              value.transform(&byte_string_view::size).value_or(0)))
     , version(version)
 {
     MONAD_DEBUG_ASSERT(
@@ -495,9 +496,9 @@ Node *parse_node(unsigned char const *read_pos)
 
 Node::UniquePtr copy_node(Node const &node)
 {
-    auto new_node = Node::make(node.get_allocate_size());
-    std::memcpy(
-        (void *)new_node.get(), (void *)&node, node.get_allocate_size());
+    auto size = node.get_allocate_size();
+    auto new_node = Node::make(size);
+    std::memcpy((void *)new_node.get(), (void *)&node, size);
     return new_node;
 }
 
