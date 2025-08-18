@@ -396,25 +396,11 @@ public:
         apply_to_both_copies(f);
     }
 
-    void advance_db_offsets_to(
-        chunk_offset_t const fast_offset,
-        chunk_offset_t const slow_offset) noexcept
-    {
-        // To detect bugs in replacing fast/slow node writer to the wrong chunk
-        // list
-        MONAD_ASSERT(db_metadata()->at(fast_offset.id)->in_fast_list);
-        MONAD_ASSERT(db_metadata()->at(slow_offset.id)->in_slow_list);
-        apply_to_both_copies([&](detail::db_metadata_t *m) {
-            m->advance_db_offsets_to_(
-                detail::db_metadata_t::db_offsets_info_t{
-                    fast_offset, slow_offset});
-        });
-    }
-
     void append_root_offset(chunk_offset_t const root_offset) noexcept
     {
         auto f = [&](detail::db_metadata_t *m) {
             auto g = m->hold_dirty();
+            // push will clean up
             root_offsets(m == db_metadata_[1].main).push(root_offset);
         };
         apply_to_both_copies(f);
@@ -423,6 +409,13 @@ public:
     void update_root_offset(
         size_t const i, chunk_offset_t const root_offset) noexcept
     {
+        auto const finalized_version = get_latest_finalized_version(false);
+        MONAD_ASSERT_PRINTF(
+            finalized_version == INVALID_VERSION || i >= finalized_version,
+            "should never update root offset before finalized version, i=%lu, "
+            "latest_finalized_version=%lu",
+            i,
+            finalized_version);
         auto f = [&](detail::db_metadata_t *m) {
             auto g = m->hold_dirty();
             root_offsets(m == db_metadata_[1].main).assign(i, root_offset);
@@ -453,39 +446,63 @@ public:
         apply_to_both_copies(f);
     }
 
-    void set_latest_finalized_version(uint64_t const version) noexcept
+    // TODO: the following functions should have two versions
+    // 1. synced version, which guarantee durable on disk
+    // 2. unsynced version, accessible only in the current process
+    //    which may not be durable on disk, but faster
+    void advance_db_offsets_to(
+        chunk_offset_t const fast_offset,
+        chunk_offset_t const slow_offset) noexcept
+    {
+        // To detect bugs in replacing fast/slow node writer to the wrong chunk
+        // list
+        MONAD_ASSERT(db_metadata()->at(fast_offset.id)->in_fast_list);
+        MONAD_ASSERT(db_metadata()->at(slow_offset.id)->in_slow_list);
+        apply_to_both_copies([&](detail::db_metadata_t *m) {
+            m->advance_db_offsets_to_(detail::db_metadata_t::db_offsets_info_t{
+                fast_offset, slow_offset});
+        });
+    }
+
+    void set_latest_finalized_version(
+        uint64_t const version, bool const synced) noexcept
     {
         auto f = [&](detail::db_metadata_t *m) {
             auto g = m->hold_dirty();
             reinterpret_cast<std::atomic_uint64_t *>(
-                &m->latest_finalized_version)
+                synced ? &m->latest_finalized_version_synced
+                       : &m->latest_finalized_version)
                 ->store(version, std::memory_order_release);
         };
         apply_to_both_copies(f);
     }
 
-    uint64_t get_latest_finalized_version() const noexcept
+    uint64_t get_latest_finalized_version(bool const synced) const noexcept
     {
-        return reinterpret_cast<std::atomic_uint64_t *>(
-                   &db_metadata_[0].main->latest_finalized_version)
+        return reinterpret_cast<std::atomic_uint64_t const *>(
+                   synced ? &db_metadata()->latest_finalized_version_synced
+                          : &db_metadata()->latest_finalized_version)
             ->load(std::memory_order_acquire);
     }
 
-    void set_latest_verified_version(uint64_t const version) noexcept
+    void set_latest_verified_version(
+        uint64_t const version, bool const synced) noexcept
     {
         auto f = [&](detail::db_metadata_t *m) {
             auto g = m->hold_dirty();
             reinterpret_cast<std::atomic_uint64_t *>(
-                &m->latest_verified_version)
+                synced ? &m->latest_verified_version_synced
+                       : &m->latest_verified_version)
                 ->store(version, std::memory_order_release);
         };
         apply_to_both_copies(f);
     }
 
-    uint64_t get_latest_verified_version() const noexcept
+    uint64_t get_latest_verified_version(bool const synced) const noexcept
     {
-        return reinterpret_cast<std::atomic_uint64_t *>(
-                   &db_metadata_[0].main->latest_verified_version)
+        return reinterpret_cast<std::atomic_uint64_t const *>(
+                   synced ? &db_metadata()->latest_verified_version_synced
+                          : &db_metadata()->latest_verified_version)
             ->load(std::memory_order_acquire);
     }
 
@@ -513,21 +530,31 @@ public:
         return db_metadata_[0].main->latest_voted_block_id;
     }
 
-    void set_history_length(uint64_t const history_len) noexcept
+    void
+    set_history_length(uint64_t const history_len, bool const synced) noexcept
     {
         auto f = [&](detail::db_metadata_t *m) {
             auto g = m->hold_dirty();
             auto const ro = root_offsets(m == db_metadata_[1].main);
             MONAD_ASSERT(history_len > 0 && history_len <= ro.capacity());
-            reinterpret_cast<std::atomic_uint64_t *>(&m->history_length)
+            reinterpret_cast<std::atomic_uint64_t *>(
+                synced ? &m->history_length_synced : &m->history_length)
                 ->store(history_len, std::memory_order_relaxed);
         };
         apply_to_both_copies(f);
     }
 
-    uint64_t db_history_max_version() const noexcept
+    uint64_t version_history_length() const noexcept
     {
-        return root_offsets().max_version();
+        return start_lifetime_as<std::atomic_uint64_t const>(
+                   &db_metadata()->history_length)
+            ->load(std::memory_order_relaxed);
+    }
+
+    uint64_t db_history_max_version(bool const synced) const noexcept
+    {
+        return synced ? get_latest_finalized_version(true)
+                      : root_offsets().max_version();
     }
 
     uint64_t db_history_min_valid_version() const noexcept
@@ -544,7 +571,7 @@ public:
 
     uint64_t db_history_range_lower_bound() const noexcept
     {
-        auto const max_version = db_history_max_version();
+        auto const max_version = db_history_max_version(false);
         if (max_version == INVALID_VERSION) {
             return INVALID_VERSION;
         }
@@ -560,17 +587,10 @@ public:
         }
     }
 
-    uint64_t version_history_length() const noexcept
-    {
-        return start_lifetime_as<std::atomic_uint64_t const>(
-                   &db_metadata()->history_length)
-            ->load(std::memory_order_relaxed);
-    }
-
     chunk_offset_t
     get_root_offset_at_version(uint64_t const version) const noexcept
     {
-        if (version <= db_history_max_version()) {
+        if (version <= db_history_max_version(false)) {
             auto const offset = root_offsets()[version];
             if (version >= db_history_range_lower_bound()) {
                 return offset;

@@ -17,6 +17,7 @@ find_package(PkgConfig REQUIRED)
 
 add_library(
   monad_trie2 STATIC
+  "blocking_spsc.hpp"
   "child_data.cpp"
   "child_data.hpp"
   "compute.cpp"
@@ -26,6 +27,8 @@ add_library(
   "db.hpp"
   "db_error.hpp"
   "find.cpp"
+  "async_worker.cpp"
+  "async_worker.hpp"
   "nibbles_view.hpp"
   "nibbles_view_fmt.hpp"
   "node.cpp"

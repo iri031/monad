@@ -157,7 +157,6 @@ namespace
                         block_id_,
                         false,
                         false);
-                    db_.update_finalized_version(block_id_);
 
                     update_alloc_.clear();
                     bytes_alloc_.clear();

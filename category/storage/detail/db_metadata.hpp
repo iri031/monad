@@ -41,6 +41,10 @@ namespace detail
     inline void
     db_copy(db_metadata_t *dest, db_metadata_t const *src, size_t bytes);
 
+    /* We have two categories of metadata:
+    - Synced: dependent data is guaranteed durable on disk.
+    - Unsynced: dependent data may still only live in memory, and can be lost on
+crash/kill. */
     struct db_metadata_t
     {
         friend class MONAD_STORAGE_NAMESPACE::DbStorage;
@@ -70,16 +74,20 @@ namespace detail
         // cannot use atomic_uint64_t here because db_metadata_t has to be
         // trivially copyable for db_copy().
         uint64_t history_length;
+        uint64_t history_length_synced;
         int64_t auto_expire_version;
 
         // TODO: move those execution related metadata into an opaque type
         uint64_t latest_finalized_version;
         uint64_t latest_verified_version;
+        uint64_t latest_finalized_version_synced;
+        uint64_t latest_verified_version_synced;
+        // unsynced info, gets cleared after restart
         uint64_t latest_voted_version;
         bytes32_t latest_voted_block_id; // 32 bytes
 
         // padding for adding future atomics without requiring DB reset
-        uint8_t future_variables_unused[4064];
+        uint8_t future_variables_unused[4096];
 
         struct db_offsets_info_t
         {
@@ -321,7 +329,7 @@ namespace detail
         {
             // Insertion count is assigned to chunk_info_t *i atomically
             auto g = hold_dirty();
-            chunk_info_t info{0};
+            chunk_info_t info;
             info.in_fast_list = (&list == &fast_list);
             info.in_slow_list = (&list == &slow_list);
             info.insertion_count0_ = info.insertion_count1_ = 0;
@@ -428,7 +436,7 @@ namespace detail
         }
     };
 
-    static_assert(sizeof(db_metadata_t) == 4232);
+    static_assert(sizeof(db_metadata_t) == 4288);
     static_assert(std::is_trivially_copyable_v<db_metadata_t>);
 
     /* A dirty bit setting memcpy implementation, so the dirty bit gets held

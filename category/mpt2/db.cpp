@@ -125,7 +125,7 @@ Result<OwningNodeCursor> Db::find_weak(NibblesView key, uint64_t version) const
     }
     MONAD_DEBUG_ASSERT(cursor.is_valid());
     MONAD_DEBUG_ASSERT(cursor.node->has_value());
-    return cursor;
+    return std::move(cursor);
 }
 
 Result<byte_string_view>

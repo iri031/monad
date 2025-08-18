@@ -287,6 +287,7 @@ int main(int const argc, char const *argv[])
             MONAD_ASSERT_PRINTF(
                 block_db.get(n, block), "FATAL: Could not load block %lu", n);
             load_header(db, block.header);
+            db.update_finalized_version(n);
             return n;
         }
         else if (db.get_latest_version() == mpt2::INVALID_BLOCK_NUM) {
@@ -375,14 +376,16 @@ int main(int const argc, char const *argv[])
             : block_num + nblocks - 1;
 
     vm::VM vm;
-    DbCache db_cache = ctx ? DbCache{*ctx} : DbCache{triedb};
+    // DbCache db_cache = ctx ? DbCache{*ctx} : DbCache{triedb};
+
     auto const result = [&] {
         switch (chain_config) {
         case CHAIN_CONFIG_ETHEREUM_MAINNET:
             return runloop_ethereum(
                 *chain,
                 block_db_path,
-                db_cache,
+                ctx ? std::reference_wrapper<Db>(*ctx)
+                    : std::reference_wrapper<Db>(triedb),
                 vm,
                 block_hash_buffer,
                 priority_pool,
@@ -397,7 +400,8 @@ int main(int const argc, char const *argv[])
                 dynamic_cast<MonadChain const &>(*chain),
                 block_db_path,
                 db,
-                db_cache,
+                ctx ? std::reference_wrapper<Db>(*ctx)
+                    : std::reference_wrapper<Db>(triedb),
                 vm,
                 block_hash_buffer,
                 priority_pool,

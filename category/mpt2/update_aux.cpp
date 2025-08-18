@@ -1,4 +1,5 @@
 #include <category/core/unaligned.hpp>
+#include <category/mpt2/async_worker.hpp>
 #include <category/mpt2/child_data.hpp>
 #include <category/mpt2/config.hpp>
 #include <category/mpt2/node.hpp>
@@ -129,14 +130,15 @@ UpdateAux::UpdateAux(
 {
     if (history_len.has_value() && !is_read_only()) {
         // reset history length
-        if (history_len < db_storage_.version_history_length() &&
-            history_len <= db_storage_.db_history_max_version()) {
+        if (history_len < version_history_length() &&
+            history_len <= db_history_max_version(true)) {
             // we invalidate earlier blocks that fall outside of the
             // history window when shortening history length
             erase_versions_up_to_and_including(
-                db_storage_.db_history_max_version() - *history_len);
+                db_history_max_version(true) - *history_len);
         }
-        db_storage_.set_history_length(*history_len);
+        db_storage_.set_history_length(*history_len, true);
+        db_storage_.set_history_length(*history_len, false);
     }
 
     // init node writers
@@ -150,6 +152,16 @@ UpdateAux::UpdateAux(
         physical_to_virtual(node_writer_offset_fast)};
     last_block_end_offset_slow_ = compact_virtual_chunk_offset_t{
         physical_to_virtual(node_writer_offset_slow)};
+
+    if (!is_read_only()) {
+        async_worker_ = std::make_unique<AsyncWorker>(*this);
+    }
+}
+
+UpdateAux::~UpdateAux()
+{
+    // must destruct async worker before db_storage_ to avoid use after free
+    async_worker_.reset();
 }
 
 void UpdateAux::clear_root_offsets_up_to_and_including(uint64_t const version)
@@ -337,6 +349,50 @@ void UpdateAux::switch_writer_to_new_chunk(
     MONAD_ASSERT(db_storage_.chunk_bytes_used(idx) == 0);
 }
 
+void UpdateAux::do_msync(
+    chunk_offset_t const fast_start, chunk_offset_t const fast_end,
+    chunk_offset_t const slow_start, chunk_offset_t const slow_end)
+{
+    using namespace MONAD_STORAGE_NAMESPACE;
+
+    auto const *m = db_storage_.db_metadata();
+    auto sync_ = [&](chunk_offset_t const start, chunk_offset_t const end) {
+        if (start != end) {
+            auto const *si = m->at(start.id);
+            auto const *ei = m->at(end.id);
+            MONAD_ASSERT(si->insertion_count() <= ei->insertion_count());
+            MONAD_DEBUG_ASSERT(si->in_fast_list == ei->in_fast_list);
+            MONAD_DEBUG_ASSERT(si->in_slow_list == ei->in_slow_list);
+
+            for (auto const *ci = si;; ci = ci->next(m)) {
+                auto const idx = ci->index(m);
+                uint32_t offset = 0;
+                if (ci == si) {
+                    offset =
+                        round_down_align<CPU_PAGE_BITS>((uint32_t)start.offset);
+                }
+                else if (ci == ei) {
+                    offset =
+                        round_up_align<CPU_PAGE_BITS>((uint32_t)end.offset);
+                }
+                MONAD_ASSERT_PRINTF(
+                    -1 != ::msync(
+                              db_storage_.get_data({idx, offset}),
+                              DbStorage::chunk_capacity - offset,
+                              MS_SYNC),
+                    "msync failed: %s",
+                    strerror(errno));
+                if (ci == ei) {
+                    break;
+                }
+            }
+        }
+    };
+    sync_(fast_start, fast_end);
+    sync_(slow_start, slow_end);
+}
+
+// called synchronously
 void UpdateAux::finalize_transaction(
     chunk_offset_t const root_offset, uint64_t const version)
 {
@@ -345,8 +401,8 @@ void UpdateAux::finalize_transaction(
         node_writer_offset_fast, node_writer_offset_slow);
 
     // update root offset in ring buffer
-    auto const max_version = db_storage_.db_history_max_version();
-    auto const history_length = db_storage_.version_history_length();
+    auto const max_version = db_history_max_version();
+    auto const history_length = version_history_length();
     if (MONAD_UNLIKELY(max_version == INVALID_VERSION)) {
         db_storage_.fast_forward_next_version(version);
         db_storage_.append_root_offset(root_offset);
@@ -366,15 +422,14 @@ void UpdateAux::finalize_transaction(
     }
     else { // append
         // prune versions that are going to fall out of history window
-        if (version - db_storage_.db_history_min_valid_version() >=
+        if (version - db_history_min_valid_version() >=
             history_length) { // exceed history length
             // erase min_valid_version, must happen before appending the new
             // root offset because that offset slot in ring buffer may be
             // overwritten thus invalidated in the append
             erase_versions_up_to_and_including(version - history_length);
             MONAD_ASSERT(
-                version - db_storage_.db_history_min_valid_version() <
-                history_length);
+                version - db_history_min_valid_version() < history_length);
         }
         MONAD_ASSERT(version == max_version + 1);
         db_storage_.append_root_offset(root_offset);
@@ -646,8 +701,7 @@ void UpdateAux::advance_compact_offsets()
     /* Compact the fast ring based on average disk growth over recent blocks. */
     if (compact_offset_fast < last_block_end_offset_fast_) {
         auto const valid_history_length =
-            db_storage_.db_history_max_version() -
-            db_storage_.db_history_min_valid_version() + 1;
+            db_history_max_version() - db_history_min_valid_version() + 1;
         compact_offset_range_fast_.set_value(divide_and_round(
             last_block_end_offset_fast_ - compact_offset_fast,
             valid_history_length));
@@ -693,29 +747,36 @@ UpdateAux::get_root_offset_at_version(uint64_t const version) const noexcept
 
 void UpdateAux::set_latest_finalized_version(uint64_t version) noexcept
 {
-    std::unique_lock<std::mutex> lock(metadata_mutex_);
-    db_storage_.set_latest_finalized_version(version);
+    db_storage_.set_latest_finalized_version(version, false); // unsynced
+    // asynchronous update durable metadata
+    async_queue_.push_blocking([this, version]() {
+        db_storage_.set_latest_finalized_version(version, true); // durable
+    });
 }
 
-uint64_t UpdateAux::get_latest_finalized_version() const noexcept
+uint64_t
+UpdateAux::get_latest_finalized_version(bool const synced) const noexcept
 {
-    return db_storage_.get_latest_finalized_version();
+    return db_storage_.get_latest_finalized_version(synced);
 }
 
 void UpdateAux::set_latest_verified_version(uint64_t version) noexcept
 {
-    std::unique_lock<std::mutex> lock(metadata_mutex_);
-    db_storage_.set_latest_verified_version(version);
+    db_storage_.set_latest_verified_version(version, false);
+    async_queue_.push_blocking([this, version]() {
+        db_storage_.set_latest_verified_version(version, true); // durable
+    });
 }
 
-uint64_t UpdateAux::get_latest_verified_version() const noexcept
+uint64_t
+UpdateAux::get_latest_verified_version(bool const synced) const noexcept
 {
-    return db_storage_.get_latest_verified_version();
+    return db_storage_.get_latest_verified_version(synced);
 }
 
-uint64_t UpdateAux::db_history_max_version() const noexcept
+uint64_t UpdateAux::db_history_max_version(bool const synced) const noexcept
 {
-    return db_storage_.db_history_max_version();
+    return db_storage_.db_history_max_version(synced);
 }
 
 uint64_t UpdateAux::db_history_min_valid_version() const noexcept
@@ -726,7 +787,6 @@ uint64_t UpdateAux::db_history_min_valid_version() const noexcept
 void UpdateAux::set_latest_voted(
     uint64_t const version, bytes32_t const &block_id) noexcept
 {
-    std::unique_lock<std::mutex> lock(metadata_mutex_);
     db_storage_.set_latest_voted(version, block_id);
 }
 
