@@ -177,8 +177,8 @@ static void do_run(std::size_t const run_index, arguments const &args)
             Choice(0.05, [](auto &) { return GeneratorFocus::Pow2; }),
             Choice(0.8, [](auto &) { return GeneratorFocus::DynJump; }));
 
-        auto const contract = monad::vm::fuzzing::generate_program(
-            focus, engine, rev, {});
+        auto const contract =
+            monad::vm::fuzzing::generate_program(focus, engine, rev, {});
 
         fuzz_iteration(contract, rev);
     }

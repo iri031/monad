@@ -25,6 +25,7 @@
 #include <llvm/ExecutionEngine/Orc/Core.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/Mangling.h>
+#include <llvm/ExecutionEngine/Orc/ObjectTransformLayer.h>
 #include <llvm/ExecutionEngine/Orc/Shared/ExecutorAddress.h>
 #include <llvm/ExecutionEngine/Orc/Shared/ExecutorSymbolDef.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
@@ -39,9 +40,11 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/PassManager.h>
 #include <llvm/IR/Type.h>
 #include <llvm/IR/Value.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/Error.h>
 #include <llvm/Support/raw_ostream.h>
 
@@ -66,16 +69,51 @@ namespace monad::vm::llvm
             std::ofstream out(nm);
             out << module_str;
             out.close();
-            std::cerr << module_str;
         }
 
-        void set_contract_addr()
+        void set_contract_addr(std::string const &dbg_nm = "")
         {
+            LoopAnalysisManager LAM;
+            FunctionAnalysisManager FAM;
+            CGSCCAnalysisManager CGAM;
+            ModuleAnalysisManager MAM;
+
+            PassBuilder PB;
+
+            PB.registerModuleAnalyses(MAM);
+            PB.registerCGSCCAnalyses(CGAM);
+            PB.registerFunctionAnalyses(FAM);
+            PB.registerLoopAnalyses(LAM);
+            PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+
+            ModulePassManager MPM =
+                PB.buildPerModuleDefaultPipeline(OptimizationLevel::O3);
+
+            bool const do_optimize = true;
+
+            if (do_optimize) {
+                MPM.run(*llvm_module, MAM);
+            }
+
+            if (dbg_nm != "") {
+                if (do_optimize) {
+                    dump_module(dbg_nm + "_opt.ll");
+                }
+                std::string const nm = dbg_nm + ".jit";
+                ObjectTransformLayer &otl = lljit->getObjTransformLayer();
+                DumpObjects const dumpobjs = DumpObjects("", nm);
+                otl.setTransform(dumpobjs);
+            }
+
             JITDylib &jd = lljit->getMainJITDylib();
 
             MONAD_VM_ASSERT(!jd.define(absoluteSymbols(opcode_syms)));
 
-            MONAD_VM_ASSERT(verifyModule(*llvm_module));
+            if (!do_optimize) {
+                MONAD_VM_ASSERT(
+                    verifyModule(*llvm_module)); // BAL: this fails when O2 and
+                                                 // O3 are applied.  Why?
+            }
 
             ThreadSafeModule tsm(
                 std::move(llvm_module), std::move(llvm_context));
@@ -148,9 +186,9 @@ namespace monad::vm::llvm
             insert_lbls.pop_back();
         };
 
-        Value *gep(Type *ty, Value *v, std::vector<Value *> const &offsets)
+        Value *gep(Type *ty, Value *v, Value *const offset, std::string_view nm)
         {
-            return ir.CreateInBoundsGEP(ty, v, offsets, "gep");
+            return ir.CreateInBoundsGEP(ty, v, {offset}, nm);
         }
 
         void store(Value *v, Value *p)
@@ -163,9 +201,9 @@ namespace monad::vm::llvm
             return ir.CreateLoad(ty, v, "load");
         };
 
-        Value *alloca_(Type *ty)
+        Value *alloca_(Type *ty, std::string_view nm)
         {
-            return ir.CreateAlloca(ty, nullptr, "alloca");
+            return ir.CreateAlloca(ty, nullptr, nm);
         }
 
         void br(BasicBlock *blk)
@@ -200,6 +238,11 @@ namespace monad::vm::llvm
         Value *cast_word(Value *a)
         {
             return ir.CreateIntCast(a, int_ty(256), false, "cast_word");
+        };
+
+        Value *cast_bool(Value *a)
+        {
+            return ir.CreateIntCast(a, int_ty(1), false, "cast_bool");
         };
 
         Value *not_(Value *a)
@@ -250,6 +293,24 @@ namespace monad::vm::llvm
         Value *add(Value *a, Value *b)
         {
             return ir.CreateAdd(a, b, "add");
+        };
+
+        Value *addmod(Value *a, Value *b, Value *n)
+        {
+            auto *a1 = ir.CreateIntCast(a, int_ty(257), false);
+            auto *b1 = ir.CreateIntCast(b, int_ty(257), false);
+            auto *n1 = ir.CreateIntCast(n, int_ty(257), false);
+            auto *r = urem(add(a1, b1), n1);
+            return ir.CreateIntCast(r, int_ty(256), false);
+        };
+
+        Value *mulmod(Value *a, Value *b, Value *n)
+        {
+            auto *a1 = ir.CreateIntCast(a, int_ty(512), false);
+            auto *b1 = ir.CreateIntCast(b, int_ty(512), false);
+            auto *n1 = ir.CreateIntCast(n, int_ty(512), false);
+            auto *r = urem(mul(a1, b1), n1);
+            return ir.CreateIntCast(r, int_ty(256), false);
         };
 
         Value *sub(Value *a, Value *b)
@@ -363,7 +424,6 @@ namespace monad::vm::llvm
             std::string_view nm, Type *ty, std::vector<Type *> const &tys)
         {
             Function *f = declare_function(nm, ty, tys, false);
-            f->addFnAttr(Attribute::AlwaysInline);
             auto params = function_definition_params(f, tys);
 
             return std::make_tuple(f, params);

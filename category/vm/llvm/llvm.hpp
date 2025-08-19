@@ -26,7 +26,8 @@ namespace monad::vm::llvm
     {
         runtime::EvmStackAllocator stack_allocator_;
         runtime::EvmMemoryAllocator memory_allocator_;
-        std::unordered_map<std::string, std::shared_ptr<LLVMState>>
+        std::vector<
+            std::unordered_map<evmc::bytes32, std::shared_ptr<LLVMState>>>
             cached_llvm_code_;
 
     public:
@@ -35,14 +36,14 @@ namespace monad::vm::llvm
                 runtime::EvmStackAllocator::DEFAULT_MAX_CACHE_BYTE_SIZE,
             std::size_t max_memory_cache_byte_size =
                 runtime::EvmMemoryAllocator::DEFAULT_MAX_CACHE_BYTE_SIZE);
+
         evmc::Result execute_llvm(
-            evmc_revision rev, evmc_host_interface const *host,
-            evmc_host_context *context, evmc_message const *msg,
-            uint8_t const *code, size_t code_size,
-            evmc::bytes32 const &code_hash);
+            evmc_revision rev, evmc::bytes32 const &code_hash,
+            evmc_host_interface const *host, evmc_host_context *context,
+            evmc_message const *msg, uint8_t const *code, size_t code_size);
 
         std::shared_ptr<LLVMState> cache_llvm(
-            evmc_revision rev, uint8_t const *code, size_t code_size,
-            evmc::bytes32 const &code_hash);
+            evmc_revision rev, evmc::bytes32 const &code_hash,
+            uint8_t const *code, size_t code_size);
     };
 }

@@ -154,18 +154,23 @@ namespace
         auto hashes = evmone::test::TestBlockHashes{};
         auto tx = Transaction{};
 
-        auto host = Host(EVMC_CANCUN, vm, evm_state, block, hashes, tx);
+        auto rev = EVMC_CANCUN;
+        auto host = Host(rev, vm, evm_state, block, hashes, tx);
 
         auto *vm_ptr =
             reinterpret_cast<BlockchainTestVM *>(vm.get_raw_pointer());
         auto const *interface = &host.get_interface();
-        auto *ctx = host.to_context();
-        auto const *code = msg.code;
-        auto const code_size = msg.code_size;
+        evmc_host_context *ctx = host.to_context();
+        uint8_t const *code = msg.code;
+        size_t const code_size = msg.code_size;
+
+        auto code_hash = interface->get_code_hash(ctx, &msg.code_address);
+
+        vm_ptr->precompile_contract(rev, code_hash, code, code_size, impl);
 
         for (auto _ : state) {
-            auto const result = evmc::Result{vm_ptr->execute(
-                interface, ctx, EVMC_CANCUN, &msg, code, code_size)};
+            auto const result = evmc::Result{
+                vm_ptr->execute(interface, ctx, rev, &msg, code, code_size)};
 
             MONAD_VM_ASSERT(result.status_code == EVMC_SUCCESS);
         }
@@ -189,7 +194,9 @@ namespace
         auto *vm_ptr =
             reinterpret_cast<BlockchainTestVM *>(vm.get_raw_pointer());
 
-        vm_ptr->precompile_contracts(EVMC_CANCUN, initial_test_state);
+        auto rev = EVMC_CANCUN;
+        vm_ptr->precompile_contracts(rev, initial_test_state, impl);
+
         auto const code = initial_test_state.get_account_code(msg.code_address);
 
         for (auto _ : state) {
@@ -200,14 +207,14 @@ namespace
             auto const hashes = evmone::test::TestBlockHashes{};
             auto const tx = Transaction{};
 
-            auto host = Host(EVMC_CANCUN, vm, evm_state, block, hashes, tx);
+            auto host = Host(rev, vm, evm_state, block, hashes, tx);
 
             auto const *interface = &host.get_interface();
             auto *ctx = host.to_context();
             state.ResumeTiming();
 
             auto const result = evmc::Result{vm_ptr->execute(
-                interface, ctx, EVMC_CANCUN, &msg, code.data(), code.size())};
+                interface, ctx, rev, &msg, code.data(), code.size())};
 
             if (assert_success) {
                 MONAD_VM_ASSERT(result.status_code == EVMC_SUCCESS);
@@ -294,10 +301,11 @@ namespace
                     std::vector<std::string> const failure_tests = {
                         "delegatecall_slow_interpreter"};
 
-                    bool assert_success = std::find(
-                                              failure_tests.begin(),
-                                              failure_tests.end(),
-                                              test.name) == failure_tests.end();
+                    bool const assert_success =
+                        std::find(
+                            failure_tests.begin(),
+                            failure_tests.end(),
+                            test.name) == failure_tests.end();
 
                     for (auto const impl :
                          {Interpreter, Compiler, LLVM, Evmone}) {

@@ -207,18 +207,29 @@ BlockchainTestVM::get_intercode_nativecode(
     return {icode, ncode};
 }
 
+void BlockchainTestVM::precompile_contract(
+    evmc_revision rev, evmc::bytes32 const &code_hash, uint8_t const *code,
+    size_t const code_size,
+    [[maybe_unused]] BlockchainTestVM::Implementation const impl)
+{
+    (void)get_code_analysis(code_hash, code, code_size);
+    (void)get_intercode_nativecode(rev, code_hash, code, code_size);
+#ifdef MONAD_COMPILER_LLVM
+    if (impl == Implementation::LLVM) {
+        cache_llvm(rev, code_hash, code, code_size);
+    }
+#endif
+}
+
 void BlockchainTestVM::precompile_contracts(
-    evmc_revision rev, evmone::test::TestState const &state)
+    evmc_revision rev, evmone::test::TestState const &state,
+    BlockchainTestVM::Implementation const impl)
 {
     for (auto const &[_, account] : state) {
-        auto const &code_hash = evmone::keccak256(account.code);
         auto const &code = account.code.data();
         auto const &code_size = account.code.size();
-        (void)get_code_analysis(code_hash, code, code_size);
-        (void)get_intercode_nativecode(rev, code_hash, code, code_size);
-#ifdef MONAD_COMPILER_LLVM
-        cache_llvm(rev, code_hash, code, code_size);
-#endif
+        auto const &code_hash = evmone::keccak256({code, code_size});
+        precompile_contract(rev, code_hash, code, code_size, impl);
     }
 }
 
@@ -258,7 +269,7 @@ void BlockchainTestVM::cache_llvm(
     evmc_revision const rev, evmc::bytes32 const &code_hash,
     uint8_t const *code, size_t code_size)
 {
-    llvm_vm_.cache_llvm(rev, code, code_size, code_hash);
+    llvm_vm_.cache_llvm(rev, code_hash, code, code_size);
 }
 
 evmc::Result BlockchainTestVM::execute_llvm(
@@ -269,7 +280,7 @@ evmc::Result BlockchainTestVM::execute_llvm(
     auto code_hash = host->get_code_hash(context, &msg->code_address);
 
     return llvm_vm_.execute_llvm(
-        rev, host, context, msg, code, code_size, code_hash);
+        rev, code_hash, host, context, msg, code, code_size);
 }
 #endif
 

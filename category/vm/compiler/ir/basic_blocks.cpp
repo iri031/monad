@@ -34,7 +34,7 @@ namespace monad::vm::compiler::basic_blocks
                (fallthrough_dest != INVALID_BLOCK_ID);
     }
 
-    // returns at tuple of:
+    // returns a tuple of:
     // the minimum delta the stack will decrease
     // the overall delta of the stack
     // the maximum delta the stack will increase

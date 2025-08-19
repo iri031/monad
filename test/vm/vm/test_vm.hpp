@@ -81,8 +81,14 @@ public:
         std::unreachable();
     };
 
+    void precompile_contract(
+        evmc_revision rev, evmc::bytes32 const &code_hash, uint8_t const *code,
+        size_t const code_size,
+        [[maybe_unused]] BlockchainTestVM::Implementation const impl);
+
     void precompile_contracts(
-        evmc_revision rev, evmone::test::TestState const &state);
+        evmc_revision rev, evmone::test::TestState const &state,
+        BlockchainTestVM::Implementation const impl);
 
 private:
     Implementation impl_;
