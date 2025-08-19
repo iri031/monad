@@ -40,10 +40,10 @@ namespace monad::vm
 
     struct CompilerStats
     {
-        EuclidMean<uint64_t> avg_native_code_size_;
-        EuclidMean<uint64_t> avg_compiled_bytecode_size_;
-        GeoMean<double> avg_native_code_ratio_;
-        EuclidMean<int64_t> avg_compile_time_;
+        utils::EuclidMean<uint64_t> avg_native_code_size_;
+        utils::EuclidMean<uint64_t> avg_compiled_bytecode_size_;
+        utils::GeoMean<double> avg_native_code_ratio_;
+        utils::EuclidMean<int64_t> avg_compile_time_;
         std::atomic<uint64_t> max_native_code_size_{0};
         std::atomic<uint64_t> max_compiled_bytecode_size_{0};
         std::atomic<uint64_t> num_compiled_contracts_{0};

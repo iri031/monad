@@ -18,52 +18,52 @@
 #include <atomic>
 #include <cmath>
 
-template <class T>
-concept Numeric = std::is_arithmetic_v<T>;
-
-// not safe for concurrent updates
-// can be safely read concurrent to updating
-template <Numeric T>
-struct EuclidMean
+namespace monad::vm::utils
 {
-    std::atomic<T> running_avg_{0};
-    std::atomic<T> count_{0};
-
-    void update(T new_value) noexcept
+    // not safe for concurrent updates
+    // can be safely read concurrent to updating
+    template <typename T>
+    struct EuclidMean
     {
-        auto count = count_.load(std::memory_order_acquire);
-        auto running_avg = running_avg_.load(std::memory_order_acquire);
-        auto new_avg = (running_avg * count + new_value) / (count + 1);
-        running_avg_.store(new_avg, std::memory_order_release);
-        count_.fetch_add(1, std::memory_order_release);
-    }
+        std::atomic<T> running_avg_{0};
+        std::atomic<T> count_{0};
 
-    T get() const noexcept
+        void update(T new_value) noexcept
+        {
+            auto count = count_.load(std::memory_order_acquire);
+            auto running_avg = running_avg_.load(std::memory_order_acquire);
+            auto new_avg = (running_avg * count + new_value) / (count + 1);
+            running_avg_.store(new_avg, std::memory_order_release);
+            count_.fetch_add(1, std::memory_order_release);
+        }
+
+        T get() const noexcept
+        {
+            return running_avg_.load(std::memory_order_acquire);
+        }
+    };
+
+    // not safe for concurrent updates
+    // can be safely read concurrent to updating
+    template <typename T>
+    struct GeoMean
     {
-        return running_avg_.load(std::memory_order_acquire);
-    }
-};
+        std::atomic<T> running_avg_{0};
+        std::atomic<T> count_{0};
 
-// not safe for concurrent updates
-// can be safely read concurrent to updating
-template <Numeric T>
-struct GeoMean
-{
-    std::atomic<T> running_avg_{0};
-    std::atomic<T> count_{0};
+        void update(T new_value) noexcept
+        {
+            auto count = count_.load(std::memory_order_acquire);
+            auto running_avg = running_avg_.load(std::memory_order_acquire);
+            auto new_avg =
+                (running_avg * count + std::log2(new_value)) / (count + 1);
+            running_avg_.store(new_avg, std::memory_order_release);
+            count_.fetch_add(1, std::memory_order_release);
+        }
 
-    void update(T new_value) noexcept
-    {
-        auto count = count_.load(std::memory_order_acquire);
-        auto running_avg = running_avg_.load(std::memory_order_acquire);
-        auto new_avg =
-            (running_avg * count + std::log2(new_value)) / (count + 1);
-        running_avg_.store(new_avg, std::memory_order_release);
-        count_.fetch_add(1, std::memory_order_release);
-    }
-
-    T get() const noexcept
-    {
-        return std::exp2(running_avg_.load(std::memory_order_acquire));
-    }
-};
+        T get() const noexcept
+        {
+            return std::exp2(running_avg_.load(std::memory_order_acquire));
+        }
+    };
+}
