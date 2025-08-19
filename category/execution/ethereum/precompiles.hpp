@@ -26,6 +26,8 @@
 
 MONAD_NAMESPACE_BEGIN
 
+bool init_trusted_setup();
+
 inline constexpr Address ripemd_address{3};
 
 template <evmc_revision rev>

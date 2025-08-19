@@ -22,16 +22,16 @@ project(monad)
 set(CATEGORY_MAIN_DIR ${PROJECT_SOURCE_DIR})
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 15)
-        message(FATAL_ERROR "GCC version 15 or higher is required.")
-    endif()
+  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 15)
+    message(FATAL_ERROR "GCC version 15 or higher is required.")
+  endif()
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 19)
-        message(FATAL_ERROR "Clang version 19 or higher is required.")
-    endif()
+  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 19)
+    message(FATAL_ERROR "Clang version 19 or higher is required.")
+  endif()
 endif()
 
-if (BUILD_SHARED_LIBS)
+if(BUILD_SHARED_LIBS)
   # BUILD_SHARED_LIBS=ON does not automatically set -fPIC, leading to
   # relocations being emitted in object files that can't be patched
   set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -44,8 +44,10 @@ option(MONAD_COMPILER_COVERAGE "Build with coverage" OFF)
 option(MONAD_COMPILER_TESTING "Build compiler tests" OFF)
 option(MONAD_COMPILER_BENCHMARKS "Build compiler benchmarks" OFF)
 option(MONAD_COMPILER_DUMP_ASM "Dump assembly files into build/asm" OFF)
+option(MONAD_COMPILER_STATS "Print statistics about the compiler" OFF)
+option(MONAD_COMPILER_HOT_PATH_STATS "Print statistics about the vm" OFF)
 
-if (NOT DEFINED BUILD_SHARED_LIBS)
+if(NOT DEFINED BUILD_SHARED_LIBS)
   # If this isn't defined, evmone has the audacity to define it itself (to ON)
   # whereas the ordinary default is for static libraries; if it's not specified,
   # we explicitly set it to OFF, agreeing with the expected default and
@@ -58,6 +60,8 @@ include(cmake/test.cmake)
 # ##############################################################################
 # deps
 # ##############################################################################
+
+set(THIRD_PARTY_DIR "${PROJECT_SOURCE_DIR}/third_party")
 
 function(monad_compile_options target)
   set_property(TARGET ${target} PROPERTY C_STANDARD 23)
@@ -74,7 +78,15 @@ function(monad_compile_options target)
   target_compile_definitions(${target} PUBLIC QUILL_ROOT_LOGGER_ONLY)
 
   if(MONAD_COMPILER_TESTING)
-      target_compile_definitions(${target} PUBLIC "MONAD_COMPILER_TESTING=1")
+    target_compile_definitions(${target} PUBLIC "MONAD_COMPILER_TESTING=1")
+  endif()
+
+  if(MONAD_COMPILER_STATS)
+      target_compile_definitions(${target} PUBLIC "MONAD_COMPILER_STATS=1")
+  endif()
+
+  if(MONAD_COMPILER_HOT_PATH_STATS)
+      target_compile_definitions(${target} PUBLIC "MONAD_COMPILER_HOT_PATH_STATS=1")
   endif()
 
   target_compile_options(
@@ -103,6 +115,9 @@ add_subdirectory(third_party/BLAKE3/c)
 set(DOWNLOAD_BLST OFF)
 include(cmake/blst.cmake)
 
+# c-kzg-4844
+add_subdirectory("third_party/c-kzg-4844-builder")
+
 # cli11
 find_package(CLI11 REQUIRED)
 
@@ -125,12 +140,12 @@ target_include_directories(komihash INTERFACE "third_party/komihash")
 
 # LLVM
 if(MONAD_COMPILER_LLVM)
-    # Because LLVM is a large dependency, we only try to find it if it's
-    # explicitly enabled as part of the VM build: regular client builds don't
-    # need to use it.
-    include(cmake/LinkLLVM.cmake)
-    find_package(LLVM 19.1.7 REQUIRED CONFIG)
-    add_definitions(-DMONAD_COMPILER_LLVM)
+  # Because LLVM is a large dependency, we only try to find it if it's
+  # explicitly enabled as part of the VM build: regular client builds don't need
+  # to use it.
+  include(cmake/LinkLLVM.cmake)
+  find_package(LLVM 19.1.7 REQUIRED CONFIG)
+  add_definitions(-DMONAD_COMPILER_LLVM)
 endif()
 
 # quill
@@ -163,7 +178,6 @@ target_include_directories(thread_safe_lru
 # ##############################################################################
 
 set(TEST_DATA_DIR "${PROJECT_SOURCE_DIR}/test")
-set(THIRD_PARTY_DIR "${PROJECT_SOURCE_DIR}/third_party")
 set(VM_DATA_DIR "${PROJECT_SOURCE_DIR}/test/vm/data")
 configure_file(cmake/test_resource_data.h.in test/test_resource_data.h @ONLY)
 
@@ -202,7 +216,8 @@ function(monad_add_test2 target)
 endfunction()
 
 function(monad_add_test_folder target)
-  file(GLOB_RECURSE test_files CONFIGURE_DEPENDS ${target}/test_*.cpp)
+  file(GLOB_RECURSE test_files CONFIGURE_DEPENDS ${target}/test_*.cpp
+       ${target}/*_test.cpp)
   foreach(test_file ${test_files})
     get_filename_component(test_name ${test_file} NAME_WLE)
     monad_add_test2(${test_name} ${test_file})
@@ -250,10 +265,21 @@ add_subdirectory("category/vm")
 # Assemble all the object libraries into complete monad runtime library,
 # monad_execution
 add_library(monad_execution)
-target_link_libraries(monad_execution PUBLIC
-    monad_core monad_async monad_trie monad_execution_ethereum
-    monad_execution_native monad_rpc monad_statesync monad-vm monad-vm-core
-    monad-vm-compiler monad-vm-interpreter monad-vm-runtime monad-vm-utils)
+target_link_libraries(
+  monad_execution
+  PUBLIC monad_core
+         monad_async
+         monad_trie
+         monad_execution_ethereum
+         monad_execution_native
+         monad_rpc
+         monad_statesync
+         monad-vm
+         monad-vm-core
+         monad-vm-compiler
+         monad-vm-interpreter
+         monad-vm-runtime
+         monad-vm-utils)
 
 # ##############################################################################
 # cmds
@@ -269,5 +295,5 @@ add_subdirectory(${PROJECT_SOURCE_DIR}/test/ethereum_test)
 add_subdirectory(${PROJECT_SOURCE_DIR}/test/unit/common)
 
 if(MONAD_COMPILER_TESTING OR MONAD_COMPILER_BENCHMARKS)
-    add_subdirectory(${PROJECT_SOURCE_DIR}/test/vm)
+  add_subdirectory(${PROJECT_SOURCE_DIR}/test/vm)
 endif()

@@ -32,6 +32,7 @@
 #include <category/execution/ethereum/db/block_db.hpp>
 #include <category/execution/ethereum/db/db_cache.hpp>
 #include <category/execution/ethereum/db/trie_db.hpp>
+#include <category/execution/ethereum/precompiles.hpp>
 #include <category/execution/ethereum/state2/block_state.hpp>
 #include <category/execution/ethereum/trace/call_tracer.hpp>
 #include <category/execution/ethereum/trace/event_trace.hpp>
@@ -224,6 +225,8 @@ int main(int const argc, char const *argv[])
 #endif
 
     enable_call_tracing(trace_calls);
+
+    MONAD_ASSERT(init_trusted_setup());
 
     auto const db_in_memory = dbname_paths.empty();
     [[maybe_unused]] auto const load_start_time =
@@ -427,7 +430,8 @@ int main(int const argc, char const *argv[])
             "Finish running, finish(stopped) block number = {}, "
             "number of blocks run = {}, time_elapsed = {}, num transactions = "
             "{}, "
-            "tps = {}, gps = {} M",
+            "tps = {}, gps = {} M"
+            "{}{}",
             block_num,
             nblocks,
             elapsed,
@@ -436,7 +440,9 @@ int main(int const argc, char const *argv[])
                 std::max(1UL, static_cast<uint64_t>(elapsed.count())),
             result.assume_value().second /
                 (1'000'000 *
-                 std::max(1UL, static_cast<uint64_t>(elapsed.count()))));
+                 std::max(1UL, static_cast<uint64_t>(elapsed.count()))),
+            vm.print_compiler_stats(),
+            vm.print_total_counts());
     }
 
     if (sync != nullptr) {
@@ -447,11 +453,10 @@ int main(int const argc, char const *argv[])
 
     if (!dump_snapshot.empty()) {
         LOG_INFO("Dump db of block: {}", block_num);
-        mpt::AsyncIOContext io_ctx(
-            mpt::ReadOnlyOnDiskDbConfig{
-                .sq_thread_cpu = ro_sq_thread_cpu,
-                .dbname_paths = dbname_paths,
-                .concurrent_read_io_limit = 128});
+        mpt::AsyncIOContext io_ctx(mpt::ReadOnlyOnDiskDbConfig{
+            .sq_thread_cpu = ro_sq_thread_cpu,
+            .dbname_paths = dbname_paths,
+            .concurrent_read_io_limit = 128});
         mpt::Db db{io_ctx};
         TrieDb ro_db{db};
         write_to_file(ro_db.to_json(), dump_snapshot, block_num);

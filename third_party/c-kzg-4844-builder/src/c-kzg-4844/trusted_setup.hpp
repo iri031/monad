@@ -13,25 +13,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#pragma once
+#include <cstdint>
+#include <span>
 
-namespace monad::vm::utils
+namespace c_kzg_4844
 {
-#ifdef MONAD_COMPILER_TESTING
-    extern bool is_fuzzing_monad_vm;
-#else
-    static constexpr bool is_fuzzing_monad_vm = false;
-#endif
-
-#ifdef MONAD_COMPILER_STATS
-    static constexpr bool collect_monad_compiler_stats = true;
-#else
-    static constexpr bool collect_monad_compiler_stats = false;
-#endif
-
-#ifdef MONAD_COMPILER_HOT_PATH_STATS
-    static constexpr bool collect_monad_compiler_hot_path_stats = true;
-#else
-    static constexpr bool collect_monad_compiler_hot_path_stats = false;
-#endif
+    std::span<uint8_t const> trusted_setup_data() noexcept;
 }

@@ -13,25 +13,27 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#pragma once
+#include <c-kzg-4844/trusted_setup.hpp>
 
-namespace monad::vm::utils
+#include <cstdint>
+#include <span>
+
+#ifndef __has_embed
+#error "No #embed support"
+#endif
+
+namespace c_kzg_4844
 {
-#ifdef MONAD_COMPILER_TESTING
-    extern bool is_fuzzing_monad_vm;
-#else
-    static constexpr bool is_fuzzing_monad_vm = false;
-#endif
+    namespace
+    {
+        inline constexpr uint8_t embedded_data[] = {
+#embed "@TRUSTED_SETUP_PATH@"
+        };
+    }
 
-#ifdef MONAD_COMPILER_STATS
-    static constexpr bool collect_monad_compiler_stats = true;
-#else
-    static constexpr bool collect_monad_compiler_stats = false;
-#endif
-
-#ifdef MONAD_COMPILER_HOT_PATH_STATS
-    static constexpr bool collect_monad_compiler_hot_path_stats = true;
-#else
-    static constexpr bool collect_monad_compiler_hot_path_stats = false;
-#endif
+    std::span<uint8_t const> trusted_setup_data() noexcept
+    {
+        static_assert(sizeof(embedded_data) == 807177);
+        return {&embedded_data[0], sizeof(embedded_data)};
+    }
 }
