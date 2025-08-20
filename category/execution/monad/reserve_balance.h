@@ -17,14 +17,14 @@
 
 #include <category/execution/monad/chain/monad_revision.h>
 
-#include <cstdint>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
-uint64_t monad_default_max_reserve_balance(enum monad_revision);
+unsigned monad_default_max_reserve_balance_mon(enum monad_revision);
 
 #ifdef __cplusplus
 }

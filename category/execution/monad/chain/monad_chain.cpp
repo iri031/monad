@@ -268,7 +268,8 @@ bool MonadChain::revert_transaction(
 uint256_t get_max_reserve(monad_revision const rev, Address const &)
 {
     // TODO: implement precompile (support reading from orig)
-    return monad_default_max_reserve_balance(rev);
+    return uint256_t{monad_default_max_reserve_balance_mon(rev)} *
+           1000000000000000000ULL;
 }
 
 MONAD_NAMESPACE_END
