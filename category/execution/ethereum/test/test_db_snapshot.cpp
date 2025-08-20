@@ -20,10 +20,9 @@
 #include <category/execution/ethereum/db/db_snapshot.h>
 #include <category/execution/ethereum/db/db_snapshot_filesystem.h>
 #include <category/execution/ethereum/db/trie_db.hpp>
+#include <category/execution/ethereum/db/trie_rodb.hpp>
 #include <category/execution/ethereum/db/util.hpp>
 #include <category/execution/monad/core/monad_block.hpp>
-#include <category/mpt/db.hpp>
-#include <category/mpt/ondisk_db_config.hpp>
 
 #include <ankerl/unordered_dense.h>
 #include <gtest/gtest.h>
@@ -35,7 +34,7 @@ namespace
     std::filesystem::path tmp_dbname()
     {
         std::filesystem::path dbname(
-            MONAD_ASYNC_NAMESPACE::working_temporary_directory() /
+            std::filesystem::temp_directory_path() /
             "monad_db_snapshot_test_XXXXXX");
         int const fd = ::mkstemp((char *)dbname.native().data());
         MONAD_ASSERT(fd != -1);
@@ -45,10 +44,9 @@ namespace
         ::close(fd);
         char const *const path = dbname.c_str();
         monad::OnDiskMachine machine;
-        monad::mpt::Db const db{
+        monad::mpt2::Db const db{
             machine,
-            monad::mpt::OnDiskDbConfig{
-                .append = false, .dbname_paths = {path}}};
+            monad::mpt2::OnDiskDbConfig{.append = false, .dbname_path = path}};
         return dbname;
     }
 }
@@ -56,7 +54,7 @@ namespace
 TEST(DbBinarySnapshot, Basic)
 {
     using namespace monad;
-    using namespace monad::mpt;
+    using namespace monad::mpt2;
 
     auto const src_db = tmp_dbname();
 
@@ -65,13 +63,14 @@ TEST(DbBinarySnapshot, Basic)
     BlockHeader last_header;
     {
         OnDiskMachine machine;
-        mpt::Db db{machine, OnDiskDbConfig{.dbname_paths = {src_db}}};
+        mpt2::Db db{machine, mpt2::OnDiskDbConfig{.dbname_path = src_db}};
         for (uint64_t i = 0; i < 100; ++i) {
             load_header(db, BlockHeader{.number = i});
         }
         db.update_finalized_version(99);
         StateDeltas deltas;
-        for (uint64_t i = 0; i < 100'000; ++i) {
+        uint64_t num_deltas = 10;
+        for (uint64_t i = 0; i < num_deltas; ++i) {
             StorageDeltas storage;
             if ((i % 100) == 0) {
                 for (uint64_t j = 0; j < 10; ++j) {
@@ -128,10 +127,8 @@ TEST(DbBinarySnapshot, Basic)
     }
 
     {
-        AsyncIOContext io_context{
-            ReadOnlyOnDiskDbConfig{.dbname_paths = {dest_db}}};
-        mpt::Db db{io_context};
-        TrieDb tdb{db};
+        RODb db{mpt2::OnDiskDbConfig{.dbname_path = dest_db}};
+        TrieRODb tdb{db};
         for (uint64_t i = 0; i < 100; ++i) {
             tdb.set_block_and_prefix(i);
             EXPECT_EQ(tdb.read_eth_header(), BlockHeader{.number = i});

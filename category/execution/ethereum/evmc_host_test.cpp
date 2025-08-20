@@ -129,8 +129,8 @@ TEST(EvmcHost, emit_log)
     static constexpr bytes32_t topics[] = {topic0, topic1};
     static byte_string const data = {0x00, 0x01, 0x02, 0x03, 0x04};
 
-    InMemoryMachine machine;
-    mpt::Db db{machine};
+    OnDiskMachine machine;
+    mpt2::Db db{machine, mpt2::OnDiskDbConfig{}};
     db_t tdb{db};
     vm::VM vm;
     BlockState bs{tdb, vm};
@@ -162,8 +162,8 @@ TEST(EvmcHost, emit_log)
 
 TEST(EvmcHost, access_precompile)
 {
-    InMemoryMachine machine;
-    mpt::Db db{machine};
+    OnDiskMachine machine;
+    mpt2::Db db{machine, mpt2::OnDiskDbConfig{}};
     db_t tdb{db};
     vm::VM vm;
     BlockState bs{tdb, vm};

@@ -19,7 +19,7 @@
 #include <category/core/keccak.hpp>
 #include <category/execution/ethereum/db/db.hpp>
 #include <category/execution/ethereum/db/util.hpp>
-#include <category/mpt/db.hpp>
+#include <category/mpt2/db.hpp>
 #include <category/vm/vm.hpp>
 
 #include <evmc/hex.hpp>
@@ -31,14 +31,14 @@ MONAD_NAMESPACE_BEGIN
 
 class TrieRODb final : public ::monad::Db
 {
-    ::monad::mpt::RODb &db_;
+    ::monad::mpt2::RODb &db_;
     uint64_t block_number_;
-    ::monad::mpt::OwningNodeCursor prefix_cursor_;
+    ::monad::mpt2::OwningNodeCursor prefix_cursor_;
 
 public:
-    TrieRODb(mpt::RODb &db)
+    TrieRODb(mpt2::RODb &db)
         : db_(db)
-        , block_number_(mpt::INVALID_BLOCK_NUM)
+        , block_number_(mpt2::INVALID_BLOCK_NUM)
         , prefix_cursor_()
     {
     }
@@ -58,17 +58,17 @@ public:
             "block %lu, block_id %s",
             block_number,
             evmc::hex(to_byte_string_view(block_id.bytes)).c_str());
-        prefix_cursor_ = res.value();
+        prefix_cursor_ = std::move(res.value());
         block_number_ = block_number;
     }
 
     virtual std::optional<Account> read_account(Address const &addr) override
     {
         auto acc_leaf_res = db_.find(
-            prefix_cursor_,
-            mpt::concat(
+            prefix_cursor_.clone(),
+            mpt2::concat(
                 STATE_NIBBLE,
-                mpt::NibblesView{keccak256({addr.bytes, sizeof(addr.bytes)})}),
+                mpt2::NibblesView{keccak256({addr.bytes, sizeof(addr.bytes)})}),
             block_number_);
         if (!acc_leaf_res.has_value()) {
             return std::nullopt;
@@ -83,11 +83,11 @@ public:
         Address const &addr, Incarnation, bytes32_t const &key) override
     {
         auto storage_leaf_res = db_.find(
-            prefix_cursor_,
-            mpt::concat(
+            prefix_cursor_.clone(),
+            mpt2::concat(
                 STATE_NIBBLE,
-                mpt::NibblesView{keccak256({addr.bytes, sizeof(addr.bytes)})},
-                mpt::NibblesView{keccak256({key.bytes, sizeof(key.bytes)})}),
+                mpt2::NibblesView{keccak256({addr.bytes, sizeof(addr.bytes)})},
+                mpt2::NibblesView{keccak256({key.bytes, sizeof(key.bytes)})}),
             block_number_);
         if (!storage_leaf_res.has_value()) {
             return {};
@@ -102,10 +102,10 @@ public:
     {
         // TODO read intercode object
         auto code_leaf_res = db_.find(
-            prefix_cursor_,
-            mpt::concat(
+            prefix_cursor_.clone(),
+            mpt2::concat(
                 CODE_NIBBLE,
-                mpt::NibblesView{to_byte_string_view(code_hash.bytes)}),
+                mpt2::NibblesView{to_byte_string_view(code_hash.bytes)}),
             block_number_);
         if (!code_leaf_res.has_value()) {
             return vm::make_shared_intercode({});

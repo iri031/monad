@@ -105,4 +105,41 @@ public:
     }
 };
 
+class RODb
+{
+public:
+    RODb(OnDiskDbConfig const &);
+    ~RODb() = default;
+
+    RODb(RODb const &) = delete;
+    RODb(RODb &&) = delete;
+    RODb &operator=(RODb const &) = delete;
+    RODb &operator=(RODb &&) = delete;
+
+    OwningNodeCursor load_root_for_version(uint64_t block_id) const;
+
+    // get() and get_data() APIs are intentionally disabled to prevent
+    // heap-use-after-free memory bug. However, users can still access node data
+    // or value through OwningNodeCursor.
+    Result<OwningNodeCursor>
+    find(OwningNodeCursor, NibblesView, uint64_t block_id) const;
+    Result<OwningNodeCursor> find(NibblesView prefix, uint64_t block_id) const;
+
+    Result<byte_string_view> get(NibblesView, uint64_t block_id) const;
+    Result<byte_string_view> get_data(NibblesView, uint64_t block_id) const;
+    Result<byte_string_view>
+    get_data(OwningNodeCursor, NibblesView, uint64_t block_id) const;
+
+    uint64_t get_latest_version() const;
+    uint64_t get_earliest_version() const;
+
+    bool traverse(
+        OwningNodeCursor const &root, TraverseMachine &machine,
+        uint64_t version);
+
+private:
+    MONAD_STORAGE_NAMESPACE::DbStorage storage_;
+    UpdateAux aux_;
+};
+
 MONAD_MPT2_NAMESPACE_END

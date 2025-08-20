@@ -17,15 +17,15 @@
 #include <category/core/keccak.hpp>
 #include <category/execution/ethereum/chain/ethereum_mainnet.hpp>
 #include <category/execution/ethereum/chain/genesis_state.hpp>
-#include <category/execution/monad/chain/monad_devnet.hpp>
-#include <category/execution/monad/chain/monad_mainnet.hpp>
-#include <category/execution/monad/chain/monad_testnet.hpp>
-#include <category/execution/monad/chain/monad_testnet2.hpp>
 #include <category/execution/ethereum/core/block.hpp>
 #include <category/execution/ethereum/core/rlp/block_rlp.hpp>
 #include <category/execution/ethereum/core/transaction.hpp>
 #include <category/execution/ethereum/db/trie_db.hpp>
 #include <category/execution/ethereum/validate_block.hpp>
+#include <category/execution/monad/chain/monad_devnet.hpp>
+#include <category/execution/monad/chain/monad_mainnet.hpp>
+#include <category/execution/monad/chain/monad_testnet.hpp>
+#include <category/execution/monad/chain/monad_testnet2.hpp>
 #include <category/mpt/db.hpp>
 
 #include <gtest/gtest.h>
@@ -57,8 +57,8 @@ TEST(MonadChain, get_max_code_size)
 TEST(MonadChain, Genesis)
 {
     {
-        InMemoryMachine machine;
-        mpt::Db db{machine};
+        OnDiskMachine machine;
+        mpt2::Db db{machine, mpt2::OnDiskDbConfig{}};
         TrieDb tdb{db};
         MonadTestnet const chain;
         load_genesis_state(chain.get_genesis_state(), tdb);
@@ -75,8 +75,8 @@ TEST(MonadChain, Genesis)
     }
 
     {
-        InMemoryMachine machine;
-        mpt::Db db{machine};
+        OnDiskMachine machine;
+        mpt2::Db db{machine, mpt2::OnDiskDbConfig{}};
         TrieDb tdb{db};
         MonadDevnet const chain;
         load_genesis_state(chain.get_genesis_state(), tdb);
@@ -92,8 +92,8 @@ TEST(MonadChain, Genesis)
         EXPECT_FALSE(static_validate_header<EVMC_CANCUN>(header).has_value());
     }
     {
-        InMemoryMachine machine;
-        mpt::Db db{machine};
+        OnDiskMachine machine;
+        mpt2::Db db{machine, mpt2::OnDiskDbConfig{}};
         TrieDb tdb{db};
         MonadMainnet const chain;
         load_genesis_state(chain.get_genesis_state(), tdb);
@@ -106,8 +106,8 @@ TEST(MonadChain, Genesis)
         EXPECT_TRUE(static_validate_header<EVMC_CANCUN>(header).has_value());
     }
     {
-        InMemoryMachine machine;
-        mpt::Db db{machine};
+        OnDiskMachine machine;
+        mpt2::Db db{machine, mpt2::OnDiskDbConfig{}};
         TrieDb tdb{db};
         MonadTestnet2 const chain;
         load_genesis_state(chain.get_genesis_state(), tdb);

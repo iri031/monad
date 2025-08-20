@@ -52,6 +52,11 @@ struct OwningNodeCursor
     {
         return node != nullptr;
     }
+
+    OwningNodeCursor clone() const
+    {
+        return OwningNodeCursor(copy_node(*node), prefix_index);
+    }
 };
 
 MONAD_MPT2_NAMESPACE_END

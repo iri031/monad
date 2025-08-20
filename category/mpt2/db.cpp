@@ -62,7 +62,9 @@ Db::Db(StateMachine &sm, OnDiskDbConfig const &config)
             return storage::DbStorage(storage::use_anonymous_inode_tag{}, len);
         }
         return storage::DbStorage(
-            config.dbname_path, storage::DbStorage::Mode::open_existing);
+            config.dbname_path,
+            config.append ? storage::DbStorage::Mode::open_existing
+                          : storage::DbStorage::Mode::create_if_needed);
     }())
     , aux_(storage_, config.fixed_history_length)
 {
@@ -264,6 +266,88 @@ uint64_t Db::get_history_length() const
 }
 
 bool Db::traverse(NodeCursor root, TraverseMachine &machine, uint64_t block_id)
+{
+    return preorder_traverse_blocking(aux_, *root.node, machine, block_id);
+}
+
+RODb::RODb(OnDiskDbConfig const &config)
+    : storage_(config.dbname_path, storage::DbStorage::Mode::open_existing)
+    , aux_(storage_, std::nullopt)
+{
+}
+
+OwningNodeCursor RODb::load_root_for_version(uint64_t version) const
+{
+    auto root_offset = aux_.get_root_offset_at_version(version);
+    if (root_offset == INVALID_OFFSET) {
+        return OwningNodeCursor{};
+    }
+    auto node = aux_.parse_node_weak(root_offset, version);
+    return OwningNodeCursor{std::move(node)};
+}
+
+Result<OwningNodeCursor> RODb::find(NibblesView key, uint64_t version) const
+{
+    auto [cursor, result] =
+        mpt2::find_weak(aux_, load_root_for_version(version), key, version);
+    if (result != find_result::success) {
+        return find_result_to_db_error(result);
+    }
+    MONAD_DEBUG_ASSERT(cursor.is_valid());
+    MONAD_DEBUG_ASSERT(cursor.node->has_value());
+    return cursor;
+}
+
+Result<OwningNodeCursor>
+RODb::find(OwningNodeCursor root, NibblesView key, uint64_t version) const
+{
+    auto [cursor, result] =
+        mpt2::find_weak(aux_, std::move(root), key, version);
+    if (result != find_result::success) {
+        return find_result_to_db_error(result);
+    }
+    MONAD_DEBUG_ASSERT(cursor.is_valid());
+    MONAD_DEBUG_ASSERT(cursor.node->has_value());
+    return cursor;
+}
+
+Result<byte_string_view>
+RODb::get(NibblesView const key, uint64_t const version) const
+{
+    auto res = find(key, version);
+    if (!res.has_value()) {
+        return DbError(res.error().value());
+    }
+    if (!res.value().node->has_value()) {
+        return DbError::key_not_found;
+    }
+    return res.value().node->value();
+}
+
+Result<byte_string_view> RODb::get_data(
+    OwningNodeCursor root, NibblesView const key, uint64_t const version) const
+{
+    auto res = find(std::move(root), key, version);
+    if (!res.has_value()) {
+        return DbError(res.error().value());
+    }
+    MONAD_DEBUG_ASSERT(res.value().node != nullptr);
+    return res.value().node->data();
+}
+
+Result<byte_string_view>
+RODb::get_data(NibblesView const key, uint64_t const version) const
+{
+    auto res = find(key, version);
+    if (!res.has_value()) {
+        return DbError(res.error().value());
+    }
+    MONAD_DEBUG_ASSERT(res.value().node != nullptr);
+    return res.value().node->data();
+}
+
+bool RODb::traverse(
+    OwningNodeCursor const &root, TraverseMachine &machine, uint64_t block_id)
 {
     return preorder_traverse_blocking(aux_, *root.node, machine, block_id);
 }
