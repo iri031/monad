@@ -73,18 +73,10 @@ namespace
         byte_string{0x6e, 0x65, 0x20, 0x2d, 0x20, 0x45, 0x55, 0x31, 0x34};
     auto const icode2 = vm::make_shared_intercode(code2);
 
-    struct InMemoryTrieDbFixture : public ::testing::Test
-    {
-        InMemoryMachine machine;
-        mpt::Db db{machine};
-        TrieDb tdb{db};
-        vm::VM vm;
-    };
-
     struct OnDiskTrieDbFixture : public ::testing::Test
     {
         OnDiskMachine machine;
-        mpt::Db db{machine, mpt::OnDiskDbConfig{}};
+        mpt2::Db db{machine, mpt2::OnDiskDbConfig{}};
         TrieDb tdb{db};
         vm::VM vm;
     };
@@ -92,8 +84,8 @@ namespace
     struct TwoOnDisk : public ::testing::Test
     {
         OnDiskMachine machine;
-        mpt::Db db1{machine, mpt::OnDiskDbConfig{.file_size_db = 8}};
-        mpt::Db db2{machine, mpt::OnDiskDbConfig{.file_size_db = 8}};
+        mpt2::Db db1{machine, mpt2::OnDiskDbConfig{.file_size_db = 8}};
+        mpt2::Db db2{machine, mpt2::OnDiskDbConfig{.file_size_db = 8}};
         TrieDb tdb1{db1};
         TrieDb tdb2{db2};
         vm::VM vm;
@@ -105,7 +97,7 @@ struct StateTest : public TDB
 {
 };
 
-using DBTypes = ::testing::Types<InMemoryTrieDbFixture, OnDiskTrieDbFixture>;
+using DBTypes = ::testing::Types<OnDiskTrieDbFixture>;
 TYPED_TEST_SUITE(StateTest, DBTypes);
 
 TYPED_TEST(StateTest, access_account)
@@ -1623,11 +1615,11 @@ TEST_F(OnDiskTrieDbFixture, undecided_proposals)
 
     // check state root of previous rounds
     auto const data_111 = this->db.get_data(
-        mpt::concat(proposal_prefix(bytes32_t{111}), STATE_NIBBLE), 11);
+        mpt2::concat(proposal_prefix(bytes32_t{111}), STATE_NIBBLE), 11);
     ASSERT_TRUE(data_111.has_value());
     EXPECT_EQ(state_root_round_111, to_bytes(data_111.value()));
     auto const data_131 = this->db.get_data(
-        mpt::concat(proposal_prefix(bytes32_t{131}), STATE_NIBBLE), 13);
+        mpt2::concat(proposal_prefix(bytes32_t{131}), STATE_NIBBLE), 13);
     ASSERT_TRUE(data_131.has_value());
     EXPECT_EQ(state_root_round_131, to_bytes(data_131.value()));
 }
@@ -1665,7 +1657,7 @@ namespace
         bytes32_t get_dummy_block_id(uint64_t const seed)
         {
             return to_bytes(
-                blake3(mpt::serialize_as_big_endian<sizeof(seed)>(seed)));
+                blake3(mpt2::serialize_as_big_endian<sizeof(seed)>(seed)));
         }
 
     public:

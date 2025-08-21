@@ -83,8 +83,9 @@ namespace
         if (nibbles.begin_nibble()) { // not left-aligned
             Nibbles const compact_nibbles = nibbles.substr(0);
             MONAD_ASSERT(compact_nibbles.data_size() == sizeof(bytes32_t));
-            return to_bytes(byte_string_view{
-                compact_nibbles.data(), compact_nibbles.data_size()});
+            return to_bytes(
+                byte_string_view{
+                    compact_nibbles.data(), compact_nibbles.data_size()});
         }
         MONAD_ASSERT(nibbles.data_size() == sizeof(bytes32_t));
         return to_bytes(byte_string_view{nibbles.data(), nibbles.data_size()});
@@ -288,12 +289,13 @@ namespace
                 if (in.size() < entry_size) {
                     return total_processed;
                 }
-                code_updates.push_front(update_alloc_.emplace_back(Update{
-                    .key = in.substr(0, sizeof(bytes32_t)),
-                    .value = in.substr(hash_and_len_size, code_len),
-                    .incarnation = false,
-                    .next = UpdateList{},
-                    .version = static_cast<int64_t>(block_id_)}));
+                code_updates.push_front(update_alloc_.emplace_back(
+                    Update{
+                        .key = in.substr(0, sizeof(bytes32_t)),
+                        .value = in.substr(hash_and_len_size, code_len),
+                        .incarnation = false,
+                        .next = UpdateList{},
+                        .version = static_cast<int64_t>(block_id_)}));
 
                 total_processed += entry_size;
                 in = in.substr(entry_size);
@@ -331,18 +333,19 @@ namespace
         {
             UpdateList storage_updates;
             while (!in.empty()) {
-                storage_updates.push_front(update_alloc_.emplace_back(Update{
-                    .key = in.substr(0, sizeof(bytes32_t)),
-                    .value = bytes_alloc_.emplace_back(encode_storage_db(
-                        bytes32_t{}, // TODO: update this when binary
-                                     // checkpoint includes unhashed storage
-                                     // slot
-                        unaligned_load<bytes32_t>(
-                            in.substr(sizeof(bytes32_t), sizeof(bytes32_t))
-                                .data()))),
-                    .incarnation = false,
-                    .next = UpdateList{},
-                    .version = static_cast<int64_t>(block_id_)}));
+                storage_updates.push_front(update_alloc_.emplace_back(
+                    Update{
+                        .key = in.substr(0, sizeof(bytes32_t)),
+                        .value = bytes_alloc_.emplace_back(encode_storage_db(
+                            bytes32_t{}, // TODO: update this when binary
+                                         // checkpoint includes unhashed storage
+                                         // slot
+                            unaligned_load<bytes32_t>(
+                                in.substr(sizeof(bytes32_t), sizeof(bytes32_t))
+                                    .data()))),
+                        .incarnation = false,
+                        .next = UpdateList{},
+                        .version = static_cast<int64_t>(block_id_)}));
                 in = in.substr(storage_entry_size);
             }
             return storage_updates;
@@ -814,8 +817,9 @@ mpt2::Nibbles proposal_prefix(bytes32_t const &block_id)
     return mpt2::concat(PROPOSAL_NIBBLE, NibblesView{to_bytes(block_id)});
 }
 
+template <class Db>
 std::vector<bytes32_t>
-get_proposal_block_ids(mpt2::Db &db, uint64_t const block_number)
+get_proposal_block_ids(Db &db, uint64_t const block_number)
 {
     static constexpr uint64_t PROPOSAL_PREFIX_LEN = 1 + sizeof(bytes32_t) * 2;
 
@@ -889,6 +893,11 @@ get_proposal_block_ids(mpt2::Db &db, uint64_t const block_number)
     return block_ids;
 }
 
+template std::vector<bytes32_t>
+get_proposal_block_ids<mpt2::Db>(mpt2::Db &, uint64_t const);
+template std::vector<bytes32_t>
+get_proposal_block_ids<mpt2::RODb>(mpt2::RODb &, uint64_t const);
+
 std::optional<BlockHeader> read_eth_header(
     mpt2::Db const &db, uint64_t const block, mpt2::NibblesView prefix)
 {
@@ -903,7 +912,6 @@ std::optional<BlockHeader> read_eth_header(
     return decoded.value();
 }
 
-/*
 bool for_each_code(
     mpt2::Db &db, uint64_t const block,
     std::function<void(bytes32_t const &, byte_string_view)> const fn)
@@ -964,6 +972,5 @@ bool for_each_code(
     }
     return true;
 }
-*/
 
 MONAD_NAMESPACE_END

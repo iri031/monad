@@ -295,7 +295,7 @@ Result<OwningNodeCursor> RODb::find(NibblesView key, uint64_t version) const
     }
     MONAD_DEBUG_ASSERT(cursor.is_valid());
     MONAD_DEBUG_ASSERT(cursor.node->has_value());
-    return cursor;
+    return std::move(cursor);
 }
 
 Result<OwningNodeCursor>
@@ -308,7 +308,7 @@ RODb::find(OwningNodeCursor root, NibblesView key, uint64_t version) const
     }
     MONAD_DEBUG_ASSERT(cursor.is_valid());
     MONAD_DEBUG_ASSERT(cursor.node->has_value());
-    return cursor;
+    return std::move(cursor);
 }
 
 Result<byte_string_view>
@@ -350,6 +350,31 @@ bool RODb::traverse(
     OwningNodeCursor const &root, TraverseMachine &machine, uint64_t block_id)
 {
     return preorder_traverse_blocking(aux_, *root.node, machine, block_id);
+}
+
+uint64_t RODb::get_earliest_version() const
+{
+    return aux_.db_history_min_valid_version();
+}
+
+uint64_t RODb::get_latest_version() const
+{
+    return aux_.db_history_max_version();
+}
+
+uint64_t RODb::get_latest_finalized_version() const
+{
+    return aux_.get_latest_finalized_version();
+}
+
+uint64_t RODb::get_latest_verified_version() const
+{
+    return aux_.get_latest_verified_version();
+}
+
+uint64_t RODb::get_history_length() const
+{
+    return aux_.version_history_length();
 }
 
 MONAD_MPT2_NAMESPACE_END

@@ -53,7 +53,8 @@ TEST_F(UpdateAuxFixture, upsert_write_transaction_works)
         auto *const buffer = reinterpret_cast<unsigned char *>(
             aligned_alloc(DISK_PAGE_SIZE, bytes_to_read));
         auto const rd_fd = ::open(path.c_str(), O_RDONLY, O_CLOEXEC);
-        ASSERT_TRUE(-1 != ::pread(rd_fd, buffer, bytes_to_read, rd_offset));
+        ASSERT_TRUE(
+            -1 != ::pread(rd_fd, buffer, bytes_to_read, (off_t)rd_offset));
         Node const *const read_root = parse_node(buffer + buffer_off);
         EXPECT_TRUE(memcmp((void *)root, (void *)read_root, node_size) == 0);
     }
@@ -80,7 +81,7 @@ TEST_F(UpdateAuxFixture, upsert_write_transaction_works)
     EXPECT_EQ(aux.db_history_max_version(), version);
     EXPECT_EQ(aux.get_root_offset_at_version(version), root_offset);
     NodeCursor const root_cursor2{*aux.parse_node(root_offset)};
-    for (auto i : {0, 1, 2, 3}) {
+    for (auto i : {0u, 1u, 2u, 3u}) {
         auto const [cursor, res] =
             find(aux, root_cursor2, kv[i].first, version);
         EXPECT_EQ(res, find_result::success);
@@ -138,14 +139,14 @@ TEST_F(UpdateAuxFixture, fixed_history_length)
                 wt, root_offset, v, make_update(kv[0].first, kv[1].second));
             wt.finish(root_offset, v);
         }
-        EXPECT_EQ(db_storage.db_history_max_version(), max_version);
+        EXPECT_EQ(db_storage.db_history_max_version(false), max_version);
         EXPECT_EQ(db_storage.db_history_min_valid_version(), 0);
     }
 
     { // reopen with fixed length
         DbStorage storage{path, DbStorage::Mode::open_existing};
         UpdateAux aux2{storage, history_len};
-        EXPECT_EQ(storage.db_history_max_version(), max_version);
+        EXPECT_EQ(storage.db_history_max_version(false), max_version);
         EXPECT_EQ(
             storage.db_history_min_valid_version(),
             max_version - history_len + 1);
@@ -155,7 +156,7 @@ TEST_F(UpdateAuxFixture, fixed_history_length)
             WriteTransaction wt(aux);
             wt.finish(root_offset, v);
         }
-        EXPECT_EQ(storage.db_history_max_version(), v);
+        EXPECT_EQ(storage.db_history_max_version(false), v);
         EXPECT_EQ(storage.db_history_min_valid_version(), v - history_len + 1);
     }
 }
@@ -183,11 +184,11 @@ TEST_F(UpdateAuxFixture, copy_trie)
             src_version,
             make_update(kv[2].first, kv[2].second),
             make_update(kv[3].first, kv[3].second));
-        EXPECT_EQ(ro_storage.db_history_max_version(), INVALID_VERSION);
+        EXPECT_EQ(ro_storage.db_history_max_version(false), INVALID_VERSION);
         wt.finish(root_offset, src_version);
     }
 
-    EXPECT_EQ(ro_storage.db_history_max_version(), src_version);
+    EXPECT_EQ(ro_storage.db_history_max_version(false), src_version);
     EXPECT_EQ(ro_storage.get_root_offset_at_version(src_version), root_offset);
 
     {
@@ -201,10 +202,10 @@ TEST_F(UpdateAuxFixture, copy_trie)
     { // open wt to copy_trie
         WriteTransaction wt(aux);
         root_offset = wt.copy_trie(root_offset, src_prefix, 1, dest_prefix);
-        EXPECT_EQ(ro_storage.db_history_max_version(), src_version);
+        EXPECT_EQ(ro_storage.db_history_max_version(false), src_version);
         wt.finish(root_offset, dest_version);
     }
-    EXPECT_EQ(ro_storage.db_history_max_version(), dest_version);
+    EXPECT_EQ(ro_storage.db_history_max_version(false), dest_version);
 
     {
         NodeCursor const root_cursor{*aux_reader.parse_node(root_offset)};

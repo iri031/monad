@@ -8,8 +8,6 @@
 
 MONAD_MPT2_NAMESPACE_BEGIN
 
-struct StateMachine;
-
 struct OnDiskDbConfig
 {
     bool append{false};

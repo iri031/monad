@@ -104,21 +104,21 @@ TEST_F(DbStorageFixture, root_offsets)
     auto const root_offsets_capacity = db_storage.root_offsets().capacity();
     EXPECT_EQ(root_offsets_capacity, 1 << 25);
 
-    EXPECT_EQ(db_storage.db_history_max_version(), INVALID_VERSION);
+    EXPECT_EQ(db_storage.db_history_max_version(false), INVALID_VERSION);
     EXPECT_EQ(db_storage.version_history_length(), 1 << 25);
 
     chunk_offset_t const offset0{1, 0};
     db_storage.append_root_offset(offset0);
-    EXPECT_EQ(db_storage.db_history_max_version(), 0);
+    EXPECT_EQ(db_storage.db_history_max_version(false), 0);
     EXPECT_EQ(db_storage.get_root_offset_at_version(0), offset0);
 
     chunk_offset_t offset1{2, 0};
     db_storage.append_root_offset(offset1);
-    EXPECT_EQ(db_storage.db_history_max_version(), 1);
+    EXPECT_EQ(db_storage.db_history_max_version(false), 1);
     EXPECT_EQ(db_storage.get_root_offset_at_version(1), offset1);
     offset1.offset = 1024;
     db_storage.update_root_offset(1, offset1);
-    EXPECT_EQ(db_storage.db_history_max_version(), 1);
+    EXPECT_EQ(db_storage.db_history_max_version(false), 1);
     EXPECT_EQ(db_storage.get_root_offset_at_version(1), offset1);
     EXPECT_EQ(db_storage.db_history_min_valid_version(), 0);
     EXPECT_EQ(db_storage.db_history_range_lower_bound(), 0);
@@ -137,7 +137,7 @@ TEST_F(DbStorageFixture, root_offsets)
     for (auto v = version; v < version + 100; ++v) {
         chunk_offset_t offset{100, v - version};
         db_storage.append_root_offset(offset);
-        EXPECT_EQ(db_storage.db_history_max_version(), v);
+        EXPECT_EQ(db_storage.db_history_max_version(false), v);
         EXPECT_EQ(db_storage.db_history_min_valid_version(), version);
         EXPECT_EQ(ro_storage.get_root_offset_at_version(v), offset);
     }

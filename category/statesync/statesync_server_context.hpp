@@ -45,7 +45,7 @@ static_assert(alignof(Deletion) == 1);
 struct FinalizedDeletionsEntry
 {
     std::mutex mutex{};
-    uint64_t block_number{mpt::INVALID_BLOCK_NUM};
+    uint64_t block_number{mpt2::INVALID_BLOCK_NUM};
     size_t idx{0};
     size_t size{0};
 };
@@ -55,8 +55,8 @@ static_assert(alignof(FinalizedDeletionsEntry) == 8);
 
 class FinalizedDeletions
 {
-    uint64_t start_block_number_{mpt::INVALID_BLOCK_NUM};
-    uint64_t end_block_number_{mpt::INVALID_BLOCK_NUM};
+    uint64_t start_block_number_{mpt2::INVALID_BLOCK_NUM};
+    uint64_t end_block_number_{mpt2::INVALID_BLOCK_NUM};
     std::array<FinalizedDeletionsEntry, MAX_ENTRIES> entries_{};
     std::array<Deletion, MAX_DELETIONS> deletions_{};
     size_t free_start_{0};
@@ -92,7 +92,7 @@ MONAD_NAMESPACE_END
 struct monad_statesync_server_context final : public monad::Db
 {
     monad::TrieDb &rw;
-    monad::mpt::Db *ro;
+    monad::mpt2::RODb *ro;
     std::deque<monad::ProposedDeletions> proposals;
     monad::FinalizedDeletions deletions;
 
