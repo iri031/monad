@@ -24,7 +24,7 @@
 #include <category/execution/ethereum/core/rlp/block_rlp.hpp>
 #include <category/execution/ethereum/db/trie_db.hpp>
 #include <category/execution/ethereum/db/util.hpp>
-#include <category/mpt/ondisk_db_config.hpp>
+#include <category/mpt2/ondisk_db_config.hpp>
 #include <category/statesync/statesync_client.h>
 #include <category/statesync/statesync_server.h>
 #include <category/statesync/statesync_server_context.hpp>
@@ -40,7 +40,7 @@
 #include <sys/sysinfo.h>
 
 using namespace monad;
-using namespace monad::mpt;
+using namespace monad::mpt2;
 using namespace monad::test;
 
 struct monad_statesync_client
@@ -73,9 +73,9 @@ namespace
         ::close(fd);
         char const *const path = dbname.c_str();
         OnDiskMachine machine;
-        mpt::Db const db{
+        mpt2::Db const db{
             machine,
-            mpt::OnDiskDbConfig{.append = false, .dbname_paths = {path}}};
+            mpt2::OnDiskDbConfig{.append = false, .dbname_path = path}};
         return dbname;
     }
 
@@ -142,11 +142,10 @@ namespace
         monad_statesync_client_context *cctx;
         std::filesystem::path sdbname;
         OnDiskMachine machine;
-        mpt::Db sdb;
+        mpt2::Db sdb;
         TrieDb stdb;
         monad_statesync_server_context sctx;
-        mpt::AsyncIOContext io_ctx;
-        mpt::Db ro;
+        mpt2::RODb ro;
         monad_statesync_server_network net;
         monad_statesync_server *server{};
 
@@ -155,11 +154,10 @@ namespace
             , cctx{nullptr}
             , sdbname{tmp_dbname()}
             , sdb{machine,
-                  OnDiskDbConfig{.append = true, .dbname_paths = {sdbname}}}
+                  mpt2::OnDiskDbConfig{.append = true, .dbname_path = sdbname}}
             , stdb{sdb}
             , sctx{stdb}
-            , io_ctx{mpt::ReadOnlyOnDiskDbConfig{.dbname_paths = {sdbname}}}
-            , ro{io_ctx}
+            , ro{mpt2::OnDiskDbConfig{.dbname_path = sdbname}}
         {
             sctx.ro = &ro;
         }
@@ -209,8 +207,8 @@ TEST_F(StateSyncFixture, sync_from_latest)
     bytes32_t parent_hash{NULL_HASH};
     {
         OnDiskMachine machine;
-        mpt::Db db{
-            machine, OnDiskDbConfig{.append = true, .dbname_paths = {cdbname}}};
+        mpt2::Db db{
+            machine, OnDiskDbConfig{.append = true, .dbname_path = cdbname}};
         TrieDb tdb{db};
         load_header(db, BlockHeader{.number = N - 257});
         for (size_t i = N - 256; i < N; ++i) {
@@ -267,9 +265,8 @@ TEST_F(StateSyncFixture, sync_from_empty)
     EXPECT_TRUE(monad_statesync_client_finalize(cctx));
 
     OnDiskMachine machine;
-    mpt::Db cdb{
-        machine,
-        mpt::OnDiskDbConfig{.append = true, .dbname_paths = {cdbname}}};
+    mpt2::Db cdb{
+        machine, mpt2::OnDiskDbConfig{.append = true, .dbname_path = cdbname}};
     TrieDb ctdb{cdb};
     EXPECT_EQ(ctdb.get_block_number(), 1'000'000);
     EXPECT_TRUE(ctdb.read_account(ADDR_A).has_value());
@@ -297,8 +294,8 @@ TEST_F(StateSyncFixture, sync_from_some)
 {
     {
         OnDiskMachine machine;
-        mpt::Db db{
-            machine, OnDiskDbConfig{.append = true, .dbname_paths = {cdbname}}};
+        mpt2::Db db{
+            machine, OnDiskDbConfig{.append = true, .dbname_path = cdbname}};
         TrieDb tdb{db};
         load_genesis_state(GENESIS_STATE, tdb);
         // commit some proposal to client db
@@ -482,8 +479,9 @@ TEST_F(StateSyncFixture, deletion_proposal)
 {
     {
         OnDiskMachine machine;
-        mpt::Db db{
-            machine, OnDiskDbConfig{.append = true, .dbname_paths = {cdbname}}};
+        mpt2::Db db{
+            machine,
+            mpt2::OnDiskDbConfig{.append = true, .dbname_path = cdbname}};
         TrieDb tdb{db};
         load_genesis_state(GENESIS_STATE, tdb);
         load_genesis_state(GENESIS_STATE, stdb);
@@ -592,8 +590,9 @@ TEST_F(StateSyncFixture, sync_client_has_proposals)
     {
         // init client DB
         OnDiskMachine machine;
-        mpt::Db db{
-            machine, OnDiskDbConfig{.append = true, .dbname_paths = {cdbname}}};
+        mpt2::Db db{
+            machine,
+            mpt2::OnDiskDbConfig{.append = true, .dbname_path = cdbname}};
         TrieDb tdb{db};
         load_header(db, BlockHeader{.number = 0});
         for (uint64_t n = 1; n <= 249; ++n) {
@@ -917,9 +916,10 @@ TEST_F(StateSyncFixture, update_contract_twice)
         to_bytes(keccak256(rlp::encode_block_header(stdb.read_eth_header())));
 
     auto const code =
-        evmc::from_hex("7ffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-                       "fffffffffff7fffffffffffffffffffffffffffffffffffffffffff"
-                       "ffffffffffffffffffffff0160005500")
+        evmc::from_hex(
+            "7ffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            "fffffffffff7fffffffffffffffffffffffffffffffffffffffffff"
+            "ffffffffffffffffffffff0160005500")
             .value();
     auto const code_hash = to_bytes(keccak256(code));
     auto const icode = vm::make_shared_intercode(code);

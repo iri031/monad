@@ -158,8 +158,8 @@ void load_header(mpt2::Db &, BlockHeader const &);
 
 mpt2::Nibbles proposal_prefix(bytes32_t const &);
 
-std::vector<bytes32_t>
-get_proposal_block_ids(mpt2::Db &, uint64_t block_number);
+template <class Db>
+std::vector<bytes32_t> get_proposal_block_ids(Db &, uint64_t block_number);
 
 std::optional<BlockHeader>
 read_eth_header(mpt2::Db const &db, uint64_t block, mpt2::NibblesView prefix);

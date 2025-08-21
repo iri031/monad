@@ -133,6 +133,10 @@ public:
     uint64_t get_latest_version() const;
     uint64_t get_earliest_version() const;
 
+    uint64_t get_latest_finalized_version() const;
+    uint64_t get_latest_verified_version() const;
+    uint64_t get_history_length() const;
+
     bool traverse(
         OwningNodeCursor const &root, TraverseMachine &machine,
         uint64_t version);

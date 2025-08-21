@@ -50,8 +50,8 @@ TEST(TransactionProcessor, irrevocable_gas_and_refund_new_contract)
     static constexpr auto bene{
         0x5353535353535353535353535353535353535353_address};
 
-    InMemoryMachine machine;
-    mpt::Db db{machine};
+    OnDiskMachine machine;
+    mpt2::Db db{machine, {}};
     db_t tdb{db};
     vm::VM vm;
     BlockState bs{tdb, vm};

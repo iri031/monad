@@ -131,11 +131,11 @@ UpdateAux::UpdateAux(
     if (history_len.has_value() && !is_read_only()) {
         // reset history length
         if (history_len < version_history_length() &&
-            history_len <= db_history_max_version(true)) {
+            history_len <= db_history_max_version(false)) {
             // we invalidate earlier blocks that fall outside of the
             // history window when shortening history length
             erase_versions_up_to_and_including(
-                db_history_max_version(true) - *history_len);
+                db_history_max_version(false) - *history_len);
         }
         db_storage_.set_history_length(*history_len, true);
         db_storage_.set_history_length(*history_len, false);

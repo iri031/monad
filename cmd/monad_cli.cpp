@@ -32,13 +32,9 @@
 #include <category/execution/ethereum/db/db_snapshot.h>
 #include <category/execution/ethereum/db/db_snapshot_filesystem.h>
 #include <category/execution/ethereum/db/util.hpp>
-#include <category/mpt/db.hpp>
-#include <category/mpt/nibbles_view.hpp>
-#include <category/mpt/nibbles_view_fmt.hpp> // NOLINT
-#include <category/mpt/node_cursor.hpp>
-#include <category/mpt/ondisk_db_config.hpp>
-#include <category/mpt/traverse.hpp>
-#include <category/mpt/util.hpp>
+#include <category/mpt2/nibbles_view_fmt.hpp>
+#include <category/mpt2/ondisk_db_config.hpp>
+#include <category/mpt2/traverse.hpp>
 
 #include <CLI/CLI.hpp>
 #include <evmc/evmc.hpp>
@@ -77,7 +73,7 @@
 #include <unistd.h>
 
 using namespace monad;
-using namespace monad::mpt;
+using namespace monad::mpt2;
 
 MONAD_ANONYMOUS_NAMESPACE_BEGIN
 
@@ -158,7 +154,7 @@ void print_code(byte_string_view const code)
 
 struct DbStateMachine
 {
-    Db &db;
+    RODb &db;
 
     uint64_t curr_version{INVALID_BLOCK_NUM};
     bytes32_t curr_block_id{}; // empty means finalized
@@ -174,7 +170,7 @@ struct DbStateMachine
         invalid
     } state{DbState::unset};
 
-    explicit DbStateMachine(Db &db)
+    explicit DbStateMachine(RODb &db)
         : db(db)
     {
     }
@@ -209,8 +205,9 @@ struct DbStateMachine
 
         fmt::println("Success! Set version to {}\n", curr_version);
         if (list_finalized_and_proposals(version)) {
-            fmt::println("Type \"proposal [block_id]\" or "
-                         "\"finalized\" to set section");
+            fmt::println(
+                "Type \"proposal [block_id]\" or "
+                "\"finalized\" to set section");
         }
         else {
             fmt::println(
@@ -224,8 +221,9 @@ struct DbStateMachine
     bool list_finalized_and_proposals(uint64_t const version)
     {
         if (version == INVALID_BLOCK_NUM) {
-            fmt::println("Error: invalid version to list sections, set to a "
-                         "valid version and try again");
+            fmt::println(
+                "Error: invalid version to list sections, set to a "
+                "valid version and try again");
             return false;
         }
         auto const finalized_res = db.find(finalized_nibbles, version);
@@ -247,8 +245,9 @@ struct DbStateMachine
     void set_proposal_or_finalized(bytes32_t const &block_id)
     {
         if (state != DbState::version_number) {
-            fmt::println("Error: at wrong part of trie, only allow set section "
-                         "when cursor is set to a version.");
+            fmt::println(
+                "Error: at wrong part of trie, only allow set section "
+                "when cursor is set to a version.");
             return;
         }
         MONAD_ASSERT(curr_section_prefix.nibble_size() == 0);
@@ -286,8 +285,9 @@ struct DbStateMachine
     void set_table(unsigned char table_id)
     {
         if (state != DbState::proposal_or_finalize) {
-            fmt::println("Error: at wrong part of trie, only allow set table "
-                         "when cursor is set to a specific version number.");
+            fmt::println(
+                "Error: at wrong part of trie, only allow set table "
+                "when cursor is set to a specific version number.");
             return;
         }
         MONAD_ASSERT(curr_section_prefix.nibble_size() > 0);
@@ -301,7 +301,7 @@ struct DbStateMachine
             auto const res =
                 db.find(concat(curr_section_prefix, table_id), curr_version);
             if (res.has_value()) {
-                NodeCursor const cursor = res.assume_value();
+                OwningNodeCursor const &cursor = res.assume_value();
                 state = DbState::table;
                 curr_table_id = table_id;
                 if (curr_table_id != CODE_NIBBLE) {
@@ -310,10 +310,12 @@ struct DbStateMachine
                                                 : to_bytes(cursor.node->data());
                     fmt::println(" * Merkle root is {}", merkle_root);
                 }
-                fmt::println(" * \"node_stats\" will display a summary of node "
-                             "metadata");
-                fmt::println(" * Next, try look up a key in this table using "
-                             "\"get [key]\"");
+                fmt::println(
+                    " * \"node_stats\" will display a summary of node "
+                    "metadata");
+                fmt::println(
+                    " * Next, try look up a key in this table using "
+                    "\"get [key]\"");
             }
             else {
                 fmt::println(
@@ -323,16 +325,18 @@ struct DbStateMachine
             }
         }
         else {
-            fmt::println("Invalid table id: choose table id from 0: state, "
-                         "1: code, 2: receipt.");
+            fmt::println(
+                "Invalid table id: choose table id from 0: state, "
+                "1: code, 2: receipt.");
         }
     }
 
-    Result<NodeCursor> lookup(NibblesView const key) const
+    Result<OwningNodeCursor> lookup(NibblesView const key) const
     {
         if (state != DbState::table) {
-            fmt::println("Error: at wrong part of trie, please navigate cursor "
-                         "to a table before lookup.");
+            fmt::println(
+                "Error: at wrong part of trie, please navigate cursor "
+                "to a table before lookup.");
         }
         MONAD_ASSERT(!curr_section_prefix.empty());
         MONAD_ASSERT(curr_table_id != INVALID_NIBBLE);
@@ -551,8 +555,9 @@ void do_get_receipt(DbStateMachine &sm, std::string_view const receipt)
     size_t receipt_id{};
 
     if (receipt.starts_with("0x")) {
-        fmt::println("Receipts should be entered in base 10 and will be "
-                     "encoded for you.");
+        fmt::println(
+            "Receipts should be entered in base 10 and will be "
+            "encoded for you.");
         return;
     }
     auto [_, ec] = std::from_chars(
@@ -677,11 +682,12 @@ void do_node_stats(DbStateMachine &sm)
     }
 }
 
-int interactive_impl(Db &db)
+int interactive_impl(RODb &db)
 {
     if (!isatty(STDIN_FILENO)) {
-        fmt::println("Not running interactively! Pass -it to run inside a "
-                     "docker container.");
+        fmt::println(
+            "Not running interactively! Pass -it to run inside a "
+            "docker container.");
         return 1;
     }
 
@@ -724,8 +730,9 @@ int interactive_impl(Db &db)
                 do_proposal(state_machine, tokens[1]);
             }
             else {
-                fmt::println("Wrong format to set proposal, type 'proposal "
-                             "[block_id]'");
+                fmt::println(
+                    "Wrong format to set proposal, type 'proposal "
+                    "[block_id]'");
             }
         }
         else if (tokens[0] == "finalized") {
@@ -736,8 +743,9 @@ int interactive_impl(Db &db)
                 do_table(state_machine, tokens[1]);
             }
             else {
-                fmt::println("Wrong format to set table, type 'table "
-                             "[state/code/receipt]'");
+                fmt::println(
+                    "Wrong format to set table, type 'table "
+                    "[state/code/receipt]'");
             }
         }
         else if (tokens[0] == "get") {
@@ -857,10 +865,8 @@ int main(int argc, char *argv[])
 
     {
         fmt::println("Opening read only database {}.", dbname_paths);
-        ReadOnlyOnDiskDbConfig const ro_config{
-            .sq_thread_cpu = sq_thread_cpu, .dbname_paths = dbname_paths};
-        AsyncIOContext io_ctx{ro_config};
-        Db ro_db{io_ctx};
+        OnDiskDbConfig const ro_config{.dbname_path = dbname_paths[0]};
+        RODb ro_db{ro_config};
         fmt::println(
             "db summary: earliest_block_id={} latest_block_id={} "
             "latest_finalized_block_id={} last_verified_block_id={} "

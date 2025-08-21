@@ -1,21 +1,21 @@
 #pragma once
 
 #include <category/core/basic_formatter.hpp>
-#include <category/mpt/nibbles_view.hpp>
+#include <category/mpt2/nibbles_view.hpp>
 
 #include <quill/Quill.h>
 #include <quill/bundled/fmt/format.h>
 
 template <>
-struct quill::copy_loggable<monad::mpt::NibblesView> : std::false_type
+struct quill::copy_loggable<monad::mpt2::NibblesView> : std::false_type
 {
 };
 
 template <>
-struct fmt::formatter<monad::mpt::NibblesView> : public monad::BasicFormatter
+struct fmt::formatter<monad::mpt2::NibblesView> : public monad::BasicFormatter
 {
     template <typename FormatContext>
-    auto format(monad::mpt::NibblesView const &value, FormatContext &ctx) const
+    auto format(monad::mpt2::NibblesView const &value, FormatContext &ctx) const
     {
         fmt::format_to(ctx.out(), "0x");
         for (auto i = 0u; i < value.nibble_size(); ++i) {

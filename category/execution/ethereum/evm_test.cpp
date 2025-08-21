@@ -50,8 +50,8 @@ using evm_host_t = EvmcHost<EVMC_SHANGHAI>;
 
 TEST(Evm, create_with_insufficient)
 {
-    InMemoryMachine machine;
-    mpt::Db db{machine};
+    OnDiskMachine machine;
+    mpt2::Db db{machine, {}};
     db_t tdb{db};
     vm::VM vm;
     BlockState bs{tdb, vm};
@@ -93,8 +93,8 @@ TEST(Evm, create_with_insufficient)
 
 TEST(Evm, eip684_existing_code)
 {
-    InMemoryMachine machine;
-    mpt::Db db{machine};
+    OnDiskMachine machine;
+    mpt2::Db db{machine, {}};
     db_t tdb{db};
     vm::VM vm;
     BlockState bs{tdb, vm};
@@ -143,8 +143,8 @@ TEST(Evm, eip684_existing_code)
 
 TEST(Evm, create_nonce_out_of_range)
 {
-    InMemoryMachine machine;
-    mpt::Db db{machine};
+    OnDiskMachine machine;
+    mpt2::Db db{machine, {}};
     db_t tdb{db};
     vm::VM vm;
     BlockState bs{tdb, vm};
@@ -193,8 +193,8 @@ TEST(Evm, create_nonce_out_of_range)
 
 TEST(Evm, static_precompile_execution)
 {
-    InMemoryMachine machine;
-    mpt::Db db{machine};
+    OnDiskMachine machine;
+    mpt2::Db db{machine, {}};
     db_t tdb{db};
     vm::VM vm;
     BlockState bs{tdb, vm};
@@ -249,8 +249,8 @@ TEST(Evm, static_precompile_execution)
 
 TEST(Evm, out_of_gas_static_precompile_execution)
 {
-    InMemoryMachine machine;
-    mpt::Db db{machine};
+    OnDiskMachine machine;
+    mpt2::Db db{machine, {}};
     db_t tdb{db};
     vm::VM vm;
     BlockState bs{tdb, vm};
@@ -303,8 +303,8 @@ TEST(Evm, deploy_contract_code)
 {
     static constexpr auto a{0xbebebebebebebebebebebebebebebebebebebebe_address};
 
-    InMemoryMachine machine;
-    mpt::Db db{machine};
+    OnDiskMachine machine;
+    mpt2::Db db{machine, {}};
     db_t tdb{db};
     vm::VM vm;
     commit_sequential(

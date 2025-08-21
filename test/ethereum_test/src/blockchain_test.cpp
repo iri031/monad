@@ -366,8 +366,8 @@ void BlockchainTest::TestBody()
 
         executed = true;
 
-        InMemoryMachine machine;
-        mpt::Db db{machine};
+        OnDiskMachine machine;
+        mpt2::Db db{machine, {}};
         db_t tdb{db};
         vm::VM vm;
         {
@@ -470,7 +470,7 @@ void BlockchainTest::TestBody()
                     block.value().header.withdrawals_root)
                     << name;
                 auto const encoded_ommers_res = db.get(
-                    mpt::concat(FINALIZED_NIBBLE, OMMER_NIBBLE),
+                    mpt2::concat(FINALIZED_NIBBLE, OMMER_NIBBLE),
                     curr_block_number);
                 EXPECT_TRUE(encoded_ommers_res.has_value());
                 EXPECT_EQ(
@@ -486,7 +486,7 @@ void BlockchainTest::TestBody()
                     << name;
                 { // verify block header is stored correctly
                     auto res = db.get(
-                        mpt::concat(FINALIZED_NIBBLE, BLOCKHEADER_NIBBLE),
+                        mpt2::concat(FINALIZED_NIBBLE, BLOCKHEADER_NIBBLE),
                         curr_block_number);
                     EXPECT_TRUE(res.has_value());
                     auto const decode_res =
@@ -499,10 +499,10 @@ void BlockchainTest::TestBody()
                     auto const block_hash = keccak256(
                         rlp::encode_block_header(block.value().header));
                     auto res = db.get(
-                        mpt::concat(
+                        mpt2::concat(
                             FINALIZED_NIBBLE,
                             BLOCK_HASH_NIBBLE,
-                            mpt::NibblesView{block_hash}),
+                            mpt2::NibblesView{block_hash}),
                         curr_block_number);
                     EXPECT_TRUE(res.has_value());
                     auto const decoded_number =
@@ -516,10 +516,10 @@ void BlockchainTest::TestBody()
                     auto const &tx = block.value().transactions[i];
                     auto const hash = keccak256(rlp::encode_transaction(tx));
                     auto tx_hash_res = db.get(
-                        mpt::concat(
+                        mpt2::concat(
                             FINALIZED_NIBBLE,
                             TX_HASH_NIBBLE,
-                            mpt::NibblesView{hash}),
+                            mpt2::NibblesView{hash}),
                         curr_block_number);
                     EXPECT_TRUE(tx_hash_res.has_value());
                     EXPECT_EQ(
