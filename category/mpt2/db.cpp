@@ -311,7 +311,7 @@ RODb::find(OwningNodeCursor root, NibblesView key, uint64_t version) const
     return std::move(cursor);
 }
 
-Result<byte_string_view>
+Result<byte_string>
 RODb::get(NibblesView const key, uint64_t const version) const
 {
     auto res = find(key, version);
@@ -321,10 +321,10 @@ RODb::get(NibblesView const key, uint64_t const version) const
     if (!res.value().node->has_value()) {
         return DbError::key_not_found;
     }
-    return res.value().node->value();
+    return {res.value().node->value().data(), res.value().node->value().size()};
 }
 
-Result<byte_string_view> RODb::get_data(
+Result<byte_string> RODb::get_data(
     OwningNodeCursor root, NibblesView const key, uint64_t const version) const
 {
     auto res = find(std::move(root), key, version);
@@ -332,10 +332,10 @@ Result<byte_string_view> RODb::get_data(
         return DbError(res.error().value());
     }
     MONAD_DEBUG_ASSERT(res.value().node != nullptr);
-    return res.value().node->data();
+    return {res.value().node->data().data(), res.value().node->data().size()};
 }
 
-Result<byte_string_view>
+Result<byte_string>
 RODb::get_data(NibblesView const key, uint64_t const version) const
 {
     auto res = find(key, version);
@@ -343,7 +343,7 @@ RODb::get_data(NibblesView const key, uint64_t const version) const
         return DbError(res.error().value());
     }
     MONAD_DEBUG_ASSERT(res.value().node != nullptr);
-    return res.value().node->data();
+    return {res.value().node->data().data(), res.value().node->data().size()};
 }
 
 bool RODb::traverse(

@@ -125,9 +125,9 @@ public:
     find(OwningNodeCursor, NibblesView, uint64_t block_id) const;
     Result<OwningNodeCursor> find(NibblesView prefix, uint64_t block_id) const;
 
-    Result<byte_string_view> get(NibblesView, uint64_t block_id) const;
-    Result<byte_string_view> get_data(NibblesView, uint64_t block_id) const;
-    Result<byte_string_view>
+    Result<byte_string> get(NibblesView, uint64_t block_id) const;
+    Result<byte_string> get_data(NibblesView, uint64_t block_id) const;
+    Result<byte_string>
     get_data(OwningNodeCursor, NibblesView, uint64_t block_id) const;
 
     uint64_t get_latest_version() const;
