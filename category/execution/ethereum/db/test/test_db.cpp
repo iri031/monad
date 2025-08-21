@@ -105,8 +105,6 @@ namespace
 
     struct OnDiskTrieDbFixture : public ::testing::Test
     {
-        static constexpr bool on_disk = true;
-
         OnDiskMachine machine;
         mpt2::Db db{machine, mpt2::OnDiskDbConfig{}};
         vm::VM vm;

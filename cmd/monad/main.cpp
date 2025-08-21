@@ -127,7 +127,7 @@ int main(int const argc, char const *argv[])
     bool trace_calls = false;
     unsigned sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 1);
     unsigned ro_sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 2);
-    std::vector<fs::path> dbname_paths;
+    fs::path dbname_path;
     fs::path snapshot;
     fs::path dump_snapshot;
     std::string statesync;
@@ -162,10 +162,9 @@ int main(int const argc, char const *argv[])
         "sq_thread_cpu for the read only db");
     cli.add_option(
         "--db",
-        dbname_paths,
-        "A comma-separated list of previously created database paths. You can "
-        "configure the storage pool with one or more files/devices. If no "
-        "value is passed, the replay will run with an in-memory triedb");
+        dbname_path,
+        "previously created database path. TODO: if not specified, run from "
+        "anonymous_inode");
     cli.add_option(
         "--dump_snapshot",
         dump_snapshot,
@@ -228,7 +227,7 @@ int main(int const argc, char const *argv[])
 
     MONAD_ASSERT(init_trusted_setup());
 
-    auto const db_in_memory = dbname_paths.empty();
+    auto const db_in_memory = dbname_path.empty();
     [[maybe_unused]] auto const load_start_time =
         std::chrono::steady_clock::now();
 
@@ -238,7 +237,7 @@ int main(int const argc, char const *argv[])
     }
     std::unique_ptr<mpt2::StateMachine> machine;
     mpt2::Db db = [&] {
-        MONAD_ASSERT(!db_in_memory);
+        MONAD_ASSERT(!db_in_memory); // TODO: support use_anonymous_inode
         machine = std::make_unique<OnDiskMachine>();
         return mpt2::Db{
             *machine,
@@ -246,7 +245,7 @@ int main(int const argc, char const *argv[])
                 .append = true,
                 .compaction = !no_compaction,
                 .rewind_to_latest_finalized = true,
-                .dbname_path = dbname_paths.front()}};
+                .dbname_path = dbname_path}};
         // machine = std::make_unique<InMemoryMachine>();
         // return mpt2::Db{*machine};
     }();

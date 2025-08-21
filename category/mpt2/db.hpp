@@ -108,7 +108,7 @@ public:
 class RODb
 {
 public:
-    RODb(OnDiskDbConfig const &);
+    RODb(std::filesystem::path dbname_path);
     ~RODb() = default;
 
     RODb(RODb const &) = delete;

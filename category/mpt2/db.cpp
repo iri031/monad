@@ -270,8 +270,8 @@ bool Db::traverse(NodeCursor root, TraverseMachine &machine, uint64_t block_id)
     return preorder_traverse_blocking(aux_, *root.node, machine, block_id);
 }
 
-RODb::RODb(OnDiskDbConfig const &config)
-    : storage_(config.dbname_path, storage::DbStorage::Mode::open_existing)
+RODb::RODb(std::filesystem::path const db_path)
+    : storage_(db_path, storage::DbStorage::Mode::open_existing)
     , aux_(storage_, std::nullopt)
 {
 }

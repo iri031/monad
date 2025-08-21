@@ -34,17 +34,16 @@ enum monad_snapshot_type
     MONAD_SNAPSHOT_CODE
 };
 
+// TODO: dbname_paths should be a single path
 bool monad_db_dump_snapshot(
-    char const *const *dbname_paths, size_t len, unsigned sq_thread_cpu,
-    uint64_t block,
+    char const *dbname_path, unsigned sq_thread_cpu, uint64_t block,
     uint64_t (*write)(
         uint64_t shard, enum monad_snapshot_type, unsigned char const *bytes,
         size_t len, void *user),
     void *user);
 
 struct monad_db_snapshot_loader *monad_db_snapshot_loader_create(
-    uint64_t block, char const *const *dbname_paths, size_t len,
-    unsigned sq_thread_cpu);
+    uint64_t block, char const *dbname_paths, unsigned sq_thread_cpu);
 
 void monad_db_snapshot_loader_load(
     struct monad_db_snapshot_loader *loader, uint64_t shard,

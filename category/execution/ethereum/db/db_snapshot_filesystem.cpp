@@ -123,14 +123,13 @@ uint64_t monad_db_snapshot_write_filesystem(
 }
 
 void monad_db_snapshot_load_filesystem(
-    char const *const *const dbname_paths, size_t const len,
-    unsigned const sq_thread_cpu, char const *const snapshot_dir,
-    uint64_t const block)
+    char const *const dbname_path, unsigned const sq_thread_cpu,
+    char const *const snapshot_dir, uint64_t const block)
 {
     std::filesystem::path const root{std::format("{}/{}", snapshot_dir, block)};
     MONAD_ASSERT(std::filesystem::is_directory(root));
-    monad_db_snapshot_loader *const loader = monad_db_snapshot_loader_create(
-        block, dbname_paths, len, sq_thread_cpu);
+    monad_db_snapshot_loader *const loader =
+        monad_db_snapshot_loader_create(block, dbname_path, sq_thread_cpu);
 
     auto const do_mmap = [](std::filesystem::path const file) {
         using namespace monad;

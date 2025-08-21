@@ -39,7 +39,7 @@
 #include <sys/sysinfo.h>
 
 using namespace monad;
-using namespace monad::mpt;
+using namespace monad::mpt2;
 
 struct monad_statesync_client
 {
@@ -248,9 +248,9 @@ namespace
         ::close(fd);
         char const *const path = dbname.c_str();
         OnDiskMachine machine;
-        mpt::Db const db{
+        mpt2::Db const db{
             machine,
-            mpt::OnDiskDbConfig{.append = false, .dbname_paths = {path}}};
+            mpt2::OnDiskDbConfig{.append = false, .dbname_path = path}};
         return dbname;
     }
 
@@ -279,13 +279,12 @@ LLVMFuzzerTestOneInput(uint8_t const *const data, size_t const size)
             &statesync_send_request);
     std::filesystem::path sdbname{tmp_dbname()};
     OnDiskMachine machine;
-    mpt::Db sdb{
-        machine, OnDiskDbConfig{.append = true, .dbname_paths = {sdbname}}};
+    mpt2::Db sdb{
+        machine, OnDiskDbConfig{.append = true, .dbname_path = sdbname}};
     TrieDb stdb{sdb};
     std::unique_ptr<monad_statesync_server_context> sctx =
         std::make_unique<monad_statesync_server_context>(stdb);
-    mpt::AsyncIOContext io_ctx{ReadOnlyOnDiskDbConfig{.dbname_paths{sdbname}}};
-    mpt::Db ro{io_ctx};
+    mpt2::RODb ro{sdbname};
     sctx->ro = &ro;
     monad_statesync_server_network net{
         .client = &client, .cctx = cctx, .buf = {}};

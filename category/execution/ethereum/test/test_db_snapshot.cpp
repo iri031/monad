@@ -108,10 +108,8 @@ TEST(DbBinarySnapshot, Basic)
         auto *const context =
             monad_db_snapshot_filesystem_write_user_context_create(
                 root.c_str(), 100);
-        char const *dbname_paths[] = {src_db.c_str()};
         EXPECT_TRUE(monad_db_dump_snapshot(
-            dbname_paths,
-            1,
+            src_db.c_str(),
             static_cast<unsigned>(-1),
             100,
             monad_db_snapshot_write_filesystem,
@@ -119,15 +117,14 @@ TEST(DbBinarySnapshot, Basic)
 
         monad_db_snapshot_filesystem_write_user_context_destroy(context);
 
-        char const *dbname_paths_new[] = {dest_db.c_str()};
         monad_db_snapshot_load_filesystem(
-            dbname_paths_new, 1, static_cast<unsigned>(-1), root.c_str(), 100);
+            dest_db.c_str(), static_cast<unsigned>(-1), root.c_str(), 100);
 
         std::filesystem::remove_all(root);
     }
 
     {
-        RODb db{mpt2::OnDiskDbConfig{.dbname_path = dest_db}};
+        RODb db{dest_db};
         TrieRODb tdb{db};
         for (uint64_t i = 0; i < 100; ++i) {
             tdb.set_block_and_prefix(i);

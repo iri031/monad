@@ -798,7 +798,7 @@ MONAD_ANONYMOUS_NAMESPACE_END
 
 int main(int argc, char *argv[])
 {
-    std::vector<std::filesystem::path> dbname_paths;
+    std::filesystem::path dbname_path;
     std::optional<unsigned> sq_thread_cpu = std::nullopt;
     auto log_level = quill::LogLevel::Info;
     bool interactive = false;
@@ -807,11 +807,7 @@ int main(int argc, char *argv[])
     uint64_t version;
 
     CLI::App cli{"monad_cli"};
-    cli.add_option(
-           "--db",
-           dbname_paths,
-           "A comma-separated list of previously created database paths")
-        ->required();
+    cli.add_option("--db", dbname_path, "database path")->required();
     cli.add_option(
         "--sq_thread_cpu",
         sq_thread_cpu,
@@ -864,9 +860,8 @@ int main(int argc, char *argv[])
     quill::flush();
 
     {
-        fmt::println("Opening read only database {}.", dbname_paths);
-        OnDiskDbConfig const ro_config{.dbname_path = dbname_paths[0]};
-        RODb ro_db{ro_config};
+        fmt::println("Opening read only database {}.", dbname_path);
+        RODb ro_db{dbname_path};
         fmt::println(
             "db summary: earliest_block_id={} latest_block_id={} "
             "latest_finalized_block_id={} last_verified_block_id={} "
@@ -884,14 +879,9 @@ int main(int argc, char *argv[])
         auto *const context =
             monad_db_snapshot_filesystem_write_user_context_create(
                 dump_binary_snapshot.value().c_str(), version);
-        std::vector<char const *> c_dbname_paths;
-        for (auto const &path : dbname_paths) {
-            c_dbname_paths.emplace_back(path.c_str());
-        }
         [[maybe_unused]] auto const begin = std::chrono::steady_clock::now();
         bool const success = monad_db_dump_snapshot(
-            c_dbname_paths.data(),
-            c_dbname_paths.size(),
+            dbname_path.c_str(),
             sq_thread_cpu.value_or(std::numeric_limits<unsigned>::max()),
             version,
             monad_db_snapshot_write_filesystem,
@@ -906,14 +896,9 @@ int main(int argc, char *argv[])
         return success == false;
     }
     else if (load_binary_snapshot.has_value()) {
-        std::vector<char const *> c_dbname_paths;
-        for (auto const &path : dbname_paths) {
-            c_dbname_paths.emplace_back(path.c_str());
-        }
         [[maybe_unused]] auto const begin = std::chrono::steady_clock::now();
         monad_db_snapshot_load_filesystem(
-            c_dbname_paths.data(),
-            c_dbname_paths.size(),
+            dbname_path.c_str(),
             sq_thread_cpu.value_or(std::numeric_limits<unsigned>::max()),
             load_binary_snapshot.value().c_str(),
             version);

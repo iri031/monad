@@ -53,14 +53,14 @@ struct monad_db_snapshot_loader
     uint64_t bytes_read;
 
     monad_db_snapshot_loader(
-        uint64_t const block, char const *const *const dbname_paths,
-        size_t const /*len*/, unsigned const /*sq_thread_cpu*/)
+        uint64_t const block, char const *const dbname_path,
+        unsigned const /*sq_thread_cpu*/)
         : block{block}
         , db{machine,
              monad::mpt2::OnDiskDbConfig{
                  .append = true,
                  .compaction = false,
-                 .dbname_path = dbname_paths[0]}}
+                 .dbname_path = dbname_path}}
         , bytes_read{0}
     {
     }
@@ -280,8 +280,8 @@ MONAD_ANONYMOUS_NAMESPACE_END
 //       code       -> empty | [size, code], ...
 //       eth header -> empty | rlp(header)
 bool monad_db_dump_snapshot(
-    char const *const *const dbname_paths, size_t const /*len*/,
-    unsigned const /*sq_thread_cpu*/, uint64_t const block,
+    char const *const dbname_path, unsigned const /*sq_thread_cpu*/,
+    uint64_t const block,
     uint64_t (*write)(
         uint64_t shard, monad_snapshot_type, unsigned char const *bytes,
         size_t len, void *user),
@@ -290,8 +290,7 @@ bool monad_db_dump_snapshot(
     using namespace monad;
     using namespace monad::mpt2;
 
-    OnDiskDbConfig const config{.dbname_path = dbname_paths[0]};
-    RODb db{config};
+    RODb db{dbname_path};
 
     for (uint64_t b = block < 256 ? 0 : block - 255; b <= block; ++b) {
         auto const header = db.get(
@@ -340,11 +339,11 @@ bool monad_db_dump_snapshot(
 }
 
 monad_db_snapshot_loader *monad_db_snapshot_loader_create(
-    uint64_t const block, char const *const *const dbname_paths,
-    size_t const len, unsigned const sq_thread_cpu)
+    uint64_t const block, char const *const dbname_path,
+    unsigned const sq_thread_cpu)
 {
     auto *loader =
-        new monad_db_snapshot_loader(block, dbname_paths, len, sq_thread_cpu);
+        new monad_db_snapshot_loader(block, dbname_path, sq_thread_cpu);
     MONAD_ASSERT_PRINTF(
         loader->db.get_latest_version() == monad::mpt2::INVALID_BLOCK_NUM,
         "database must be hard reset when loading snapshot");

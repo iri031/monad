@@ -157,7 +157,7 @@ namespace
                   mpt2::OnDiskDbConfig{.append = true, .dbname_path = sdbname}}
             , stdb{sdb}
             , sctx{stdb}
-            , ro{mpt2::OnDiskDbConfig{.dbname_path = sdbname}}
+            , ro{sdbname}
         {
             sctx.ro = &ro;
         }
