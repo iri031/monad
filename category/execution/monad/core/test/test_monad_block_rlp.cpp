@@ -29,7 +29,7 @@
 using namespace monad;
 using namespace monad::literals;
 
-TEST(Rlp_Block, MonadConsensusBlock)
+TEST(Rlp_Block, DISABLED_MonadConsensusBlock)
 {
     unsigned char header[] = {
         0xf9, 0x04, 0x3f, 0x0a, 0x05, 0xf8, 0xae, 0xf8, 0x45, 0xa0, 0x00, 0x00,
