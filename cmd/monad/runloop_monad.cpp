@@ -302,11 +302,7 @@ bytes32_t for_each_header(
             evmc::hex(id).c_str());
         auto const monad_rev = chain.get_monad_revision(0, ts.value());
         std::optional<bytes32_t> next_id;
-        if (MONAD_LIKELY(monad_rev >= MONAD_FOUR)) {
-            next_id = handle_header<MonadConsensusBlockHeaderV2>(
-                id, data, start_exclusive, end_inclusive, fn);
-        }
-        else if (monad_rev >= MONAD_THREE) {
+        if (MONAD_LIKELY(monad_rev >= MONAD_THREE)) {
             next_id = handle_header<MonadConsensusBlockHeaderV1>(
                 id, data, start_exclusive, end_inclusive, fn);
         }
@@ -349,9 +345,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
     struct ToExecute
     {
         bytes32_t block_id;
-        std::variant<
-            MonadConsensusBlockHeaderV0, MonadConsensusBlockHeaderV1,
-            MonadConsensusBlockHeaderV2>
+        std::variant<MonadConsensusBlockHeaderV0, MonadConsensusBlockHeaderV1>
             header;
     };
 
