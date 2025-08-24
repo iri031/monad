@@ -18,6 +18,8 @@
 #include <category/core/bytes.hpp>
 #include <category/core/config.hpp>
 #include <category/execution/ethereum/chain/chain.hpp>
+#include <category/execution/ethereum/chain/ethereum_mainnet.hpp>
+#include <category/execution/ethereum/execute_transaction.hpp>
 #include <category/execution/monad/chain/monad_revision.h>
 
 #include <evmc/evmc.h>
@@ -52,6 +54,63 @@ struct MonadChain : Chain
         uint64_t block_number, uint64_t timestamp) const override;
 
     virtual bool get_create_inside_delegated() const override;
+};
+
+struct MonadChainBase : Chain
+{
+    virtual Result<void> validate_output_header(
+        BlockHeader const &input, BlockHeader const &output) const override;
+};
+
+template <monad_revision monad_rev>
+struct MonadChain2 final : MonadChainBase
+{
+    static constexpr evmc_revision rev = [] {
+        if constexpr (monad_rev >= MONAD_FOUR) {
+            return EVMC_PRAGUE;
+        }
+        return EVMC_CANCUN;
+    }();
+
+    virtual evmc_revision get_revision(
+        uint64_t /*block_number*/, uint64_t /*timestamp*/) const override
+    {
+        return rev;
+    }
+
+    virtual uint64_t compute_gas_refund(
+        uint64_t /*block_number*/, uint64_t /*timestamp*/,
+        Transaction const &tx, uint64_t const gas_remaining,
+        uint64_t const refund) const override
+    {
+        if constexpr (monad_rev >= MONAD_ONE) {
+            return 0;
+        }
+        return g_star(rev, tx, gas_remaining, refund);
+    }
+
+    virtual size_t get_max_code_size(
+        uint64_t /*block_number*/, uint64_t /*timestamp*/) const override
+    {
+        if constexpr (monad_rev >= MONAD_TWO) {
+            return MAX_CODE_SIZE_MONAD_TWO;
+        }
+        return MAX_CODE_SIZE_EIP170;
+    }
+
+    virtual size_t get_max_initcode_size(
+        uint64_t /*block_number*/, uint64_t /*timestamp*/) const override
+    {
+        if constexpr (monad_rev >= MONAD_FOUR) {
+            return MAX_INITCODE_SIZE_MONAD_FOUR;
+        }
+        return MAX_INITCODE_SIZE_EIP3860;
+    }
+
+    virtual bool get_create_inside_delegated() const override
+    {
+        return false;
+    }
 };
 
 MONAD_NAMESPACE_END
