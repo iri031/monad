@@ -125,6 +125,16 @@ public:
     State &operator=(State &&) = delete;
     State &operator=(State const &) = delete;
 
+    Map<Address, AccountState> const &original() const
+    {
+        return original_;
+    }
+
+    Map<Address, VersionStack<AccountState>> const &current() const
+    {
+        return current_;
+    }
+
     void push()
     {
         ++version_;
