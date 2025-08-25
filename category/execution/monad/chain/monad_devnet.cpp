@@ -15,32 +15,33 @@
 
 #include <category/core/config.hpp>
 #include <category/core/int.hpp>
+#include <category/execution/ethereum/chain/genesis_state.hpp>
+#include <category/execution/monad/chain/monad_chain.hpp>
 #include <category/execution/monad/chain/monad_devnet.hpp>
 #include <category/execution/monad/chain/monad_devnet_alloc.hpp>
 #include <category/execution/monad/chain/monad_revision.h>
 
 MONAD_NAMESPACE_BEGIN
 
-monad_revision MonadDevnet::get_monad_revision(uint64_t /*timestamp*/) const
+Chain &get_monad_devnet(uint64_t /*timestamp*/)
 {
-    return MONAD_FOUR;
-}
+    static const uint256_t chain_id{20143};
 
-uint256_t MonadDevnet::get_chain_id() const
-{
-    return 20143;
-};
+    static const GenesisState genesis_state = []{
+        BlockHeader header;
+        header.difficulty = 17179869184;
+        header.gas_limit = 5000;
+        intx::be::unsafe::store<uint64_t>(header.nonce.data(), 66);
+        header.extra_data =
+            evmc::from_hex("0x11bbe8db4e347b4e8c937c1c8370e4b5ed33a"
+                           "db3db69cbdb7a38e1e50b1b82fa")
+                .value();
+        return GenesisState{header, MONAD_DEVNET_ALLOC};
+    }();
 
-GenesisState MonadDevnet::get_genesis_state() const
-{
-    BlockHeader header;
-    header.difficulty = 17179869184;
-    header.gas_limit = 5000;
-    intx::be::unsafe::store<uint64_t>(header.nonce.data(), 66);
-    header.extra_data = evmc::from_hex("0x11bbe8db4e347b4e8c937c1c8370e4b5ed33a"
-                                       "db3db69cbdb7a38e1e50b1b82fa")
-                            .value();
-    return {header, MONAD_DEVNET_ALLOC};
+    static MonadChain2<MONAD_FOUR> chain{chain_id, genesis_state};
+
+    return chain;
 }
 
 MONAD_NAMESPACE_END

@@ -16,21 +16,12 @@
 #pragma once
 
 #include <category/core/config.hpp>
-#include <category/core/int.hpp>
-#include <category/execution/ethereum/chain/genesis_state.hpp>
-#include <category/execution/monad/chain/monad_chain.hpp>
-#include <category/execution/monad/chain/monad_revision.h>
+#include <category/execution/ethereum/chain/chain.hpp>
+
+#include <cstdint>
 
 MONAD_NAMESPACE_BEGIN
 
-struct MonadDevnet : MonadChain
-{
-    virtual monad_revision
-    get_monad_revision(uint64_t timestamp) const override;
-
-    virtual uint256_t get_chain_id() const override;
-
-    virtual GenesisState get_genesis_state() const override;
-};
+Chain &get_monad_devnet(uint64_t timestamp);
 
 MONAD_NAMESPACE_END

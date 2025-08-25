@@ -56,14 +56,34 @@ struct MonadChain : Chain
     virtual bool get_create_inside_delegated() const override;
 };
 
-struct MonadChainBase : Chain
+class MonadChainBase : public Chain
 {
+    uint256_t const chain_id_{};
+    GenesisState const genesis_state_{};
+
+public:
+    MonadChainBase(uint256_t const chain_id, GenesisState const &genesis_state)
+        : chain_id_{chain_id}
+        , genesis_state_{genesis_state}
+    {
+    }
+
+    virtual uint256_t get_chain_id() const override
+    {
+        return chain_id_;
+    }
+
     virtual Result<void> validate_output_header(
         BlockHeader const &input, BlockHeader const &output) const override;
+
+    virtual GenesisState get_genesis_state() const override
+    {
+        return genesis_state_;
+    }
 };
 
 template <monad_revision monad_rev>
-struct MonadChain2 final : MonadChainBase
+class MonadChain2 : public MonadChainBase
 {
     static constexpr evmc_revision rev = [] {
         if constexpr (monad_rev >= MONAD_FOUR) {
@@ -71,6 +91,12 @@ struct MonadChain2 final : MonadChainBase
         }
         return EVMC_CANCUN;
     }();
+
+public:
+    MonadChain2(uint256_t const chain_id, GenesisState const &genesis_state)
+        : MonadChainBase{chain_id, genesis_state}
+    {
+    }
 
     virtual evmc_revision get_revision(
         uint64_t /*block_number*/, uint64_t /*timestamp*/) const override
