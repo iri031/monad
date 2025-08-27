@@ -24,7 +24,7 @@ MONAD_NAMESPACE_BEGIN
 std::optional<evmc::Result> check_call_monad_precompile(
     monad_revision const rev, State &state, evmc_message const &msg)
 {
-    if (MONAD_UNLIKELY(rev < MONAD_FOUR)) {
+    if (MONAD_UNLIKELY(rev < MONAD_THREE)) {
         return std::nullopt;
     }
 
