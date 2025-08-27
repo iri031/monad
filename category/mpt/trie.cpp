@@ -259,7 +259,7 @@ struct load_all_impl_
                 auto *const next = node->next(idx);
                 if (next == nullptr) {
                     receiver_t receiver(this, *node, uint8_t(idx), sm.clone());
-                    async_read(aux, std::move(receiver));
+                    async_read(aux, std::move(receiver), false);
                 }
                 else {
                     process(NodeCursor{*next}, sm);
@@ -675,7 +675,7 @@ std::pair<bool, Node::UniquePtr> create_node_with_expired_branches(
                 std::move(tnode),
                 orig->fnext(child_index),
                 child_branch);
-            async_read(aux, std::move(receiver));
+            async_read(aux, std::move(receiver), !sm.cache());
             return {false, nullptr};
         }
         return {
@@ -819,7 +819,7 @@ void create_node_compute_data_possibly_async(
             MONAD_ASSERT(child.offset != INVALID_OFFSET);
             read_single_child_receiver receiver(
                 &aux, sm.clone(), tnode.release(), child);
-            async_read(aux, std::move(receiver));
+            async_read(aux, std::move(receiver), false);
             MONAD_DEBUG_ASSERT(parent.npending);
             return;
         }
@@ -1034,7 +1034,7 @@ void upsert_(
             std::move(updates),
             &parent,
             prefix_index);
-        async_read(aux, std::move(receiver));
+        async_read(aux, std::move(receiver), false); // cache
         return;
     }
     MONAD_ASSERT(old_prefix_index != INVALID_PATH_INDEX);
@@ -1328,7 +1328,7 @@ void expire_(
         MONAD_ASSERT(node_offset != INVALID_OFFSET);
         expire_receiver receiver(
             &aux, sm.clone(), std::move(tnode), node_offset);
-        async_read(aux, std::move(receiver));
+        async_read(aux, std::move(receiver), !sm.cache());
         return;
     }
     auto *const parent = tnode->parent;
@@ -1458,7 +1458,7 @@ void compact_(
             std::move(tnode),
             node_offset,
             copy_node_for_fast_or_slow);
-        async_read(aux, std::move(receiver));
+        async_read(aux, std::move(receiver), !sm.cache());
         return;
     }
     // Only compact nodes < compaction range (either fast or slow) to slow,

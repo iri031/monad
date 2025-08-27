@@ -1579,7 +1579,9 @@ namespace detail
             else {
                 inflights[block_id].emplace_back(cont);
                 async_read(
-                    context.aux, load_root_receiver_t{offset, this, io_state});
+                    context.aux,
+                    load_root_receiver_t{offset, this, io_state},
+                    false);
             }
             return async::success();
         }

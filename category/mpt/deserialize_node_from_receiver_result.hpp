@@ -32,18 +32,18 @@ namespace detail
                 read_long_update_sender, Receiver>)
     inline void initiate_async_read_update(
         MONAD_ASYNC_NAMESPACE::AsyncIO &io, Receiver &&receiver,
-        size_t bytes_to_read)
+        size_t const bytes_to_read, bool const uncached)
     {
         [[likely]] if (
             bytes_to_read <= MONAD_ASYNC_NAMESPACE::AsyncIO::READ_BUFFER_SIZE) {
-            read_short_update_sender sender(receiver);
+            read_short_update_sender sender(receiver, uncached);
             auto iostate =
                 io.make_connected(std::move(sender), std::move(receiver));
             iostate->initiate();
             iostate.release();
         }
         else {
-            read_long_update_sender sender(receiver);
+            read_long_update_sender sender(receiver, uncached);
             using connected_type =
                 decltype(connect(io, std::move(sender), std::move(receiver)));
             auto *iostate = new connected_type(

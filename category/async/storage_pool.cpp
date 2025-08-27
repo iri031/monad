@@ -42,7 +42,6 @@
 #include <sstream>
 #include <stdexcept>
 #include <stdlib.h>
-#include <system_error>
 #include <utility>
 #include <variant>
 #include <vector>

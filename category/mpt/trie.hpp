@@ -109,8 +109,10 @@ struct read_short_update_sender
     : MONAD_ASYNC_NAMESPACE::read_single_buffer_sender
 {
     template <receiver Receiver>
-    constexpr read_short_update_sender(Receiver const &receiver)
-        : read_single_buffer_sender(receiver.rd_offset, receiver.bytes_to_read)
+    constexpr read_short_update_sender(
+        Receiver const &receiver, bool const uncached)
+        : read_single_buffer_sender(
+              receiver.rd_offset, receiver.bytes_to_read, uncached)
     {
         MONAD_DEBUG_ASSERT(
             receiver.bytes_to_read <=
@@ -118,6 +120,7 @@ struct read_short_update_sender
     }
 };
 
+// TODO: better name
 class read_long_update_sender
     : public MONAD_ASYNC_NAMESPACE::read_multiple_buffer_sender
 {
@@ -125,9 +128,9 @@ class read_long_update_sender
 
 public:
     template <receiver Receiver>
-    read_long_update_sender(Receiver const &receiver)
+    read_long_update_sender(Receiver const &receiver, bool const uncached)
         : MONAD_ASYNC_NAMESPACE::read_multiple_buffer_sender(
-              receiver.rd_offset, {&buffer_, 1})
+              receiver.rd_offset, {&buffer_, 1}, uncached)
         , buffer_(
               (std::byte *)aligned_alloc(
                   DISK_PAGE_SIZE, receiver.bytes_to_read),
@@ -143,7 +146,7 @@ public:
         : MONAD_ASYNC_NAMESPACE::read_multiple_buffer_sender(std::move(o))
         , buffer_(o.buffer_)
     {
-        this->reset(this->offset(), {&buffer_, 1});
+        this->reset(this->offset(), {&buffer_, 1}, o.uncached_);
         o.buffer_ = {};
     }
 
@@ -997,12 +1000,12 @@ template <receiver Receiver>
         MONAD_ASYNC_NAMESPACE::compatible_sender_receiver<
             read_long_update_sender, Receiver> &&
         Receiver::lifetime_managed_internally)
-void async_read(UpdateAuxImpl &aux, Receiver &&receiver)
+void async_read(UpdateAuxImpl &aux, Receiver &&receiver, bool const uncached)
 {
     [[likely]] if (
         receiver.bytes_to_read <=
         MONAD_ASYNC_NAMESPACE::AsyncIO::READ_BUFFER_SIZE) {
-        read_short_update_sender sender(receiver);
+        read_short_update_sender sender(receiver, uncached);
         auto iostate =
             aux.io->make_connected(std::move(sender), std::move(receiver));
         iostate->initiate();
@@ -1011,7 +1014,7 @@ void async_read(UpdateAuxImpl &aux, Receiver &&receiver)
         iostate.release();
     }
     else {
-        read_long_update_sender sender(receiver);
+        read_long_update_sender sender(receiver, uncached);
         using connected_type =
             decltype(connect(*aux.io, std::move(sender), std::move(receiver)));
         auto *iostate = new connected_type(

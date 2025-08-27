@@ -88,7 +88,10 @@ namespace
             MONAD_ASYNC_NAMESPACE::erased_connected_operation *io_state,
             ResultType buffer_)
         {
-            MONAD_ASSERT(buffer_);
+            MONAD_ASSERT_PRINTF(
+                buffer_,
+                "error reading node: %s\n",
+                buffer_.assume_error().message().c_str());
             auto const offset = parent->fnext(branch_index);
             auto *node = parent->next(branch_index);
             if (node == nullptr) {
@@ -199,7 +202,7 @@ namespace
         find_owning_receiver receiver(
             aux, node_cache, inflights, read_offset, virtual_offset);
         detail::initiate_async_read_update(
-            *aux.io, std::move(receiver), receiver.bytes_to_read);
+            *aux.io, std::move(receiver), receiver.bytes_to_read, false);
     }
 }
 
@@ -274,7 +277,7 @@ void find_notify_fiber_future(
         inflights[offset].emplace_back(cont);
         find_receiver receiver(aux, inflights, node, branch);
         detail::initiate_async_read_update(
-            *aux.io, std::move(receiver), receiver.bytes_to_read);
+            *aux.io, std::move(receiver), receiver.bytes_to_read, false);
     }
     else {
         promise.set_value(

@@ -100,6 +100,7 @@ private:
     monad::io::BufferPool wr_pool_;
     bool eager_completions_{false};
     bool capture_io_latencies_{false};
+    bool enable_dontcache_{false}; // whether to allow for RWF_DONTCACHE
 
     // IO records
     IORecord records_;
@@ -113,10 +114,12 @@ private:
 
     void submit_request_(
         std::span<std::byte> buffer, chunk_offset_t chunk_and_offset,
-        void *uring_data, enum erased_connected_operation::io_priority prio);
+        void *uring_data, enum erased_connected_operation::io_priority prio,
+        bool uncached);
     void submit_request_(
         std::span<const struct iovec> buffers, chunk_offset_t chunk_and_offset,
-        void *uring_data, enum erased_connected_operation::io_priority prio);
+        void *uring_data, enum erased_connected_operation::io_priority prio,
+        bool uncached);
     void submit_request_(
         std::span<std::byte const> buffer, chunk_offset_t chunk_and_offset,
         void *uring_data, enum erased_connected_operation::io_priority prio);
@@ -327,7 +330,7 @@ public:
 
     size_t submit_read_request(
         std::span<std::byte> buffer, chunk_offset_t offset,
-        erased_connected_operation *uring_data)
+        erased_connected_operation *uring_data, bool const uncached)
     {
         if (concurrent_read_io_limit_ > 0) {
             if (records_.inflight_rd >= concurrent_read_io_limit_) {
@@ -358,7 +361,8 @@ public:
         if (capture_io_latencies_) {
             uring_data->initiated = std::chrono::steady_clock::now();
         }
-        submit_request_(buffer, offset, uring_data, uring_data->io_priority());
+        submit_request_(
+            buffer, offset, uring_data, uring_data->io_priority(), uncached);
         if (++records_.inflight_rd > records_.max_inflight_rd) {
             records_.max_inflight_rd = records_.inflight_rd;
         }
@@ -368,13 +372,14 @@ public:
 
     size_t submit_read_request(
         std::span<const struct iovec> buffers, chunk_offset_t offset,
-        erased_connected_operation *uring_data)
+        erased_connected_operation *uring_data, bool const uncached)
 
     {
         if (capture_io_latencies_) {
             uring_data->initiated = std::chrono::steady_clock::now();
         }
-        submit_request_(buffers, offset, uring_data, uring_data->io_priority());
+        submit_request_(
+            buffers, offset, uring_data, uring_data->io_priority(), uncached);
         if (++records_.inflight_rd_scatter > records_.max_inflight_rd_scatter) {
             records_.max_inflight_rd_scatter = records_.inflight_rd_scatter;
         }
@@ -548,11 +553,11 @@ public:
             })
     auto make_connected(Sender &&sender, Receiver &&receiver)
     {
-        return make_connected_impl_<
-            Sender::my_operation_type == operation_type::write>([&] {
-            return connect<Sender, Receiver>(
-                *this, std::move(sender), std::move(receiver));
-        });
+        return make_connected_impl_ < Sender::my_operation_type ==
+               operation_type::write > ([&] {
+                   return connect<Sender, Receiver>(
+                       *this, std::move(sender), std::move(receiver));
+               });
     }
 
     //! Construct into internal memory a connected state for an i/o read
@@ -574,11 +579,14 @@ public:
         std::piecewise_construct_t _, std::tuple<SenderArgs...> &&sender_args,
         std::tuple<ReceiverArgs...> &&receiver_args)
     {
-        return make_connected_impl_<
-            Sender::my_operation_type == operation_type::write>([&] {
-            return connect<Sender, Receiver>(
-                *this, _, std::move(sender_args), std::move(receiver_args));
-        });
+        return make_connected_impl_ < Sender::my_operation_type ==
+               operation_type::write > ([&] {
+                   return connect<Sender, Receiver>(
+                       *this,
+                       _,
+                       std::move(sender_args),
+                       std::move(receiver_args));
+               });
     }
 
     template <class Base, sender Sender, receiver Receiver>

@@ -42,19 +42,22 @@ public:
 private:
     chunk_offset_t offset_;
     buffer_type buffer_;
+    bool uncached_;
 
 public:
     constexpr read_single_buffer_sender(
-        chunk_offset_t offset, size_t bytes_to_read)
+        chunk_offset_t offset, size_t bytes_to_read, bool const uncached)
         : offset_(offset)
         , buffer_(bytes_to_read)
+        , uncached_(uncached)
     {
     }
 
     constexpr read_single_buffer_sender(
-        chunk_offset_t offset, buffer_type buffer)
+        chunk_offset_t offset, buffer_type buffer, bool const uncached)
         : offset_(offset)
         , buffer_(std::move(buffer))
+        , uncached_(uncached)
     {
     }
 
@@ -73,16 +76,18 @@ public:
         return std::move(buffer_);
     }
 
-    void reset(chunk_offset_t offset, size_t bytes_to_read)
+    void reset(chunk_offset_t offset, size_t bytes_to_read, bool const uncached)
     {
         offset_ = offset;
         buffer_ = buffer_type(bytes_to_read);
+        uncached_ = uncached;
     }
 
-    void reset(chunk_offset_t offset, buffer_type buffer)
+    void reset(chunk_offset_t offset, buffer_type buffer, bool const uncached)
     {
         offset_ = offset;
         buffer_ = std::move(buffer);
+        uncached_ = uncached;
     }
 
     result<void> operator()(erased_connected_operation *io_state) noexcept
@@ -92,7 +97,7 @@ public:
                 io_state->executor()->get_read_buffer(buffer_.size()));
         }
         size_t bytes_transferred = io_state->executor()->submit_read_request(
-            buffer_.to_mutable_span(), offset_, io_state);
+            buffer_.to_mutable_span(), offset_, io_state, uncached_);
         if (bytes_transferred != size_t(-1)) {
             // It completed early
             return make_status_code(
@@ -122,7 +127,7 @@ public:
     }
 };
 
-static_assert(sizeof(read_single_buffer_sender) == 40);
+static_assert(sizeof(read_single_buffer_sender) == 48);
 static_assert(alignof(read_single_buffer_sender) == 8);
 static_assert(sender<read_single_buffer_sender>);
 
@@ -159,10 +164,13 @@ private:
         iovecs_;
 
 public:
+    bool uncached_{false};
+
     constexpr read_multiple_buffer_sender(
-        chunk_offset_t offset, buffers_type buffers)
+        chunk_offset_t const offset, buffers_type buffers, bool const uncached)
         : offset_(offset)
         , buffers_(std::move(buffers))
+        , uncached_(uncached)
     {
     }
 
@@ -176,10 +184,11 @@ public:
         return buffers_;
     }
 
-    void reset(chunk_offset_t offset, buffers_type buffers)
+    void reset(chunk_offset_t offset, buffers_type buffers, bool const uncached)
     {
         offset_ = offset;
         buffers_ = std::move(buffers);
+        uncached_ = uncached;
     }
 
     result<void> operator()(erased_connected_operation *io_state) noexcept
@@ -218,7 +227,7 @@ public:
             }
             size_t bytes_transferred =
                 io_state->executor()->submit_read_request(
-                    iovecs, offset_, io_state);
+                    iovecs, offset_, io_state, uncached_);
             if (bytes_transferred != size_t(-1)) {
                 // It completed early
                 return make_status_code(
@@ -261,7 +270,7 @@ public:
     }
 };
 
-static_assert(sizeof(read_multiple_buffer_sender) == 96);
+static_assert(sizeof(read_multiple_buffer_sender) == 104);
 static_assert(alignof(read_multiple_buffer_sender) == 8);
 static_assert(sender<read_multiple_buffer_sender>);
 

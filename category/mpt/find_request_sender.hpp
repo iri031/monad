@@ -282,7 +282,7 @@ inline MONAD_ASYNC_NAMESPACE::result<void> find_request_sender<T>::operator()(
             inflights_[offset_node].emplace_back(cont);
             find_receiver receiver(this, io_state, branch);
             detail::initiate_async_read_update(
-                *aux_.io, std::move(receiver), receiver.bytes_to_read);
+                *aux_.io, std::move(receiver), receiver.bytes_to_read, false);
             return success();
         }
         else {

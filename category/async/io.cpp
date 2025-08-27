@@ -43,7 +43,6 @@
 #include <ostream>
 #include <set>
 #include <span>
-#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -51,6 +50,7 @@
 #include <fcntl.h>
 #include <liburing.h>
 #include <liburing/io_uring.h>
+#include <linux/fs.h>
 #include <linux/ioprio.h>
 #include <poll.h>
 #include <stdlib.h>
@@ -139,6 +139,19 @@ namespace detail
             }
         }
     } AsyncIO_rlimit_raiser;
+
+    bool test_rwf_dontcache_support(int const fd)
+    {
+        char buf[1];
+        struct iovec iov = {.iov_base = buf, .iov_len = 0};
+
+        auto const ret = preadv2(fd, &iov, 1, 0, RWF_DONTCACHE);
+        MONAD_ASSERT_PRINTF( // should not have error than EOPNOTSUPP
+            ret != -1 || errno == EOPNOTSUPP,
+            "preadv2 failed due to other error than Operation not supported %s",
+            strerror(errno));
+        return (ret >= 0);
+    }
 }
 
 AsyncIO::AsyncIO(class storage_pool &pool, monad::io::Buffers &rwbuf)
@@ -220,6 +233,9 @@ AsyncIO::AsyncIO(class storage_pool &pool, monad::io::Buffers &rwbuf)
         fds.push_back(seq_chunks_[n].io_uring_read_fd);
         fds.push_back(seq_chunks_[n].io_uring_write_fd);
     }
+    enable_dontcache_ = detail::test_rwf_dontcache_support(fds[0]);
+    std::cout << "AsyncIO: RWF_DONTCACHE support is "
+              << (enable_dontcache_ ? "enabled" : "disabled") << std::endl;
 
     /* Annoyingly io_uring refuses duplicate file descriptors in its
     registration, and for efficiency the zoned storage emulation returns the
@@ -302,7 +318,8 @@ AsyncIO::~AsyncIO()
 
 void AsyncIO::submit_request_(
     std::span<std::byte> buffer, chunk_offset_t chunk_and_offset,
-    void *uring_data, enum erased_connected_operation::io_priority prio)
+    void *uring_data, enum erased_connected_operation::io_priority prio,
+    bool const uncached)
 {
     MONAD_DEBUG_ASSERT(uring_data != nullptr);
     MONAD_DEBUG_ASSERT((chunk_and_offset.offset & (DISK_PAGE_SIZE - 1)) == 0);
@@ -325,6 +342,9 @@ void AsyncIO::submit_request_(
         ci.ptr->read_fd().second + chunk_and_offset.offset,
         0);
     sqe->flags |= IOSQE_FIXED_FILE;
+    if (uncached) {
+        sqe->rw_flags |= RWF_DONTCACHE;
+    }
     switch (prio) {
     case erased_connected_operation::io_priority::highest:
         sqe->ioprio = IOPRIO_PRIO_VALUE(IOPRIO_CLASS_RT, 7);
@@ -344,7 +364,8 @@ void AsyncIO::submit_request_(
 
 void AsyncIO::submit_request_(
     std::span<const struct iovec> buffers, chunk_offset_t chunk_and_offset,
-    void *uring_data, enum erased_connected_operation::io_priority prio)
+    void *uring_data, enum erased_connected_operation::io_priority prio,
+    bool const uncached)
 {
     MONAD_DEBUG_ASSERT(uring_data != nullptr);
     assert((chunk_and_offset.offset & (DISK_PAGE_SIZE - 1)) == 0);
@@ -361,6 +382,7 @@ void AsyncIO::submit_request_(
     MONAD_ASSERT(sqe);
 
     auto const &ci = seq_chunks_[chunk_and_offset.id];
+
     if (buffers.size() == 1) {
         io_uring_prep_read(
             sqe,
@@ -378,6 +400,9 @@ void AsyncIO::submit_request_(
             ci.ptr->read_fd().second + chunk_and_offset.offset);
     }
     sqe->flags |= IOSQE_FIXED_FILE;
+    if (uncached) {
+        sqe->rw_flags |= RWF_DONTCACHE;
+    }
     switch (prio) {
     case erased_connected_operation::io_priority::highest:
         sqe->ioprio = IOPRIO_PRIO_VALUE(IOPRIO_CLASS_RT, 7);
