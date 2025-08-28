@@ -52,7 +52,7 @@ enum class SyscallSelector : uint32_t
     EPOCH_CHANGE = 102,
 };
 
-enum
+enum : uint64_t
 {
     ValidatorFlagsOk = 0,
     ValidatorFlagsStakeTooLow = (1 << 0),

@@ -214,6 +214,8 @@ add_library(
   "monad/staking/util/constants.hpp"
   "monad/staking/util/delegator.cpp"
   "monad/staking/util/delegator.hpp"
+  "monad/staking/util/test_helpers.hpp"
+  "monad/staking/util/test_helpers.cpp"
   "monad/staking/util/secp256k1.cpp"
   "monad/staking/util/secp256k1.hpp"
   "monad/staking/util/staking_error.cpp"
@@ -277,3 +279,14 @@ monad_compile_options(monad_execution_native)
 
 monad_add_test_folder("ethereum")
 monad_add_test_folder("monad")
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  add_executable(
+    fuzz_staking
+    "${PROJECT_SOURCE_DIR}/monad/staking/fuzz_staking.cpp")
+  target_compile_options(fuzz_staking PRIVATE "-fsanitize=fuzzer")
+  target_link_options(fuzz_staking PRIVATE "-fsanitize=fuzzer")
+  monad_compile_options(fuzz_staking)
+  target_link_libraries(fuzz_staking PUBLIC monad_execution)
+endif()
+
