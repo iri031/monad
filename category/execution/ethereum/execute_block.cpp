@@ -176,7 +176,7 @@ std::vector<std::vector<std::optional<Address>>> recover_authorities(
 }
 
 template <Traits traits>
-Result<std::vector<Receipt>> execute_block(
+Result<BlockEvmOutput> execute_block(
     Chain const &chain, Block &block, std::vector<Address> const &senders,
     std::vector<std::vector<std::optional<Address>>> const &authorities,
     BlockState &block_state, BlockHashBuffer const &block_hash_buffer,
@@ -222,6 +222,9 @@ Result<std::vector<Receipt>> execute_block(
     std::atomic<size_t> txn_exec_finished = 0;
     size_t const txn_count = block.transactions.size();
 
+    std::vector<std::unique_ptr<State>> txn_states;
+    txn_states.resize(txn_count);
+
     auto const tx_exec_begin = std::chrono::steady_clock::now();
     for (unsigned i = 0; i < txn_count; ++i) {
         priority_pool.submit(
@@ -239,7 +242,8 @@ Result<std::vector<Receipt>> execute_block(
              &block_metrics,
              &call_tracer = *call_tracers[i],
              &txn_exec_finished,
-             &revert_transaction = revert_transaction] {
+             &revert_transaction = revert_transaction,
+             &txn_states] {
                 std::unique_ptr<State> captured_state;
                 record_txn_marker_event(MONAD_EXEC_TXN_PERF_EVM_ENTER, i);
                 try {
@@ -267,6 +271,7 @@ Result<std::vector<Receipt>> execute_block(
                         *results[i],
                         call_tracer.get_call_frames(),
                         *captured_state.get());
+                    txn_states[i] = std::move(captured_state);
                 }
                 catch (...) {
                     promises[i + 1].set_exception(std::current_exception());
@@ -329,7 +334,16 @@ Result<std::vector<Receipt>> execute_block(
     record_account_access_events(
         MONAD_ACCT_ACCESS_BLOCK_EPILOGUE, epilogue_state);
 
-    return retvals;
+    std::vector<State> txn_states_owned;
+    for (std::unique_ptr<State> &s : txn_states) {
+        txn_states_owned.emplace_back(std::move(*s.release()));
+    }
+
+    return {
+        std::move(prologue_state),
+        std::move(epilogue_state),
+        std::move(retvals),
+        std::move(txn_states_owned)};
 }
 
 EXPLICIT_TRAITS(execute_block);
