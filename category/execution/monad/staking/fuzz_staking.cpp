@@ -36,11 +36,15 @@
 #include <cstdint>
 #include <list>
 #include <memory>
+#include <optional>
 #include <ranges>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 
 #include <blst.h>
+#include <boost/functional/hash.hpp>
+#include <boost/outcome/success_failure.hpp>
 #include <fuzzer/FuzzedDataProvider.h>
 #include <gtest/gtest.h>
 #include <intx/intx.hpp>
@@ -78,10 +82,30 @@ uint256_t consume_u256_in_range(
 class StakingOracle
 {
 
-    struct Delegator
+    struct DelegatorOracle
     {
-        uint256_t stake;
+        uint64_t val_id;
+        Address address;
+        uint256_t active_stake;
+        uint256_t delta_stake;
+        uint256_t next_delta_stake;
         uint256_t rewards;
+    };
+
+    struct DelegatorHash
+    {
+        std::size_t
+        operator()(std::pair<uint64_t, Address> const &key) const noexcept
+        {
+            std::size_t seed = 0;
+            boost::hash_combine(seed, key.first);
+            boost::hash_combine(
+                seed,
+                boost::hash_range(
+                    std::begin(key.second.bytes), std::end(key.second.bytes)));
+
+            return seed;
+        }
     };
 
     struct ConsensusViewOracle
@@ -114,18 +138,30 @@ class StakingOracle
     };
 
     using ExecutionValidatorSet = std::set<ValidatorOracle>;
+    using DelegatorStorage = std::list<DelegatorOracle>;
     using ConsensusValidatorSet = std::list<ConsensusViewOracle>;
 
     using ExecutionValidatorHandle = ExecutionValidatorSet::iterator;
     using ConsensusValidatorHandle = ConsensusValidatorSet::iterator;
+    using DelegatorHandle = DelegatorStorage::iterator;
 
     // execution view
+
+    // validators
+    uint64_t last_validator_id = 0;
+    std::unordered_set<bytes32_t> used_secrets;
+    uint64_t epoch = 0;
+    bool in_epoch_delay_period = false;
+
     ExecutionValidatorSet execution_validator_set{};
     std::unordered_map<uint64_t, ExecutionValidatorHandle>
         execution_validator_map;
-    uint64_t last_validator_id = 0;
-    std::unordered_set<bytes32_t> used_secrets;
-    bool in_epoch_delay_period = false;
+
+    // delegators
+    DelegatorStorage delegators{};
+    std::unordered_map<
+        std::pair<uint64_t, Address>, DelegatorHandle, DelegatorHash>
+        delegator_map;
 
     // consensus view
     ConsensusValidatorSet consensus_validator_set;
@@ -136,10 +172,12 @@ class StakingOracle
     std::unordered_map<uint64_t, ConsensusValidatorHandle>
         snapshot_validator_map;
 
-    ValidatorOracle pop_validator(uint64_t const val_id)
+    std::optional<ValidatorOracle> pop_validator(uint64_t const val_id)
     {
         auto it = execution_validator_map.find(val_id);
-        MONAD_ASSERT(it != execution_validator_map.end());
+        if (it == execution_validator_map.end()) {
+            return std::nullopt;
+        }
 
         ExecutionValidatorHandle handle = it->second;
         ValidatorOracle validator = *handle;
@@ -153,64 +191,116 @@ class StakingOracle
     {
         auto [it, ok] = execution_validator_set.emplace(std::move(validator));
         MONAD_ASSERT(ok);
-        execution_validator_map.try_emplace(validator.id, it);
+        execution_validator_map.try_emplace(it->id, it);
     }
 
 public:
-    ////////////////////
-    // Fuzzer actions //
-    ////////////////////
-    bool in_epoch_delay() const
+    bool is_in_epoch_delay_period() const
     {
         return in_epoch_delay_period;
     }
 
-    bool add_validator(
+    uint64_t get_epoch() const
+    {
+        return epoch;
+    }
+
+    ////////////////////
+    // Fuzzer actions //
+    ////////////////////
+    Result<void> add_validator(
         Address const &auth_address, uint256_t const &stake,
         uint256_t const &commission, bytes32_t const &secret)
     {
         auto [_, inserted] = used_secrets.emplace(secret);
-        if (inserted) {
-            uint64_t validator_id = ++last_validator_id;
-
-            insert_validator(ValidatorOracle{
-                .id = validator_id,
-                .auth_address = auth_address,
-                .stake = 0, /* updated in delegate */
-                .commission = commission,
-                .rewards_per_token = 0,
-                .flags = ValidatorFlagsStakeTooLow, /* updated in delegate if
-                                                    appropriate */
-            });
-            delegate(validator_id, auth_address, stake);
+        if (!inserted /* duplicate keys not allowed */) {
+            return StakingError::ValidatorExists;
         }
 
-        return !inserted; // staking contract bans reused keys
+        uint64_t validator_id = last_validator_id + 1;
+
+        insert_validator(ValidatorOracle{
+            .id = validator_id,
+            .auth_address = auth_address,
+            .stake = 0, /* updated in delegate */
+            .commission = commission,
+            .rewards_per_token = 0,
+            .flags = ValidatorFlagsStakeTooLow, /* updated in delegate if
+                                                appropriate */
+        });
+        BOOST_OUTCOME_TRY(delegate(validator_id, auth_address, stake));
+
+        ++last_validator_id;
+
+        return outcome::success();
     }
 
-    void delegate(
-        uint64_t const val_id, Address const &delegator, uint256_t const &stake)
+    Result<void> delegate(
+        uint64_t const val_id, Address const &sender, uint256_t const &stake)
     {
-        ValidatorOracle validator = pop_validator(val_id);
-        validator.stake += stake;
-
-        if (validator.stake >= ACTIVE_VALIDATOR_STAKE) {
-            validator.flags = validator.flags & ~ValidatorFlagsStakeTooLow;
+        // validator updates
+        auto validator = pop_validator(val_id);
+        if (!validator.has_value()) {
+            return StakingError::UnknownValidator;
         }
 
-        if (validator.auth_address == delegator &&
-            validator.stake >= MIN_VALIDATE_STAKE) {
-            validator.flags = validator.flags & ~ValidatorFlagWithdrawn;
+        // The contract checks existence on nonzero auth address
+        if (validator->auth_address == Address{}) {
+            return StakingError::UnknownValidator;
         }
-        insert_validator(std::move(validator));
+
+        validator->stake += stake;
+
+        if (validator->stake >= ACTIVE_VALIDATOR_STAKE) {
+            validator->flags = validator->flags & ~ValidatorFlagsStakeTooLow;
+        }
+
+        if (validator->auth_address == sender &&
+            validator->stake >= MIN_VALIDATE_STAKE) {
+            validator->flags = validator->flags & ~ValidatorFlagWithdrawn;
+        }
+        insert_validator(std::move(validator.value()));
+
+        // delegator updates
+        auto delegator_key = std::make_pair(val_id, sender);
+        if (delegator_map.find(delegator_key) == delegator_map.end()) {
+            auto delegator_it = delegators.insert(
+                delegators.end(),
+                DelegatorOracle{
+                    .val_id = val_id,
+                    .address = sender,
+                    .active_stake = 0,
+                    .delta_stake = 0,
+                    .next_delta_stake = 0,
+                    .rewards = 0});
+            auto [_, inserted] =
+                delegator_map.try_emplace(delegator_key, delegator_it);
+            MONAD_ASSERT(inserted);
+        }
+        auto delegator_it = delegator_map.find(delegator_key);
+        MONAD_ASSERT(delegator_it != delegator_map.end());
+        DelegatorHandle delegator = delegator_it->second;
+
+        if (!is_in_epoch_delay_period()) {
+            delegator->delta_stake += stake;
+        }
+        else {
+            delegator->next_delta_stake += stake;
+        }
+
+        return outcome::success();
     }
 
     void snapshot()
     {
+        // swap consensus view to snapshot view
         snapshot_validator_set = std::move(consensus_validator_set);
         snapshot_validator_map = std::move(consensus_validator_map);
+        consensus_validator_set.clear();
+        consensus_validator_map.clear();
 
-        // take top N validators. valset is a max heap, so just iterate that.
+        // rebuild consensus view from execution view.  take top N validators.
+        // valset is a max heap, so just iterate that.
         auto it = execution_validator_set.begin();
         uint64_t count = 0;
         for (;
@@ -231,7 +321,18 @@ public:
         in_epoch_delay_period = true;
     }
 
-    void epoch_change() {}
+    void epoch_change()
+    {
+        // update all delegator stakes
+        for (DelegatorOracle &delegator : delegators) {
+            delegator.active_stake += delegator.delta_stake;
+            delegator.delta_stake = delegator.next_delta_stake;
+            delegator.next_delta_stake = 0;
+        }
+
+        in_epoch_delay_period = false;
+        epoch += 1;
+    }
 
     //////////////////////
     // Verify Functions //
@@ -239,12 +340,15 @@ public:
 
     void verify_after_snapshot(StakingContract &contract)
     {
+        MONAD_ASSERT(
+            contract.vars.in_epoch_delay_period.load_checked().has_value());
+
         // consensus set
         MONAD_ASSERT(
             contract.vars.valset_consensus.length() ==
             consensus_validator_set.size());
         for (auto const &&[i, cv] :
-             std::ranges::views::enumerate(consensus_validator_set)) {
+             std::views::enumerate(consensus_validator_set)) {
             uint64_t contract_id =
                 contract.vars.valset_consensus.get(static_cast<uint64_t>(i))
                     .load()
@@ -261,7 +365,7 @@ public:
             contract.vars.valset_snapshot.length() ==
             snapshot_validator_set.size());
         for (auto const &&[i, sv] :
-             std::ranges::views::enumerate(snapshot_validator_set)) {
+             std::views::enumerate(snapshot_validator_set)) {
             uint64_t contract_id =
                 contract.vars.valset_snapshot.get(static_cast<uint64_t>(i))
                     .load()
@@ -271,6 +375,26 @@ public:
 
             MONAD_ASSERT(contract_id == sv.id);
             MONAD_ASSERT(contract_stake == sv.stake);
+        }
+    }
+
+    void verify_after_epoch_change(StakingContract &contract)
+    {
+        MONAD_ASSERT(contract.vars.epoch.load().native() == epoch);
+
+        for (DelegatorOracle const &oracle_delegator : delegators) {
+            // pull delegator up to date
+            byte_string const input = craft_get_delegator_input(
+                oracle_delegator.val_id, oracle_delegator.address);
+            MONAD_ASSERT(
+                !contract.precompile_get_delegator(input, {}, {}).has_error());
+
+            // check stake
+            auto contract_delegator = contract.vars.delegator(
+                oracle_delegator.val_id, oracle_delegator.address);
+            MONAD_ASSERT(
+                contract_delegator.stake().load().native() ==
+                oracle_delegator.active_stake);
         }
     }
 };
@@ -293,14 +417,15 @@ extern "C" int LLVMFuzzerTestOneInput(uint8_t const *input, size_t const size)
     enum UserTransaction : uint32_t
     {
         ADD_VALIDATOR = 0,
-        // DELEGATE,
+        DELEGATE,
         // UNDELEGATE,
         kMaxValue, /* For the fuzzed data provider */
     };
 
+    bytes32_t parent_block_id{};
     while (provider.remaining_bytes() > 0) {
         if (header.number > 0) {
-            tdb.set_block_and_prefix(header.number - 1);
+            tdb.set_block_and_prefix(header.number - 1, parent_block_id);
         }
         BlockState bs{tdb, vm};
         {
@@ -311,9 +436,19 @@ extern "C" int LLVMFuzzerTestOneInput(uint8_t const *input, size_t const size)
 
             // Maybe perform a state change?
             if (provider.ConsumeProbability<float>() < 0.2) {
-                oracle.snapshot();
-                MONAD_ASSERT(!contract.syscall_snapshot({}).has_error());
-                oracle.verify_after_snapshot(contract);
+                if (!oracle.is_in_epoch_delay_period()) {
+                    oracle.snapshot();
+                    MONAD_ASSERT(!contract.syscall_snapshot({}).has_error());
+                    oracle.verify_after_snapshot(contract);
+                }
+                else {
+                    oracle.epoch_change();
+                    u64_be const epoch = oracle.get_epoch();
+                    byte_string_view input{epoch.bytes, sizeof(u64_be)};
+                    MONAD_ASSERT(
+                        !contract.syscall_on_epoch_change(input).has_error());
+                    oracle.verify_after_epoch_change(contract);
+                }
             }
             MONAD_ASSERT(bs.can_merge(state));
             bs.merge(state);
@@ -322,7 +457,7 @@ extern "C" int LLVMFuzzerTestOneInput(uint8_t const *input, size_t const size)
         // TODO: Reward
 
         // Fuzz a user transaction
-        State state{bs, Incarnation{header.number, 0}};
+        State state{bs, Incarnation{header.number, 1}};
         StakingContract contract(state);
         bool user_txn_success = true;
         state.push();
@@ -337,13 +472,7 @@ extern "C" int LLVMFuzzerTestOneInput(uint8_t const *input, size_t const size)
 
             // verify it.
             if (!is_secp_secret_valid(secret)) {
-                continue;
-            }
-
-            // auth address is how we check validator existence. they won't get
-            // the zero address.
-            if (auth_address == Address{}) {
-                continue;
+                break;
             }
 
             uint256_t const stake = consume_u256_in_range(
@@ -351,26 +480,29 @@ extern "C" int LLVMFuzzerTestOneInput(uint8_t const *input, size_t const size)
             uint256_t const commission =
                 consume_u256_in_range(provider, 0, MON);
 
-            // add validator to oracle
-            bool const dup =
-                oracle.add_validator(auth_address, stake, commission, secret);
-
             // add validator to staking contract
             auto [input, _] = craft_add_validator_input(
                 auth_address, stake, commission, secret);
             state.add_to_balance(STAKING_CA, stake);
             auto const msg_value = intx::be::store<evmc_uint256be>(stake);
-            auto const res = contract.precompile_add_validator(
+
+            // add validator to oracle
+            auto const oracle_res =
+                oracle.add_validator(auth_address, stake, commission, secret);
+
+            // add validator to staking contract
+            auto const staking_res = contract.precompile_add_validator(
                 input, {} /* msg sender ignored */, msg_value);
-            user_txn_success = !res.has_error();
-            if (dup) {
+            user_txn_success = !oracle_res.has_error();
+            if (oracle_res.has_error()) {
                 MONAD_ASSERT(
-                    res.has_error() &&
-                    res.error() == StakingError::ValidatorExists);
+                    staking_res.has_error() &&
+                    staking_res.error() == oracle_res.error());
             }
             else {
-                MONAD_ASSERT(!res.has_error());
+                MONAD_ASSERT(!staking_res.has_error());
             }
+
         } break;
         default:
             break;
@@ -383,8 +515,11 @@ extern "C" int LLVMFuzzerTestOneInput(uint8_t const *input, size_t const size)
         }
         MONAD_ASSERT(bs.can_merge(state));
         bs.merge(state);
-        bs.commit(bytes32_t{header.number + 1}, header, {}, {}, {}, {}, {}, {});
-        tdb.finalize(header.number, bytes32_t{header.number + 1});
+        bytes32_t const block_id =
+            (header.number == 0) ? NULL_HASH_BLAKE3 : bytes32_t{header.number};
+        bs.commit(block_id, header, {}, {}, {}, {}, {}, {});
+        tdb.finalize(header.number, block_id);
+        parent_block_id = block_id;
         ++header.number;
     }
 

@@ -37,6 +37,8 @@ namespace test
         Address const &, uint256_t const &, uint256_t const &commission = 0,
         bytes32_t secret = bytes32_t{0x1000});
 
+    byte_string craft_get_delegator_input(u64_be, Address const &);
+
     byte_string craft_undelegate_input(
         u64_be val_id, uint256_t const &amount, uint8_t withdrawal_id);
 

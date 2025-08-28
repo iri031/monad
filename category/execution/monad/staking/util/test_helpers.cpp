@@ -168,6 +168,15 @@ namespace test
     }
 
     byte_string
+    craft_get_delegator_input(u64_be const val_id, Address const &delegator)
+    {
+        byte_string input;
+        input += to_byte_string_view(val_id.bytes);
+        input += to_byte_string_view(delegator.bytes);
+        return input;
+    }
+
+    byte_string
     craft_withdraw_input(u64_be const val_id, uint8_t const withdrawal_id)
     {
         byte_string input;
