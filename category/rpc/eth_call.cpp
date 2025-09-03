@@ -690,10 +690,18 @@ struct monad_eth_call_executor
                         result->status_code = EVMC_REJECTED;
                         result->message = strdup(res.error().message().c_str());
                         MONAD_ASSERT(result->message);
+                        printf(
+                            "Error: eth_call failed %s, time_elapsed=%ld\n",
+                            result->message,
+                            std::chrono::duration_cast<
+                                std::chrono::microseconds>(
+                                std::chrono::steady_clock::now() - call_begin)
+                                .count());
                         complete(result, user);
                         return;
                     }
                     call_complete(
+                        call_begin,
                         transaction,
                         res.assume_value(),
                         result,
@@ -704,8 +712,8 @@ struct monad_eth_call_executor
     }
 
     void call_complete(
-        Transaction const &transaction, EthCallResult const &res_value,
-        monad_eth_call_result *const result,
+        auto const call_begin, Transaction const &transaction,
+        EthCallResult const &res_value, monad_eth_call_result *const result,
         void (*complete)(monad_eth_call_result *, void *user), void *const user,
         bool const trace)
     {
@@ -742,6 +750,11 @@ struct monad_eth_call_executor
             result->rlp_call_frames = nullptr;
             result->rlp_call_frames_len = 0;
         }
+        printf(
+            "eth_call finished, time_elapsed=%ld\n",
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - call_begin)
+                .count());
         complete(result, user);
     }
 
