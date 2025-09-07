@@ -468,7 +468,7 @@ TEST_F(Stake, invoke_fallback)
     byte_string_fixed<8> const signature_bytes = {0xff, 0xff, 0xff, 0xff};
     auto signature = to_byte_string_view(signature_bytes);
     auto const [func, cost] = contract.precompile_dispatch(signature);
-    EXPECT_EQ(cost, 0);
+    EXPECT_EQ(cost, 40000);
 
     auto const res = (contract.*func)(byte_string_view{}, sender, value);
     EXPECT_EQ(res.assume_error(), StakingError::MethodNotSupported);
@@ -854,8 +854,9 @@ TEST_F(Stake, linked_list_removal_state_override)
 
     // state override invalid validator
     auto validator = contract.vars.val_execution(1u);
-    validator.address_flags().store(ValExecution::AddressFlags_t{
-        .auth_address = sentinel, .flags = ValidatorFlagsOk});
+    validator.address_flags().store(
+        ValExecution::AddressFlags_t{
+            .auth_address = sentinel, .flags = ValidatorFlagsOk});
     validator.stake().store(stake);
 
     // state override that the contract can process this withdrawal

@@ -468,6 +468,9 @@ private:
 
     Result<void> reward_invariant(ValExecution &, uint256_t const &);
 
+    Result<void>
+    apply_reward(ValExecution &, uint256_t const &, uint256_t const &);
+
     // increments a future accumulator value for a validator.  this value is
     // overriden on epoch change when the accumulator for that epoch is
     // complete. Used by delegate and undelegate.
@@ -555,6 +558,8 @@ public:
     Result<byte_string> precompile_claim_rewards(
         byte_string_view, evmc_address const &, evmc_uint256be const &);
     Result<byte_string> precompile_change_commission(
+        byte_string_view, evmc_address const &, evmc_uint256be const &);
+    Result<byte_string> precompile_external_reward(
         byte_string_view, evmc_address const &, evmc_uint256be const &);
 
     ////////////////////

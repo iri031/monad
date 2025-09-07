@@ -383,6 +383,34 @@ StakingContract::pull_delegator_up_to_date(u64_be const val_id, Delegator &del)
     return outcome::success();
 }
 
+Result<void> StakingContract::apply_reward(
+    ValExecution &val_execution, uint256_t const &new_rewards,
+    uint256_t const &active_stake)
+{
+    // 1. compute current acc value
+    BOOST_OUTCOME_TRY(
+        auto const reward_acc,
+        checked_mul_div(new_rewards, UNIT_BIAS, active_stake));
+    // 2. add to accumulator
+    BOOST_OUTCOME_TRY(
+        auto const acc,
+        checked_add(
+            val_execution.accumulated_reward_per_token().load().native(),
+            reward_acc));
+    // 3. store new acc value
+    val_execution.accumulated_reward_per_token().store(acc);
+
+    // 4. compute new unclaimed rewards
+    BOOST_OUTCOME_TRY(
+        auto const unclaimed_rewards,
+        checked_add(
+            val_execution.unclaimed_rewards().load().native(), new_rewards));
+    // 5. store new unclaimed rewards
+    val_execution.unclaimed_rewards().store(unclaimed_rewards);
+
+    return outcome::success();
+}
+
 ///////////////////
 //  Precompiles  //
 ///////////////////
@@ -400,43 +428,41 @@ StakingContract::precompile_dispatch(byte_string_view &input)
 
     switch (signature) {
     case 0xf145204c:
-        return {&StakingContract::precompile_add_validator, 0 /* fixme */};
+        return {&StakingContract::precompile_add_validator, 775125};
     case 0x84994fec:
-        return {&StakingContract::precompile_delegate, 0 /* fixme */};
+        return {&StakingContract::precompile_delegate, 448350};
     case 0x5cf41514:
-        return {&StakingContract::precompile_undelegate, 0 /* fixme */};
+        return {&StakingContract::precompile_undelegate, 306150};
     case 0xb34fea67:
-        return {&StakingContract::precompile_compound, 0 /* fixme */};
+        return {&StakingContract::precompile_compound, 481850};
     case 0xaed2ee73:
-        return {&StakingContract::precompile_withdraw, 0 /* fixme */};
+        return {&StakingContract::precompile_withdraw, 85775};
     case 0xa76e2ca5:
-        return {&StakingContract::precompile_claim_rewards, 0 /* fixme */};
+        return {&StakingContract::precompile_claim_rewards, 223775};
     case 0x9bdcc3c8:
-        return {&StakingContract::precompile_change_commission, 0 /* fixme */};
+        return {&StakingContract::precompile_change_commission, 48575};
+    case 0xe4b3303b:
+        return {&StakingContract::precompile_external_reward, 0 /* fixme */};
     case 0x757991a8:
-        return {&StakingContract::precompile_get_epoch, 0 /* fixme */};
+        return {&StakingContract::precompile_get_epoch, 16200};
     case 0x2b6d639a:
-        return {&StakingContract::precompile_get_validator, 0 /* fixme */};
+        return {&StakingContract::precompile_get_validator, 97200};
     case 0x573c1ce0:
-        return {&StakingContract::precompile_get_delegator, 0 /* fixme */};
+        return {&StakingContract::precompile_get_delegator, 236200};
     case 0x56fa2045:
-        return {
-            &StakingContract::precompile_get_withdrawal_request, 0 /* fixme */};
+        return {&StakingContract::precompile_get_withdrawal_request, 48600};
     case 0xfb29b729:
-        return {
-            &StakingContract::precompile_get_consensus_valset, 0 /* fixme */};
+        return {&StakingContract::precompile_get_consensus_valset, 4054000};
     case 0xde66a368:
-        return {
-            &StakingContract::precompile_get_snapshot_valset, 0 /* fixme */};
+        return {&StakingContract::precompile_get_snapshot_valset, 4054000};
     case 0x7cb074df:
-        return {
-            &StakingContract::precompile_get_execution_valset, 0 /* fixme */};
+        return {&StakingContract::precompile_get_execution_valset, 4054000};
     case 0x4fd66050:
-        return {&StakingContract::precompile_get_delegations, 0 /* fixme */};
+        return {&StakingContract::precompile_get_delegations, 4054000};
     case 0xa0843a26:
-        return {&StakingContract::precompile_get_delegators, 0 /* fixme */};
+        return {&StakingContract::precompile_get_delegators, 4054000};
     default:
-        return {&StakingContract::precompile_fallback, 0};
+        return {&StakingContract::precompile_fallback, 40000};
     }
 }
 
@@ -779,11 +805,13 @@ Result<byte_string> StakingContract::precompile_add_validator(
 
     // add validator metadata
     auto val = vars.val_execution(val_id);
-    val.keys().store(KeysPacked{
-        .secp_pubkey = secp_pubkey_compressed,
-        .bls_pubkey = bls_pubkey_compressed});
-    val.address_flags().store(AddressFlags{
-        .auth_address = auth_address, .flags = ValidatorFlagsStakeTooLow});
+    val.keys().store(
+        KeysPacked{
+            .secp_pubkey = secp_pubkey_compressed,
+            .bls_pubkey = bls_pubkey_compressed});
+    val.address_flags().store(
+        AddressFlags{
+            .auth_address = auth_address, .flags = ValidatorFlagsStakeTooLow});
     val.commission().store(commission);
 
     emit_validator_created_event(val_id, auth_address);
@@ -965,10 +993,11 @@ Result<byte_string> StakingContract::precompile_undelegate(
     // each withdrawal request can be thought of as an independent delegator
     // whose stake is the amount being withdrawn.
     vars.withdrawal_request(val_id, msg_sender, withdrawal_id)
-        .store(WithdrawalRequest{
-            .amount = amount,
-            .acc = del.accumulated_reward_per_token().load(),
-            .epoch = withdrawal_epoch});
+        .store(
+            WithdrawalRequest{
+                .amount = amount,
+                .acc = del.accumulated_reward_per_token().load(),
+                .epoch = withdrawal_epoch});
     increment_accumulator_refcount(val_id);
 
     if (del.stake().load().native() == 0) {
@@ -1118,6 +1147,48 @@ Result<byte_string> StakingContract::precompile_change_commission(
     return byte_string{abi_encode_bool(true)};
 }
 
+Result<byte_string> StakingContract::precompile_external_reward(
+    byte_string_view input, evmc_address const &msg_sender,
+    evmc_uint256be const &msg_value)
+{
+    // 1. Get Validator ID
+    BOOST_OUTCOME_TRY(auto const val_id, abi_decode_fixed<u64_be>(input));
+    if (MONAD_UNLIKELY(!input.empty())) {
+        return StakingError::InvalidInput;
+    }
+    // 2. Get Stake Amount
+    auto const external_reward = intx::be::load<uint256_t>(msg_value);
+
+    // 3. Revert if under minimum amount or over maximum amount
+    if (MONAD_UNLIKELY(external_reward < MON)) {
+        return StakingError::ExternalRewardTooSmall;
+    }
+    if (MONAD_UNLIKELY(external_reward > EXTERNAL_REWARD_MAXIMUM)) {
+        return StakingError::ExternalRewardTooBig;
+    }
+    // 4. Get validator information
+    auto val_execution = vars.val_execution(val_id);
+    if (MONAD_UNLIKELY(!val_execution.exists())) {
+        return StakingError::UnknownValidator;
+    }
+    // 5. only auth address can call this
+    if (MONAD_UNLIKELY(msg_sender != val_execution.auth_address())) {
+        return StakingError::RequiresAuthAddress;
+    }
+
+    // 6. validator must be in the active set
+    auto consensus_view = vars.this_epoch_view(val_id);
+    uint256_t const active_stake = consensus_view.stake().load().native();
+    if (MONAD_UNLIKELY(active_stake == 0)) {
+        return StakingError::BlockAuthorNotInSet;
+    }
+
+    // 7. update accumulator and unclaimed rewards for this validator pool
+    BOOST_OUTCOME_TRY(
+        apply_reward(val_execution, external_reward, active_stake));
+    return byte_string{abi_encode_bool(true)};
+}
+
 ////////////////////
 //  System Calls  //
 ////////////////////
@@ -1214,25 +1285,10 @@ Result<void> StakingContract::syscall_reward(
         checked_add(auth.rewards().load().native(), commission));
     auth.rewards().store(auth_reward);
 
-    // 5. reward wrt to accumulator
     BOOST_OUTCOME_TRY(
         auto const del_reward, checked_sub(raw_reward, commission));
-    BOOST_OUTCOME_TRY(
-        auto const reward_acc,
-        checked_mul_div(del_reward, UNIT_BIAS, active_stake));
-    BOOST_OUTCOME_TRY(
-        auto const acc,
-        checked_add(
-            val_execution.accumulated_reward_per_token().load().native(),
-            reward_acc));
-    val_execution.accumulated_reward_per_token().store(acc);
-
-    // 6. update unclaimed rewards for this validator pool
-    BOOST_OUTCOME_TRY(
-        auto const unclaimed_rewards,
-        checked_add(
-            val_execution.unclaimed_rewards().load().native(), del_reward));
-    val_execution.unclaimed_rewards().store(unclaimed_rewards);
+    // 5. update accumulator and unclaimed rewards for this validator pool
+    BOOST_OUTCOME_TRY(apply_reward(val_execution, del_reward, active_stake));
 
     return outcome::success();
 }

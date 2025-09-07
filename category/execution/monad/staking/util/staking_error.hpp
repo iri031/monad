@@ -57,6 +57,8 @@ enum class StakingError
     CommissionTooHigh,
     ValueNonZero,
     DelegationTooSmall,
+    ExternalRewardTooSmall,
+    ExternalRewardTooBig
 };
 
 MONAD_STAKING_NAMESPACE_END
