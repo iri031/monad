@@ -265,12 +265,6 @@ namespace
             return;
         }
 #endif
-#if 0
-        std::cout <<
-            std::format("LEFT {} : {}  and  RIGHT {} : {}",
-                    left, Emitter::location_type_to_string(left_loc),
-                    right, Emitter::location_type_to_string(right_loc)) << std::endl;
-#endif
 
         TestEmitter emit{rt, ir.codesize};
         (void)emit.begin_new_block(ir.blocks()[0]);
@@ -309,12 +303,36 @@ namespace
 
         ASSERT_EQ(ret.status, runtime::StatusCode::Success);
         if (dup) {
-            ASSERT_EQ(uint256_t::load_le(ret.offset), result);
+            ASSERT_EQ(uint256_t::load_le(ret.offset), result)
+                << std::format(
+                       "Left operand: {} ({}), ",
+                       left,
+                       Emitter::location_type_to_string(left_loc))
+                << std::format(
+                       "Right operand: {} ({})",
+                       right,
+                       Emitter::location_type_to_string(right_loc));
         }
         else {
-            ASSERT_EQ(uint256_t::load_le(ret.offset), 0);
+            ASSERT_EQ(uint256_t::load_le(ret.offset), 0)
+                << std::format(
+                       "Left operand: {} ({}), ",
+                       left,
+                       Emitter::location_type_to_string(left_loc))
+                << std::format(
+                       "Right operand: {} ({})",
+                       right,
+                       Emitter::location_type_to_string(right_loc));
         }
-        ASSERT_EQ(uint256_t::load_le(ret.size), result);
+        ASSERT_EQ(uint256_t::load_le(ret.size), result)
+            << std::format(
+                   "Left operand: {} ({}), ",
+                   left,
+                   Emitter::location_type_to_string(left_loc))
+            << std::format(
+                   "Right operand: {} ({})",
+                   right,
+                   Emitter::location_type_to_string(right_loc));
     }
 
     void pure_una_instr_test_instance(
@@ -419,6 +437,78 @@ namespace
                     result,
                     ir2,
                     true);
+            }
+        }
+    }
+
+    void dynamic_gas_bin_instr_test_instance(
+        asmjit::JitRuntime &rt, PureEmitterInstr instr, uint256_t const &left,
+        Emitter::LocationType left_loc, uint256_t const &right,
+        Emitter::LocationType right_loc, uint256_t const &expected_gas,
+        basic_blocks::BasicBlocksIR const &ir)
+    {
+        TestEmitter emit{rt, ir.codesize};
+        emit.checked_debug_comment("Block prologue:");
+        (void)emit.begin_new_block(ir.blocks()[0]);
+        emit.checked_debug_comment("Initial gas:");
+        emit.gas(0);
+        emit.checked_debug_comment("Place operands in their locations:");
+        emit.push(right);
+        emit.push(left);
+
+        mov_literal_to_location_type(emit, 2, left_loc);
+        mov_literal_to_location_type(emit, 1, right_loc);
+
+        emit.checked_debug_comment("<Instruction>:");
+        instr(emit);
+        emit.swap(1); // result, start gas
+        emit.checked_debug_comment("Final gas:");
+        emit.gas(0); // result, start gas, gas
+        emit.swap(1); // result, gas, start gas
+        emit.sub(); // result, gas used (start gas - gas)
+
+        emit.checked_debug_comment("Return:");
+        emit.return_();
+
+        entrypoint_t entry = emit.finish_contract(rt);
+        auto ctx = test_context();
+        auto const &ret = ctx.result;
+
+        auto stack_memory = test_stack_memory();
+        entry(&ctx, stack_memory.get());
+
+        ASSERT_EQ(ret.status, runtime::StatusCode::Success);
+        ASSERT_EQ(uint256_t::load_le(ret.offset), expected_gas)
+            << std::format(
+                   "Left operand: {} ({}), ",
+                   left,
+                   Emitter::location_type_to_string(left_loc))
+            << std::format(
+                   "Right operand: {} ({})",
+                   right,
+                   Emitter::location_type_to_string(right_loc));
+    }
+
+    void dynamic_gas_test(
+        asmjit::JitRuntime &rt, EvmOpCode opcode, PureEmitterInstr instr,
+        uint256_t const &left, uint256_t const &right,
+        uint256_t const &expected_gas)
+    {
+        std::vector<uint8_t> bytecode1{
+            GAS, PUSH0, PUSH0, opcode, SWAP1, GAS, SUB, RETURN};
+        auto ir1 =
+            basic_blocks::BasicBlocksIR::unsafe_from(std::move(bytecode1));
+        for (auto left_loc : all_locations) {
+            for (auto right_loc : all_locations) {
+                dynamic_gas_bin_instr_test_instance(
+                    rt,
+                    instr,
+                    left,
+                    left_loc,
+                    right,
+                    right_loc,
+                    expected_gas,
+                    ir1);
             }
         }
     }
@@ -1732,10 +1822,7 @@ TEST(Emitter, mul)
         pure_bin_instr_test(
             rt,
             PUSH0,
-            [&](Emitter &em) {
-                em.mul<EvmTraits<EVMC_FRONTIER>>(
-                    std::numeric_limits<int32_t>::max());
-            },
+            [&](Emitter &em) { em.mul(std::numeric_limits<int32_t>::max()); },
             a,
             b,
             expected);
@@ -2243,6 +2330,62 @@ TEST(Emitter, mulmod)
                 a,
                 b,
                 expected);
+        }
+    }
+}
+
+// Returns all initial segments of bytes of the uint256_t, shortest first.
+// Equivalent to Haskell's Data.List.inits function over the bytes of the
+// uint256_t.
+std::vector<uint256_t> uint256_t_inits(uint256_t const &n)
+{
+    std::vector<uint256_t> prefixes;
+    uint256_t mask = 0xff;
+    for (size_t i = 0; i < 32 && (n & ~(mask >> 8)) != 0; ++i) {
+        prefixes.push_back(n & mask);
+        mask = (mask << 8) | 0xff;
+    }
+
+    return prefixes;
+}
+
+TEST(Emitter, exp)
+{
+    asmjit::JitRuntime rt;
+
+    uint256_t const large_int = {
+        0x0807060504030201,
+        0x100f0e0d0c0b0a09,
+        0x8887868584838281,
+        0x908f8e8d8c8b8a89};
+    uint256_t const bases[] = {0, 1, 2, 5, 8, 255, 256, 2048, large_int};
+
+    for (auto const &src : bases) {
+        for (auto const &b : uint256_t_inits(src)) {
+            for (auto const &e : uint256_t_inits(src)) {
+                pure_bin_instr_test(
+                    rt,
+                    EXP,
+                    [&](Emitter &em) {
+                        (em.exp<EvmTraits<EVMC_SPURIOUS_DRAGON>>(
+                            std::numeric_limits<int32_t>::max()));
+                    },
+                    {b},
+                    {e},
+                    exp({b}, {e}));
+                dynamic_gas_test(
+                    rt,
+                    EXP,
+                    [&](Emitter &em) {
+                        (em.exp<EvmTraits<EVMC_SPURIOUS_DRAGON>>(
+                            std::numeric_limits<int32_t>::max()));
+                    },
+                    {b},
+                    {e},
+                    runtime::exp_dynamic_gas_cost_multiplier(
+                        EVMC_SPURIOUS_DRAGON) *
+                        count_significant_bytes(e));
+            }
         }
     }
 }
