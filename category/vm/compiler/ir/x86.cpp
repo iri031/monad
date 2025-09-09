@@ -56,7 +56,7 @@ namespace
             emit.add();
             break;
         case Mul:
-            emit.mul<traits>(remaining_base_gas);
+            emit.mul(remaining_base_gas);
             break;
         case Sub:
             emit.sub();

@@ -35,6 +35,8 @@
 #include <asmjit/core/operand.h>
 #include <asmjit/x86/x86operand.h>
 
+#include <evmc/evmc.h> // For evmc_revision
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -95,6 +97,15 @@ namespace
             asmjit::Imm{static_cast<int32_t>(lit.value[1])},
             asmjit::Imm{static_cast<int32_t>(lit.value[2])},
             asmjit::Imm{static_cast<int32_t>(lit.value[3])}};
+    }
+
+    Emitter::Mem256 const stack_offset_to_mem256(StackOffset const offset)
+    {
+        return {
+            x86::qword_ptr(x86::rbp, offset.offset * 32),
+            x86::qword_ptr(x86::rbp, offset.offset * 32 + 8),
+            x86::qword_ptr(x86::rbp, offset.offset * 32 + 16),
+            x86::qword_ptr(x86::rbp, offset.offset * 32 + 24)};
     }
 
     x86::Mem stack_offset_to_mem(StackOffset offset)
@@ -1003,6 +1014,13 @@ namespace monad::vm::compiler::native
         as_.sub(
             x86::qword_ptr(reg_context, runtime::context_offset_gas_remaining),
             gas);
+    }
+
+    void Emitter::gas_decrement_no_check(asmjit::x86::Gpq reg)
+    {
+        as_.sub(
+            x86::qword_ptr(reg_context, runtime::context_offset_gas_remaining),
+            reg);
     }
 
     void Emitter::gas_decrement_check_non_negative(int32_t gas)
@@ -2890,7 +2908,9 @@ namespace monad::vm::compiler::native
         as_.mov(
             gpq[0],
             x86::qword_ptr(reg_context, runtime::context_offset_gas_remaining));
-        as_.add(gpq[0], remaining_base_gas);
+        if (remaining_base_gas != 0) {
+            as_.add(gpq[0], remaining_base_gas);
+        }
         as_.xor_(gpq[1].r32(), gpq[1].r32());
         as_.xor_(gpq[2].r32(), gpq[2].r32());
         as_.xor_(gpq[3].r32(), gpq[3].r32());
@@ -7407,5 +7427,201 @@ namespace monad::vm::compiler::native
             MONAD_VM_DEBUG_ASSERT(last_ix == 2);
             as_.mov(res_mem, 0);
         }
+    }
+
+    // Performs byte_width operation on array of operands. Assumes that the
+    // operands are ordered from least significant to most significant.
+    template <typename T, size_t N>
+    void Emitter::array_byte_width(std::array<T, N> const &arr)
+    {
+        auto const scratch_reg = [this] {
+            if (stack_.has_free_general_reg()) {
+                auto [e, _] = alloc_general_reg();
+                return general_reg_to_gpq256(*e->general_reg())[0];
+            }
+            else {
+                as_.push(reg_context);
+                return reg_context;
+            }
+        }();
+
+        // The operands are traversed from least significant to most significant
+        // so that the last non-zero operand determines the bit width.
+        for (size_t i = 0; i < N; ++i) {
+            auto const word_offset = static_cast<int32_t>(64 * (i + 1));
+            // Compute operand bit width (negative). CF == 1 iff arr[i] == 0
+            as_.lzcnt(scratch_reg, arr[i]);
+            as_.lea(
+                scratch_reg.r32(), x86::ptr(scratch_reg.r32(), -word_offset));
+            if (i == 0) {
+                as_.mov(x86::eax, scratch_reg.r32()); // init accumulator
+            }
+            else {
+                as_.cmovnc(x86::eax, scratch_reg.r32()); // if arr[i] != 0
+            }
+        }
+
+        // eax = bit width (negative), byte width = (-eax + 7) / 8
+        as_.neg(x86::eax);
+        as_.add(x86::eax, 7);
+        as_.sar(x86::eax, 3);
+
+        if (scratch_reg == reg_context) {
+            as_.pop(reg_context);
+        }
+    }
+
+    // Compute byte width of stack element, stores the result in x86::eax.
+    void Emitter::stack_elem_byte_width(StackElemRef elem)
+    {
+        if (elem->general_reg()) {
+            auto const &gpq = general_reg_to_gpq256(*elem->general_reg());
+            std::array<asmjit::x86::Gpq, 4> const &gpq_r64 = {
+                gpq[0].r64(), gpq[1].r64(), gpq[2].r64(), gpq[3].r64()};
+            array_byte_width(gpq_r64);
+        }
+        else if (elem->stack_offset()) {
+            array_byte_width(stack_offset_to_mem256(*elem->stack_offset()));
+        }
+        else if (elem->avx_reg()) {
+            auto avx_reg = avx_reg_to_ymm(*elem->avx_reg());
+            auto [avx_tmp_elem, _] = alloc_avx_reg();
+            auto avx_tmp = avx_reg_to_ymm(*avx_tmp_elem->avx_reg());
+            as_.vpxor(avx_tmp, avx_tmp, avx_tmp);
+            as_.vpcmpeqb(avx_tmp, avx_reg, avx_tmp); // tmp.b = (reg.b == 0)
+            as_.vpmovmskb(x86::eax, avx_tmp); // eax = mask of zero bytes
+            as_.not_(x86::eax); // eax = mask of non-zero bytes
+            as_.lzcnt(x86::eax, x86::eax);
+            as_.sub(x86::eax, 32);
+            as_.neg(x86::eax); // eax = 32 - lzcnt(mask)
+        }
+        else {
+            MONAD_VM_ASSERT(!elem->literal().has_value());
+        }
+    }
+
+    void Emitter::exp_emit_gas_decrement(evmc_revision rev, uint256_t exp)
+    {
+        auto exponent_cost = runtime::exp_dynamic_gas_cost_multiplier(rev);
+        auto exponent_byte_size = runtime::count_significant_bytes(exp);
+
+        if (exponent_byte_size != 0) {
+            gas_decrement_no_check(
+                static_cast<int32_t>(exponent_byte_size * exponent_cost));
+        }
+    }
+
+    void Emitter::exp_emit_gas_decrement(
+        evmc_revision rev, StackElemRef exponent_elem)
+    {
+        auto exponent_cost = runtime::exp_dynamic_gas_cost_multiplier(rev);
+
+        if (exponent_elem->literal()) {
+            exp_emit_gas_decrement(rev, exponent_elem->literal()->value);
+        }
+        else {
+            discharge_deferred_comparison();
+            stack_elem_byte_width(exponent_elem);
+            as_.imul(x86::eax, exponent_cost);
+            gas_decrement_no_check(x86::rax);
+        }
+    }
+
+    // Discharge
+    bool Emitter::exp_optimized(evmc_revision rev, int32_t remaining_base_gas)
+    {
+        auto base_elem = stack_.get(stack_.top_index());
+        auto exp_elem = stack_.get(stack_.top_index() - 1);
+
+        // 95% of the exp calls are between literals and almost everything else
+        // is with a literal exponent so we have fast paths for those.
+        // The cases with base in {0, 1, 2^k} are also optimized.
+        if (base_elem->literal() && exp_elem->literal()) {
+            auto const &base = base_elem->literal()->value;
+            auto const &exp = exp_elem->literal()->value;
+
+            // Evaluating exponentiation can be slow, so it's only done in
+            // cases where we can bound the work required.
+            // If the base is a power of 2, exponentiation is a simple shift.
+            // Otherwise, if exponent is not too large.
+            if (popcount(base) == 1 || exp <= 512) {
+                stack_.pop();
+                stack_.pop();
+                exp_emit_gas_decrement(rev, exp);
+                push(runtime::exp(base, exp));
+                return true;
+            }
+            else if (exponential_constant_fold_counter_ < 500) {
+                // Limit number of reduction of large exponentiation to guard
+                // against contracts taking too long to compile. In practice,
+                // EXP with large exponents are more or less unexistent, so any
+                // contract hitting this limit is likely malicious.
+                // A limit of 500 limits the time spent on these cases to ~1ms.
+                exponential_constant_fold_counter_ += 1;
+                stack_.pop();
+                stack_.pop();
+                exp_emit_gas_decrement(rev, exp);
+                push(runtime::exp(base, exp));
+                return true;
+            }
+        }
+        else if (base_elem->literal()) {
+            auto const &base = base_elem->literal()->value;
+            if (base == 0) { // O ** exp semantic: 1 if exp = 0 else 0
+                stack_.pop();
+                stack_.pop();
+                exp_emit_gas_decrement(rev, exp_elem);
+                push_iszero(std::move(exp_elem));
+                return true;
+            }
+            else if (base == 1) { // 1 ** exp == 1
+                stack_.pop();
+                stack_.pop();
+                exp_emit_gas_decrement(rev, exp_elem);
+                stack_.push_literal({1});
+                return true;
+            }
+            else if (popcount(base) == 1) { // (2 ** k) ** n == 1 << (k * n)
+                stack_.pop();
+                stack_.pop();
+
+                exp_emit_gas_decrement(rev, exp_elem);
+                auto const &exp_mul =
+                    base != 2 ? mul_with_bit_size(
+                                    256, exp_elem, {bit_width(base) - 1}, {})
+                              : exp_elem;
+                auto const &res = shl(exp_mul, stack_.alloc_literal({1}), {});
+                stack_.push(res);
+                return true;
+            }
+        }
+        else if (exp_elem->literal()) {
+            auto const &exp = exp_elem->literal()->value;
+            if (exp == 0) { // x ** 0 = 1
+                stack_.pop();
+                stack_.pop();
+                exp_emit_gas_decrement(rev, {0});
+                stack_.push_literal({1});
+                return true;
+            }
+            else if (exp == 1) { // x ** 1 = x
+                stack_.pop();
+                stack_.pop();
+                exp_emit_gas_decrement(rev, {1});
+                stack_.push(std::move(base_elem));
+                return true;
+            }
+            else if (exp == 2) { // x ** 2 = x * x
+                stack_.pop();
+                stack_.pop();
+                exp_emit_gas_decrement(rev, {2});
+                stack_.push(std::move(base_elem));
+                dup(1);
+                mul(remaining_base_gas);
+                return true;
+            }
+        }
+
+        return false;
     }
 }

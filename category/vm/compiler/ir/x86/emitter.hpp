@@ -112,6 +112,7 @@ namespace monad::vm::compiler::native
         };
 
         using Gpq256 = std::array<asmjit::x86::Gpq, 4>;
+        using Mem256 = std::array<asmjit::x86::Mem, 4>;
         using Imm256 = std::array<asmjit::Imm, 4>;
 
         using Operand =
@@ -236,6 +237,7 @@ namespace monad::vm::compiler::native
         [[nodiscard]]
         bool begin_new_block(basic_blocks::Block const &);
         void gas_decrement_no_check(int32_t);
+        void gas_decrement_no_check(asmjit::x86::Gpq);
         void gas_decrement_check_non_negative(int32_t);
         void spill_caller_save_regs(bool spill_avx);
         void spill_all_caller_save_general_regs();
@@ -329,7 +331,6 @@ namespace monad::vm::compiler::native
         void mstore8();
 
         // Revision dependent instructions
-        template <Traits traits>
         void mul(int32_t remaining_base_gas)
         {
             if (mul_optimized()) {
@@ -396,9 +397,17 @@ namespace monad::vm::compiler::native
             call_runtime(remaining_base_gas, true, runtime::mulmod);
         }
 
+        template <typename T, size_t N>
+        void array_byte_width(std::array<T, N> const &);
+
+        bool exp_optimized(evmc_revision, int32_t);
+
         template <Traits traits>
         void exp(int32_t remaining_base_gas)
         {
+            if (exp_optimized(traits::evm_rev(), remaining_base_gas)) {
+                return;
+            }
             call_runtime(remaining_base_gas, true, runtime::exp<traits>);
         }
 
@@ -1009,6 +1018,10 @@ namespace monad::vm::compiler::native
         void add_mod2(StackElemRef left, StackElemRef right, size_t exp);
         void mul_mod2(StackElemRef left, StackElemRef right, size_t exp);
 
+        void exp_emit_gas_decrement(evmc_revision, uint256_t);
+        void exp_emit_gas_decrement(evmc_revision, StackElemRef);
+        void stack_elem_byte_width(StackElemRef);
+
         using ModOpType = uint256_t (*)(
             uint256_t const &, uint256_t const &, uint256_t const &);
         using ModOpByMaskType =
@@ -1038,5 +1051,6 @@ namespace monad::vm::compiler::native
         std::vector<std::tuple<asmjit::Label, asmjit::x86::Mem, asmjit::Label>>
             load_bounded_le_handlers_;
         std::vector<std::pair<asmjit::Label, std::string>> debug_messages_;
+        uint32_t exponential_constant_fold_counter_ = 0;
     };
 }
