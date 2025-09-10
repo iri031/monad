@@ -15,42 +15,35 @@
 
 #include <category/core/config.hpp>
 #include <category/core/int.hpp>
-#include <category/core/likely.h>
+#include <category/execution/monad/chain/monad_devnet.hpp>
+#include <category/execution/monad/chain/monad_devnet_alloc.hpp>
 #include <category/vm/evm/monad/revision.h>
-#include <category/execution/monad/chain/monad_testnet2.hpp>
-#include <category/execution/monad/chain/monad_testnet2_alloc.hpp>
 
 MONAD_NAMESPACE_BEGIN
 
-monad_revision MonadTestnet2::get_monad_revision(uint64_t const timestamp) const
+monad_revision MonadDevnet::get_monad_revision(uint64_t timestamp) const
 {
-    if (MONAD_LIKELY(timestamp >= 1757784616)) {
+    if (MONAD_LIKELY(timestamp >= FORK_UNIX_TS_S)) {
         return MONAD_FOUR;
     }
-    if (MONAD_LIKELY(timestamp >= 1753795800)) { // 2025-07-29T13:30:00.000Z
-        return MONAD_THREE;
-    }
-    return MONAD_TWO;
+    return MONAD_THREE;
 }
 
-uint256_t MonadTestnet2::get_chain_id() const
+uint256_t MonadDevnet::get_chain_id() const
 {
-    return 30143;
+    return 20143;
 };
 
-GenesisState MonadTestnet2::get_genesis_state() const
+GenesisState MonadDevnet::get_genesis_state() const
 {
     BlockHeader header;
+    header.difficulty = 17179869184;
     header.gas_limit = 5000;
-    header.extra_data = evmc::from_hex("0x0000000000000000000000000000000000000"
-                                       "000000000000000000000000000")
+    intx::be::unsafe::store<uint64_t>(header.nonce.data(), 66);
+    header.extra_data = evmc::from_hex("0x11bbe8db4e347b4e8c937c1c8370e4b5ed33a"
+                                       "db3db69cbdb7a38e1e50b1b82fa")
                             .value();
-    header.base_fee_per_gas = 0;
-    header.withdrawals_root = NULL_ROOT;
-    header.blob_gas_used = 0;
-    header.excess_blob_gas = 0;
-    header.parent_beacon_block_root = NULL_ROOT;
-    return {header, MONAD_TESTNET2_ALLOC};
+    return {header, MONAD_DEVNET_ALLOC};
 }
 
 MONAD_NAMESPACE_END
