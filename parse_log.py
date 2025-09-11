@@ -3,6 +3,7 @@ import ast
 import requests
 import argparse
 import concurrent.futures
+import time
 
 session = requests.Session()
 
@@ -115,7 +116,11 @@ with open(log_path, 'r') as f:
             continue
 
 if log_objs:
+    start_time = time.time()
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
         futures = [executor.submit(send_rpc_call, log_obj) for log_obj in log_objs]
         for future in concurrent.futures.as_completed(futures):
             status, text = future.result()
+    elapsed = time.time() - start_time
+    print(f"Total requests sent: {len(log_objs)}")
+    print(f"Elapsed time: {elapsed:.2f} seconds")
