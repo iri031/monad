@@ -2,14 +2,26 @@ import json
 import ast
 import requests
 import argparse
+import concurrent.futures
+
+session = requests.Session()
 
 parser = argparse.ArgumentParser(description='Parse RPC log file and resubmit requests.')
 parser.add_argument('--log-path', nargs='?', default='rpc.log', help='Path to the log file (default: rpc.log)')
 parser.add_argument('--rpc-url', dest='eth_rpc_url', help='RPC endpoint URL')
+parser.add_argument('--max-requests', type=int, default=None, help='Maximum number of requests to process from the log file')
+parser.add_argument('--workers', type=int, default=10, help='Number of parallel workers (default: 10)')
+parser.add_argument('--shard', type=int, default=None, help='Shard index (0-based)')
+parser.add_argument('--num-shards', type=int, default=None, help='Total number of shards')
 args = parser.parse_args()
 
 log_path = args.log_path
 ETH_RPC_URL = args.eth_rpc_url
+
+max_requests = args.max_requests
+num_workers = args.workers
+shard = args.shard
+num_shards = args.num_shards
 
 def parse_rust_bytes_debug(s):
     assert s.startswith('b"') and s.endswith('"')
@@ -41,8 +53,31 @@ def parse_rust_bytes_debug(s):
         i += 1
     return bytes(out)
 
+def send_rpc_call(log_obj):
+    print(f'Executing as Ethereum RPC call: {log_obj["body_json"]}')
+    try:
+        resp = session.post(ETH_RPC_URL, json=log_obj['body_json'])
+        print('RPC response:', resp.status_code, resp.text)
+        return resp.status_code, resp.text
+    except Exception as e:
+        print('RPC call failed:', e)
+        return None, str(e)
+
+
+# Collect all log objects to send in parallel
+log_objs = []
 with open(log_path, 'r') as f:
+    count = 0
+    n = 0
     for line in f:
+        # Sharding: skip lines if n % num_shards != shard (if both specified)
+        if num_shards is not None and shard is not None:
+            if n % num_shards != shard:
+                n += 1
+                continue
+        n += 1
+        if max_requests is not None and count >= max_requests:
+            break
         line = line.strip()
         if not line:
             continue
@@ -68,13 +103,15 @@ with open(log_path, 'r') as f:
                             and len(params) > 1
                         ):
                             log_obj['body_json']['params'][1] = 'finalized'
-                        print(f'Executing as Ethereum RPC call: {log_obj["body_json"]}')
-                        try:
-                            resp = requests.post(ETH_RPC_URL, json=log_obj['body_json'])
-                            print('RPC response:', resp.status_code, resp.text)
-                        except Exception as e:
-                            print('RPC call failed:', e)
+                        log_objs.append(log_obj)
+                        count += 1
                     except Exception:
                         log_obj['body_json'] = None
         except json.JSONDecodeError:
-            continue        
+            continue
+
+if log_objs:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+        futures = [executor.submit(send_rpc_call, log_obj) for log_obj in log_objs]
+        for future in concurrent.futures.as_completed(futures):
+            status, text = future.result()
