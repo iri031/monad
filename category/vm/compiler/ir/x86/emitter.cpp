@@ -7505,6 +7505,8 @@ namespace monad::vm::compiler::native
         auto exponent_cost = runtime::exp_dynamic_gas_cost_multiplier(rev);
         auto exponent_byte_size = runtime::count_significant_bytes(exp);
 
+        discharge_deferred_comparison();
+
         if (exponent_byte_size != 0) {
             gas_decrement_no_check(
                 static_cast<int32_t>(exponent_byte_size * exponent_cost));
@@ -7516,18 +7518,19 @@ namespace monad::vm::compiler::native
     {
         auto exponent_cost = runtime::exp_dynamic_gas_cost_multiplier(rev);
 
+        discharge_deferred_comparison();
+
         if (exponent_elem->literal()) {
             exp_emit_gas_decrement(rev, exponent_elem->literal()->value);
         }
         else {
-            discharge_deferred_comparison();
             stack_elem_byte_width(exponent_elem);
             as_.imul(x86::eax, exponent_cost);
             gas_decrement_no_check(x86::rax);
         }
     }
 
-    // Discharge
+    // Discharge via exp_emit_gas_decrement
     bool Emitter::exp_optimized(evmc_revision rev, int32_t remaining_base_gas)
     {
         auto base_elem = stack_.get(stack_.top_index());
