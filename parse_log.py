@@ -13,6 +13,7 @@ parser.add_argument('--max-requests', type=int, default=None, help='Maximum numb
 parser.add_argument('--workers', type=int, default=10, help='Number of parallel workers (default: 10)')
 parser.add_argument('--shard', type=int, default=None, help='Shard index (0-based)')
 parser.add_argument('--num-shards', type=int, default=None, help='Total number of shards')
+parser.add_argument('--debug', action='store_true', help='Enable debug output')
 args = parser.parse_args()
 
 log_path = args.log_path
@@ -22,6 +23,7 @@ max_requests = args.max_requests
 num_workers = args.workers
 shard = args.shard
 num_shards = args.num_shards
+debug = args.debug
 
 def parse_rust_bytes_debug(s):
     assert s.startswith('b"') and s.endswith('"')
@@ -54,10 +56,12 @@ def parse_rust_bytes_debug(s):
     return bytes(out)
 
 def send_rpc_call(log_obj):
-    print(f'Executing as Ethereum RPC call: {log_obj["body_json"]}')
+    if debug:
+        print(f'Executing as Ethereum RPC call: {log_obj["body_json"]}')
     try:
         resp = session.post(ETH_RPC_URL, json=log_obj['body_json'])
-        print('RPC response:', resp.status_code, resp.text)
+        if debug:
+            print('RPC response:', resp.status_code, resp.text)
         return resp.status_code, resp.text
     except Exception as e:
         print('RPC call failed:', e)
