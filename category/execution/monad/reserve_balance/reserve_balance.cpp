@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#include <category/execution/monad/reserve_balance.h>
+#include <category/execution/monad/reserve_balance/reserve_balance.h>
 
 unsigned monad_default_max_reserve_balance_mon(monad_revision)
 {

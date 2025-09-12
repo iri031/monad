@@ -32,7 +32,7 @@
 #include <category/execution/monad/chain/monad_testnet.hpp>
 #include <category/execution/monad/chain/monad_testnet2.hpp>
 #include <category/execution/monad/chain/monad_transaction_error.hpp>
-#include <category/execution/monad/reserve_balance.h>
+#include <category/execution/monad/reserve_balance/reserve_balance.h>
 #include <category/execution/monad/system_sender.hpp>
 #include <category/mpt/db.hpp>
 #include <category/vm/evm/switch_traits.hpp>
