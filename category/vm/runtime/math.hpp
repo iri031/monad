@@ -107,11 +107,11 @@ namespace monad::vm::runtime
         *result_ptr = mulmod(*a_ptr, *b_ptr, *n_ptr);
     }
 
+    template <Traits traits>
     [[gnu::always_inline]]
-    inline constexpr uint32_t
-    exp_dynamic_gas_cost_multiplier(evmc_revision rev) noexcept
+    inline constexpr uint32_t exp_dynamic_gas_cost_multiplier() noexcept
     {
-        if (rev >= EVMC_SPURIOUS_DRAGON) {
+        if (traits::evm_rev() >= EVMC_SPURIOUS_DRAGON) {
             return 50;
         }
         else {
@@ -126,7 +126,7 @@ namespace monad::vm::runtime
     {
         auto exponent_byte_size = count_significant_bytes(*exponent_ptr);
 
-        auto exponent_cost = exp_dynamic_gas_cost_multiplier(traits::evm_rev());
+        auto exponent_cost = exp_dynamic_gas_cost_multiplier<traits>();
 
         ctx->deduct_gas(exponent_byte_size * exponent_cost);
 
