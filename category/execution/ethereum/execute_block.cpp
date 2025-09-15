@@ -258,7 +258,7 @@ Result<std::vector<Receipt>> execute_block(
                         sender,
                         authorities,
                         header,
-                        block_hash_buffer,
+                        &block_hash_buffer,
                         block_state,
                         block_metrics,
                         promises[i],

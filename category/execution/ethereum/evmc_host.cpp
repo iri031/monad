@@ -35,7 +35,7 @@ MONAD_NAMESPACE_BEGIN
 
 EvmcHostBase::EvmcHostBase(
     Chain const &chain, CallTracerBase &call_tracer,
-    evmc_tx_context const &tx_context, BlockHashBuffer const &block_hash_buffer,
+    evmc_tx_context const &tx_context, BlockHashBuffer const *block_hash_buffer,
     State &state, size_t const max_code_size, size_t const max_initcode_size,
     std::function<bool()> const &revert_transaction) noexcept
     : block_hash_buffer_{block_hash_buffer}
@@ -142,7 +142,7 @@ EvmcHostBase::get_block_hash(int64_t const block_number) const noexcept
             return block_hash;
         }
         bytes32_t const block_hash =
-            block_hash_buffer_.get(static_cast<uint64_t>(block_number));
+            block_hash_buffer_->get(static_cast<uint64_t>(block_number));
         MONAD_ASSERT(block_hash != bytes32_t{});
         return block_hash;
     }
