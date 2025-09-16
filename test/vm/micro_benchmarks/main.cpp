@@ -22,6 +22,8 @@
 
 #include <CLI/CLI.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <random>
 #include <regex>
 
@@ -206,7 +208,13 @@ static void run_implementation_benchmark(
     uint256_t code_address{1000};
     uint256_t const base_code_address{code_address};
 
-    auto const base_name = mcompile(bench.baseline_seq);
+    auto const baseline_mcompile_name = mcompile(bench.baseline_seq);
+    auto const base_name = std::all_of(
+                               baseline_mcompile_name.begin(),
+                               baseline_mcompile_name.end(),
+                               [](char c) { return std::isspace(c); })
+                               ? std::string{"(empty)\n"}
+                               : baseline_mcompile_name;
     std::vector<uint8_t> base_bytecode;
     compile(bench.assemble(bench.baseline_seq), base_bytecode);
     auto const base_calldata = bench.calldata_generate(bench.baseline_seq);
@@ -595,6 +603,43 @@ int main(int argc, char **argv)
          .has_output = true,
          .iteration_count = 100,
          .subject_seqs = byte_bin_math_builders})
+        .make_calldata([](size_t num_inputs) {
+            std::vector<uint8_t> cd(10'000 * num_inputs * 32, 0);
+            for (size_t i = 0; i < cd.size(); i += 64) {
+                uint256_t{3}.store_be(&cd[i]);
+                uint256_t{-1, -1, -1, -1}.store_be(&cd[i + 32]);
+            }
+            return cd;
+        })
+        .run_throughput_benchmark()
+        .run_latency_benchmark();
+
+    BenchmarkBuilder(
+        args,
+        {.title = "PUSH 23; SIGNEXTEND, constant input",
+         .num_inputs = 1,
+         .has_output = true,
+         .iteration_count = 100,
+         .subject_seqs = {EvmBuilder<traits>{}.push(23).signextend()}})
+        .make_calldata([](size_t num_inputs) {
+            std::vector<uint8_t> cd(10'000 * num_inputs * 32, 0);
+            for (size_t i = 0; i < cd.size(); i += 64) {
+                uint256_t{3}.store_be(&cd[i]);
+                uint256_t{-1, -1, -1, -1}.store_be(&cd[i + 32]);
+            }
+            return cd;
+        })
+        .run_throughput_benchmark()
+        .run_latency_benchmark();
+
+    BenchmarkBuilder(
+        args,
+        {.title = "PUSH 1; XOR; PUSH 23; SIGNEXTEND, constant input",
+         .num_inputs = 1,
+         .has_output = true,
+         .iteration_count = 100,
+         .subject_seqs =
+             {EvmBuilder<traits>{}.push(1).xor_().push(23).signextend()}})
         .make_calldata([](size_t num_inputs) {
             std::vector<uint8_t> cd(10'000 * num_inputs * 32, 0);
             for (size_t i = 0; i < cd.size(); i += 64) {

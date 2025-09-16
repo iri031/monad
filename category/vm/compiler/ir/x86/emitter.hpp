@@ -929,13 +929,25 @@ namespace monad::vm::compiler::native
         byte_literal_ix_stack_offset_src(StackElemRef ix, StackElemRef src);
         void byte_non_literal_ix_literal_or_stack_offset_src(
             StackElemRef ix, StackElemRef src);
-        void byte_literal_ix_general_reg_src(StackElemRef ix, StackElemRef src);
-        void
-        byte_non_literal_ix_general_reg_src(StackElemRef ix, StackElemRef src);
+        template <typename... LiveSet>
+        void byte_literal_ix_general_reg_src(
+            StackElemRef ix, StackElemRef src, std::tuple<LiveSet...> const &);
+        template <typename... LiveSet>
+        void byte_non_literal_ix_general_reg_src(
+            StackElemRef ix, StackElemRef src, std::tuple<LiveSet...> const &);
         void byte_literal_ix_avx_reg_src(StackElemRef ix, StackElemRef src);
-        void byte_non_literal_ix_avx_reg_src(StackElemRef ix, StackElemRef src);
+        template <typename... LiveSet>
+        void byte_non_literal_ix_avx_reg_src(
+            StackElemRef ix, StackElemRef src, std::tuple<LiveSet...> const &);
 
-        void signextend_literal_ix(uint256_t const &ix, StackElemRef src);
+        void signextend_avx_reg_by_int8(int8_t, StackElemRef);
+        template <typename... LiveSet>
+        void signextend_general_reg_or_stack_offset_by_int8(
+            int8_t, StackElemRef, std::tuple<LiveSet...> const &);
+        template <typename... LiveSet>
+        void signextend_by_literal_ix(
+            uint256_t const &ix, StackElemRef src,
+            std::tuple<LiveSet...> const &);
         template <typename... LiveSet>
         void signextend_stack_elem_ix(
             StackElemRef ix, StackElemRef src, std::tuple<LiveSet...> const &);

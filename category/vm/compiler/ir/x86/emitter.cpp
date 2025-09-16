@@ -2430,11 +2430,12 @@ namespace monad::vm::compiler::native
 
         if (src->general_reg()) {
             if (ix->literal()) {
-                byte_literal_ix_general_reg_src(std::move(ix), std::move(src));
+                byte_literal_ix_general_reg_src(
+                    std::move(ix), std::move(src), {});
             }
             else {
                 byte_non_literal_ix_general_reg_src(
-                    std::move(ix), std::move(src));
+                    std::move(ix), std::move(src), {});
             }
         }
         else if (src->avx_reg()) {
@@ -2442,7 +2443,8 @@ namespace monad::vm::compiler::native
                 byte_literal_ix_avx_reg_src(std::move(ix), std::move(src));
             }
             else {
-                byte_non_literal_ix_avx_reg_src(std::move(ix), std::move(src));
+                byte_non_literal_ix_avx_reg_src(
+                    std::move(ix), std::move(src), {});
             }
         }
         else {
@@ -2479,7 +2481,7 @@ namespace monad::vm::compiler::native
         if (ix->literal()) {
             auto const lit = ix->literal()->value;
             ix.reset(); // Potentially Clear locations
-            signextend_literal_ix(lit, std::move(src));
+            signextend_by_literal_ix(lit, std::move(src), {});
             return;
         }
         if (ix->general_reg()) {
@@ -3963,8 +3965,9 @@ namespace monad::vm::compiler::native
         stack_.push(std::move(dst));
     }
 
-    void
-    Emitter::byte_literal_ix_general_reg_src(StackElemRef ix, StackElemRef src)
+    template <typename... LiveSet>
+    void Emitter::byte_literal_ix_general_reg_src(
+        StackElemRef ix, StackElemRef src, std::tuple<LiveSet...> const &live)
     {
         MONAD_VM_DEBUG_ASSERT(ix->literal().has_value());
         MONAD_VM_DEBUG_ASSERT(src->general_reg().has_value());
@@ -3975,7 +3978,7 @@ namespace monad::vm::compiler::native
 
         Gpq256 const &src_gpq = general_reg_to_gpq256(*src->general_reg());
         auto [dst, dst_reserv] =
-            alloc_or_release_general_reg(std::move(src), {});
+            alloc_or_release_general_reg(std::move(src), live);
         Gpq256 &dst_gpq = general_reg_to_gpq256(*dst->general_reg());
 
         uint64_t const byte_index = 31 - i[0];
@@ -4006,8 +4009,9 @@ namespace monad::vm::compiler::native
         stack_.push(std::move(dst));
     }
 
+    template <typename... LiveSet>
     void Emitter::byte_non_literal_ix_general_reg_src(
-        StackElemRef ix, StackElemRef src)
+        StackElemRef ix, StackElemRef src, std::tuple<LiveSet...> const &live)
     {
         MONAD_VM_DEBUG_ASSERT(!ix->literal().has_value());
         MONAD_VM_DEBUG_ASSERT(src->general_reg().has_value());
@@ -4015,8 +4019,8 @@ namespace monad::vm::compiler::native
         RegReserv const ix_reserv{ix};
 
         Gpq256 const &src_gpq = general_reg_to_gpq256(*src->general_reg());
-        auto [dst, dst_reserv] =
-            alloc_or_release_general_reg(std::move(src), std::make_tuple(ix));
+        auto [dst, dst_reserv] = alloc_or_release_general_reg(
+            std::move(src), std::tuple_cat(std::make_tuple(ix), live));
         Gpq256 const &dst_gpq = general_reg_to_gpq256(*dst->general_reg());
 
         x86::Gpq ix0;
@@ -4104,8 +4108,9 @@ namespace monad::vm::compiler::native
         stack_.push(std::move(dst));
     }
 
-    void
-    Emitter::byte_non_literal_ix_avx_reg_src(StackElemRef ix, StackElemRef src)
+    template <typename... LiveSet>
+    void Emitter::byte_non_literal_ix_avx_reg_src(
+        StackElemRef ix, StackElemRef src, std::tuple<LiveSet...> const &live)
     {
         MONAD_VM_DEBUG_ASSERT(!ix->literal().has_value());
         MONAD_VM_DEBUG_ASSERT(src->avx_reg().has_value());
@@ -4116,8 +4121,8 @@ namespace monad::vm::compiler::native
         auto src_ymm = avx_reg_to_ymm(*src->avx_reg());
         test_high_bits192(ix, std::make_tuple(src));
 
-        auto [dst, dst_reserv] =
-            alloc_or_release_avx_reg(std::move(src), std::make_tuple(ix));
+        auto [dst, dst_reserv] = alloc_or_release_avx_reg(
+            std::move(src), std::tuple_cat(std::make_tuple(ix), live));
         auto dst_ymm = avx_reg_to_ymm(*dst->avx_reg());
         auto [scratch, scratch_reserv] = alloc_avx_reg();
         auto scratch_ymm = avx_reg_to_ymm(*scratch->avx_reg());
@@ -4161,37 +4166,92 @@ namespace monad::vm::compiler::native
         stack_.push(std::move(dst));
     }
 
-    void Emitter::signextend_literal_ix(uint256_t const &ix, StackElemRef src)
+    void Emitter::signextend_avx_reg_by_int8(int8_t ix, StackElemRef src)
     {
-        MONAD_VM_DEBUG_ASSERT(!src->literal().has_value());
+        MONAD_VM_DEBUG_ASSERT(ix >= 0 && ix < 31);
+        MONAD_VM_DEBUG_ASSERT(src->avx_reg().has_value());
 
-        if (ix >= 31) {
-            return stack_.push(std::move(src));
+        AvxRegReserv const src_reserv{src};
+        auto [dst, dst_reserv] = alloc_avx_reg();
+        auto [tmp, tmp_reserv] = alloc_avx_reg();
+
+        auto const src_y = avx_reg_to_ymm(*src->avx_reg());
+        auto const dst_y = avx_reg_to_ymm(*dst->avx_reg());
+        auto const tmp_y = avx_reg_to_ymm(*tmp->avx_reg());
+
+        uint256_t shuf = std::numeric_limits<uint256_t>::max();
+        std::memset(shuf.as_bytes() + ix + 1, ix, static_cast<size_t>(31 - ix));
+        as_.vmovaps(tmp_y, rodata_.add32(shuf));
+        // tmp_y[0] = -1
+        // tmp_y[1] = -1
+        // ...
+        // tmp_y[ix] = -1
+        // tmp_y[ix + 1] = ix
+        // tmp_y[ix + 2] = ix
+        // ...
+        // tmp_y[31] = ix
+        if (ix >= 16) {
+            as_.vpshufb(dst_y, src_y, tmp_y);
         }
+        else {
+            as_.vperm2i128(dst_y, src_y, src_y, 0);
+            as_.vpshufb(dst_y, dst_y, tmp_y);
+        }
+        // dst_y[0] = 0
+        // dst_y[1] = 0
+        // ...
+        // dst_y[ix] = 0
+        // dst_y[ix + 1] = src_y[ix]
+        // dst_y[ix + 2] = src_y[ix]
+        // ...
+        // dst_y[31] = src_y[ix]
+        as_.vpsraw(dst_y, dst_y, 15);
+        // dst_y[0] = 0
+        // dst_y[1] = 0
+        // ...
+        // dst_y[ix] = if (ix & 1) then 0 else sign
+        // dst_y[ix + 1] = sign
+        // dst_y[ix + 2] = sign
+        // ...
+        // dst_y[31] = sign
+        // where sign = shift src_y[ix] arithmetic right by 7
+        as_.vpblendvb(dst_y, dst_y, src_y, tmp_y);
+        // dst_y[0] = src[0]
+        // dst_y[1] = src[1]
+        // ...
+        // dst_y[ix] = src[ix]
+        // dst_y[ix + 1] = sign
+        // dst_y[ix + 2] = sign
+        // ...
+        // dst_y[31] = sign
 
-        // The signextend instruction supports all integer size up to 32 bytes,
-        // but the sizes that are powers of two are probably much more common
-        // than everything else and are easier to map to x86 instructions so we
-        // have a fast path for them.
-        // Note that ix is the index of the byte with the sign bit. ix + 1 is
-        // the size of the integer.
+        stack_.push(std::move(dst));
+    }
+
+    template <typename... LiveSet>
+    void Emitter::signextend_general_reg_or_stack_offset_by_int8(
+        int8_t ix, StackElemRef src, std::tuple<LiveSet...> const &live)
+    {
+        auto const sign_reg_ix = static_cast<size_t>(ix) / 8;
+        auto const sign_reg_offset = static_cast<size_t>(ix) % 8;
+
+        Gpq256 const *dst_gpq;
+        x86::Gpq dst_sign_reg;
+
         if (src->general_reg()) {
-            auto const sign_reg_ix = static_cast<size_t>(ix[0]) / 8;
-            auto const sign_reg_offset = static_cast<size_t>(ix[0]) % 8;
-
             auto const &src_gpq = general_reg_to_gpq256(*src->general_reg());
             auto const src_sign_reg = src_gpq[sign_reg_ix];
 
             auto [dst, dst_reserv] =
-                alloc_or_release_general_reg(std::move(src), {});
-            auto const &dst_gpq = general_reg_to_gpq256(*dst->general_reg());
-            auto const dst_sign_reg = dst_gpq[sign_reg_ix];
+                alloc_or_release_general_reg(std::move(src), live);
+            dst_gpq = &general_reg_to_gpq256(*dst->general_reg());
+            dst_sign_reg = (*dst_gpq)[sign_reg_ix];
 
-            // First we copy the part of the src and dst registers that are not
-            // sign-extended
-            if (&src_gpq != &dst_gpq) {
+            // First we copy the part of the src and dst registers that are
+            // not sign-extended
+            if (&src_gpq != dst_gpq) {
                 for (size_t i = 0; i < sign_reg_ix; ++i) {
-                    as_.mov(dst_gpq[i].r64(), src_gpq[i].r64());
+                    as_.mov((*dst_gpq)[i], src_gpq[i]);
                 }
             }
 
@@ -4207,12 +4267,12 @@ namespace monad::vm::compiler::native
                 as_.movsxd(dst_sign_reg, src_sign_reg.r32());
             }
             else if (sign_reg_offset == 7) {
-                if (&src_gpq != &dst_gpq) {
+                if (&src_gpq != dst_gpq) {
                     as_.mov(dst_sign_reg, src_sign_reg);
                 }
             }
             else {
-                if (&src_gpq != &dst_gpq) {
+                if (&src_gpq != dst_gpq) {
                     as_.mov(dst_sign_reg.r64(), src_sign_reg.r64());
                 }
                 // we use left then right shifts to sign-extend
@@ -4220,42 +4280,79 @@ namespace monad::vm::compiler::native
                 as_.sar(dst_sign_reg.r64(), (7 - sign_reg_offset) * 8);
             }
 
-            // Then propagate the sign bit to the other registers.
-            size_t reg_ix = sign_reg_ix + 1;
-            if (reg_ix < 4) {
-                auto dst_ones = dst_gpq[reg_ix];
-                as_.mov(dst_ones, dst_sign_reg);
-                as_.sar(dst_ones, 63);
-                while (++reg_ix < 4) {
-                    as_.mov(dst_gpq[reg_ix], dst_ones);
-                }
-            }
             stack_.push(std::move(dst));
-            return;
+        }
+        else {
+            MONAD_VM_DEBUG_ASSERT(src->stack_offset());
+
+            auto src_mem = stack_offset_to_mem(*src->stack_offset());
+
+            auto [dst, dst_reserv] = alloc_general_reg();
+            dst_gpq = &general_reg_to_gpq256(*dst->general_reg());
+            dst_sign_reg = (*dst_gpq)[sign_reg_ix];
+
+            for (size_t i = 0; i < sign_reg_ix; ++i) {
+                as_.mov((*dst_gpq)[i], src_mem);
+                src_mem.addOffset(8);
+            }
+
+            if (sign_reg_offset == 0) {
+                src_mem.setSize(1);
+                as_.movsx(dst_sign_reg, src_mem);
+            }
+            else if (sign_reg_offset == 1) {
+                src_mem.setSize(2);
+                as_.movsx(dst_sign_reg, src_mem);
+            }
+            else if (sign_reg_offset == 3) {
+                src_mem.setSize(4);
+                as_.movsxd(dst_sign_reg, src_mem);
+            }
+            else if (sign_reg_offset == 7) {
+                as_.mov(dst_sign_reg, src_mem);
+            }
+            else {
+                as_.mov(dst_sign_reg, src_mem);
+                // we use left then right shifts to sign-extend
+                as_.shl(dst_sign_reg, (7 - sign_reg_offset) * 8);
+                as_.sar(dst_sign_reg, (7 - sign_reg_offset) * 8);
+            }
+
+            stack_.push(std::move(dst));
         }
 
-        int32_t const byte_ix = static_cast<int32_t>(ix);
-        static constexpr int32_t byte_off = sp_offset_temp_word2 - 1;
-        int32_t const stack_ix = byte_off - byte_ix;
-
-        mov_stack_elem_to_unaligned_mem<true>(
-            src, x86::ptr(x86::rsp, stack_ix));
-
-        auto [dst, dst_reserv] = alloc_avx_reg();
-        auto dst_ymm = avx_reg_to_ymm(*dst->avx_reg());
-
-        // Broadcast sign byte to all bytes in `dst_ymm`:
-        as_.vpbroadcastb(dst_ymm, x86::byte_ptr(x86::rsp, byte_off));
-        // Shift arithmetic right to fill `dst_ymm` with sign bit:
-        as_.vpsraw(dst_ymm, dst_ymm, 15);
-        // Override most significant bytes of `src` on the stack:
-        as_.vmovups(x86::ptr(x86::rsp, sp_offset_temp_word2), dst_ymm);
-        // Load the result:
-        as_.vmovups(dst_ymm, x86::ptr(x86::rsp, stack_ix));
-
-        stack_.push(std::move(dst));
+        // Propagate the sign bit to the other registers.
+        size_t reg_ix = sign_reg_ix + 1;
+        if (reg_ix < 4) {
+            auto const &dst_ones = (*dst_gpq)[reg_ix];
+            as_.mov(dst_ones, dst_sign_reg);
+            as_.sar(dst_ones, 63);
+            while (++reg_ix < 4) {
+                as_.mov((*dst_gpq)[reg_ix], dst_ones);
+            }
+        }
     }
 
+    template <typename... LiveSet>
+    void Emitter::signextend_by_literal_ix(
+        uint256_t const &pre_ix, StackElemRef src,
+        std::tuple<LiveSet...> const &live)
+    {
+        MONAD_VM_DEBUG_ASSERT(!src->literal().has_value());
+        if (pre_ix >= 31) {
+            return stack_.push(std::move(src));
+        }
+        int8_t const ix = static_cast<int8_t>(pre_ix);
+        if (src->avx_reg()) {
+            signextend_avx_reg_by_int8(ix, std::move(src));
+        }
+        else {
+            signextend_general_reg_or_stack_offset_by_int8(
+                ix, std::move(src), live);
+        }
+    }
+
+    // TODO optimize this algorithm
     template <typename... LiveSet>
     void Emitter::signextend_stack_elem_ix(
         StackElemRef ix, StackElemRef src, std::tuple<LiveSet...> const &live)
@@ -4302,7 +4399,6 @@ namespace monad::vm::compiler::native
         auto [dst, dst_reserv] = alloc_avx_reg();
         auto dst_ymm = avx_reg_to_ymm(*dst->avx_reg());
 
-        // See `signextend_literal_ix`
         as_.vpbroadcastb(dst_ymm, x86::byte_ptr(x86::rsp, byte_off));
         as_.vpsraw(dst_ymm, dst_ymm, 15);
         as_.vmovups(x86::ptr(x86::rsp, sp_offset_temp_word2), dst_ymm);
