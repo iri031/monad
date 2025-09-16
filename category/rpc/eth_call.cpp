@@ -228,7 +228,7 @@ namespace
             chain,
             call_tracer,
             tx_context,
-            buffer,
+            &buffer,
             state,
             max_code_size,
             chain.get_max_initcode_size(header.number, header.timestamp)};
