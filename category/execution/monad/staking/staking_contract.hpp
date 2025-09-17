@@ -118,6 +118,9 @@ public:
         //  Constants //
         ////////////////
 
+        bytes32_t LOCK_KEY =
+            0x0000000000000000000000000000000000000000000000000000000000000001_bytes32;
+
         // The current epoch, which is incremented by syscall_on_epoch_change()
         StorageVariable<u64_be> epoch{state_, STAKING_CA, AddressEpoch};
 

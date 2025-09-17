@@ -23,6 +23,7 @@
 #include <category/execution/ethereum/core/contract/abi_encode.hpp>
 #include <category/execution/ethereum/core/contract/big_endian.hpp>
 #include <category/execution/ethereum/core/fmt/address_fmt.hpp> // NOLINT
+#include <category/execution/ethereum/core/fmt/bytes_fmt.hpp> // NOLINT
 #include <category/execution/ethereum/core/fmt/int_fmt.hpp> // NOLINT
 #include <category/execution/ethereum/db/trie_db.hpp>
 #include <category/execution/ethereum/db/util.hpp>
@@ -2099,6 +2100,46 @@ TEST_F(Stake, validator_external_rewards_failure_conditions)
         StakingError::ExternalRewardTooLarge);
 
     EXPECT_FALSE(external_reward(val.id, auth_address, 20 * MON).has_error());
+}
+
+TEST_F(Stake, validator_external_rewards_locked)
+{
+    auto const auth_address = 0xdeadbeef_address;
+    auto const res = add_validator(auth_address, ACTIVE_VALIDATOR_STAKE);
+    ASSERT_FALSE(res.has_error());
+    auto const val = res.value();
+
+    skip_to_next_epoch(); // validator in set
+
+    EXPECT_FALSE(external_reward(val.id, auth_address, 20 * MON).has_error());
+    EXPECT_TRUE(claim_rewards(val.id, auth_address).has_error());
+}
+
+TEST_F(Stake, validator_external_rewards_unlocked)
+{
+    auto const auth_address = 0xdeadbeef_address;
+    auto const res = add_validator(auth_address, ACTIVE_VALIDATOR_STAKE);
+    ASSERT_FALSE(res.has_error());
+    auto const val = res.value();
+
+    skip_to_next_epoch(); // validator in set
+    EXPECT_FALSE(claim_rewards(val.id, auth_address).has_error());
+
+    fmt::println(
+        "tstore before setting :  {}",
+        state.get_transient_storage(
+            STAKING_CA,
+            0x0000000000000000000000000000000000000000000000000000000000000001_bytes32));
+
+    EXPECT_FALSE(external_reward(val.id, auth_address, 20 * MON).has_error());
+    skip_to_next_epoch();
+    skip_to_next_epoch();
+
+    fmt::println(
+        "tstore not reset :  {}",
+        state.get_transient_storage(
+            STAKING_CA,
+            0x0000000000000000000000000000000000000000000000000000000000000001_bytes32));
 }
 
 TEST_F(Stake, validator_external_rewards_uniform_reward_pool)
