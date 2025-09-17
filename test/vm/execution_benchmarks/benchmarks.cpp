@@ -260,12 +260,6 @@ namespace
         auto ret = std::vector<std::vector<BenchmarkTest>>{
             load_benchmark_json(vm_performance_dir / "performanceTester.json"),
         };
-
-        for (auto const &p :
-             fs::directory_iterator(execution_benchmarks_dir / "json")) {
-            ret.emplace_back(load_benchmark_json(p));
-        }
-
         return ret;
     }
 

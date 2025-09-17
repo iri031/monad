@@ -26,7 +26,6 @@ endif()
 if(MONAD_COMPILER_BENCHMARKS)
   add_subdirectory(compile_benchmarks)
   add_subdirectory(execution_benchmarks)
-  add_subdirectory(long_benchmarks)
   add_subdirectory(micro_benchmarks)
 endif()
 
