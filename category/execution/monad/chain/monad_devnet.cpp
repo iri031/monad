@@ -29,7 +29,7 @@ monad_revision MonadDevnet::get_monad_revision(uint64_t timestamp) const
     // Calculate activation timestamp once at startup, not on every call
     static const uint64_t activation_timestamp = []() {
         const char* offset_env = std::getenv("MONAD_V4_ACTIVATION_OFFSET_MINUTES");
-        int64_t offset_minutes = 30; // Default to 30 minutes
+        int64_t offset_minutes = 15; // Default to 15 minutes
 
         if (offset_env) {
             offset_minutes = std::strtoll(offset_env, nullptr, 10);
@@ -48,9 +48,7 @@ monad_revision MonadDevnet::get_monad_revision(uint64_t timestamp) const
         return calculated_timestamp;
     }();
 
-    if (MONAD_LIKELY(timestamp >= activation_timestamp)) {
-        return MONAD_FOUR;
-    }
+    // Temporarily disable MONAD_FOUR to unstick chain
     return MONAD_THREE;
 }
 
