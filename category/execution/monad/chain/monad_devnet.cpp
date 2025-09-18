@@ -26,26 +26,27 @@ MONAD_NAMESPACE_BEGIN
 
 monad_revision MonadDevnet::get_monad_revision(uint64_t timestamp) const
 {
-    // Calculate activation timestamp once at startup, not on every call
+    // Get MONAD_FOUR activation timestamp from environment variable
     static const uint64_t activation_timestamp = []() {
-        const char* offset_env = std::getenv("MONAD_V4_ACTIVATION_OFFSET_MINUTES");
-        int64_t offset_minutes = 15; // Default to 15 minutes
-
-        if (offset_env) {
-            offset_minutes = std::strtoll(offset_env, nullptr, 10);
+        const char* monad_four_start_env = std::getenv("MONAD_FOUR_START_TIME");
+        if (monad_four_start_env) {
+            uint64_t timestamp = std::strtoull(monad_four_start_env, nullptr, 10);
+            std::cerr << "MONAD_FOUR activation using MONAD_FOUR_START_TIME: " << timestamp << std::endl;
+            return timestamp;
         }
 
-        auto startup_time = std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
+        // Fallback to old behavior if not set
+        const char* fixed_env = std::getenv("MONAD_V4_ACTIVATION_TIMESTAMP");
+        if (fixed_env) {
+            uint64_t fixed_timestamp = std::strtoull(fixed_env, nullptr, 10);
+            std::cerr << "MONAD_FOUR activation using fixed timestamp: " << fixed_timestamp << std::endl;
+            return fixed_timestamp;
+        }
 
-        uint64_t calculated_timestamp = static_cast<uint64_t>(startup_time + offset_minutes * 60);
-
-        // Debug output to stderr (will show in logs)
-        std::cerr << "MONAD_FOUR activation calculated: offset_minutes=" << offset_minutes
-                  << ", startup_time=" << startup_time
-                  << ", activation_timestamp=" << calculated_timestamp << std::endl;
-
-        return calculated_timestamp;
+        // Default fallback - far in the future to disable activation
+        uint64_t default_timestamp = 2000000000; // Year 2033
+        std::cerr << "MONAD_FOUR activation not configured, using default: " << default_timestamp << std::endl;
+        return default_timestamp;
     }();
 
     if (MONAD_LIKELY(timestamp >= activation_timestamp)) {
