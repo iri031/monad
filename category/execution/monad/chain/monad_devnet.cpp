@@ -18,12 +18,27 @@
 #include <category/execution/monad/chain/monad_devnet.hpp>
 #include <category/execution/monad/chain/monad_devnet_alloc.hpp>
 #include <category/vm/evm/monad/revision.h>
+#include <chrono>
+#include <cstdlib>
 
 MONAD_NAMESPACE_BEGIN
 
 monad_revision MonadDevnet::get_monad_revision(uint64_t timestamp) const
 {
-    if (MONAD_LIKELY(timestamp >= 1758200000)) {
+    // Read environment variable for activation offset, default to 30 minutes
+    const char* offset_env = std::getenv("MONAD_V4_ACTIVATION_OFFSET_MINUTES");
+    int64_t offset_minutes = 30; // Default to 30 minutes
+
+    if (offset_env) {
+        offset_minutes = std::strtoll(offset_env, nullptr, 10);
+    }
+
+    auto now = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    uint64_t activation_timestamp = static_cast<uint64_t>(now + offset_minutes * 60);
+
+    if (MONAD_LIKELY(timestamp >= activation_timestamp)) {
         return MONAD_FOUR;
     }
     return MONAD_THREE;
