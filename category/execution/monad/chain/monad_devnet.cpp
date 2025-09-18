@@ -48,7 +48,9 @@ monad_revision MonadDevnet::get_monad_revision(uint64_t timestamp) const
         return calculated_timestamp;
     }();
 
-    // Temporarily disable MONAD_FOUR to unstick chain
+    if (MONAD_LIKELY(timestamp >= activation_timestamp)) {
+        return MONAD_FOUR;
+    }
     return MONAD_THREE;
 }
 
