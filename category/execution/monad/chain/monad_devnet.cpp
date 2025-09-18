@@ -20,23 +20,33 @@
 #include <category/vm/evm/monad/revision.h>
 #include <chrono>
 #include <cstdlib>
+#include <iostream>
 
 MONAD_NAMESPACE_BEGIN
 
 monad_revision MonadDevnet::get_monad_revision(uint64_t timestamp) const
 {
-    // Read environment variable for activation offset, default to 30 minutes
-    const char* offset_env = std::getenv("MONAD_V4_ACTIVATION_OFFSET_MINUTES");
-    int64_t offset_minutes = 30; // Default to 30 minutes
+    // Calculate activation timestamp once at startup, not on every call
+    static const uint64_t activation_timestamp = []() {
+        const char* offset_env = std::getenv("MONAD_V4_ACTIVATION_OFFSET_MINUTES");
+        int64_t offset_minutes = 30; // Default to 30 minutes
 
-    if (offset_env) {
-        offset_minutes = std::strtoll(offset_env, nullptr, 10);
-    }
+        if (offset_env) {
+            offset_minutes = std::strtoll(offset_env, nullptr, 10);
+        }
 
-    auto now = std::chrono::duration_cast<std::chrono::seconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
+        auto startup_time = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
 
-    uint64_t activation_timestamp = static_cast<uint64_t>(now + offset_minutes * 60);
+        uint64_t calculated_timestamp = static_cast<uint64_t>(startup_time + offset_minutes * 60);
+
+        // Debug output to stderr (will show in logs)
+        std::cerr << "MONAD_FOUR activation calculated: offset_minutes=" << offset_minutes
+                  << ", startup_time=" << startup_time
+                  << ", activation_timestamp=" << calculated_timestamp << std::endl;
+
+        return calculated_timestamp;
+    }();
 
     if (MONAD_LIKELY(timestamp >= activation_timestamp)) {
         return MONAD_FOUR;
