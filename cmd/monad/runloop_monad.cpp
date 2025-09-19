@@ -396,11 +396,13 @@ bytes32_t for_each_header(
 
         auto const body = [&]<Traits traits> {
             std::optional<bytes32_t> next_id;
-            if constexpr (traits::monad_rev() >= MONAD_FOUR) {
+            // Use runtime revision check based on header timestamp
+            // rather than compile-time traits to ensure proper backward compatibility
+            if (rev >= MONAD_FOUR) {
                 next_id = handle_header<MonadConsensusBlockHeaderV2>(
                     id, data, start_exclusive, end_inclusive, fn);
             }
-            else if constexpr (traits::monad_rev() >= MONAD_THREE) {
+            else if (rev >= MONAD_THREE) {
                 next_id = handle_header<MonadConsensusBlockHeaderV1>(
                     id, data, start_exclusive, end_inclusive, fn);
             }
