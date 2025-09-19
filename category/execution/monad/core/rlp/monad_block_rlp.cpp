@@ -212,10 +212,13 @@ decode_consensus_block_header(byte_string_view &enc)
             BOOST_OUTCOME_TRY(
                 header.base_fee_moment, decode_unsigned<uint64_t>(payload));
         }
-    }
-
-    if (MONAD_UNLIKELY(!payload.empty())) {
-        return DecodeError::InputTooLong;
+        // For V2 headers, we allow remaining payload to handle backward compatibility
+        // during MONAD_FOUR activation when old and new blocks coexist
+    } else {
+        // For non-V2 headers, enforce strict payload length checking
+        if (MONAD_UNLIKELY(!payload.empty())) {
+            return DecodeError::InputTooLong;
+        }
     }
     return header;
 }
