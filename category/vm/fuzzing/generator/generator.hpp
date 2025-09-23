@@ -546,7 +546,7 @@ namespace monad::vm::fuzzing
         std::vector<BlockIx> const &jumpdest_blocks,
         BasicBlockInfo const &block, std::size_t block_index)
     {
-        static constexpr std::size_t max_block_insts = 10000;
+        static constexpr std::size_t max_block_insts = 10; // BAL: 10000;
 
         auto program = std::vector<Instruction>{};
 
@@ -955,7 +955,7 @@ namespace monad::vm::fuzzing
         std::vector<std::pair<std::size_t, BlockIx>> const &jumpdest_patches,
         std::vector<std::uint32_t> const &block_offsets)
     {
-        for (auto const [patch, block_ix] : jumpdest_patches) {
+        for (auto const &[patch, block_ix] : jumpdest_patches) {
             MONAD_VM_DEBUG_ASSERT(patch + 4 < program.size());
             MONAD_VM_DEBUG_ASSERT(program[patch] == PUSH4);
             MONAD_VM_DEBUG_ASSERT(block_ix.index < block_offsets.size());
