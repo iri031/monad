@@ -178,13 +178,17 @@ jobs:
           target: vm_code_quality
           cache-from: type=gha,scope=base
 
-      - name: Python Code Quality Check
-        run: |
-          # Install uv and run Python checks
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          source $HOME/.cargo/env
-          cd scripts/vm/benchmark-analysis
-          make check
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: scripts/vm/benchmark-analysis/.python-version
+
+      - name: Check Python code
+        working-directory: scripts/vm/benchmark-analysis
+        run: make check
 
       - name: Post success comment
         if: success()
