@@ -77,9 +77,25 @@ typedef struct monad_eth_call_result
 
 void monad_eth_call_result_release(monad_eth_call_result *);
 
+struct monad_eth_call_pool_config
+{
+    // Number of threads in the pool.
+    unsigned num_threads;
+
+    // Number of fibers per thread.
+    unsigned num_fibers;
+
+    // Timeout request if it failed to be scheduled in this time.
+    unsigned timeout_sec;
+
+    // Maximum number of requests in the queue. Request is removed from the
+    // queue when it starts executing.
+    unsigned queue_limit;
+};
+
 struct monad_eth_call_executor *monad_eth_call_executor_create(
-    unsigned num_threads, unsigned num_fibers, unsigned node_lru_size,
-    unsigned low_pool_timeout_sec, unsigned high_pool_timeout_sec,
+    struct monad_eth_call_pool_config low_pool_conf,
+    struct monad_eth_call_pool_config high_pool_conf, unsigned node_lru_size,
     char const *dbpath);
 
 void monad_eth_call_executor_destroy(struct monad_eth_call_executor *);
