@@ -124,7 +124,8 @@ namespace monad::vm::fuzzing
         bool is_jump_dest;
     };
 
-    struct BasicBlock {
+    struct BasicBlock
+    {
         bool is_main;
         bool is_exit;
         bool is_jump_dest;
@@ -1036,13 +1037,16 @@ namespace monad::vm::fuzzing
         return contract;
     }
 
-    std::vector<std::uint8_t> compile_program(std::vector<BasicBlock> basic_blocks) {
+    std::vector<std::uint8_t>
+    compile_program(std::vector<BasicBlock> basic_blocks)
+    {
         auto prog = std::vector<std::uint8_t>{};
         auto jumpdest_patches = std::vector<std::pair<std::size_t, BlockIx>>{};
         auto block_offsets = std::vector<std::uint32_t>{};
 
         for (auto const &b : basic_blocks) {
-            compile_block(prog, b.instructions, jumpdest_patches, block_offsets);
+            compile_block(
+                prog, b.instructions, jumpdest_patches, block_offsets);
         }
         patch_jumpdests(prog, jumpdest_patches, block_offsets);
         return prog;
@@ -1053,8 +1057,8 @@ namespace monad::vm::fuzzing
         GeneratorFocus focus, Engine &eng, evmc_revision rev,
         std::vector<evmc::address> const &valid_addresses)
     {
-        auto basic_blocks = generate_basic_blocks(
-            focus, eng, rev, valid_addresses);
+        auto basic_blocks =
+            generate_basic_blocks(focus, eng, rev, valid_addresses);
         return compile_program(std::move(basic_blocks));
     }
 
@@ -1151,7 +1155,7 @@ namespace monad::vm::fuzzing
      * instantiating this lookup as appropriate.
      */
     template <typename Engine, typename LookupFunc>
-    message_ptr generate_message(
+    evmc_message generate_message(
         GeneratorFocus focus, Engine &eng,
         std::vector<evmc::address> const &contract_addresses,
         std::vector<evmc::address> const &known_eoas,
@@ -1211,7 +1215,7 @@ namespace monad::vm::fuzzing
 
         auto const &code = address_lookup(target);
 
-        return message_ptr{new evmc_message{
+        return evmc_message{
             .kind = kind,
             .flags = flags,
             .depth = depth,
@@ -1226,7 +1230,7 @@ namespace monad::vm::fuzzing
             .code_address = target,
             .code = code.data(),
             .code_size = code.size(),
-        }};
+        };
     }
 
 }
