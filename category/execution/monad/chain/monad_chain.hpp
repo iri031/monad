@@ -24,8 +24,6 @@
 #include <ankerl/unordered_dense.h>
 #include <evmc/evmc.h>
 
-#include <array>
-#include <functional>
 #include <optional>
 #include <vector>
 
@@ -38,7 +36,6 @@ inline constexpr size_t MAX_INITCODE_SIZE_MONAD_FOUR =
 struct BlockHeader;
 struct Transaction;
 class AccountState;
-class FeeBuffer;
 
 struct MonadChainContext
 {
@@ -62,12 +59,6 @@ struct MonadChain : Chain
 
     virtual monad_revision get_monad_revision(uint64_t timestamp) const = 0;
 
-    virtual size_t
-    get_max_code_size(uint64_t block_number, uint64_t timestamp) const override;
-
-    virtual size_t get_max_initcode_size(
-        uint64_t block_number, uint64_t timestamp) const override;
-
     virtual Result<void> validate_transaction(
         uint64_t block_number, uint64_t timestamp, Transaction const &,
         Address const &sender, State &, uint256_t const &base_fee_per_gas,
@@ -78,10 +69,5 @@ struct MonadChain : Chain
         Transaction const &, uint256_t const &base_fee_per_gas, uint64_t i,
         State &, MonadChainContext const &) const;
 };
-
-bool can_sender_dip_into_reserve(
-    Address const &sender, uint64_t i, bytes32_t const &orig_code_hash,
-    MonadChainContext const &);
-uint256_t get_max_reserve(monad_revision, Address const &);
 
 MONAD_NAMESPACE_END

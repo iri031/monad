@@ -280,12 +280,7 @@ evmc::Result ExecuteTransactionNoValidation<traits>::operator()(
 
     auto result =
         (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2)
-            ? ::monad::create<traits>(
-                  &host,
-                  state,
-                  msg,
-                  chain_.get_max_code_size(header_.number, header_.timestamp),
-                  revert_transaction)
+            ? ::monad::create<traits>(&host, state, msg, revert_transaction)
             : ::monad::call<traits>(&host, state, msg, revert_transaction);
 
     result.gas_refund += auth_refund;
@@ -343,8 +338,6 @@ Result<evmc::Result> ExecuteTransaction<traits>::execute_impl2(State &state)
         tx_context,
         block_hash_buffer_,
         state,
-        chain_.get_max_code_size(header_.number, header_.timestamp),
-        chain_.get_max_initcode_size(header_.number, header_.timestamp),
         [this, &state] {
             return revert_transaction_(sender_, tx_, i_, state);
         }};
@@ -422,16 +415,12 @@ Result<Receipt> ExecuteTransaction<traits>::operator()()
         tx_,
         header_.base_fee_per_gas,
         header_.excess_blob_gas,
-        chain_.get_chain_id(),
-        chain_.get_max_code_size(header_.number, header_.timestamp)));
+        chain_.get_chain_id()));
 
     {
         TRACE_TXN_EVENT(StartExecution);
 
-        State state{
-            block_state_,
-            Incarnation{header_.number, i_ + 1},
-            /*relaxed_validation=*/true};
+        State state{block_state_, Incarnation{header_.number, i_ + 1}};
         state.set_original_nonce(sender_, tx_.nonce);
 
         call_tracer_.reset();

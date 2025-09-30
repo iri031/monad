@@ -200,8 +200,6 @@ add_library(
   "monad/chain/monad_testnet2.cpp"
   "monad/chain/monad_testnet2.hpp"
   "monad/chain/monad_testnet2_alloc.hpp"
-  "monad/chain/monad_transaction_error.cpp"
-  "monad/chain/monad_transaction_error.hpp"
   # monad/core
   "monad/core/monad_block.hpp"
   "monad/core/monad_ctypes.h"
@@ -224,9 +222,12 @@ add_library(
   "monad/monad_transaction_gas.hpp"
   "monad/reserve_balance.cpp"
   "monad/reserve_balance.h"
+  "monad/reserve_balance.hpp"
   "monad/system_sender.hpp"
   "monad/validate_monad_block.cpp"
   "monad/validate_monad_block.hpp"
+  "monad/validate_monad_transaction.cpp"
+  "monad/validate_monad_transaction.hpp"
   "monad/validate_system_transaction.cpp"
   "monad/validate_system_transaction.hpp"
   # monad/staking
@@ -266,14 +267,12 @@ target_include_directories(
   PRIVATE ${Boost_INCLUDE_DIRS})
 
 target_compile_definitions(
-  monad_execution_ethereum PUBLIC
-  MONAD_CXX_CTYPES_USE_EVMC_HPP
-  MONAD_CXX_CTYPES_USE_INTX)
+  monad_execution_ethereum PUBLIC MONAD_CXX_CTYPES_USE_EVMC_HPP
+                                  MONAD_CXX_CTYPES_USE_INTX)
 
 target_compile_definitions(
-  monad_execution_native PUBLIC
-  MONAD_CXX_CTYPES_USE_EVMC_HPP
-  MONAD_CXX_CTYPES_USE_INTX)
+  monad_execution_native PUBLIC MONAD_CXX_CTYPES_USE_EVMC_HPP
+                                MONAD_CXX_CTYPES_USE_INTX)
 
 target_link_libraries(
   monad_execution_ethereum
