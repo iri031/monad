@@ -31,9 +31,10 @@
 #include <category/execution/monad/chain/monad_mainnet.hpp>
 #include <category/execution/monad/chain/monad_testnet.hpp>
 #include <category/execution/monad/chain/monad_testnet2.hpp>
-#include <category/execution/monad/chain/monad_transaction_error.hpp>
 #include <category/execution/monad/reserve_balance.h>
+#include <category/execution/monad/reserve_balance.hpp>
 #include <category/execution/monad/system_sender.hpp>
+#include <category/execution/monad/validate_monad_transaction.hpp>
 #include <category/mpt/db.hpp>
 #include <category/vm/evm/switch_traits.hpp>
 
@@ -71,8 +72,26 @@ TEST(MonadChain, compute_gas_refund)
 TEST(MonadChain, get_max_code_size)
 {
     MonadTestnet const chain;
-    EXPECT_EQ(chain.get_max_code_size(0, 1739559600), MAX_CODE_SIZE_EIP170);
-    EXPECT_EQ(chain.get_max_code_size(0, 1741978800), MAX_CODE_SIZE_MONAD_TWO);
+
+    auto const before_rev = chain.get_monad_revision(1739559600);
+    auto const after_rev = chain.get_monad_revision(1741978800);
+
+    constexpr auto get_max_code_size = []<Traits traits>() constexpr {
+        return traits::max_code_size();
+    };
+
+    auto const max_code_size_before_fork = [&, rev = before_rev] {
+        SWITCH_MONAD_TRAITS(get_max_code_size.template operator());
+        MONAD_ASSERT(false);
+    }();
+
+    auto const max_code_size_after_fork = [&, rev = after_rev] {
+        SWITCH_MONAD_TRAITS(get_max_code_size.template operator());
+        MONAD_ASSERT(false);
+    }();
+
+    EXPECT_EQ(max_code_size_before_fork, constants::MAX_CODE_SIZE_EIP170);
+    EXPECT_EQ(max_code_size_after_fork, constants::MAX_CODE_SIZE_MONAD_TWO);
 }
 
 TEST(MonadChain, Genesis)

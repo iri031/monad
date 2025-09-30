@@ -293,7 +293,6 @@ TEST_F(EvmTest, MaxDeltaOutOfBound)
 
     pre_execute(10'000, {});
     result_ = vm_.execute_native_entrypoint_raw(
-        chain_params,
         &host_.get_interface(),
         host_.to_context(),
         &msg_,
@@ -312,7 +311,6 @@ TEST_F(EvmTest, MaxDeltaOutOfBound)
 
     pre_execute(10'000, {});
     result_ = vm_.execute_native_entrypoint_raw(
-        chain_params,
         &host_.get_interface(),
         host_.to_context(),
         &msg_,
@@ -351,7 +349,6 @@ TEST_F(EvmTest, MinDeltaOutOfBound)
 
     pre_execute(10'000, {});
     result_ = vm_.execute_native_entrypoint_raw(
-        chain_params,
         &host_.get_interface(),
         host_.to_context(),
         &msg_,
@@ -370,7 +367,6 @@ TEST_F(EvmTest, MinDeltaOutOfBound)
 
     pre_execute(10'000, {});
     result_ = vm_.execute_native_entrypoint_raw(
-        chain_params,
         &host_.get_interface(),
         host_.to_context(),
         &msg_,
@@ -415,7 +411,6 @@ TEST_F(EvmTest, ShrCeilOffByOneRegression)
     MONAD_VM_ASSERT(ncode->entrypoint() != nullptr);
 
     vm.execute_native_entrypoint_raw(
-        chain_params,
         &host_.get_interface(),
         host_.to_context(),
         &msg,
@@ -503,7 +498,7 @@ TEST_F(EvmTest, EthCallOutOfGas)
 
 TEST_F(EvmTest, Int32BlockGasOverflow)
 {
-    using traits = monad::MonadTraits<MONAD_FOUR>;
+    using traits = monad::MonadTraits<MONAD_FIVE>;
 
     std::vector<uint8_t> code;
     for (size_t i = 0; i < 14 * 1024; ++i) {
@@ -525,7 +520,6 @@ TEST_F(EvmTest, Int32BlockGasOverflow)
 
     pre_execute(20'000'000, {});
     result_ = evmc::Result{vm_.execute_native_entrypoint_raw(
-        chain_params,
         &host_.get_interface(),
         host_.to_context(),
         &msg_,

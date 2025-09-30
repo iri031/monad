@@ -18,41 +18,28 @@
 #include <category/core/bytes.hpp>
 #include <category/core/config.hpp>
 #include <category/core/int.hpp>
-#include <category/core/result.hpp>
-#include <category/execution/ethereum/chain/genesis_state.hpp>
+#include <category/execution/ethereum/core/address.hpp>
+#include <category/vm/evm/monad/revision.h>
 
 #include <evmc/evmc.h>
-#include <evmc/evmc.hpp>
 
-#include <optional>
+#include <cstdint>
 
 MONAD_NAMESPACE_BEGIN
 
+struct MonadChainContext;
 class State;
-struct BlockHeader;
-struct Receipt;
 struct Transaction;
 
-struct Chain
-{
-    virtual ~Chain() = default;
+bool revert_monad_transaction(
+    monad_revision, evmc_revision, Address const &sender, Transaction const &,
+    uint256_t const &base_fee_per_gas, uint64_t i, State &,
+    MonadChainContext const &);
 
-    virtual uint256_t get_chain_id() const = 0;
+bool can_sender_dip_into_reserve(
+    Address const &sender, uint64_t i, bytes32_t const &orig_code_hash,
+    MonadChainContext const &);
 
-    virtual evmc_revision
-    get_revision(uint64_t block_number, uint64_t timestamp) const = 0;
-
-    virtual Result<void> static_validate_header(BlockHeader const &) const;
-
-    virtual Result<void> validate_output_header(
-        BlockHeader const &input, BlockHeader const &output) const = 0;
-
-    virtual GenesisState get_genesis_state() const = 0;
-
-    virtual Result<void> validate_transaction(
-        uint64_t block_number, uint64_t timestamp, Transaction const &,
-        Address const &sender, State &, uint256_t const &base_fee_per_gas,
-        std::vector<std::optional<Address>> const &authorities) const = 0;
-};
+uint256_t get_max_reserve(monad_revision, Address const &);
 
 MONAD_NAMESPACE_END
