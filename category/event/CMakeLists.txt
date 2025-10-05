@@ -53,7 +53,7 @@ target_compile_options(monad_event PRIVATE -Wall -Wextra -Wconversion -Werror)
 if(MONAD_EVENT_DISABLE_LIBHUGETLBFS)
   target_compile_definitions(monad_event PRIVATE MONAD_EVENT_DISABLE_LIBHUGETLBFS)
 else()
-  find_library(libhugetlbfs NAMES hugetlbfs REQUIRED)
+  #find_library(libhugetlbfs NAMES hugetlbfs REQUIRED)
   target_sources(monad_event PRIVATE
     "../core/mem/hugetlb_path.c"
     "../core/mem/hugetlb_path.h")
