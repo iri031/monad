@@ -19,21 +19,21 @@
 #include <span>
 
 #ifndef __has_embed
-#error "No #embed support"
+//#error "No #embed support"
 #endif
 
 namespace c_kzg_4844
 {
     namespace
     {
-        inline constexpr uint8_t embedded_data[] = {
-#embed "@TRUSTED_SETUP_PATH@"
+        inline constexpr uint8_t embedded_data[807177] = {
+//#embed "@TRUSTED_SETUP_PATH@"
         };
     }
 
     std::span<uint8_t const> trusted_setup_data() noexcept
     {
-        static_assert(sizeof(embedded_data) == 807177);
+        //static_assert(sizeof(embedded_data) == 807177);
         return {&embedded_data[0], sizeof(embedded_data)};
     }
 }

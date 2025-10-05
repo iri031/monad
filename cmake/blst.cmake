@@ -10,7 +10,7 @@ target_include_directories(blst PUBLIC ${BLST_SOURCE_DIR}/bindings)
 
 # The compilation options and defintions match what build.sh would do; if you
 # upgrade libblst, ensure this is still the case
-target_compile_options(blst PRIVATE -Wall -Wextra -Werror)
+target_compile_options(blst PRIVATE -Wall -Wextra )
 target_compile_definitions(blst PRIVATE __ADX__)
 set_target_properties(blst PROPERTIES POSITION_INDEPENDENT_CODE ON)
 

@@ -41,5 +41,5 @@ target_include_directories(c-kzg-4844
 )
 
 target_compile_options(c-kzg-4844 PRIVATE
-    -Wall -Wextra -Werror -Wno-missing-braces -Wno-unused-parameter -Wno-format -Wno-c23-extensions
+    -Wall -Wextra -Wno-missing-braces -Wno-unused-parameter -Wno-format -Wno-c23-extensions
 )

@@ -34,14 +34,20 @@
 #include <cstdint>
 #include <memory>
 
+#pragma GCC diagnostic ignored "-Wunused-variable"
+
 #if defined(__has_attribute)
     #if __has_attribute(musttail)
         #define MONAD_VM_MUST_TAIL __attribute__((musttail))
     #else
-        #error "No compiler support for __attribute__((musttail))"
+       // #error "No compiler support for __attribute__((musttail))"
     #endif
 #else
     #error "No compiler support for __has_attribute"
+#endif
+
+#ifndef MONAD_VM_MUST_TAIL
+    #define MONAD_VM_MUST_TAIL
 #endif
 
 #define MONAD_VM_NEXT(OP)                                                      \

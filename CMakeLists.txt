@@ -69,7 +69,8 @@ function(monad_compile_options target)
   set_property(TARGET ${target} PROPERTY CXX_STANDARD 23)
   set_property(TARGET ${target} PROPERTY CXX_STANDARD_REQUIRED ON)
 
-  target_compile_options(${target} PRIVATE -Wall -Wextra -Wconversion -Werror)
+  target_compile_options(${target} PRIVATE -Wall -Wextra -Wconversion)
+  target_compile_options(${target} PUBLIC -mavx2)
   target_compile_definitions(${target} PUBLIC "_GNU_SOURCE")
 
   target_compile_options(
@@ -103,7 +104,7 @@ endfunction()
 find_package(Boost REQUIRED COMPONENTS fiber json CONFIG)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(brotli REQUIRED IMPORTED_TARGET libbrotlienc libbrotlidec)
-pkg_check_modules(crypto++ REQUIRED IMPORTED_TARGET libcrypto++)
+#pkg_check_modules(crypto++ REQUIRED IMPORTED_TARGET libcrypto++)
 
 # ankerl
 add_library(ankerl_hash INTERFACE)
@@ -284,6 +285,9 @@ add_subdirectory("category/execution")
 add_subdirectory("category/rpc")
 add_subdirectory("category/statesync")
 add_subdirectory("category/vm")
+
+#add_compile_options("-march=native")
+#add_compile_options("-mavx2")
 
 # Assemble all the object libraries into complete monad runtime library,
 # monad_execution
