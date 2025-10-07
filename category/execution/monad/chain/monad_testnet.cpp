@@ -24,9 +24,6 @@ MONAD_NAMESPACE_BEGIN
 
 monad_revision MonadTestnet::get_monad_revision(uint64_t const timestamp) const
 {
-    if (MONAD_LIKELY(timestamp >= 1759152600)) { // 2025-09-29T13:30:00.000Z
-        return MONAD_FOUR;
-    }
     if (timestamp >= 1755005400) { // 2025-08-12T13:30:00.000Z
         return MONAD_THREE;
     }
