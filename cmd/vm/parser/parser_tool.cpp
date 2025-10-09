@@ -41,6 +41,7 @@
 #include <category/vm/compiler/ir/x86.hpp>
 #include <category/vm/evm/traits.hpp>
 #include <category/vm/interpreter/intercode.hpp>
+#include <category/vm/llvm/execute.hpp>
 #include <category/vm/utils/parser.hpp>
 
 using namespace monad::vm::utils;
@@ -52,6 +53,7 @@ struct arguments
     bool binary = false;
     bool stdin = false;
     bool compile = false;
+    bool compile_llvm = false;
     bool validate = false;
     std::vector<std::string> filenames;
 };
@@ -70,6 +72,7 @@ arguments parse_args(int const argc, char **const argv)
         "process input files as binary and show evm opcodes/data as text");
 
     app.add_flag("-c,--compile", args.compile, "compile the input files");
+    app.add_flag("--compile-llvm", args.compile_llvm, "compile the input files using the LLVM backend");
     app.add_option(
         "--validate",
         args.validate,
@@ -148,6 +151,10 @@ int main(int argc, char **argv)
                 opcodes.data(),
                 code_size_t::unsafe_from(static_cast<uint32_t>(opcodes.size())),
                 {.asm_log_path = "out.asm"});
+        }
+
+        if (args.compile_llvm) {
+            (void)monad::vm::llvm::compile(std::span{opcodes}, "out");
         }
     }
 
