@@ -44,6 +44,58 @@
 
 using namespace monad;
 
+TEST(MonadChain, Revision)
+{
+    {
+        MonadDevnet chain;
+
+        EXPECT_EQ(chain.get_monad_revision(0), MONAD_FIVE);
+
+        // This check should fail if a revision is added without updating this
+        // unit test
+        EXPECT_EQ(chain.get_monad_revision(uint64_t(-1)), MONAD_FIVE);
+    }
+
+    {
+        MonadTestnet chain;
+
+        EXPECT_EQ(chain.get_monad_revision(0), MONAD_ZERO);
+        EXPECT_EQ(chain.get_monad_revision(1739559599), MONAD_ZERO);
+        EXPECT_EQ(chain.get_monad_revision(1739559600), MONAD_ONE);
+        EXPECT_EQ(chain.get_monad_revision(1741978800), MONAD_TWO);
+        EXPECT_EQ(chain.get_monad_revision(1755005400), MONAD_THREE);
+        EXPECT_EQ(chain.get_monad_revision(1759152600), MONAD_FOUR);
+
+        // This check should fail if a revision is added without updating this
+        // unit test
+        EXPECT_EQ(chain.get_monad_revision(uint64_t(-1)), MONAD_FOUR);
+    }
+
+    {
+        MonadTestnet2 chain;
+
+        EXPECT_EQ(chain.get_monad_revision(0), MONAD_THREE);
+        EXPECT_EQ(chain.get_monad_revision(1758029399), MONAD_THREE);
+        EXPECT_EQ(chain.get_monad_revision(1758029400), MONAD_FOUR);
+
+        // This check should fail if a revision is added without updating this
+        // unit test
+        EXPECT_EQ(chain.get_monad_revision(uint64_t(-1)), MONAD_FOUR);
+    }
+
+    {
+        MonadMainnet chain;
+
+        EXPECT_EQ(chain.get_monad_revision(0), MONAD_TWO);
+        EXPECT_EQ(chain.get_monad_revision(1755091799), MONAD_TWO);
+        EXPECT_EQ(chain.get_monad_revision(1755091800), MONAD_THREE);
+
+        // This check should fail if a revision is added without updating this
+        // unit test
+        EXPECT_EQ(chain.get_monad_revision(uint64_t(-1)), MONAD_THREE);
+    }
+}
+
 TEST(MonadChain, compute_gas_refund)
 {
     MonadTestnet monad_chain;
