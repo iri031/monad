@@ -684,7 +684,7 @@ namespace monad::vm::llvm
 
             args.push_back(g_ctx_ref);
 
-            auto *g = llvm.lit(64, ei.remaining_block_base_gas);
+            auto *g = llvm.lit(64, static_cast<uint64_t>(ei.remaining_block_base_gas));
             args.push_back(g);
 
             for (auto const &arg : ei.args) {
