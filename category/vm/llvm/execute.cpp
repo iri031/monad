@@ -54,8 +54,6 @@ namespace monad::vm::llvm
     std::shared_ptr<LLVMState>
     compile_impl(std::span<uint8_t const> code, std::string const &dbg_nm = "")
     {
-        std::cerr << "hello\n";
-
         auto ptr = std::make_shared<LLVMState>();
         LLVMState &llvm = *ptr;
 
@@ -75,7 +73,7 @@ namespace monad::vm::llvm
 
         llvm.insert_symbol("rt_EXIT", (void *)&rt_exit);
 
-        Emitter<traits> emitter{llvm, ir, dep_ir};
+        Emitter<traits> emitter{llvm, dep_ir};
 
         emitter.emit_contract();
 
@@ -84,6 +82,7 @@ namespace monad::vm::llvm
         }
 
         llvm.set_contract_addr(dbg_nm);
+
         return ptr;
     }
 

@@ -98,7 +98,7 @@ namespace monad::vm::llvm
             ModulePassManager MPM =
                 PB.buildPerModuleDefaultPipeline(OptimizationLevel::O3);
 
-            bool const do_optimize = true;
+            bool const do_optimize = false; // BAL: true
 
             if (do_optimize) {
                 MPM.run(*llvm_module, MAM);
@@ -128,11 +128,12 @@ namespace monad::vm::llvm
                 std::move(llvm_module), std::move(llvm_context));
 
             ExitOnErr(lljit->addIRModule(std::move(tsm)));
-
             MONAD_VM_ASSERT(lljit);
 
+            std::cerr << "memory error here:\n";
             Expected<ExecutorAddr> expected_contract_addr =
                 lljit->lookup("contract");
+            std::cerr << "died\n";
 
             if (auto err = expected_contract_addr.takeError()) {
                 errs() << "error:" << toString(std::move(err)) << '\n';
@@ -244,14 +245,16 @@ namespace monad::vm::llvm
             instr->setMetadata(sanitized, comment_node);
         }
 
-        PHINode *phi(Type *ty)
+        Value *
+        phi(Type *ty,
+            std::vector<std::tuple<Value *, BasicBlock *>> const &phi_vals)
         {
-            return PHINode::Create(ty, 1, "phi");
-        }
-
-        void phi_incoming(PHINode *phiNode, Value *val, BasicBlock *lbl)
-        {
-            phiNode->addIncoming(val, lbl);
+            PHINode *v = ir.CreatePHI(
+                ty, static_cast<unsigned int>(phi_vals.size()), "phi");
+            for (auto const &[val, lbl] : phi_vals) {
+                v->addIncoming(val, lbl);
+            }
+            return v;
         }
 
         void br(BasicBlock *blk)
@@ -275,7 +278,7 @@ namespace monad::vm::llvm
 
         Value *select(Value *cond, Value *a, Value *b)
         {
-            return ir.CreateSelect(cond, a, b);
+            return ir.CreateSelect(cond, a, b, "select");
         };
 
         void condbr(Value *pred, BasicBlock *then_lbl, BasicBlock *else_lbl)

@@ -79,9 +79,8 @@ namespace monad::vm::llvm
     {
 
     public:
-        Emitter(LLVMState &llvm, BasicBlocksIR &ir, DependencyBlocksIR &dep_ir)
+        Emitter(LLVMState &llvm, DependencyBlocksIR &dep_ir)
             : llvm(llvm)
-            , ir(ir)
             , dep_ir(dep_ir)
         {
         }
@@ -100,8 +99,6 @@ namespace monad::vm::llvm
 
         void prep_for_return(EvmValue const &a, EvmValue const &b)
         {
-            copy_gas(g_local_gas_ref, g_ctx_gas_ref);
-
             auto *offsetp = context_gep(
                 g_ctx_ref, context_offset_result_offset, "result_offset");
             llvm.store(EvmValue_to_value(a), offsetp);
@@ -120,12 +117,9 @@ namespace monad::vm::llvm
                     {llvm.ptr_ty(context_ty), llvm.ptr_ty(llvm.word_ty)});
             }
 
-            copy_gas(g_local_gas_ref, g_ctx_gas_ref);
-
             auto *p = assign(EvmValue_to_value(v), "addr");
             llvm.call_void(selfdestruct_f, {g_ctx_ref, p});
             llvm.unreachable();
-            llvm.ret_void();
         };
 
         void init_jumptable()
@@ -278,36 +272,46 @@ namespace monad::vm::llvm
                 auto [f, arg] = llvm.internal_function_definition(
                     "update_gas",
                     llvm.void_ty,
-                    {llvm.ptr_ty(llvm.int_ty(64)), llvm.int_ty(64)});
+                    {llvm.ptr_ty(context_ty),
+                     llvm.ptr_ty(llvm.int_ty(64)),
+                     llvm.int_ty(64)});
                 update_gas_f = f;
                 auto *entry = llvm.basic_block("entry", f);
                 llvm.insert_at(entry);
 
-                Value *gas_ref = arg[0];
+                Value *ctx_ref = arg[0];
+                ctx_ref->setName("ctx_ref");
+                Value *gas_ref = arg[1];
                 gas_ref->setName("gas_ref");
-                Value *block_base_gas = arg[1];
+                Value *block_base_gas = arg[2];
                 block_base_gas->setName("block_base_gas");
 
                 auto *gas = llvm.load(llvm.int_ty(64), gas_ref);
                 auto *gas1 = llvm.sub(gas, block_base_gas);
+                llvm.store(gas1, gas_ref);
                 auto *gas_lt_zero = llvm.slt(gas1, llvm.lit(64, 0));
 
-                auto *gas_ok_lbl = llvm.basic_block("gas_ok_lbl", contract);
-                auto *gas_err_lbl = llvm.basic_block("gas_err_lbl", contract);
+                auto *gas_ok_lbl = llvm.basic_block("gas_ok_lbl", f);
+                auto *gas_err_lbl = llvm.basic_block("gas_err_lbl", f);
 
                 llvm.condbr(gas_lt_zero, gas_err_lbl, gas_ok_lbl);
 
                 llvm.insert_at(gas_err_lbl);
-                exit_(StatusCode::Error);
+
+                llvm.call_void(
+                    exit_f,
+                    {ctx_ref,
+                     llvm.lit(64, static_cast<uint64_t>(StatusCode::Error))});
+                llvm.unreachable();
 
                 llvm.insert_at(gas_ok_lbl);
-                llvm.store(gas1, gas_ref);
                 llvm.ret_void();
             }
 
             llvm.call_void(
                 update_gas_f,
-                {g_local_gas_ref,
+                {g_ctx_ref,
+                 g_ctx_gas_ref,
                  llvm.lit(64, static_cast<uint64_t>(block_base_gas))});
         }
 
@@ -375,12 +379,10 @@ namespace monad::vm::llvm
 
     private:
         LLVMState &llvm;
-        BasicBlocksIR &ir;
         DependencyBlocksIR &dep_ir;
 
         Value *g_ctx_ref = nullptr;
         Value *g_ctx_gas_ref = nullptr;
-        Value *g_local_gas_ref = nullptr;
 
         Value *evm_stack_begin = nullptr;
         Value *evm_stack_end = nullptr;
@@ -413,7 +415,7 @@ namespace monad::vm::llvm
         BasicBlock *return_lbl_v = nullptr;
         BasicBlock *revert_lbl_v = nullptr;
         BasicBlock *indirectbr_lbl_v = nullptr;
-        PHINode *indirectbr_phi;
+        std::vector<std::tuple<Value *, BasicBlock *>> indirectbr_phis;
 
         std::vector<Value *> value_tbl;
 
@@ -474,6 +476,55 @@ namespace monad::vm::llvm
             return revert_lbl_v;
         }
 
+        void init_indirectbr_block()
+        {
+            if (indirectbr_lbl_v == nullptr) {
+                return;
+            }
+            SaveInsert const _unused(llvm);
+            init_jumptable();
+            llvm.insert_at(indirectbr_lbl_v);
+            Value *indirectbr_phi = llvm.phi(llvm.word_ty, indirectbr_phis);
+
+            Value *is_lte_max_offset = llvm.ule(
+                indirectbr_phi,
+                llvm.lit_word(static_cast<uint256_t>(jumptable_max_offset)));
+
+            Value *lte_offset = llvm.select(
+                is_lte_max_offset,
+                llvm.cast_64(indirectbr_phi),
+                llvm.u64(jumptable_err_offset + jumptable_min_offset));
+
+            Value *is_gte_min_offset =
+                llvm.uge(lte_offset, llvm.u64(jumptable_min_offset));
+
+            Value *gte_offset = llvm.select(
+                is_gte_min_offset,
+                lte_offset,
+                llvm.u64(jumptable_err_offset + jumptable_min_offset));
+
+            Value *sub_offset = // BAL: eliminate this sub by rewriting the
+                                // jumptable address
+                llvm.sub(gte_offset, llvm.u64(jumptable_min_offset));
+
+            Value *p = llvm.gep(
+                jumptable_ty,
+                jumptable,
+                {llvm.u32(0), sub_offset},
+                "jumpdest_p");
+
+            Value *jd_addr = llvm.load(llvm.ptr_ty(block_addr_ty), p);
+
+            std::vector<BasicBlock *> lbls;
+
+            for (auto const &[_, lbl] : jumpdest_tbl) {
+                lbls.push_back(lbl);
+            }
+            lbls.push_back(error_lbl());
+
+            llvm.indirectbr(jd_addr, lbls);
+        }
+
         BasicBlock *indirectbr_lbl(InstrIdx i)
         {
             if (jumpdest_tbl.size() == 0) {
@@ -481,53 +532,10 @@ namespace monad::vm::llvm
             }
 
             if (indirectbr_lbl_v == nullptr) {
-                SaveInsert const _unused(llvm);
-                init_jumptable();
                 indirectbr_lbl_v = llvm.basic_block("indirectbr_lbl", contract);
-                llvm.insert_at(indirectbr_lbl_v);
-                indirectbr_phi = llvm.phi(llvm.word_ty);
-
-                Value *is_lte_max_offset = llvm.ule(
-                    indirectbr_phi,
-                    llvm.lit_word(
-                        static_cast<uint256_t>(jumptable_max_offset)));
-
-                Value *lte_offset = llvm.select(
-                    is_lte_max_offset,
-                    llvm.cast_64(indirectbr_phi),
-                    llvm.u64(jumptable_err_offset + jumptable_min_offset));
-
-                Value *is_gte_min_offset =
-                    llvm.uge(lte_offset, llvm.u64(jumptable_min_offset));
-
-                Value *gte_offset = llvm.select(
-                    is_gte_min_offset,
-                    lte_offset,
-                    llvm.u64(jumptable_err_offset + jumptable_min_offset));
-
-                Value *sub_offset = // BAL: eliminate this sub by rewriting the
-                                    // jumptable address
-                    llvm.sub(gte_offset, llvm.u64(jumptable_min_offset));
-
-                Value *p = llvm.gep(
-                    jumptable_ty,
-                    jumptable,
-                    {llvm.u32(0), sub_offset},
-                    "jumpdest_p");
-
-                Value *jd_addr = llvm.load(llvm.ptr_ty(block_addr_ty), p);
-
-                std::vector<BasicBlock *> lbls;
-                lbls.push_back(error_lbl());
-
-                for (auto const &[_, lbl] : jumpdest_tbl) {
-                    lbls.push_back(lbl);
-                }
-
-                llvm.indirectbr(jd_addr, lbls);
             }
 
-            llvm.phi_incoming(indirectbr_phi, value_tbl[i], llvm.get_insert());
+            indirectbr_phis.push_back({value_tbl[i], llvm.get_insert()});
 
             return indirectbr_lbl_v;
         }
@@ -555,9 +563,6 @@ namespace monad::vm::llvm
             g_ctx_gas_ref = context_gep(
                 g_ctx_ref, context_offset_gas_remaining, "ctx_gas_ref");
 
-            g_local_gas_ref = llvm.alloca_(llvm.int_ty(64), "local_gas_ref");
-            copy_gas(g_ctx_gas_ref, g_local_gas_ref);
-
             // llvm.comment("init.the.stack");
 
             evm_stack_end = llvm.gep(
@@ -583,8 +588,9 @@ namespace monad::vm::llvm
         void contract_finish()
         {
             llvm.insert_at(entry);
-            MONAD_VM_ASSERT(ir.blocks().size() > 0);
-            llvm.br(get_block_lbl(ir.blocks().front().offset));
+            MONAD_VM_ASSERT(dep_ir.blocks.size() > 0);
+            llvm.br(get_block_lbl(dep_ir.blocks.front().offset));
+            init_indirectbr_block();
         };
 
         bool reads_ctx_gas(OpCode op)
@@ -621,8 +627,6 @@ namespace monad::vm::llvm
         void
         emit_instr(byte_offset blkId, InstrIdx i, struct EvmInstr const &ei)
         {
-            auto op = ei.instr.opcode();
-
             Function *f;
             auto nm = instr_name(ei.instr);
 
@@ -646,20 +650,12 @@ namespace monad::vm::llvm
                 args.push_back(EvmValue_to_value(arg));
             }
 
-            if (reads_ctx_gas(op)) {
-                copy_gas(g_local_gas_ref, g_ctx_gas_ref);
-            }
-
             if (ei.instr.increases_stack()) {
                 auto v = llvm.call(f, args, to_register_name(blkId, i));
                 insert_value(i, v);
             }
             else {
                 llvm.call_void(f, args);
-            }
-
-            if (writes_ctx_gas(op)) {
-                copy_gas(g_ctx_gas_ref, g_local_gas_ref);
             }
         };
 
@@ -691,8 +687,6 @@ namespace monad::vm::llvm
 
         void exit_(StatusCode status)
         {
-            copy_gas(g_local_gas_ref, g_ctx_gas_ref);
-
             llvm.call_void(
                 exit_f,
                 {g_ctx_ref, llvm.lit(64, static_cast<uint64_t>(status))});
@@ -1402,7 +1396,6 @@ namespace monad::vm::llvm
                 return llvm_binop(instr, &LLVMState::mul);
 
             default:
-                std::cerr << std::format("op={}\n", op);
                 MONAD_VM_ASSERT(op == Add);
                 return llvm_binop(instr, &LLVMState::add);
             }
