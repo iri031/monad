@@ -130,6 +130,10 @@ int main(int argc, char **argv)
     auto args = parse_args(argc, argv);
 
     parser_config const config{args.verbose, args.validate};
+    if (args.compile_llvm) {
+        LLVMInitializeNativeTarget();
+        LLVMInitializeNativeAsmPrinter();
+    }
 
     if (args.stdin) {
         std::stringstream buffer;
@@ -154,7 +158,7 @@ int main(int argc, char **argv)
         }
 
         if (args.compile_llvm) {
-            (void)monad::vm::llvm::compile(std::span{opcodes}, "out");
+            (void)monad::vm::llvm::compile(EVMC_LATEST_STABLE_REVISION, std::span{opcodes}, "out");
         }
     }
 
@@ -183,6 +187,9 @@ int main(int argc, char **argv)
                     code_size_t::unsafe_from(
                         static_cast<uint32_t>(opcodes.size())),
                     {.asm_log_path = outfile_asm.c_str()});
+            }
+            if (args.compile_llvm) {
+                (void)monad::vm::llvm::compile(EVMC_LATEST_STABLE_REVISION, std::span{opcodes}, filename);
             }
         }
     }
