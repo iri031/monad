@@ -309,12 +309,12 @@ static void clean_storage(State &state)
 }
 
 using random_engine_t = std::mt19937_64;
+using seed_t = random_engine_t::result_type;
 
 namespace
 {
     struct arguments
     {
-        using seed_t = random_engine_t::result_type;
         static constexpr seed_t default_seed =
             std::numeric_limits<seed_t>::max();
 
@@ -328,6 +328,8 @@ namespace
         evmc_revision revision = EVMC_PRAGUE;
         // Disable compiler hook introducing randomness in compilation
         bool deterministic_compilation = false;
+        std::size_t run_shrinking_attempts = 100;
+        std::size_t contract_shrinking_attempts = 100;
 
         void set_random_seed_if_default()
         {
@@ -383,6 +385,16 @@ static arguments parse_args(int const argc, char **const argv)
         "--deterministic-compilation",
         args.deterministic_compilation,
         "Enable deterministic compilation (no randomness)");
+
+    app.add_option(
+        "--run-shrinking-attempts",
+        args.run_shrinking_attempts,
+        "Number of run shrinking attempts (default 100)");
+
+    app.add_option(
+        "--contract-shrinking-attempts",
+        args.contract_shrinking_attempts,
+        "Number of contract shrinking attempts (default 100)");
 
     auto const rev_map = std::map<std::string, evmc_revision>{
         {"FRONTIER", EVMC_FRONTIER},
@@ -490,26 +502,66 @@ log(std::chrono::high_resolution_clock::time_point start, arguments const &args,
 }
 
 template <typename Engine>
-static evmc::VM create_monad_vm(arguments const &args, Engine &engine)
+static evmc::VM create_monad_vm(arguments const &args, Engine &engine, std::unordered_map<evmc::address, seed_t> const &hook_seed_map)
 {
     using enum BlockchainTestVM::Implementation;
 
     monad::vm::compiler::native::EmitterHook hook = nullptr;
+    std::function<void(evmc_message const *msg)> execute_hook = nullptr;
 
+    // The compiler hook introduces non-determinism in the compilation process
+    // that must be controlled for the fuzzer to be effective. To do so, we
+    // assign each contract a seed, and reset the hook's RNG using that seed
+    // before each compilation so that the hook has the same influence each time
+    // that contract is compiled.
+    //
+    // This ensures that the shrinker can reliably reproduce the same
+    // compilation result for a given contract as it removes steps from the run,
+    // making the shrinking predicate deterministic when removing contracts.
+    //
+    // When shrinking individual contracts, removing instructions can shift the
+    // state of the hook RNG such that instructions following the removed
+    // instructions are compiled differently. This can lead to false negatives,
+    // where the shrinker thinks the smaller input does not reproduce the
+    // failure, when in fact it would if the hook RNG state was the same.
+    //
+    // This could be solved by assigning a seed per instruction, but that would
+    // require a more complex mechanism to track and reset the RNG state, as
+    // well as pregenerating even more values that would slow down the fuzzer in
+    // the non-shrinking case, which we want to avoid.
+    //
+    // Fortunately, most counter-examples found by the fuzzer involve only a few
+    // contracts, meaning that problem can be mitigated by increasing the number
+    // of shrinking attempts, effectively sampling the shrinking predicate
+    // multiple times.
     if (args.implementation == Compiler && !args.deterministic_compilation) {
-        hook = compiler_emit_hook(engine);
+
+        // FIXME: This is not thread-safe, but the fuzzer is single-threaded for now.
+        static Engine hook_engine = random_engine_t(0);
+
+        execute_hook = [&hook_seed_map](evmc_message const *msg) {
+            auto const seed_it = hook_seed_map.find(msg->recipient);
+            if (seed_it == hook_seed_map.end()) {
+                hook_engine = random_engine_t(0);
+            } else {
+                auto const seed = seed_it->second;
+                hook_engine = random_engine_t(seed);
+            }
+        };
+
+        hook = compiler_emit_hook(engine, &hook_engine);
     }
 
-    return evmc::VM(new BlockchainTestVM(args.implementation, hook));
+    return evmc::VM(new BlockchainTestVM(args.implementation, hook, execute_hook));
 }
 
 struct DeployContract
 {
+    seed_t contract_hook_seed;
     evmc::address contract_address;
     std::vector<BasicBlock> contract;
 };
 
-// Precompiles are deployed as contracts that
 struct DeployPrecompile
 {
     evmc::address contract_address;
@@ -583,12 +635,13 @@ static void prepare_iteration(arguments const &args, Engine &engine,
             continue;
         }
 
+        auto const contract_seed = engine();
         auto const contract_address = prepare_address(genesis_address, nonce);
 
         known_addresses.push_back(contract_address);
         contract_addresses.push_back(contract_address);
         contract_codes[contract_address] = compiled_contract;
-        run.push_back(DeployContract{contract_address, contract});
+        run.push_back(DeployContract{contract_seed, contract_address, contract});
 
         if (args.revision >= EVMC_PRAGUE && toss(engine, 0.2)) {
             auto const delegated_contract_address = prepare_address(genesis_address, nonce);
@@ -636,15 +689,15 @@ static void do_run(std::size_t const run_index, arguments const &args, Run const
     auto engine = random_engine_t(args.seed);
 
     auto evmone_vm = evmc::VM(evmc_create_evmone());
-    // Of all the source of randomness, this is the only one that can't easily
-    // be pre-generated like the rest of the fuzzer input. The BlockchainTestVM
-    // could be extended to signal the beginning of a compilation, allowing
-    // us to reset the seed of the compiler hook to a known value, but since we
-    // don't have a clear mechanism to debug the counter-examples that depend
-    // on the compiler hook randomness, we ignore this for now.
-    // Anyway, when shrinking, the compiler hook is disabled to make the
-    // shrink predicate deterministic.
-    auto monad_vm = create_monad_vm(args, engine);
+    auto compiler_hook_seed_map = std::unordered_map<evmc::address, seed_t>{};
+    for (auto const &step : run) {
+        if (std::holds_alternative<DeployContract>(step)) {
+            auto const &d = std::get<DeployContract>(step);
+            compiler_hook_seed_map[d.contract_address] = d.contract_hook_seed;
+        }
+    }
+
+    auto monad_vm = create_monad_vm(args, engine, compiler_hook_seed_map);
 
     auto initial_state_ = initial_state();
 
@@ -789,7 +842,8 @@ void print_run(Run const &run)
 static bool try_run_with_subcontract(arguments const &args, Run run, std::vector<BasicBlock> subcontract, std::size_t subcontract_iteration_index)
 {
     FUZZER_ASSERT(std::holds_alternative<DeployContract>(run[subcontract_iteration_index]));
-    run[subcontract_iteration_index] = DeployContract{std::get<DeployContract>(run[subcontract_iteration_index]).contract_address, subcontract};
+    DeployContract const &d = std::get<DeployContract>(run[subcontract_iteration_index]);
+    run[subcontract_iteration_index] = DeployContract{d.contract_hook_seed, d.contract_address, subcontract};
     return try_run(args, run);
 }
 
@@ -829,27 +883,27 @@ static std::optional<std::vector<BasicBlock>> shrink_run_contract(arguments cons
     return std::nullopt;
 }
 
-static Run make_singleton_run(std::vector<BasicBlock> contract, evmc::address contract_address, evmc_message failed_message)
+static Run make_singleton_run(seed_t contract_hook_seed, std::vector<BasicBlock> contract, evmc::address contract_address, evmc_message failed_message)
 {
-    return {DeployContract{contract_address, contract}, SendMessage{failed_message}};
+    return {DeployContract{contract_hook_seed, contract_address, contract}, SendMessage{failed_message}};
 }
 
-static bool try_singleton_run(arguments const &args, std::vector<BasicBlock> contract, evmc::address contract_address, evmc_message failed_message)
+static bool try_singleton_run(arguments const &args, seed_t contract_hook_seed, std::vector<BasicBlock> contract, evmc::address contract_address, evmc_message failed_message)
 {
-    auto run = make_singleton_run(std::move(contract), contract_address, failed_message);
+    auto run = make_singleton_run(contract_hook_seed, contract, contract_address, failed_message);
     return try_run(args, run);
 }
 
 // A singleton run is one with a single contract and a single message.
-static Run shrink_singleton_run(arguments const &args, std::vector<BasicBlock> original_contract, evmc::address contract_address, evmc_message failed_message)
+static Run shrink_singleton_run(arguments const &args, seed_t contract_hook_seed, std::vector<BasicBlock> original_contract, evmc::address contract_address, evmc_message failed_message)
 {
     auto engine = random_engine_t(args.seed);
     int iteration_count = 0;
-    auto run = make_singleton_run(original_contract, contract_address, failed_message);
+    auto run = make_singleton_run(contract_hook_seed, original_contract, contract_address, failed_message);
 
     while (++iteration_count < 100) { // After 100 shrinker failure, give up.
         if (auto new_contract = shrink_run_contract(args, engine, run, 0)) {
-            run[0] = DeployContract{contract_address, new_contract.value()};
+            run[0] = DeployContract{contract_hook_seed, contract_address, new_contract.value()};
             iteration_count = 0;
         }
     }
@@ -866,20 +920,17 @@ static Run shrink_remove_steps(arguments const &args, Engine &engine, Run const 
     auto current_run = run;
 
     int iteration_count = 0;
-    while (++iteration_count < 20) { // After 20 failure, give up.
+    while (++iteration_count < 100) { // After 100 failure, give up.
         if (current_run.size() <= 2) { // Cannot shrink further than 2 steps
             break;
         }
 
-        std::cerr << "Shrinker: Trying to remove steps, current size: " << current_run.size() << "\n";
-
         // Try to remove 10% of the steps
-        auto const new_run = erase_range(engine, current_run, 0.01);
+        auto const new_run = erase_range(engine, current_run, 0.1);
 
         if (!try_run(args, new_run)) {
             current_run = std::move(new_run);
             iteration_count = 0;
-            continue;
         }
     }
 
@@ -902,7 +953,11 @@ static Run shrink_steps(arguments const &args, Engine &engine, Run const &run)
             monad::vm::Cases{
                 [&](DeployContract const &d) {
                     if (auto new_contract = shrink_run_contract(args, engine, current_run, element_to_shrink)) {
-                        current_run[element_to_shrink] = DeployContract{d.contract_address, new_contract.value()};
+                        auto new_seed = d.contract_hook_seed; // Keep the same seed for the contract
+                        if (toss(engine, 0.1)) {
+                            new_seed = engine(); // 10% chance to change the seed
+                        }
+                        current_run[element_to_shrink] = DeployContract{new_seed, d.contract_address, new_contract.value()};
                         iteration_count = 0;
                     }
                 },
@@ -955,11 +1010,11 @@ static Run shrink_run(arguments const &args, Run const &run, size_t failed_itera
     // form.
     // Prepare a run with only the msg.recipient contract and the message that
     // caused the failure.
-    auto contract_map = std::unordered_map<evmc::address, std::vector<BasicBlock>>{};
+    auto contract_map = std::unordered_map<evmc::address, std::pair<std::vector<BasicBlock>, seed_t>>{};
     for (auto const &step : run) {
         if (std::holds_alternative<DeployContract>(step)) {
             auto const &d = std::get<DeployContract>(step);
-            contract_map.insert({d.contract_address, d.contract});
+            contract_map.insert({d.contract_address, {d.contract, d.contract_hook_seed}});
         }
     }
 
@@ -976,11 +1031,11 @@ static Run shrink_run(arguments const &args, Run const &run, size_t failed_itera
     }
     auto const &failed_contract = failed_contract_it->second;
 
-    if (try_singleton_run(args, failed_contract, failed_message.code_address, failed_message)) {
+    if (try_singleton_run(args, failed_contract.second, failed_contract.first, failed_message.code_address, failed_message)) {
         std::cerr << "Shrinker: Contract depends on other contracts or state\n";
         return shrink_complete_run(args, run, failed_iteration_index);
     } else {
-        return shrink_singleton_run(args, failed_contract, failed_message.code_address, failed_message);
+        return shrink_singleton_run(args, failed_contract.second, failed_contract.first, failed_message.code_address, failed_message);
     }
 }
 
@@ -998,14 +1053,21 @@ static void run_loop(int argc, char **argv)
             do_run(i, args, run, iteration_index);
         }
         catch (FuzzerAssertFailure const &ex) {
-            // Disable randomness in compilation for shrinking
-            args.deterministic_compilation = true;
+            // Disable stats printing while shrinking to reduce noise.
             args.print_stats = false;
-            std::cerr << "Can reproduce the failure " << try_run(args, run) << "\n";
+            // Test whether the counter-example depends on the stack shuffling
+            // introduced by the compiler hook. If so, we increase the number of
+            // shrinking attempts by 10x to account for the non-determinism
+            // and potential false negatives when shrinking.
+            auto const deterministic_compilation_enabled = args.deterministic_compilation;
+            args.deterministic_compilation = true;
+            if (!deterministic_compilation_enabled && try_run(args, run)) {
+                args.contract_shrinking_attempts *= 10;
+            }
+            args.deterministic_compilation = deterministic_compilation_enabled;
+
             auto const &shrunk_run = shrink_run(args, run, iteration_index);
-            std::cerr << "Original counter-example found by fuzzer:\n";
-            print_run(run);
-            std::cerr << "Shrunk counter-example found by fuzzer:\n";
+            std::cerr << "Counter-example found by fuzzer:\n";
             print_run(shrunk_run);
             std::exit(1);
         }
