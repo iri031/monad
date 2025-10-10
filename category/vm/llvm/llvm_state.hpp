@@ -98,7 +98,8 @@ namespace monad::vm::llvm
             ModulePassManager MPM =
                 PB.buildPerModuleDefaultPipeline(OptimizationLevel::O3);
 
-            bool const do_optimize = true;
+            // BAL: bool const do_optimize = true;
+            bool const do_optimize = false;
 
             if (do_optimize) {
                 MPM.run(*llvm_module, MAM);

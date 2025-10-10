@@ -1166,7 +1166,7 @@ namespace monad::vm::llvm
             llvm.insert_at(entry);
             auto *gas = llvm.load(llvm.int_ty(64), gas_ref);
             auto *r = llvm.add(gas, block_base_gas_remaining);
-            llvm.ret(r);
+            llvm.ret(llvm.cast_word(r));
             return f;
         }
 
