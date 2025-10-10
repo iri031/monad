@@ -687,6 +687,10 @@ namespace monad::vm::llvm
             auto *g = llvm.lit(64, ei.remaining_block_base_gas);
             args.push_back(g);
 
+            if (ei.instr.opcode() == Gas) {
+                args.push_back(g_ctx_gas_ref);
+            }
+
             for (auto const &arg : ei.args) {
                 args.push_back(EvmValue_to_value(arg));
             }
@@ -1142,6 +1146,30 @@ namespace monad::vm::llvm
             return f;
         }
 
+        Function *llvm_gas(Instruction const &instr)
+        {
+            SaveInsert const _unused(llvm);
+
+            auto [f, arg] = llvm.internal_function_definition(
+                instr_name(instr),
+                llvm.word_ty,
+                {llvm.ptr_ty(context_ty),
+                 llvm.int_ty(64),
+                 llvm.ptr_ty(llvm.int_ty(64))});
+
+            Value *block_base_gas_remaining = arg[1];
+            block_base_gas_remaining->setName("block_base_gas_remaining");
+            Value *gas_ref = arg[2];
+            gas_ref->setName("gas_ref");
+
+            auto *entry = llvm.basic_block("entry", f);
+            llvm.insert_at(entry);
+            auto *gas = llvm.load(llvm.int_ty(64), gas_ref);
+            auto *r = llvm.add(gas, block_base_gas_remaining);
+            llvm.ret(r);
+            return f;
+        }
+
         Function *llvm_sar(Instruction const &instr)
         {
             SaveInsert const _unused(llvm);
@@ -1365,7 +1393,7 @@ namespace monad::vm::llvm
                 return load_context_be(instr, context_offset_env_value);
 
             case Gas:
-                return nullptr; // Gas opcode is inlined
+                return llvm_gas(instr);
 
             case Byte:
                 return llvm_byte(instr);

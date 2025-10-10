@@ -269,7 +269,6 @@ namespace monad::vm::dependency_blocks
                     value_stack.push_back(static_cast<uint256_t>(instr.pc()));
                     break;
 
-                // case Gas:
                 case Push:
                     value_stack.push_back(instr.immediate_value());
                     break;
@@ -454,6 +453,9 @@ struct std::formatter<monad::vm::dependency_blocks::Instr>
                     for (auto const &arg : ei.args) {
                         std::format_to(ctx.out(), " {}", arg);
                     }
+
+                    std::format_to(
+                        ctx.out(), "  rbbg:{}", ei.remaining_block_base_gas);
                 },
                 [&](struct UnspillInstr const &ui) {
                     return std::format_to(ctx.out(), "unspill {}", ui.idx);

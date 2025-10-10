@@ -98,7 +98,7 @@ namespace monad::vm::llvm
             ModulePassManager MPM =
                 PB.buildPerModuleDefaultPipeline(OptimizationLevel::O3);
 
-            bool const do_optimize = false; // BAL: true
+            bool const do_optimize = true;
 
             if (do_optimize) {
                 MPM.run(*llvm_module, MAM);
@@ -130,10 +130,8 @@ namespace monad::vm::llvm
             ExitOnErr(lljit->addIRModule(std::move(tsm)));
             MONAD_VM_ASSERT(lljit);
 
-            std::cerr << "memory error here:\n";
             Expected<ExecutorAddr> expected_contract_addr =
                 lljit->lookup("contract");
-            std::cerr << "died\n";
 
             if (auto err = expected_contract_addr.takeError()) {
                 errs() << "error:" << toString(std::move(err)) << '\n';
