@@ -264,18 +264,18 @@ namespace monad::vm::llvm
                 "stacktop_offset");
         }
 
-        void update_gas(int64_t const block_base_gas)
+        void check_and_update_gas(int64_t const block_base_gas)
         {
 
-            if (update_gas_f == nullptr) {
+            if (check_and_update_gas_f == nullptr) {
                 SaveInsert const _unused(llvm);
                 auto [f, arg] = llvm.internal_function_definition(
-                    "update_gas",
+                    "check_and_update_gas",
                     llvm.void_ty,
                     {llvm.ptr_ty(context_ty),
                      llvm.ptr_ty(llvm.int_ty(64)),
                      llvm.int_ty(64)});
-                update_gas_f = f;
+                check_and_update_gas_f = f;
                 auto *entry = llvm.basic_block("entry", f);
                 llvm.insert_at(entry);
 
@@ -289,7 +289,7 @@ namespace monad::vm::llvm
                 auto *gas = llvm.load(llvm.int_ty(64), gas_ref);
                 auto *gas1 = llvm.sub(gas, block_base_gas);
                 llvm.store(gas1, gas_ref);
-                auto *gas_lt_zero = llvm.slt(gas1, llvm.lit(64, 0));
+                auto *gas_lt_zero = llvm.slt(gas1, llvm.i64(0));
 
                 auto *gas_ok_lbl = llvm.basic_block("gas_ok_lbl", f);
                 auto *gas_err_lbl = llvm.basic_block("gas_err_lbl", f);
@@ -297,22 +297,15 @@ namespace monad::vm::llvm
                 llvm.condbr(gas_lt_zero, gas_err_lbl, gas_ok_lbl);
 
                 llvm.insert_at(gas_err_lbl);
-
-                llvm.call_void(
-                    exit_f,
-                    {ctx_ref,
-                     llvm.lit(64, static_cast<uint64_t>(StatusCode::Error))});
-                llvm.unreachable();
+                exit_(ctx_ref, StatusCode::Error);
 
                 llvm.insert_at(gas_ok_lbl);
                 llvm.ret_void();
             }
 
             llvm.call_void(
-                update_gas_f,
-                {g_ctx_ref,
-                 g_ctx_gas_ref,
-                 llvm.lit(64, static_cast<uint64_t>(block_base_gas))});
+                check_and_update_gas_f,
+                {g_ctx_ref, g_ctx_gas_ref, llvm.i64(block_base_gas)});
         }
 
         void emit_contract()
@@ -327,9 +320,12 @@ namespace monad::vm::llvm
                 auto *lbl = get_block_lbl(blk.offset);
                 llvm.insert_at(lbl);
 
-                update_gas(blk.block_base_gas);
+                check_and_update_gas(blk.block_base_gas);
 
                 Value *stack_top = load_stack_top_p();
+
+                check_stack_underflow(stack_top, blk.low);
+                check_stack_overflow(stack_top, blk.high);
 
                 // std::cerr << std::format("block {}", blk);
 
@@ -405,7 +401,9 @@ namespace monad::vm::llvm
 
         Function *exit_f = init_exit();
         Function *selfdestruct_f = nullptr;
-        Function *update_gas_f = nullptr;
+        Function *check_and_update_gas_f = nullptr;
+        Function *check_stack_underflow_f = nullptr;
+        Function *check_stack_overflow_f = nullptr;
 
         Value *jump_mem = nullptr;
         BasicBlock *jump_lbl = nullptr;
@@ -449,7 +447,7 @@ namespace monad::vm::llvm
                 SaveInsert const _unused(llvm);
                 error_lbl_v = llvm.basic_block("error_lbl", contract);
                 llvm.insert_at(error_lbl_v);
-                exit_(StatusCode::Error);
+                exit_(g_ctx_ref, StatusCode::Error);
             }
             return error_lbl_v;
         }
@@ -460,7 +458,7 @@ namespace monad::vm::llvm
                 SaveInsert const _unused(llvm);
                 return_lbl_v = llvm.basic_block("return_lbl", contract);
                 llvm.insert_at(return_lbl_v);
-                exit_(StatusCode::Success);
+                exit_(g_ctx_ref, StatusCode::Success);
             }
             return return_lbl_v;
         }
@@ -471,7 +469,7 @@ namespace monad::vm::llvm
                 SaveInsert const _unused(llvm);
                 revert_lbl_v = llvm.basic_block("revert_lbl", contract);
                 llvm.insert_at(revert_lbl_v);
-                exit_(StatusCode::Revert);
+                exit_(g_ctx_ref, StatusCode::Revert);
             }
             return revert_lbl_v;
         }
@@ -684,7 +682,7 @@ namespace monad::vm::llvm
 
             args.push_back(g_ctx_ref);
 
-            auto *g = llvm.lit(64, ei.remaining_block_base_gas);
+            auto *g = llvm.i64(ei.remaining_block_base_gas);
             args.push_back(g);
 
             if (ei.instr.opcode() == Gas) {
@@ -730,46 +728,101 @@ namespace monad::vm::llvm
             return f;
         }
 
-        void exit_(StatusCode status)
+        void exit_(Value *ctx_ref, StatusCode status)
         {
             llvm.call_void(
-                exit_f,
-                {g_ctx_ref, llvm.lit(64, static_cast<uint64_t>(status))});
+                exit_f, {ctx_ref, llvm.u64(static_cast<uint64_t>(status))});
             llvm.unreachable();
         }
 
-        void check_underflow(int64_t low, Value *stack_top, byte_offset offset)
-        {
-            if (low >= 0) {
-                llvm.debug("no need to check underflow\n");
-                return;
-            }
-            auto *no_underflow_lbl = llvm.basic_block(
-                std::format("no_underflow_lbl_{}", offset), contract);
-
-            auto *stack_low = evm_stack_idx(stack_top, low);
-
-            auto *low_pred = llvm.slt(stack_low, evm_stack_begin);
-            llvm.condbr(low_pred, error_lbl(), no_underflow_lbl);
-
-            llvm.insert_at(no_underflow_lbl);
-        };
-
-        void check_overflow(int64_t high, Value *stack_top, byte_offset offset)
+        void check_stack_overflow(Value *stack_top, int32_t high)
         {
             if (high <= 0) {
                 llvm.debug("no need to check overflow\n");
                 return;
             }
-            auto *no_overflow_lbl = llvm.basic_block(
-                std::format("no_overflow_lbl_{}", offset), contract);
 
-            auto *stack_high = evm_stack_idx(stack_top, high);
+            if (check_stack_overflow_f == nullptr) {
+                SaveInsert const _unused(llvm);
+                auto [f, arg] = llvm.internal_function_definition(
+                    "check_stack_overflow",
+                    llvm.void_ty,
+                    {llvm.ptr_ty(context_ty),
+                     llvm.ptr_ty(llvm.word_ty),
+                     llvm.ptr_ty(llvm.word_ty)});
 
-            auto *high_pred = llvm.sgt(stack_high, evm_stack_end);
-            llvm.condbr(high_pred, error_lbl(), no_overflow_lbl);
+                check_stack_overflow_f = f;
+                auto *entry = llvm.basic_block("entry", f);
+                auto *stack_ok_lbl = llvm.basic_block("stack_ok_lbl", f);
+                auto *stack_err_lbl = llvm.basic_block("stack_err_lbl", f);
 
-            llvm.insert_at(no_overflow_lbl);
+                llvm.insert_at(entry);
+
+                Value *ctx_ref = arg[0];
+                ctx_ref->setName("ctx_ref");
+                Value *stack_end = arg[1];
+                stack_end->setName("stack_end");
+                Value *stack_high = arg[2];
+                stack_top->setName("stack_high");
+
+                auto *is_stack_err = llvm.sgt(stack_high, stack_end);
+                llvm.condbr(is_stack_err, stack_err_lbl, stack_ok_lbl);
+
+                llvm.insert_at(stack_err_lbl);
+                exit_(ctx_ref, StatusCode::Error);
+
+                llvm.insert_at(stack_ok_lbl);
+                llvm.ret_void();
+            }
+
+            llvm.call_void(
+                check_stack_overflow_f,
+                {g_ctx_ref, evm_stack_end, stacktop_offset(stack_top, high)});
+        };
+
+        void check_stack_underflow(Value *stack_top, int32_t low)
+        {
+            if (low >= 0) {
+                llvm.debug("no need to check underflow\n");
+                return;
+            }
+
+            if (check_stack_underflow_f == nullptr) {
+                SaveInsert const _unused(llvm);
+                auto [f, arg] = llvm.internal_function_definition(
+                    "check_stack_underflow",
+                    llvm.void_ty,
+                    {llvm.ptr_ty(context_ty),
+                     llvm.ptr_ty(llvm.word_ty),
+                     llvm.ptr_ty(llvm.word_ty)});
+
+                check_stack_underflow_f = f;
+                auto *entry = llvm.basic_block("entry", f);
+                auto *stack_ok_lbl = llvm.basic_block("stack_ok_lbl", f);
+                auto *stack_err_lbl = llvm.basic_block("stack_err_lbl", f);
+
+                llvm.insert_at(entry);
+
+                Value *ctx_ref = arg[0];
+                ctx_ref->setName("ctx_ref");
+                Value *stack_begin = arg[1];
+                stack_begin->setName("stack_begin");
+                Value *stack_low = arg[2];
+                stack_top->setName("stack_low");
+
+                auto *is_stack_err = llvm.slt(stack_low, stack_begin);
+                llvm.condbr(is_stack_err, stack_err_lbl, stack_ok_lbl);
+
+                llvm.insert_at(stack_err_lbl);
+                exit_(ctx_ref, StatusCode::Error);
+
+                llvm.insert_at(stack_ok_lbl);
+                llvm.ret_void();
+            }
+
+            llvm.call_void(
+                check_stack_underflow_f,
+                {g_ctx_ref, evm_stack_begin, stacktop_offset(stack_top, low)});
         };
 
         BasicBlock *get_block_lbl(byte_offset offset)
@@ -788,8 +841,7 @@ namespace monad::vm::llvm
 
         Value *context_gep(Value *ctx_ref, uint64_t offset, std::string_view nm)
         {
-            return llvm.gep(
-                llvm.int_ty(8), ctx_ref, {llvm.lit(64, offset)}, nm);
+            return llvm.gep(llvm.int_ty(8), ctx_ref, {llvm.u64(offset)}, nm);
         };
 
         Value *assign(Value *v, std::string_view nm)

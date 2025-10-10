@@ -21,6 +21,9 @@
 // #include <category/vm/evm/opcodes.hpp> // BAL:
 #include <category/vm/evm/traits.hpp>
 
+#include <iostream>
+#include <optional>
+
 using namespace monad::vm::compiler::basic_blocks;
 using namespace monad::vm::runtime;
 using namespace monad::vm::compiler;
@@ -45,7 +48,7 @@ namespace monad::vm::dependency_blocks
 {
 
     typedef int32_t StackIdx;
-    typedef int64_t InstrIdx;
+    typedef size_t InstrIdx;
 
     typedef std::variant<uint256_t, InstrIdx> EvmValue;
 
@@ -137,7 +140,7 @@ namespace monad::vm::dependency_blocks
 
         bool is_evaluated(InstrIdx i)
         {
-            return (i == -1 || blk_instrs_evaluated[i]);
+            return blk_instrs_evaluated[i];
         }
 
         void evaluate(InstrIdx i)
@@ -176,7 +179,7 @@ namespace monad::vm::dependency_blocks
         InstrIdx unspill_offset_of(StackIdx i)
         {
             // std::cerr << std::format("unspill offset {} {}\n", i, -i - 1);
-            return (-i - 1);
+            return (static_cast<InstrIdx>(-i - 1));
         }
 
         std::vector<InstrIdx> unevaluated_deps_of(InstrIdx i)
@@ -199,9 +202,6 @@ namespace monad::vm::dependency_blocks
                         }
                         push_if_unevaluated(deps, si.val);
                     },
-                    // [&](struct CheckOverflowInstr const &) {},
-                    // [&](struct CheckUnderflowInstr const &) {},
-                    // [&](struct UpdateStackTopInstr const &) {},
                 },
                 blk_instrs[i]);
 
@@ -247,7 +247,7 @@ namespace monad::vm::dependency_blocks
             int64_t remaining_block_base_gas = block_base_gas;
             MONAD_VM_DEBUG_ASSERT(remaining_block_base_gas >= 0);
 
-            InstrIdx last_stmt = -1;
+            std::optional<InstrIdx> last_stmt = std::nullopt;
             std::vector<InstrIdx> dependencies;
 
             expand_value_stack(low);
@@ -290,8 +290,8 @@ namespace monad::vm::dependency_blocks
                 default:
                     std::vector<EvmValue> args = pop_args(n_args);
 
-                    if (!is_pure(op)) {
-                        args.push_back(last_stmt);
+                    if (!is_pure(op) && last_stmt.has_value()) {
+                        args.push_back(last_stmt.value());
                     }
 
                     InstrIdx idx = insert_instr(
@@ -331,7 +331,9 @@ namespace monad::vm::dependency_blocks
             };
 
             // dependencies needed for the statements
-            dependencies.push_back(last_stmt);
+            if (last_stmt.has_value()) {
+                dependencies.push_back(last_stmt.value());
+            }
 
             // push spill dependencies last so they are processed first
             if (is_spill_terminator(blk.terminator)) {
@@ -343,7 +345,7 @@ namespace monad::vm::dependency_blocks
                 }
             }
 
-            while (dependencies.size() > 0) {
+            while (!dependencies.empty()) {
 
                 auto v = dependencies.back();
 
@@ -356,7 +358,6 @@ namespace monad::vm::dependency_blocks
 
                 if (needed_deps.empty()) {
                     evaluate(v);
-                    dependencies.pop_back();
                     continue;
                 }
 

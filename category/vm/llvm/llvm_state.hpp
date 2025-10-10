@@ -474,11 +474,6 @@ namespace monad::vm::llvm
             return PointerType::getUnqual(ty);
         };
 
-        Constant *lit(unsigned int sz, uint64_t x)
-        {
-            return ConstantInt::get(int_ty(sz), x);
-        };
-
         Constant *u64(uint64_t x)
         {
             return ConstantInt::get(int_ty(64), x);
