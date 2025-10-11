@@ -34,12 +34,14 @@ using enum Terminator;
 
 bool is_pure(OpCode op)
 {
-    return (
-        op == Shl || op == Shr || op == Sar || op == Add || op == Mul ||
-        op == Sub || op == Div || op == SDiv || op == Mod || op == SMod ||
-        op == AddMod || op == MulMod || op == SignExtend || op == Lt ||
-        op == Gt || op == SLt || op == SGt || op == Eq || op == IsZero ||
-        op == And || op == Or || op == XOr || op == Not || op == Byte);
+    MONAD_VM_ASSERT(op == op);
+    return false; // BAL: put back in
+    // return (
+    //     op == Shl || op == Shr || op == Sar || op == Add || op == Mul ||
+    //     op == Sub || op == Div || op == SDiv || op == Mod || op == SMod ||
+    //     op == AddMod || op == MulMod || op == SignExtend || op == Lt ||
+    //     op == Gt || op == SLt || op == SGt || op == Eq || op == IsZero ||
+    //     op == And || op == Or || op == XOr || op == Not || op == Byte);
 
     // BAL: just put true or false in the OpCodeInfo table in opcodes.hpp
 }
@@ -233,7 +235,9 @@ namespace monad::vm::dependency_blocks
         std::vector<EvmValue> value_stack;
 
     public:
-        DependencyBlock(Block const &blk, int64_t blk_base_gas)
+        DependencyBlock(
+            Block const &blk, int64_t blk_base_gas,
+            int64_t remaining_block_base_gas)
             : offset(blk.offset)
             , block_base_gas(blk_base_gas)
             , terminator(blk.terminator)
@@ -244,7 +248,6 @@ namespace monad::vm::dependency_blocks
             delta = delta_;
             high = high_;
 
-            int64_t remaining_block_base_gas = block_base_gas;
             MONAD_VM_DEBUG_ASSERT(remaining_block_base_gas >= 0);
 
             std::optional<InstrIdx> last_stmt = std::nullopt;
@@ -392,8 +395,12 @@ namespace monad::vm::dependency_blocks
         DependencyBlocksIR dep_ir(ir);
         for (auto const &blk : ir.blocks()) {
             int64_t gas = block_base_gas<traits>(blk);
-            gas = dep_ir.is_jumpdest(blk.offset) ? 1 + gas : gas;
-            dep_ir.blocks.push_back(DependencyBlock(blk, gas));
+            bool is_jd = dep_ir.is_jumpdest(blk.offset);
+            int64_t blk_gas = is_jd ? 1 + gas : gas;
+            int64_t blk_gas_remaining = is_jd ? blk_gas - 1 : blk_gas;
+
+            dep_ir.blocks.push_back(
+                DependencyBlock(blk, blk_gas, blk_gas_remaining));
         }
         return dep_ir;
     }
