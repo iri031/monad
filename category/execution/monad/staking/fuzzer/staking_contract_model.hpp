@@ -26,7 +26,6 @@ namespace std
     template <>
     struct hash<monad::uint256_t>
     {
-        template <typename... T>
         std::size_t operator()(const monad::uint256_t& x) const noexcept
         {
             return monad::staking::test::RefConstHash<decltype(x[0])>{}(
@@ -52,9 +51,9 @@ namespace monad::staking::test
         uint256_t error_bound_{};
 
         using UnitBiasRewardsMap = std::unordered_map<
-            std::tuple<uint64_t, uint256_t>,
+            std::tuple<uint64_t, Address>,
             uint256_t,
-            TupleHash<uint64_t, uint256_t>>;
+            TupleHash<uint64_t, Address>>;
 
         // unit_bias_rewards[{v, a}] is the sum of rewards distributed to
         // delegator(v, a), but not yet claimed/compounded.
@@ -73,26 +72,43 @@ namespace monad::staking::test
         ActiveConsensusCommissionMap active_consensus_commission_;
 
         using DelegatorStakeMap = std::unordered_map<
-            std::tuple<uint64_t, uint256_t>,
+            std::tuple<uint64_t, Address>,
             std::map<uint64_t, uint256_t, std::greater<uint64_t>>,
-            TupleHash<uint64_t, uint256_t>>;
+            TupleHash<uint64_t, Address>>;
 
         // delegator_stake[{v, a, e}] is the stake of delegator(v, a)
         // in epoch e:
         DelegatorStakeMap delegator_stake_;
 
         using WithdrawalStakeMap = std::unordered_map<
-            std::tuple<uint64_t, uint256_t, uint64_t>,
+            std::tuple<uint64_t, Address, uint64_t>,
             uint256_t,
-            TupleHash<uint64_t, uint256_t, uint64_t>>;
+            TupleHash<uint64_t, Address, uint64_t>>;
 
         // withdrawal_stake[{v, a, e}] is the stake of delegator(v, a)
         // in epoch e which has been undelegated, but the stake is eligible
         // for rewards.
         WithdrawalStakeMap withdrawal_stake_;
 
+        using ValIdToDelegatorsMap = std::unordered_map<
+            uint64_t, std::unordered_set<Address>>;
+
+        ValIdToDelegatorsMap val_id_to_historic_delegators_;
+
+        using DelegatorToActiveWithdrawalIdsMap = std::unordered_map<
+            std::tuple<uint64_t, Address>,
+            std::unordered_set<uint8_t>,
+            TupleHash<uint64_t, Address>>;
+
+        DelegatorToActiveWithdrawalIdsMap delegator_to_active_withdrawal_ids_;
+
     public:
         StakingContractModel();
+
+        std::unordered_set<uint8_t> const &
+        active_withdrawal_ids(u64_be, Address const &);
+
+        uint256_t unit_bias_rewards(u64_be v, Address const &a);
 
         uint256_t delegator_stake(u64_be, Address const &, u64_be);
 
@@ -104,11 +120,18 @@ namespace monad::staking::test
 
         uint256_t error_bound();
 
+        uint256_t live_accumulated_reward_per_token(
+            u64_be epoch, u64_be val_id);
+
         bool in_epoch_delay_period();
 
         uint64_t last_val_id();
 
         uint64_t epoch();
+
+        uint64_t val_id(Address const &);
+
+        uint64_t val_id_bls(Address const &);
 
         ValExecution val_execution(u64_be);
 
@@ -200,13 +223,13 @@ namespace monad::staking::test
 
     private:
         uint256_t get_delegator_stake(
-            uint64_t, uint256_t const &, uint64_t);
+            uint64_t, Address const &, uint64_t);
         uint256_t get_withdrawal_stake(
-            uint64_t, uint256_t const &, uint64_t);
+            uint64_t, Address const &, uint64_t);
         void add_delegator_stake(
-            uint64_t, uint256_t const &, uint64_t, uint256_t const &);
+            uint64_t, Address const &, uint64_t, uint256_t const &);
         void add_withdrawal_stake(
-            uint64_t, uint256_t const &, uint64_t, uint256_t const &);
+            uint64_t, Address const &, uint64_t, uint256_t const &);
 
         void distribute_reward(u64_be, u256_be const &);
 

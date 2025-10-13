@@ -1,7 +1,7 @@
 #include <category/execution/monad/staking/fuzzer/staking_contract_machine.hpp>
+#include <category/execution/monad/staking/util/bls.hpp>
+#include <category/execution/monad/staking/util/secp256k1.hpp>
 #include <category/execution/monad/staking/util/test_util.hpp>
-
-#include <category/vm/fuzzing/generator/choice.hpp>
 
 #include <algorithm>
 
@@ -140,15 +140,205 @@ namespace monad::staking::test
     }
 
     void StakingContractMachine::assert_val_execution_invariants(
-        AssertState const &astate)
+        AssertState const &)
     {
-        (void)astate;
+        for_all_val_ids([&, this](u64_be v) {
+            MONAD_ASSERT(
+                (v.native() == 0 || v.native() > model_.last_val_id()) ||
+                model_.val_execution(v).auth_address() != Address{});
+
+            MONAD_ASSERT(
+                (v.native() > 0 && v.native() <= model_.last_val_id()) ||
+                model_.val_execution(0).auth_address() == Address{});
+
+            MONAD_ASSERT(
+                v.native() == 0 ||
+                model_.val_execution(
+                    v.native() + 1).auth_address() == Address{} ||
+                model_.val_execution(v).auth_address() != Address{});
+
+            auto const auth_address =
+                model_.val_execution(v).auth_address();
+            auto const stake_sum =
+                model_.delegator(v, auth_address)
+                    .stake().load().native() +
+                model_.delegator(v, auth_address)
+                    .delta_stake().load().native() +
+                model_.delegator(v, auth_address)
+                    .next_delta_stake().load().native();
+            MONAD_ASSERT(
+                (v.native() == 0 || v.native() > model_.last_val_id()) ||
+                (stake_sum >= MIN_VALIDATE_STAKE) ==
+                !(model_.val_execution(v).get_flags() &
+                  ValidatorFlagWithdrawn))
+
+            MONAD_ASSERT(
+                model_.val_execution(v).commission().load().native() <=
+                MAX_COMMISSION);
+
+            MONAD_ASSERT(model_.val_execution(v).get_flags() < 4);
+
+            MONAD_ASSERT(
+                (v.native() == 0 || v.native() > model_.last_val_id()) ||
+                (model_.val_execution(v).stake().load().native() >=
+                 ACTIVE_VALIDATOR_STAKE) ==
+                !(model_.val_execution(v).get_flags() &
+                  ValidatorFlagsStakeTooLow));
+
+            if (enable_pubkey_assertions_) {
+                auto const keys = model_.val_execution(v).keys().load();
+
+                Secp256k1Pubkey const secp_pubkey{keys.secp_pubkey};
+                if (secp_pubkey.is_valid()) {
+                    MONAD_ASSERT(
+                        v.native() > 0 &&
+                        v.native() <= model_.last_val_id());
+                    auto const secp_eth_address =
+                        address_from_secpkey(secp_pubkey.serialize());
+                    MONAD_ASSERT(model_.val_id(secp_eth_address) != 0);
+                }
+                else {
+                    MONAD_ASSERT(
+                        v.native() == 0 || v.native() > model_.last_val_id());
+                }
+
+                BlsPubkey const bls_pubkey{keys.bls_pubkey};
+                if (bls_pubkey.is_valid()) {
+                    MONAD_ASSERT(
+                        v.native() > 0 &&
+                        v.native() <= model_.last_val_id());
+                    auto const bls_eth_address =
+                        address_from_bls_key(bls_pubkey.serialize());
+                    MONAD_ASSERT(model_.val_id_bls(bls_eth_address) != 0);
+                }
+                else {
+                    MONAD_ASSERT(
+                        v.native() == 0 || v.native() > model_.last_val_id());
+                }
+            }
+        });
     }
 
     void StakingContractMachine::assert_delegator_invariants(
-        AssertState const &astate)
+        AssertState const &)
     {
-        (void)astate;
+        for_all_val_ids_and_addresses([&, this](u64_be v, Address const &a) {
+            auto del = model_.delegator(v, a);
+
+            MONAD_ASSERT(
+                del.next_delta_stake().load().native() == 0 ||
+                del.next_delta_stake().load().native() >= DUST_THRESHOLD);
+
+            MONAD_ASSERT(
+                del.delta_stake().load().native() == 0 ||
+                del.delta_stake().load().native() >= DUST_THRESHOLD);
+
+            MONAD_ASSERT(
+                del.stake().load().native() == 0 ||
+                del.stake().load().native() >= DUST_THRESHOLD);
+
+            MONAD_ASSERT(
+                (del.next_delta_stake().load().native() == 0) ==
+                (del.get_next_delta_epoch().native() == 0));
+
+            MONAD_ASSERT(
+                (del.delta_stake().load().native() == 0) ==
+                (del.get_delta_epoch().native() == 0));
+
+            MONAD_ASSERT(
+                del.get_delta_epoch().native() == 0 ||
+                del.get_next_delta_epoch().native() == 0 ||
+                del.get_next_delta_epoch().native() ==
+                    del.get_delta_epoch().native() + 1);
+
+            MONAD_ASSERT(
+                del.get_delta_epoch().native() <= model_.epoch() + 1);
+
+            MONAD_ASSERT(
+                del.get_next_delta_epoch().native() <= model_.epoch() + 2);
+
+            // The invariant
+            // withdrawal_request.amount = 0 iff withdrawal_request.epoch = 0
+            // is slowing slowing down assert checking too much.
+            // Instead just verify that the known withdrawal requests have
+            // non-zero epoch and value.
+            auto const &withdrawal_ids =
+                model_.active_withdrawal_ids(v, a);
+            for (uint8_t const i : withdrawal_ids) {
+                std::cout << "i = " << (int)i << std::endl;
+                std::cout << "v = " << v.native() << std::endl;
+                std::cout << "a = " <<
+                    intx::to_string(intx::be::load<uint256_t>(a)) << std::endl;
+                // This is not part of the properties document.
+                // It is used to sanity check the machine:
+                std::tuple<uint64_t, Address, uint8_t> const key =
+                    {v.native(), a, i};
+                MONAD_ASSERT(all_withdrawal_requests_.contains(key));
+
+                MONAD_ASSERT(
+                    model_.withdrawal_request(v, a, i)
+                        .load().amount.native() > 0);
+                MONAD_ASSERT(
+                    model_.withdrawal_request(v, a, i)
+                        .load().epoch.native() > 0);
+            }
+
+            auto const error_bound = model_.error_bound();
+            auto const unit_bias_rewards = model_.unit_bias_rewards(v, a);
+            auto const pending_rewards = 
+                model_.pending_rewards(v, a);
+            auto const active_rewards =
+                model_.delegator(v, a).rewards().load().native() +
+                pending_rewards;
+            MONAD_ASSERT(
+                unit_bias_rewards <=
+                (active_rewards + error_bound + 3 + 256) * UNIT_BIAS);
+            MONAD_ASSERT(
+                (active_rewards + error_bound + 3 + 256) * UNIT_BIAS <=
+                unit_bias_rewards + ((error_bound + 3 + 256) * UNIT_BIAS));
+
+            auto const this_epoch = model_.epoch();
+
+            auto actual_delegator_stake = del.stake().load().native();
+            if (del.get_delta_epoch().native() <= this_epoch) {
+                actual_delegator_stake +=
+                    del.delta_stake().load().native();
+            }
+            if (del.get_next_delta_epoch().native() <= this_epoch) {
+                actual_delegator_stake +=
+                    del.next_delta_stake().load().native();
+            }
+            MONAD_ASSERT(
+                model_.delegator_stake(v, a, this_epoch) ==
+                actual_delegator_stake);
+
+            uint256_t actual_withdrawal_stake;
+            for (uint8_t const i : withdrawal_ids) {
+                auto withdrawal = model_.withdrawal_request(v, a, i).load();
+                if (withdrawal.epoch.native() > this_epoch) {
+                    actual_withdrawal_stake += withdrawal.amount.native();
+                }
+            }
+            MONAD_ASSERT(
+                model_.withdrawal_stake(v, a, this_epoch) ==
+                actual_withdrawal_stake);
+        });
+
+        for_all_val_ids([&](u64_be v) {
+            auto const epoch = model_.epoch();
+            uint256_t del_stake_sum;
+            uint256_t withdraw_stake_sum;
+            for_all_addresses([&, this](Address const &a) {
+                del_stake_sum +=
+                    model_.delegator_stake(v, a, epoch);
+                withdraw_stake_sum +=
+                    model_.withdrawal_stake(v, a, epoch);
+            });
+            MONAD_ASSERT(
+                model_.active_consensus_stake(v) == 0 ||
+                model_.active_consensus_stake(v) ==
+                del_stake_sum + withdraw_stake_sum);
+        });
     }
 
     void StakingContractMachine::assert_accumulated_rewards_invariants(
@@ -186,45 +376,67 @@ namespace monad::staking::test
         }
     }
 
+    void StakingContractMachine::for_all_val_ids_and_addresses(
+        std::function<void(u64_be, Address const &)> f)
+    {
+        for_all_val_ids([&](u64_be v){
+            for_all_addresses([&](Address const &a) {
+                f(v, a);
+            });
+        });
+    }
+
     bool StakingContractMachine::transition(Transition t)
     {
         bool ok = true;
         switch (t)
         {
         case Transition::syscall_on_epoch_change:
+            if (enable_trace_) {std::cout << "Transition::syscall_on_epoch_change" << std::endl;}
             syscall_on_epoch_change();
             break;
         case Transition::syscall_snapshot:
+            if (enable_trace_) {std::cout << "Transition::syscall_snapshot" << std::endl;}
             syscall_snapshot();
             break;
         case Transition::syscall_reward:
+            if (enable_trace_) {std::cout << "Transition::syscall_reward" << std::endl;}
             syscall_reward();
             break;
         case Transition::precompile_add_validator:
+            if (enable_trace_) {std::cout << "Transition::precompile_add_validator" << std::endl;}
             precompile_add_validator();
             break;
         case Transition::precompile_delegate:
+            if (enable_trace_) {std::cout << "Transition::precompile_delegate" << std::endl;}
             precompile_delegate();
             break;
         case Transition::precompile_undelegate:
+            if (enable_trace_) {std::cout << "Transition::precompile_undelegate" << std::endl;}
             precompile_undelegate();
             break;
         case Transition::precompile_compound:
+            if (enable_trace_) {std::cout << "Transition::precompile_compound" << std::endl;}
             ok = precompile_compound();
             break;
         case Transition::precompile_withdraw:
+            if (enable_trace_) {std::cout << "Transition::precompile_withdraw" << std::endl;}
             ok = precompile_withdraw();
             break;
         case Transition::precompile_claim_rewards:
+            if (enable_trace_) {std::cout << "Transition::precompile_claim_rewards" << std::endl;}
             precompile_claim_rewards();
             break;
         case Transition::precompile_change_commission:
+            if (enable_trace_) {std::cout << "Transition::precompile_change_commission" << std::endl;}
             precompile_change_commission();
             break;
         case Transition::precompile_external_reward:
+            if (enable_trace_) {std::cout << "Transition::precompile_external_reward" << std::endl;}
             ok = precompile_external_reward();
             break;
         case Transition::precompile_get_delegator:
+            if (enable_trace_) {std::cout << "Transition::precompile_get_delegator" << std::endl;}
             precompile_get_delegator();
             break;
         default:
@@ -314,8 +526,7 @@ namespace monad::staking::test
     u64_be StakingContractMachine::gen_delegable_val_id()
     {
         if (!delegable_val_ids_.empty()) {
-            auto const v =
-                delegable_val_ids_[gen() % delegable_val_ids_.size()];
+            auto const v = delegable_val_ids_.sample(engine_);
             MONAD_ASSERT(model_.val_execution(v).exists());
             return v;
         }
@@ -350,9 +561,8 @@ namespace monad::staking::test
                 signer, msg, secp, bls, sender, value);
             MONAD_ASSERT(!all_delegators_.empty());
         }
-        auto const d = all_delegators_[gen() % all_delegators_.size()];
-        MONAD_ASSERT(model_.val_execution(d.first).exists());
-        return d;
+        auto const &[v, a] = all_delegators_.sample(engine_);
+        return {u64_be{v}, a};
     }
 
     uint256_t StakingContractMachine::gen_uint256()
@@ -449,22 +659,6 @@ namespace monad::staking::test
             MONAD_ASSERT(
                 model_.active_consensus_stake(v) ==
                 model_.consensus_view(v).stake().load().native());
-
-            uint256_t del_stake_sum;
-            for_all_addresses([&, this](Address const &a) {
-                del_stake_sum +=
-                    model_.delegator_stake(v, a, next_epoch);
-            });
-            uint256_t withdraw_stake_sum;
-            for_all_addresses([&, this](Address const &a) {
-                withdraw_stake_sum +=
-                    model_.withdrawal_stake(v, a, next_epoch);
-            });
-
-            MONAD_ASSERT(
-                model_.active_consensus_stake(v) == 0 ||
-                model_.active_consensus_stake(v) ==
-                del_stake_sum + withdraw_stake_sum);
         });
     }
 
@@ -547,16 +741,18 @@ namespace monad::staking::test
         all_val_ids_.push_back(val_id);
         if (intx::be::load<uint256_t>(value.bytes) <= MAX_DELEGABLE_STAKE) {
             MONAD_ASSERT(model_.val_execution(val_id).exists());
-            delegable_val_ids_.push_back(val_id);
+            auto const ins = delegable_val_ids_.insert(val_id.native());
+            MONAD_ASSERT(ins);
         }
 
         auto const auth_address =
             get_add_validator_message_auth_address(msg);
 
-        all_delegators_.emplace_back(val_id, auth_address);
+        auto ins1 = all_delegators_.insert({val_id.native(), auth_address});
+        MONAD_ASSERT(ins1);
 
-        auto [_, b] = val_id_to_signer_.insert({val_id.native(), signer});
-        MONAD_ASSERT(b);
+        auto [_, ins2] = val_id_to_signer_.insert({val_id.native(), signer});
+        MONAD_ASSERT(ins2);
 
         validator_auth_addresses_.emplace_back(val_id, auth_address);
 
@@ -610,16 +806,10 @@ namespace monad::staking::test
         auto const val_stake =
             model_.val_execution(val_id).stake().load().native();
         if (val_stake > MAX_DELEGABLE_STAKE) {
-            auto const &w = delegable_val_ids_;
-            auto const pos = std::find(w.begin(), w.end(), val_id);
-            MONAD_ASSERT(pos != w.end());
-            delegable_val_ids_.erase(pos);
+            auto const er = delegable_val_ids_.erase(val_id.native());
+            MONAD_ASSERT(er);
         }
-        auto const &w = all_delegators_;
-        auto const n = std::pair<u64_be, Address>{val_id, sender};
-        if (std::find(w.begin(), w.end(), n) == w.end()) {
-            all_delegators_.emplace_back(val_id, sender);
-        }
+        all_delegators_.insert({val_id.native(), sender});
     }
 
     void StakingContractMachine::precompile_delegate()
@@ -710,25 +900,21 @@ namespace monad::staking::test
             std::find(wis->second.begin(), wis->second.end(), wid);
         MONAD_ASSERT(pos != wis->second.end());
         wis->second.erase(pos);
-        all_withdrawal_requests_.emplace_back(val_id, sender, wid);
+
+        auto const ins = all_withdrawal_requests_.insert(
+            {val_id.native(), sender, wid.native()});
+        MONAD_ASSERT(ins);
 
         auto const del_stake =
             model_.delegator(val_id, sender).stake().load().native();
         if (del_stake == 0) {
-            auto &ds = all_delegators_;
-            std::pair<u64_be, Address> const k = {val_id.native(), sender};
-            auto const d = std::find(ds.begin(), ds.end(), k);
-            MONAD_ASSERT(d != ds.end());
-            ds.erase(d);
+            auto const er = all_delegators_.erase({val_id.native(), sender});
+            MONAD_ASSERT(er);
         }
         auto const val_stake =
             model_.val_execution(val_id).stake().load().native();
         if (val_stake <= MAX_DELEGABLE_STAKE) {
-            auto &vs = delegable_val_ids_;
-            auto const v = std::find(vs.begin(), vs.end(), val_id);
-            if (v == vs.end()) {
-                vs.push_back(val_id);
-            }
+            delegable_val_ids_.insert(val_id.native());
         }
     }
 
@@ -800,10 +986,8 @@ namespace monad::staking::test
             model_.val_execution(val_id).stake().load().native();
         MONAD_ASSERT(val_stake <= MAX_STAKE);
         if (val_stake > MAX_DELEGABLE_STAKE) {
-            auto const &w = delegable_val_ids_;
-            auto const pos = std::find(w.begin(), w.end(), val_id);
-            MONAD_ASSERT(pos != w.end());
-            delegable_val_ids_.erase(pos);
+            auto const er = delegable_val_ids_.erase(val_id.native());
+            MONAD_ASSERT(er);
         }
     }
 
@@ -830,8 +1014,11 @@ namespace monad::staking::test
             model_precompile_undelegate(val_id, stake, wid, sender, value);
             MONAD_ASSERT(!all_withdrawal_requests_.empty());
         }
-        auto const [val_id, sender, wid] = all_withdrawal_requests_[
-            gen() % all_withdrawal_requests_.size()];
+        auto const [pre_val_id, sender, pre_wid] =
+            all_withdrawal_requests_.sample(engine_);
+        u64_be const val_id = pre_val_id;
+        u8_be const wid = pre_wid;
+
         auto const wit =
             model_.withdrawal_request(val_id, sender, wid).load();
         auto const wepoch = wit.epoch.native() + WITHDRAWAL_DELAY;
@@ -854,12 +1041,10 @@ namespace monad::staking::test
         std::tuple<uint64_t, uint256_t> const k1 =
             {val_id.native(), intx::be::load<uint256_t>(sender.bytes)};
         available_withdrawal_ids_.at(k1).push_back(wid);
-        auto &rs = all_withdrawal_requests_;
 
-        std::tuple<u64_be, Address, u8_be> const k2 = {val_id, sender, wid};
-        auto const pos = std::find(rs.begin(), rs.end(), k2);
-        MONAD_ASSERT(pos != rs.end());
-        rs.erase(pos);
+        auto const er = all_withdrawal_requests_.erase(
+            {val_id.native(), sender, wid.native()});
+        MONAD_ASSERT(er);
     }
 
     bool StakingContractMachine::precompile_withdraw()

@@ -1,4 +1,5 @@
 #include <category/execution/monad/staking/fuzzer/staking_contract_model.hpp>
+#include <category/vm/fuzzing/generator/choice.hpp>
 
 #include <random>
 
@@ -6,21 +7,35 @@ namespace monad::staking::test
 {
     class StakingContractMachine
     {
-        // TODO Implement set-like random access data structure.
+        using ValIdSet =
+            vm::fuzzing::UniformSamplingSet<uint64_t>;
+
+        using DelegatorSet = vm::fuzzing::UniformSamplingSet<
+            std::pair<uint64_t, Address>, TupleHash<uint64_t, Address>>;
+
+        using WithdrawalRequestSet = vm::fuzzing::UniformSamplingSet<
+            std::tuple<uint64_t, Address, uint8_t>,
+            TupleHash<uint64_t, Address, uint8_t>>;
+
+        using AvailableWithdrawalIdsMap =
+            std::unordered_map<
+                std::tuple<uint64_t, uint256_t>,
+                std::vector<u8_be>,
+                TupleHash<uint64_t, uint256_t>>;
+
         StakingContractModel model_;
         std::mt19937_64 engine_;
+        bool enable_pubkey_assertions_{false}; // TODO
+        bool enable_trace_{false}; // TODO
+
         std::vector<Address> all_addresses_;
-        std::vector<std::pair<u64_be, Address>> all_delegators_;
+        DelegatorSet all_delegators_;
         std::vector<std::pair<u64_be, Address>> validator_auth_addresses_;
         std::unordered_map<uint64_t, Address> val_id_to_signer_;
         std::vector<u64_be> all_val_ids_;
-        std::vector<u64_be> delegable_val_ids_;
-        std::unordered_map<
-            std::tuple<uint64_t, uint256_t>,
-            std::vector<u8_be>,
-            TupleHash<uint64_t, uint256_t>> available_withdrawal_ids_;
-        std::vector<std::tuple<u64_be, Address, u8_be>>
-            all_withdrawal_requests_;
+        ValIdSet delegable_val_ids_;
+        AvailableWithdrawalIdsMap available_withdrawal_ids_;
+        WithdrawalRequestSet all_withdrawal_requests_;
 
         static constexpr uint256_t MIN_DELEGATE_STAKE = DUST_THRESHOLD;
 
@@ -50,8 +65,6 @@ namespace monad::staking::test
             TRANSITION_COUNT
         };
 
-        // TODO move this out of stakign contract to prevent access to
-        // engine_ and other machine specific fields.
         struct AssertState
         {
             std::unordered_set<uint64_t> valset_execution;
@@ -79,6 +92,8 @@ namespace monad::staking::test
 
         void for_all_val_ids(std::function<void(u64_be)>);
         void for_all_addresses(std::function<void(Address const &)>);
+        void for_all_val_ids_and_addresses(
+            std::function<void(u64_be, Address const &)>);
 
         bool transition(Transition);
 

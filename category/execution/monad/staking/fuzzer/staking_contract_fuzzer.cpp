@@ -54,7 +54,7 @@ int main()
 {
     size_t const sim_count = 1'000;
     size_t const depth = 100;
-    size_t seed = 0;
+    size_t seed = 45;
 
     std::cout <<
         "Running " << sim_count << " simulations\n" <<
